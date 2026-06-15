@@ -31,7 +31,7 @@ $asset = "gosshd-$version-$platform.zip"
 $url = "https://github.com/$repo/releases/download/$version/$asset"
 $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) "gosshd"
 $archive = Join-Path $tmpRoot $asset
-$extractDir = Join-Path $tmpRoot "server-$version-$platform"
+$extractDir = Join-Path $tmpRoot "server-$version-$platform-$PID"
 
 New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
 
@@ -52,9 +52,6 @@ try {
   Download-File -Source $proxyUrl -Target $archive
 }
 
-if (Test-Path $extractDir) {
-  Remove-Item -Recurse -Force $extractDir
-}
 New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
 Expand-Archive -Force -Path $archive -DestinationPath $extractDir
 

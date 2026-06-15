@@ -37,7 +37,7 @@ asset="gosshd-${version}-${platform}.tar.gz"
 url="https://github.com/${repo}/releases/download/${version}/${asset}"
 tmp_root="${GOSSHD_TMPDIR:-${TMPDIR:-/tmp}}/gosshd"
 archive="${tmp_root}/${asset}"
-extract_dir="${tmp_root}/server-${version}-${platform}"
+extract_dir="${tmp_root}/server-${version}-${platform}-$$"
 
 mkdir -p "$tmp_root"
 
@@ -59,7 +59,6 @@ if ! download "$url" "$archive" yes; then
   download "$proxy_url" "$archive" no
 fi
 
-rm -rf "$extract_dir"
 mkdir -p "$extract_dir"
 tar -xzf "$archive" -C "$extract_dir"
 
