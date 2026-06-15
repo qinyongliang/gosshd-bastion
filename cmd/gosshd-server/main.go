@@ -17,6 +17,7 @@ func main() {
 	var cfg server.Config
 	flag.StringVar(&cfg.HTTPListen, "http-listen", ":80", "HTTP listen address")
 	flag.StringVar(&cfg.SSHListen, "ssh-listen", ":22", "SSH listen address")
+	flag.StringVar(&cfg.HostKeyPath, "host-key-path", "gosshd_host_key", "SSH host private key path; generated if missing")
 	flag.StringVar(&cfg.PublicHost, "public-host", "", "public host override used in run scripts; defaults to the request Host")
 	flag.StringVar(&cfg.PublicSSHHost, "public-ssh-host", "", "public SSH host shown by agents; defaults to public host or the request Host")
 	flag.StringVar(&cfg.PublicSSHPort, "public-ssh-port", "", "public SSH port shown by agents; defaults to ssh-listen port")

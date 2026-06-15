@@ -5,6 +5,7 @@ const DefaultVersion = "dev"
 type Config struct {
 	HTTPListen      string
 	SSHListen       string
+	HostKeyPath     string
 	PublicHost      string
 	PublicSSHHost   string
 	PublicSSHPort   string

@@ -5,11 +5,14 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/binary"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,7 +42,7 @@ type forwardedTCPIPPayload struct {
 }
 
 func (a *App) serveSSH(ln net.Listener) error {
-	cfg, err := sshServerConfig()
+	cfg, err := sshServerConfig(a.cfg.HostKeyPath)
 	if err != nil {
 		return err
 	}
@@ -52,14 +55,10 @@ func (a *App) serveSSH(ln net.Listener) error {
 	}
 }
 
-func sshServerConfig() (*gossh.ServerConfig, error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+func sshServerConfig(hostKeyPath string) (*gossh.ServerConfig, error) {
+	signer, err := loadOrCreateHostSigner(hostKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("generate host key: %w", err)
-	}
-	signer, err := gossh.NewSignerFromKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("make host signer: %w", err)
+		return nil, err
 	}
 	cfg := &gossh.ServerConfig{
 		NoClientAuth:  true,
@@ -67,6 +66,47 @@ func sshServerConfig() (*gossh.ServerConfig, error) {
 	}
 	cfg.AddHostKey(signer)
 	return cfg, nil
+}
+
+func loadOrCreateHostSigner(path string) (gossh.Signer, error) {
+	if strings.TrimSpace(path) == "" {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return nil, fmt.Errorf("generate host key: %w", err)
+		}
+		return gossh.NewSignerFromKey(key)
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		signer, err := gossh.ParsePrivateKey(data)
+		if err != nil {
+			return nil, fmt.Errorf("parse host key %s: %w", path, err)
+		}
+		return signer, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read host key %s: %w", path, err)
+	}
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("generate host key: %w", err)
+	}
+	block, err := gossh.MarshalPrivateKey(key, "")
+	if err != nil {
+		return nil, fmt.Errorf("marshal host key: %w", err)
+	}
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("create host key dir %s: %w", dir, err)
+		}
+	}
+	if err := os.WriteFile(path, pem.EncodeToMemory(block), 0o600); err != nil {
+		return nil, fmt.Errorf("write host key %s: %w", path, err)
+	}
+	signer, err := gossh.NewSignerFromKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("make host signer: %w", err)
+	}
+	return signer, nil
 }
 
 func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
