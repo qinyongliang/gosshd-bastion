@@ -69,4 +69,5 @@ if [ ! -x "$server" ]; then
   exit 1
 fi
 
+echo "starting $server $*"
 exec "$server" "$@"

@@ -63,5 +63,6 @@ if (-not (Test-Path $server)) {
   throw "server binary not found in archive: $server"
 }
 
+Write-Host "starting $server $($ServerArgs -join ' ')"
 & $server @ServerArgs
 exit $LASTEXITCODE
