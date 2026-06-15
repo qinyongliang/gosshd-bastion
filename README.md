@@ -36,7 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/qinyongliang/gosshd/main/run.sh | \
 Windows:
 
 ```powershell
-& ([scriptblock]::Create((iwr -UseBasicParsing https://raw.githubusercontent.com/qinyongliang/gosshd/main/run.ps1).Content)) --http-listen :80 --ssh-listen :22 --public-host public-host
+$run = "$env:TEMP\gosshd-run.ps1"; iwr -UseBasicParsing https://raw.githubusercontent.com/qinyongliang/gosshd/main/run.ps1 -OutFile $run; powershell -NoProfile -ExecutionPolicy Bypass -File $run --http-listen :80 --ssh-listen :22 --public-host public-host
 ```
 
 Start an agent on a private Linux/macOS host:
