@@ -6,6 +6,8 @@ type Config struct {
 	HTTPListen      string
 	SSHListen       string
 	PublicHost      string
+	PublicSSHHost   string
+	PublicSSHPort   string
 	AgentToken      string
 	AgentPath       string
 	AgentCachePath  string

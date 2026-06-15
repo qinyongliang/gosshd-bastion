@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -47,12 +48,15 @@ func (a *App) routes(mux *http.ServeMux) {
 func (a *App) runSH(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	base := publicBaseURL(r, a.cfg.publicHost())
+	sshHost, sshPort := a.publicSSHEndpoint(r)
 	tokenArg := ""
 	if a.cfg.AgentToken != "" {
 		tokenArg = fmt.Sprintf(" --token %q", a.cfg.AgentToken)
 	}
 	fmt.Fprintf(w, `#!/usr/bin/env sh
 set -eu
+export GOSSHD_SSH_HOST=%q
+export GOSSHD_SSH_PORT=%q
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
 case "$arch" in
@@ -70,17 +74,20 @@ echo "downloading $url"
 curl -fsSL "$url" -o "$tmp"
 chmod +x "$tmp"
 exec "$tmp" --server "%s"%s
-`, base, base, tokenArg)
+`, sshHost, sshPort, base, base, tokenArg)
 }
 
 func (a *App) runPS1(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	base := publicBaseURL(r, a.cfg.publicHost())
+	sshHost, sshPort := a.publicSSHEndpoint(r)
 	tokenArg := ""
 	if a.cfg.AgentToken != "" {
 		tokenArg = fmt.Sprintf(" --token %q", a.cfg.AgentToken)
 	}
 	fmt.Fprintf(w, `$ErrorActionPreference = "Stop"
+$env:GOSSHD_SSH_HOST = %q
+$env:GOSSHD_SSH_PORT = %q
 $machine = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 switch ($machine) {
   "x64" { $arch = "amd64" }
@@ -93,7 +100,7 @@ $url = "%s/download/agent/windows/$arch"
 Write-Host "downloading $url"
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp
 & $tmp --server "%s"%s
-`, base, base, tokenArg)
+`, sshHost, sshPort, base, base, tokenArg)
 }
 
 func (a *App) downloadAgent(w http.ResponseWriter, r *http.Request) {
@@ -339,4 +346,62 @@ func publicBaseURL(r *http.Request, fallbackHost string) string {
 		host = strings.TrimSpace(host)
 	}
 	return scheme + "://" + host
+}
+
+func (a *App) publicSSHEndpoint(r *http.Request) (string, string) {
+	host, embeddedPort := sshHostAndPort(a.cfg.PublicSSHHost)
+	if host == "" {
+		host, _ = sshHostAndPort(a.cfg.publicHost())
+	}
+	if host == "" && r != nil {
+		host, _ = sshHostAndPort(r.Host)
+	}
+	if host == "" {
+		host = "localhost"
+	}
+
+	port := strings.TrimSpace(a.cfg.PublicSSHPort)
+	if port == "" {
+		port = embeddedPort
+	}
+	if port == "" {
+		port = listenPort(a.cfg.SSHListen)
+	}
+	if port == "" {
+		port = "22"
+	}
+	return host, port
+}
+
+func sshHostAndPort(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+	if strings.Contains(raw, "://") {
+		u, err := url.Parse(raw)
+		if err == nil {
+			raw = u.Host
+		}
+	}
+	host, port, err := net.SplitHostPort(raw)
+	if err == nil {
+		return strings.Trim(host, "[]"), port
+	}
+	return strings.Trim(raw, "[]"), ""
+}
+
+func listenPort(listen string) string {
+	listen = strings.TrimSpace(listen)
+	if listen == "" {
+		return ""
+	}
+	_, port, err := net.SplitHostPort(listen)
+	if err == nil {
+		return port
+	}
+	if strings.HasPrefix(listen, ":") {
+		return strings.TrimPrefix(listen, ":")
+	}
+	return ""
 }

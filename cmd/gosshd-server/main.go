@@ -18,6 +18,8 @@ func main() {
 	flag.StringVar(&cfg.HTTPListen, "http-listen", ":80", "HTTP listen address")
 	flag.StringVar(&cfg.SSHListen, "ssh-listen", ":22", "SSH listen address")
 	flag.StringVar(&cfg.PublicHost, "public-host", "", "public host override used in run scripts; defaults to the request Host")
+	flag.StringVar(&cfg.PublicSSHHost, "public-ssh-host", "", "public SSH host shown by agents; defaults to public host or the request Host")
+	flag.StringVar(&cfg.PublicSSHPort, "public-ssh-port", "", "public SSH port shown by agents; defaults to ssh-listen port")
 	flag.StringVar(&cfg.AgentToken, "agent-token", "", "optional shared token required from agents")
 	flag.StringVar(&cfg.AgentPath, "agent-path", "dist/agent", "directory containing agent binaries by goos/goarch")
 	flag.StringVar(&cfg.AgentCachePath, "agent-cache-path", "", "directory used to cache downloaded agent binaries")

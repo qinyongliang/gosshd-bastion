@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/qinyongliang/gosshd/internal/protocol"
@@ -33,6 +35,12 @@ func New(cfg Config) (*Client, error) {
 	if cfg.Shell == "" {
 		cfg.Shell = protocol.DefaultShell()
 	}
+	if cfg.SSHHost == "" {
+		cfg.SSHHost = os.Getenv("GOSSHD_SSH_HOST")
+	}
+	if cfg.SSHPort == "" {
+		cfg.SSHPort = os.Getenv("GOSSHD_SSH_PORT")
+	}
 	return &Client{cfg: cfg, id: id}, nil
 }
 
@@ -41,6 +49,15 @@ func (c *Client) ID() string {
 }
 
 func (c *Client) SSHAddress() string {
+	host := strings.TrimSpace(c.cfg.SSHHost)
+	port := strings.TrimSpace(c.cfg.SSHPort)
+	if host != "" {
+		if port != "" && port != "22" {
+			return fmt.Sprintf("ssh %s@%s -p %s", c.id, host, port)
+		}
+		return fmt.Sprintf("ssh %s@%s", c.id, host)
+	}
+
 	u, err := url.Parse(c.cfg.Server)
 	if err != nil || u.Host == "" {
 		return fmt.Sprintf("ssh %s@%s", c.id, c.cfg.Server)
