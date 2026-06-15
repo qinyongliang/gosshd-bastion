@@ -1,0 +1,10 @@
+.git
+.vscode
+bin
+dist
+docs
+*.log
+*.tmp
+*.exe~
+Dockerfile
+README.md

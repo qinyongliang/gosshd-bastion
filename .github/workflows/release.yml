@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version label used in archive names when run manually
+        required: false
+        default: manual
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            platform: linux-amd64
+          - goos: linux
+            goarch: arm64
+            platform: linux-arm64
+          - goos: linux
+            goarch: 386
+            platform: linux-386
+          - goos: linux
+            goarch: arm
+            goarm: "6"
+            platform: linux-armv6
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+            platform: linux-armv7
+          - goos: linux
+            goarch: riscv64
+            platform: linux-riscv64
+          - goos: windows
+            goarch: amd64
+            platform: windows-amd64
+          - goos: windows
+            goarch: arm64
+            platform: windows-arm64
+          - goos: windows
+            goarch: 386
+            platform: windows-386
+          - goos: darwin
+            goarch: amd64
+            platform: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            platform: darwin-arm64
+          - goos: freebsd
+            goarch: amd64
+            platform: freebsd-amd64
+          - goos: freebsd
+            goarch: arm64
+            platform: freebsd-arm64
+          - goos: openbsd
+            goarch: amd64
+            platform: openbsd-amd64
+          - goos: openbsd
+            goarch: arm64
+            platform: openbsd-arm64
+          - goos: netbsd
+            goarch: amd64
+            platform: netbsd-amd64
+          - goos: netbsd
+            goarch: arm64
+            platform: netbsd-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          suffix=""
+          if [ "$GOOS" = "windows" ]; then
+            suffix=".exe"
+          fi
+          platform="${{ matrix.platform }}"
+          mkdir -p "build/gosshd-${platform}"
+          env_args=(CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH")
+          if [ -n "${GOARM:-}" ]; then
+            env_args+=(GOARM="$GOARM")
+          fi
+          env "${env_args[@]}" go build -trimpath -ldflags="-s -w" -o "build/gosshd-${platform}/gosshd-server${suffix}" ./cmd/gosshd-server
+          env "${env_args[@]}" go build -trimpath -ldflags="-s -w" -o "build/gosshd-${platform}/gosshd-agent${suffix}" ./cmd/gosshd-agent
+
+      - name: Package archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          fi
+          platform="${{ matrix.platform }}"
+          cp README.md README.zh-CN.md "build/gosshd-${platform}/"
+          cp LICENSE* "build/gosshd-${platform}/" 2>/dev/null || true
+          mkdir -p dist
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            (cd build && zip -9 -r "../dist/gosshd-${version}-${platform}.zip" "gosshd-${platform}")
+          else
+            tar -C build -czf "dist/gosshd-${version}-${platform}.tar.gz" "gosshd-${platform}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gosshd-${{ matrix.platform }}
+          path: dist/*
+
+  publish:
+    name: Publish release assets
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum * > checksums.txt
+
+      - name: Upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
