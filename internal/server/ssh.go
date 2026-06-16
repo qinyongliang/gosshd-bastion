@@ -220,7 +220,7 @@ func (a *App) handleSessionRequests(id string, ch gossh.Channel, reqs <-chan *go
 			}
 			started = true
 			req.Reply(true, nil)
-			a.bridgeRaw(id, ch, protocol.StreamRequest{Type: protocol.StreamSFTP})
+			a.bridgeSFTP(id, ch)
 			return
 		default:
 			req.Reply(false, nil)
@@ -283,6 +283,37 @@ func (a *App) bridgeRaw(id string, ch gossh.Channel, req protocol.StreamRequest)
 		io.Writer
 		io.Closer
 	}{Reader: reader, Writer: stream, Closer: stream})
+}
+
+func (a *App) bridgeSFTP(id string, ch gossh.Channel) {
+	reader, stream, err := a.openAgentStream(id, protocol.StreamRequest{Type: protocol.StreamSFTP})
+	if err != nil {
+		sendExit(ch, 255)
+		return
+	}
+	defer stream.Close()
+
+	var wg sync.WaitGroup
+	var closeOnce sync.Once
+	closeBoth := func() {
+		closeOnce.Do(func() {
+			sendExit(ch, 0)
+			_ = ch.Close()
+			_ = stream.Close()
+		})
+	}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(stream, ch)
+		closeBoth()
+	}()
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(ch, reader)
+		closeBoth()
+	}()
+	wg.Wait()
 }
 
 func (a *App) handleDirectTCPIP(id string, newCh gossh.NewChannel) {
