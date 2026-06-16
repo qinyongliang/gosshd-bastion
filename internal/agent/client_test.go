@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -68,5 +69,39 @@ func TestSSHAddressUsesEnvironmentHint(t *testing.T) {
 	want := "ssh " + client.ID() + "@qyl.my.to -p 2222"
 	if got := client.SSHAddress(); got != want {
 		t.Fatalf("SSHAddress mismatch:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestDefaultRootUsesCurrentWorkingDirectory(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{
+		Server: "http://qyl.my.to:8880",
+		IDFile: filepath.Join(t.TempDir(), "agent.json"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := filepath.Clean(client.cfg.Root), filepath.Clean(cwd); got != want {
+		t.Fatalf("root mismatch:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestExplicitRootIsPreserved(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "work")
+	client, err := New(Config{
+		Server: "http://qyl.my.to:8880",
+		IDFile: filepath.Join(t.TempDir(), "agent.json"),
+		Root:   root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := filepath.Clean(client.cfg.Root), filepath.Clean(root); got != want {
+		t.Fatalf("root mismatch:\n got: %s\nwant: %s", got, want)
 	}
 }
