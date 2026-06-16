@@ -12,8 +12,11 @@ import (
 	"github.com/qinyongliang/gosshd/internal/agent"
 )
 
+var version = "dev"
+
 func main() {
 	var cfg agent.Config
+	cfg.Version = version
 	flag.StringVar(&cfg.Server, "server", "http://localhost", "public gosshd server URL")
 	flag.StringVar(&cfg.Token, "token", "", "optional shared token for server registration")
 	flag.StringVar(&cfg.IDFile, "id-file", "", "path to stable local agent id file")

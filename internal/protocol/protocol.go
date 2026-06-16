@@ -35,8 +35,11 @@ const (
 )
 
 type AgentHello struct {
-	ID    string `json:"id"`
-	Token string `json:"token,omitempty"`
+	ID      string `json:"id"`
+	Token   string `json:"token,omitempty"`
+	Version string `json:"version,omitempty"`
+	GOOS    string `json:"goos,omitempty"`
+	GOARCH  string `json:"goarch,omitempty"`
 }
 
 type StreamRequest struct {
@@ -48,9 +51,11 @@ type StreamRequest struct {
 }
 
 type StreamResponse struct {
-	OK       bool   `json:"ok"`
-	Error    string `json:"error,omitempty"`
-	ExitCode int    `json:"exit_code,omitempty"`
+	OK               bool   `json:"ok"`
+	Error            string `json:"error,omitempty"`
+	ExitCode         int    `json:"exit_code,omitempty"`
+	ServerVersion    string `json:"server_version,omitempty"`
+	AgentDownloadURL string `json:"agent_download_url,omitempty"`
 }
 
 type Frame struct {

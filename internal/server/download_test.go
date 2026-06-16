@@ -35,3 +35,13 @@ func TestAgentCachePathDefaultsToVersionedTempDir(t *testing.T) {
 		t.Fatalf("cache path mismatch:\n got: %s\nwant suffix: %s", got, want)
 	}
 }
+
+func TestAgentCachePathUsesVersionUnderConfiguredRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "cache")
+	app := NewApp(Config{Version: "v1.2.3", AgentCachePath: root})
+	got := app.agentCachePath("linux", "amd64", "gosshd-agent")
+	want := filepath.Join(root, "v1.2.3", "linux", "amd64", "gosshd-agent")
+	if got != want {
+		t.Fatalf("cache path mismatch:\n got: %s\nwant: %s", got, want)
+	}
+}

@@ -3,11 +3,13 @@ package agent
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -72,6 +74,9 @@ func (c *Client) Run(ctx context.Context) error {
 	backoff := time.Second
 	for {
 		if err := c.runOnce(ctx); err != nil {
+			if errors.Is(err, errAgentRestarting) {
+				return nil
+			}
 			select {
 			case <-ctx.Done():
 				return nil
@@ -99,7 +104,22 @@ func (c *Client) runOnce(ctx context.Context) error {
 	}
 	conn := relay.NewWSConn(ws)
 	defer conn.Close()
-	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{ID: c.id, Token: c.cfg.Token}); err != nil {
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
+	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
+		ID:      c.id,
+		Token:   c.cfg.Token,
+		Version: c.cfg.Version,
+		GOOS:    runtime.GOOS,
+		GOARCH:  runtime.GOARCH,
+	}); err != nil {
 		return err
 	}
 	reader := bufio.NewReader(conn)
@@ -109,6 +129,9 @@ func (c *Client) runOnce(ctx context.Context) error {
 	}
 	if !resp.OK {
 		return fmt.Errorf("server rejected agent: %s", resp.Error)
+	}
+	if err := c.maybeUpdateAndRestart(ctx, resp); err != nil {
+		return err
 	}
 
 	session, err := yamux.Client(conn, nil)
