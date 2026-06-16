@@ -105,3 +105,18 @@ func TestExplicitRootIsPreserved(t *testing.T) {
 		t.Fatalf("root mismatch:\n got: %s\nwant: %s", got, want)
 	}
 }
+
+func TestExplicitShellIsPreserved(t *testing.T) {
+	client, err := New(Config{
+		Server: "http://agent.example.test:8880",
+		IDFile: filepath.Join(t.TempDir(), "agent.json"),
+		Shell:  "/custom/bash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := client.cfg.Shell, "/custom/bash"; got != want {
+		t.Fatalf("shell mismatch:\n got: %s\nwant: %s", got, want)
+	}
+}

@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -200,17 +199,4 @@ func NormalizeServerURL(raw string) string {
 
 func JoinHostPort(host string, port uint32) string {
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
-}
-
-func DefaultShell() string {
-	if runtime.GOOS == "windows" {
-		if shell := os.Getenv("COMSPEC"); shell != "" {
-			return shell
-		}
-		return "powershell.exe"
-	}
-	if shell := os.Getenv("SHELL"); shell != "" {
-		return shell
-	}
-	return "/bin/sh"
 }
