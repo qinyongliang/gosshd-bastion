@@ -8,4 +8,5 @@ type Config struct {
 	Root    string
 	SSHHost string
 	SSHPort string
+	Version string
 }

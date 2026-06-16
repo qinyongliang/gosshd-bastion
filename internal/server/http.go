@@ -119,8 +119,7 @@ func (a *App) downloadAgent(w http.ResponseWriter, r *http.Request) {
 	if goos == "windows" {
 		name += ".exe"
 	}
-	path := filepath.Join(a.cfg.AgentPath, goos, goarch, name)
-	if _, err := os.Stat(path); err == nil {
+	if path, ok := a.localAgentPath(goos, goarch, name); ok {
 		http.ServeFile(w, r, path)
 		return
 	}
@@ -178,9 +177,27 @@ func (a *App) ensureAgentBinary(goos, goarch, name string) (string, error) {
 func (a *App) agentCachePath(goos, goarch, name string) string {
 	root := a.cfg.AgentCachePath
 	if root == "" {
-		root = filepath.Join(os.TempDir(), "gosshd-agent-cache", a.cfg.version())
+		root = filepath.Join(os.TempDir(), "gosshd-agent-cache")
 	}
-	return filepath.Join(root, goos, goarch, name)
+	return filepath.Join(root, a.cfg.version(), goos, goarch, name)
+}
+
+func (a *App) localAgentPath(goos, goarch, name string) (string, bool) {
+	if a.cfg.AgentPath == "" {
+		return "", false
+	}
+	versioned := filepath.Join(a.cfg.AgentPath, a.cfg.version(), goos, goarch, name)
+	if _, err := os.Stat(versioned); err == nil {
+		return versioned, true
+	}
+	if a.cfg.version() != DefaultVersion {
+		return "", false
+	}
+	legacy := filepath.Join(a.cfg.AgentPath, goos, goarch, name)
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy, true
+	}
+	return "", false
 }
 
 func (a *App) agentReleaseURL(goos, goarch, name string) string {
@@ -311,7 +328,15 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close()
 		return
 	}
-	if err := protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: true}); err != nil {
+	goos, goarch := hello.GOOS, hello.GOARCH
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
+	downloadURL := publicBaseURL(r, a.cfg.publicHost()) + "/download/agent/" + goos + "/" + goarch
+	if err := protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: true, ServerVersion: a.cfg.version(), AgentDownloadURL: downloadURL}); err != nil {
 		_ = conn.Close()
 		return
 	}
