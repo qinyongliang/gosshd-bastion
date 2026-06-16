@@ -30,7 +30,10 @@ func New(cfg Config) (*Client, error) {
 	}
 	cfg.Server = protocol.NormalizeServerURL(cfg.Server)
 	if cfg.Root == "" {
-		cfg.Root = "/"
+		cfg.Root, err = os.Getwd()
+		if err != nil {
+			return nil, err
+		}
 	}
 	if cfg.Shell == "" {
 		cfg.Shell = protocol.DefaultShell()
