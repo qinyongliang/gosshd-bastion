@@ -444,6 +444,38 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 	return target, nil
 }
 
+func (r *Repository) ListSSHTargets(ctx context.Context, ownerType, ownerID string) ([]SSHTarget, error) {
+	query := `
+		SELECT id, owner_type, owner_id, alias, target_type, host, port, remote_username,
+			auth_type, encrypted_secret, COALESCE(agent_id, ''), created_by, created_at, updated_at
+		FROM ssh_targets
+		WHERE 1 = 1`
+	args := []any{}
+	if ownerType != "" {
+		query += ` AND owner_type = ?`
+		args = append(args, ownerType)
+	}
+	if ownerID != "" {
+		query += ` AND owner_id = ?`
+		args = append(args, ownerID)
+	}
+	query += ` ORDER BY created_at ASC`
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var targets []SSHTarget
+	for rows.Next() {
+		target, err := scanTargetRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, target)
+	}
+	return targets, rows.Err()
+}
+
 func (r *Repository) ResolveUserTarget(ctx context.Context, userID, alias string) (SSHTarget, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, owner_type, owner_id, alias, target_type, host, port, remote_username,
@@ -452,6 +484,59 @@ func (r *Repository) ResolveUserTarget(ctx context.Context, userID, alias string
 		WHERE owner_type = ? AND owner_id = ? AND alias = ?
 	`, OwnerUser, userID, strings.TrimSpace(alias))
 	return scanTarget(row)
+}
+
+func (r *Repository) CreateAgentEnrollment(ctx context.Context, params CreateAgentEnrollmentParams) (AgentEnrollment, error) {
+	enrollment := AgentEnrollment{
+		ID:          uuid.NewString(),
+		OwnerType:   params.OwnerType,
+		OwnerID:     params.OwnerID,
+		TokenHash:   append([]byte(nil), params.TokenHash...),
+		Label:       strings.TrimSpace(params.Label),
+		DefaultHost: strings.TrimSpace(params.DefaultHost),
+		DefaultPort: params.DefaultPort,
+		CreatedBy:   params.CreatedBy,
+		CreatedAt:   time.Now().UTC(),
+		ExpiresAt:   params.ExpiresAt.UTC(),
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO agent_enrollments (
+			id, owner_type, owner_id, token_hash, label, default_host, default_port,
+			created_by, created_at, expires_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, enrollment.ID, enrollment.OwnerType, enrollment.OwnerID, enrollment.TokenHash, enrollment.Label,
+		enrollment.DefaultHost, enrollment.DefaultPort, enrollment.CreatedBy, formatTime(enrollment.CreatedAt), formatTime(enrollment.ExpiresAt))
+	if err != nil {
+		return AgentEnrollment{}, err
+	}
+	return enrollment, nil
+}
+
+func (r *Repository) ListAgentEnrollments(ctx context.Context, ownerType, ownerID string) ([]AgentEnrollment, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, owner_type, owner_id, token_hash, label, default_host, default_port,
+			created_by, created_at, expires_at, COALESCE(consumed_agent_id, '')
+		FROM agent_enrollments
+		WHERE owner_type = ? AND owner_id = ?
+		ORDER BY created_at ASC
+	`, ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var enrollments []AgentEnrollment
+	for rows.Next() {
+		var enrollment AgentEnrollment
+		var created, expires string
+		if err := rows.Scan(&enrollment.ID, &enrollment.OwnerType, &enrollment.OwnerID, &enrollment.TokenHash, &enrollment.Label,
+			&enrollment.DefaultHost, &enrollment.DefaultPort, &enrollment.CreatedBy, &created, &expires, &enrollment.ConsumedAgentID); err != nil {
+			return nil, err
+		}
+		enrollment.CreatedAt = parseTime(created)
+		enrollment.ExpiresAt = parseTime(expires)
+		enrollments = append(enrollments, enrollment)
+	}
+	return enrollments, rows.Err()
 }
 
 func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateCommandPolicyParams) (CommandPolicy, error) {
@@ -472,6 +557,40 @@ func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateComma
 		return CommandPolicy{}, err
 	}
 	return policy, nil
+}
+
+func (r *Repository) ListCommandPolicies(ctx context.Context, ownerType, ownerID string) ([]CommandPolicy, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, owner_type, owner_id, name, default_action, COALESCE(llm_config_id, ''), created_at
+		FROM command_policies
+		WHERE owner_type = ? AND owner_id = ?
+		ORDER BY created_at ASC
+	`, ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var policies []CommandPolicy
+	for rows.Next() {
+		var policy CommandPolicy
+		var created string
+		if err := rows.Scan(&policy.ID, &policy.OwnerType, &policy.OwnerID, &policy.Name, &policy.DefaultAction, &policy.LLMConfigID, &created); err != nil {
+			return nil, err
+		}
+		policy.CreatedAt = parseTime(created)
+		rules, err := r.listPolicyRules(ctx, policy.ID)
+		if err != nil {
+			return nil, err
+		}
+		policy.Rules = rules
+		userGroupIDs, err := r.listPolicyUserGroupIDs(ctx, policy.ID)
+		if err != nil {
+			return nil, err
+		}
+		policy.UserGroupIDs = userGroupIDs
+		policies = append(policies, policy)
+	}
+	return policies, rows.Err()
 }
 
 func (r *Repository) CreatePolicyRule(ctx context.Context, params CreatePolicyRuleParams) (PolicyRule, error) {
@@ -690,6 +809,24 @@ func scanUser(row *sql.Row) (User, error) {
 }
 
 func scanTarget(row *sql.Row) (SSHTarget, error) {
+	var target SSHTarget
+	var created, updated string
+	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Alias, &target.TargetType,
+		&target.Host, &target.Port, &target.RemoteUsername, &target.AuthType, &target.EncryptedSecret,
+		&target.AgentID, &target.CreatedBy, &created, &updated)
+	if err != nil {
+		return SSHTarget{}, wrapScanErr(err)
+	}
+	target.CreatedAt = parseTime(created)
+	target.UpdatedAt = parseTime(updated)
+	return target, nil
+}
+
+type targetScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanTargetRows(row targetScanner) (SSHTarget, error) {
 	var target SSHTarget
 	var created, updated string
 	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Alias, &target.TargetType,

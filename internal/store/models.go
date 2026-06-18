@@ -237,6 +237,17 @@ type CreateSSHTargetParams struct {
 	CreatedBy       string
 }
 
+type CreateAgentEnrollmentParams struct {
+	OwnerType   string
+	OwnerID     string
+	TokenHash   []byte
+	Label       string
+	DefaultHost string
+	DefaultPort int
+	CreatedBy   string
+	ExpiresAt   time.Time
+}
+
 type CreateCommandPolicyParams struct {
 	OwnerType     string
 	OwnerID       string
