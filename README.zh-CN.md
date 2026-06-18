@@ -1,62 +1,67 @@
-# gosshd
+# gosshd 堡垒机
 
 [English](README.md) | 简体中文
 
-`gosshd` 是一个小型 SSH 中转工具，用于通过公网服务器访问私有网络中的机器。私网机器运行 `gosshd-agent`，公网机器运行 `gosshd-server`，用户直接使用标准 SSH 工具连接：
-
-```text
-ssh UUID@public-host
-```
-
-当前版本中，UUID 就是访问凭证。任何知道 UUID 的人，都可以用 `gosshd-agent` 进程的系统权限访问这台机器。
-
-## 架构
-
-```text
-  任意网络                            公网服务器                            私有网络
-+-------------+    ssh/sftp/scp     +---------------+    outbound ws      +---------------+
-| SSH client  | ------------------> | gosshd-server | <------------------ | gosshd-agent  |
-|             |                     | :22 / :80     |                     | shell / sftp  |
-+-------------+                     +---------------+                     +-------+-------+
-                                                                                  |
-                                                                          +-------v-------+
-                                                                          | private host  |
-                                                                          +---------------+
-```
-
-## 快速使用
-
-使用 GitHub Release 中的最新版二进制启动公网服务器：
+`gosshd` 现在是一个基于 SQLite 的 SSH 堡垒机。用户通过 Web 控制台登录，管理组织、SSH 公钥、直连或 agent 接入的 SSH 服务，并使用标准 SSH 别名连接：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/qinyongliang/gosshd/main/run.sh | \
-  sudo sh -s -- --http-listen :80 --ssh-listen :22
+ssh test2@public-host
+```
+
+服务端会通过 SSH public key 找到用户，优先在用户的个人组织中解析 `test2`，再查找用户加入的共享组织，随后执行命令安全组策略并写入审计日志。
+
+## 功能
+
+- 使用 SQLite 持久化用户、会话、组织、用户组、目标服务、agent、安全组策略、LLM 配置、提示词资源和审计日志。
+- 用户注册后自动拥有一个个人组织。所有 owner 绑定默认落到这个个人组织。
+- 用户可以创建共享组织、通过邀请码邀请其他用户、加入多个组织，也可以退出共享组织。个人组织不能邀请其他用户。
+- 用户可以配置自己的 SSH public key，并用普通 SSH 客户端连接目标别名。
+- SSH 服务可以是直连目标，也可以是通过安装命令注册的 agent 目标。agent 注册后也是普通可重命名目标。
+- 命令安全组支持黑名单、白名单、目标绑定、一个或多个用户组绑定、默认允许/拒绝，以及可选 LLM 实时审核。
+- LLM provider 配置是组织级资源。提示词也是组织级资源；每个个人/共享组织创建时都会自动拥有一个只读默认提示词。
+- `/mcp` 使用官方 Model Context Protocol Go SDK 暴露控制面工具。
+- Web 管理控制台已嵌入服务端二进制。
+
+## 运行
+
+```sh
+gosshd-server \
+  --http-listen :80 \
+  --ssh-listen :22 \
+  --database-path gosshd.db \
+  --host-key-path gosshd_host_key
+```
+
+打开 `http://public-host/`，注册用户，添加 SSH 公钥，然后添加别名为 `test2` 的目标服务。
+
+如果需要 agent 接入，在控制台创建 agent enrollment，然后在私有主机执行生成的命令：
+
+```sh
+curl -fsSL http://public-host/install/<token>.sh | sh
 ```
 
 Windows：
 
 ```powershell
-$run = "$env:TEMP\gosshd-run.ps1"; iwr -UseBasicParsing https://raw.githubusercontent.com/qinyongliang/gosshd/main/run.ps1 -OutFile $run; powershell -NoProfile -ExecutionPolicy Bypass -File $run --http-listen :80 --ssh-listen :22
+irm http://public-host/install/<token>.ps1 | iex
 ```
 
-在私有网络的 Linux/macOS 主机上启动 agent：
+## MCP
 
-```sh
-curl http://public-host/run.sh | sh
+MCP 端点：
+
+```text
+http://public-host/mcp
 ```
 
-Agent 会打印 SSH 地址，然后可以在任意网络访问：
+它提供注册、组织管理、公钥、目标服务、agent enrollment、LLM 配置、提示词资源、命令安全组、策略绑定和审计查询工具。
 
-```sh
-ssh UUID@public-host
-sftp UUID@public-host
-scp file UUID@public-host:/tmp/file
+## 验证
+
+```powershell
+$env:GOPROXY='https://goproxy.cn,direct'
+go test ./...
+go test ./internal/server -run TestBastionE2E -v
+go build ./cmd/gosshd-server
+go build ./cmd/gosshd-agent
 ```
-
-## 说明
-
-- agent 运行脚本只用于临时运行，不会安装系统服务。
-- server 会提供私网机器使用的 agent 运行脚本。
-- SSH 隧道能力由标准 SSH 客户端支持。
-
-预编译二进制见 [Releases](https://github.com/qinyongliang/gosshd/releases)。

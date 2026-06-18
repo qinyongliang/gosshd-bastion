@@ -78,3 +78,72 @@ func TestPolicyEvaluationWhitelistBlacklistDefaultAndUserGroups(t *testing.T) {
 		t.Fatalf("default decision mismatch: %+v", decision)
 	}
 }
+
+func TestPolicyEvaluationUsesLLMWhenNoRuleMatches(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+	user, err := repo.CreateUser(ctx, store.CreateUserParams{Email: "alice@example.com", DisplayName: "Alice", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := repo.CreateOrganization(ctx, store.CreateOrganizationParams{Name: "Ops LLM", Slug: "ops-llm", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := repo.CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Alias: "test2",
+		TargetType: store.TargetDirect, Host: "127.0.0.1", Port: 22,
+		RemoteUsername: "root", AuthType: store.AuthPassword, CreatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := llmTestServer(t, `{"allow":false,"reason":"needs approval"}`)
+	defer srv.Close()
+	llm, err := repo.CreateLLMPolicyConfig(ctx, store.CreateLLMPolicyConfigParams{
+		OwnerType: store.OwnerOrganization,
+		OwnerID:   org.ID,
+		Name:      "reviewer",
+		BaseURL:   srv.URL,
+		Model:     "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := repo.CreateLLMPromptResource(ctx, store.CreateLLMPromptResourceParams{
+		OwnerType: store.OwnerOrganization,
+		OwnerID:   org.ID,
+		Title:     "review commands",
+		Content:   "review commands",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := repo.CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
+		OwnerType:     store.OwnerOrganization,
+		OwnerID:       org.ID,
+		Name:          "llm fallback",
+		DefaultAction: store.DecisionAllow,
+		LLMConfigID:   llm.ID,
+		LLMPromptID:   prompt.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	decision, err := NewService(repo).EvaluateCommand(ctx, user.ID, target.ID, "hostname")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionDeny || decision.Reason != "llm: needs approval" {
+		t.Fatalf("llm decision mismatch: %+v", decision)
+	}
+}

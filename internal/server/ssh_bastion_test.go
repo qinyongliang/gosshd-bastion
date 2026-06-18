@@ -45,9 +45,13 @@ func TestSSHExecRoutesAliasToDirectTarget(t *testing.T) {
 	defer closeTarget()
 	host, portText, _ := net.SplitHostPort(targetAddr)
 	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
-		OwnerType:      store.OwnerUser,
-		OwnerID:        user.ID,
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        personal.ID,
 		Alias:          "test2",
 		TargetType:     store.TargetDirect,
 		Host:           host,
@@ -144,11 +148,15 @@ func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 	defer closeTarget()
 	host, portText, _ := net.SplitHostPort(targetAddr)
 	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	token := "agent-route-token"
 	if _, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
-		OwnerType:   store.OwnerUser,
-		OwnerID:     user.ID,
+		OwnerType:   store.OwnerOrganization,
+		OwnerID:     personal.ID,
 		TokenHash:   codeHash(token),
 		Label:       "agentbox-initial",
 		DefaultHost: host,
@@ -176,7 +184,7 @@ func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 	var target store.SSHTarget
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		targets, err := app.store.Repository().ListSSHTargets(ctx, store.OwnerUser, user.ID)
+		targets, err := app.store.Repository().ListSSHTargets(ctx, store.OwnerOrganization, personal.ID)
 		if err != nil {
 			t.Fatal(err)
 		}

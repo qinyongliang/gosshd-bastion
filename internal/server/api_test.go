@@ -53,6 +53,15 @@ func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
 	defer srv.Close()
 	registerForAPI(t, alice, srv.URL, "alice@example.com")
 
+	var aliceMe apiMeResponse
+	getJSON(t, alice, srv.URL+"/api/me", http.StatusOK, &aliceMe)
+	if len(aliceMe.Organizations) != 1 || !aliceMe.Organizations[0].IsPersonal {
+		t.Fatalf("alice personal organization missing: %+v", aliceMe.Organizations)
+	}
+	postJSON(t, alice, srv.URL+"/api/orgs/"+aliceMe.Organizations[0].ID+"/invites", map[string]string{
+		"role": "member",
+	}, http.StatusBadRequest, nil)
+
 	var org apiOrganizationResponse
 	postJSON(t, alice, srv.URL+"/api/orgs", map[string]string{
 		"name": "Ops",
@@ -82,8 +91,25 @@ func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
 
 	var me apiMeResponse
 	getJSON(t, bob, srv.URL+"/api/me", http.StatusOK, &me)
-	if len(me.Organizations) != 1 || me.Organizations[0].ID != org.Organization.ID {
+	if len(me.Organizations) != 2 || !hasOrganization(me.Organizations, org.Organization.ID) || !hasPersonalOrganization(me.Organizations) {
 		t.Fatalf("bob organizations mismatch: %+v", me.Organizations)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/orgs/"+org.Organization.ID+"/leave", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := bob.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("leave status mismatch: got %d", resp.StatusCode)
+	}
+	getJSON(t, bob, srv.URL+"/api/me", http.StatusOK, &me)
+	if len(me.Organizations) != 1 || !hasPersonalOrganization(me.Organizations) {
+		t.Fatalf("bob organizations after leave mismatch: %+v", me.Organizations)
 	}
 }
 
@@ -185,6 +211,42 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 		t.Fatalf("missing default group")
 	}
 
+	var llm apiLLMConfigResponse
+	postJSON(t, client, srv.URL+"/api/llm-configs", map[string]any{
+		"owner_type":       "organization",
+		"owner_id":         org.Organization.ID,
+		"name":             "reviewer",
+		"base_url":         "https://llm.example.com/",
+		"api_key":          "secret-key",
+		"model":            "ops-model",
+		"prompt":           "review commands",
+		"timeout_seconds":  3,
+		"unexpected_field": "ignored",
+	}, http.StatusCreated, &llm)
+	if llm.Config.ID == "" || llm.Config.BaseURL != "https://llm.example.com" || llm.Config.Model != "ops-model" {
+		t.Fatalf("llm config response mismatch: %+v", llm)
+	}
+	var llms apiLLMConfigsResponse
+	getJSON(t, client, srv.URL+"/api/llm-configs?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &llms)
+	if len(llms.Configs) != 1 || llms.Configs[0].ID != llm.Config.ID {
+		t.Fatalf("llm configs list mismatch: %+v", llms)
+	}
+	var prompts apiLLMPromptsResponse
+	getJSON(t, client, srv.URL+"/api/llm-prompts?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &prompts)
+	if len(prompts.Prompts) != 1 || !prompts.Prompts[0].IsReadonly {
+		t.Fatalf("default llm prompt missing: %+v", prompts)
+	}
+	var prompt apiLLMPromptResponse
+	postJSON(t, client, srv.URL+"/api/llm-prompts", map[string]string{
+		"owner_type": "organization",
+		"owner_id":   org.Organization.ID,
+		"title":      "High risk review",
+		"content":    "deny destructive commands",
+	}, http.StatusCreated, &prompt)
+	if prompt.Prompt.ID == "" || prompt.Prompt.IsReadonly {
+		t.Fatalf("prompt response mismatch: %+v", prompt)
+	}
+
 	var target apiTargetResponse
 	postJSON(t, client, srv.URL+"/api/targets", map[string]any{
 		"owner_type":      "organization",
@@ -215,7 +277,12 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 		"owner_id":       org.Organization.ID,
 		"name":           "strict",
 		"default_action": "deny",
+		"llm_config_id":  llm.Config.ID,
+		"llm_prompt_id":  prompt.Prompt.ID,
 	}, http.StatusCreated, &policy)
+	if policy.Policy.LLMConfigID != llm.Config.ID || policy.Policy.LLMPromptID != prompt.Prompt.ID {
+		t.Fatalf("policy llm config mismatch: %+v", policy)
+	}
 	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/rules", map[string]string{
 		"rule_type":    "whitelist",
 		"pattern_type": "exact",
@@ -257,8 +324,6 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 
 	var enrollment apiAgentEnrollmentResponse
 	postJSON(t, client, srv.URL+"/api/agent-enrollments", map[string]any{
-		"owner_type":   "user",
-		"owner_id":     "me",
 		"label":        "laptop",
 		"default_host": "127.0.0.1",
 		"default_port": 22,
@@ -402,4 +467,22 @@ func testAPISigner(t *testing.T) gossh.Signer {
 
 func intPtr(v int) *int {
 	return &v
+}
+
+func hasOrganization(orgs []apiOrganization, id string) bool {
+	for _, org := range orgs {
+		if org.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPersonalOrganization(orgs []apiOrganization) bool {
+	for _, org := range orgs {
+		if org.IsPersonal {
+			return true
+		}
+	}
+	return false
 }

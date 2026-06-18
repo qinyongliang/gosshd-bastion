@@ -50,6 +50,7 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 		"policy_targets",
 		"policy_user_groups",
 		"llm_policy_configs",
+		"llm_prompt_resources",
 		"command_audit_logs",
 	} {
 		if !got[table] {
@@ -94,6 +95,20 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if member.Role != RoleOwner {
 		t.Fatalf("owner role mismatch: got %q", member.Role)
 	}
+	personal, err := repo.GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !personal.IsPersonal {
+		t.Fatalf("personal organization missing: %#v", personal)
+	}
+	personalPrompts, err := repo.ListLLMPromptResources(ctx, OwnerOrganization, personal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(personalPrompts) != 1 || !personalPrompts[0].IsDefault || !personalPrompts[0].IsReadonly {
+		t.Fatalf("personal default prompt missing: %#v", personalPrompts)
+	}
 	groups, err := repo.ListOrganizationUserGroups(ctx, org.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -127,8 +142,8 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 
 	target, err := repo.CreateSSHTarget(ctx, CreateSSHTargetParams{
-		OwnerType:       OwnerUser,
-		OwnerID:         user.ID,
+		OwnerType:       OwnerOrganization,
+		OwnerID:         personal.ID,
 		Alias:           "test2",
 		TargetType:      TargetDirect,
 		Host:            "127.0.0.1",
@@ -141,19 +156,50 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := repo.ResolveUserTarget(ctx, user.ID, "test2")
+	personalTargets, err := repo.ListSSHTargets(ctx, OwnerOrganization, personal.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.ID != target.ID {
-		t.Fatalf("resolved target mismatch: got %s want %s", resolved.ID, target.ID)
+	if len(personalTargets) != 1 || personalTargets[0].ID != target.ID {
+		t.Fatalf("personal target mismatch: %#v", personalTargets)
+	}
+
+	llm, err := repo.CreateLLMPolicyConfig(ctx, CreateLLMPolicyConfigParams{
+		OwnerType:       OwnerOrganization,
+		OwnerID:         personal.ID,
+		Name:            "reviewer",
+		BaseURL:         "https://llm.example.com/",
+		EncryptedAPIKey: []byte("key"),
+		Model:           "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if llm.BaseURL != "https://llm.example.com" || llm.TimeoutSeconds != 10 {
+		t.Fatalf("llm config defaults mismatch: %#v", llm)
+	}
+	llmConfigs, err := repo.ListLLMPolicyConfigs(ctx, OwnerOrganization, personal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(llmConfigs) != 1 || llmConfigs[0].ID != llm.ID {
+		t.Fatalf("llm config list mismatch: %#v", llmConfigs)
+	}
+	prompts, err := repo.ListLLMPromptResources(ctx, OwnerOrganization, org.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prompts) != 1 || !prompts[0].IsReadonly {
+		t.Fatalf("organization default prompt mismatch: %#v", prompts)
 	}
 
 	policy, err := repo.CreateCommandPolicy(ctx, CreateCommandPolicyParams{
-		OwnerType:     OwnerUser,
-		OwnerID:       user.ID,
+		OwnerType:     OwnerOrganization,
+		OwnerID:       personal.ID,
 		Name:          "strict",
 		DefaultAction: DecisionDeny,
+		LLMConfigID:   llm.ID,
+		LLMPromptID:   prompts[0].ID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -179,6 +225,12 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 	if len(policies) != 1 || len(policies[0].Rules) != 1 || policies[0].Rules[0].ID != rule.ID || len(policies[0].UserGroupIDs) != 1 {
 		t.Fatalf("policy attachment mismatch: %#v", policies)
+	}
+	if policies[0].LLMConfigID != llm.ID {
+		t.Fatalf("policy llm config mismatch: %#v", policies[0])
+	}
+	if policies[0].LLMPromptID != prompts[0].ID {
+		t.Fatalf("policy llm prompt mismatch: %#v", policies[0])
 	}
 
 	started := time.Now().UTC()

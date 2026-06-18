@@ -1,62 +1,67 @@
-# gosshd
+# gosshd Bastion
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`gosshd` is a small SSH relay for reaching a private-network machine through a public server. A private host runs `gosshd-agent`, the public host runs `gosshd-server`, and users connect with standard SSH tools:
-
-```text
-ssh UUID@public-host
-```
-
-The UUID is the access secret in the current version. Anyone who knows it can access the agent machine with the permissions of the `gosshd-agent` process.
-
-## Architecture
-
-```text
-  Any network                         Public network                         Private network
-+-------------+    ssh/sftp/scp     +---------------+    outbound ws      +---------------+
-| SSH client  | ------------------> | gosshd-server | <------------------ | gosshd-agent  |
-|             |                     | :22 / :80     |                     | shell / sftp  |
-+-------------+                     +---------------+                     +-------+-------+
-                                                                                  |
-                                                                          +-------v-------+
-                                                                          | private host  |
-                                                                          +---------------+
-```
-
-## Quick Start
-
-Start the public server with the latest GitHub Release binary:
+`gosshd` is now a SQLite-backed SSH bastion. Users sign in to the web console, manage organizations, add SSH public keys, register direct or agent-backed SSH services, and connect with standard SSH aliases:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/qinyongliang/gosshd/main/run.sh | \
-  sudo sh -s -- --http-listen :80 --ssh-listen :22
+ssh test2@public-host
+```
+
+The server authenticates the SSH public key, resolves `test2` inside the user's personal organization first, then shared organizations, evaluates command policies, and writes audit logs.
+
+## Features
+
+- SQLite persistence for users, sessions, organizations, groups, targets, agents, policies, LLM configs, prompt resources, and audit logs.
+- Every registered user gets a personal organization. Owner bindings default to that personal organization.
+- Users can create shared organizations, invite others with codes, join multiple organizations, and leave shared organizations. Personal organizations cannot invite other users.
+- Users can add SSH public keys and connect to target aliases with normal SSH clients.
+- Targets can be direct SSH services or enrolled agents installed with `curl`/PowerShell commands. Agent targets are normal renameable SSH services.
+- Command policies support blacklist rules, whitelist rules, user-group bindings, target bindings, default allow/deny, and optional LLM review.
+- LLM provider configs are owner-level resources. Prompt resources are owner-level resources; a readonly default prompt is created for each personal/shared organization.
+- `/mcp` exposes the control plane through the official Model Context Protocol Go SDK.
+- The management console is embedded into the server binary.
+
+## Run
+
+```sh
+gosshd-server \
+  --http-listen :80 \
+  --ssh-listen :22 \
+  --database-path gosshd.db \
+  --host-key-path gosshd_host_key
+```
+
+Open `http://public-host/`, register a user, add your SSH public key, then add a target with alias `test2`.
+
+For an agent-backed target, create an agent enrollment in the console and run the generated command on the private host:
+
+```sh
+curl -fsSL http://public-host/install/<token>.sh | sh
 ```
 
 Windows:
 
 ```powershell
-$run = "$env:TEMP\gosshd-run.ps1"; iwr -UseBasicParsing https://raw.githubusercontent.com/qinyongliang/gosshd/main/run.ps1 -OutFile $run; powershell -NoProfile -ExecutionPolicy Bypass -File $run --http-listen :80 --ssh-listen :22
+irm http://public-host/install/<token>.ps1 | iex
 ```
 
-Start an agent on a private Linux/macOS host:
+## MCP
 
-```sh
-curl http://public-host/run.sh | sh
+The MCP endpoint is:
+
+```text
+http://public-host/mcp
 ```
 
-The agent prints an SSH address. Use it from anywhere:
+It exposes tools for registration, organization management, public keys, targets, agent enrollments, LLM configs, prompt resources, command policies, policy bindings, and audit logs.
 
-```sh
-ssh UUID@public-host
-sftp UUID@public-host
-scp file UUID@public-host:/tmp/file
+## Verify
+
+```powershell
+$env:GOPROXY='https://goproxy.cn,direct'
+go test ./...
+go test ./internal/server -run TestBastionE2E -v
+go build ./cmd/gosshd-server
+go build ./cmd/gosshd-agent
 ```
-
-## Notes
-
-- The agent run script is temporary-run oriented; it does not install a service.
-- The server provides the agent run script used by private hosts.
-- SSH tunneling is supported by standard SSH clients.
-
-See [Releases](https://github.com/qinyongliang/gosshd/releases) for prebuilt binaries.

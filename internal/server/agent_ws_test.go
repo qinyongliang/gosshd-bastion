@@ -100,11 +100,15 @@ func TestAgentWSEnrollmentCreatesPersistedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	token := "enroll-token"
 	sum := sha256.Sum256([]byte(token))
 	enrollment, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
-		OwnerType:   store.OwnerUser,
-		OwnerID:     user.ID,
+		OwnerType:   store.OwnerOrganization,
+		OwnerID:     personal.ID,
 		TokenHash:   sum[:],
 		Label:       "laptop",
 		DefaultHost: "127.0.0.1",
@@ -141,13 +145,13 @@ func TestAgentWSEnrollmentCreatesPersistedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.ID == "" || agent.OwnerID != user.ID {
+	if agent.ID == "" || agent.OwnerID != personal.ID {
 		t.Fatalf("persisted agent mismatch: %+v", agent)
 	}
 	if _, err := app.Registry().Get(agent.ID); err != nil {
 		t.Fatalf("persisted agent not online: %v", err)
 	}
-	targets, err := app.store.Repository().ListSSHTargets(ctx, store.OwnerUser, user.ID)
+	targets, err := app.store.Repository().ListSSHTargets(ctx, store.OwnerOrganization, personal.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

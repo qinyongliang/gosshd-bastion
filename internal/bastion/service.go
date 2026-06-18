@@ -43,11 +43,13 @@ func (s *Service) EvaluateCommand(ctx context.Context, userID, targetID, command
 		if !applies {
 			continue
 		}
+		matched := false
 		policyDecision := Decision{Action: policy.DefaultAction, Reason: "default " + policy.DefaultAction}
 		for _, rule := range policy.Rules {
 			if !ruleMatches(rule, trimmed) {
 				continue
 			}
+			matched = true
 			if rule.RuleType == store.RuleWhitelist {
 				policyDecision = Decision{Action: store.DecisionAllow, Reason: "whitelist: " + rule.Pattern}
 				break
@@ -55,6 +57,31 @@ func (s *Service) EvaluateCommand(ctx context.Context, userID, targetID, command
 			if rule.RuleType == store.RuleBlacklist {
 				return Decision{Action: store.DecisionDeny, Reason: "blacklist: " + rule.Pattern}, nil
 			}
+		}
+		if !matched && policy.LLMConfigID != "" {
+			cfg, err := s.repo.GetLLMPolicyConfig(ctx, policy.LLMConfigID)
+			if err != nil {
+				return Decision{}, err
+			}
+			prompt := store.LLMPromptResource{Content: store.DefaultLLMPromptContent}
+			if policy.LLMPromptID != "" {
+				prompt, err = s.repo.GetLLMPromptResource(ctx, policy.LLMPromptID)
+				if err != nil {
+					return Decision{}, err
+				}
+			} else if prompts, err := s.repo.ListLLMPromptResources(ctx, policy.OwnerType, policy.OwnerID); err == nil && len(prompts) > 0 {
+				prompt = prompts[0]
+			}
+			policyDecision, err = s.llmClient.ReviewCommand(ctx, cfg, LLMReviewInput{
+				UserID:   userID,
+				TargetID: targetID,
+				Command:  trimmed,
+				Prompt:   prompt.Content,
+			})
+			if err != nil {
+				return policyDecision, nil
+			}
+			policyDecision.Reason = "llm: " + policyDecision.Reason
 		}
 		if policyDecision.Action == store.DecisionDeny {
 			return policyDecision, nil

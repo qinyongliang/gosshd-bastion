@@ -1,12 +1,16 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/qinyongliang/gosshd/internal/store"
 )
+
+var errPersonalInvite = errors.New("personal organization cannot invite users")
 
 func (a *App) handleCreateOrganization(w http.ResponseWriter, r *http.Request, user store.User) {
 	var req struct {
@@ -50,6 +54,15 @@ func (a *App) handleCreateOrganizationInvite(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusForbidden, "organization access required")
 		return
 	}
+	org, err := a.store.Repository().GetOrganization(r.Context(), orgID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "organization not found")
+		return
+	}
+	if org.IsPersonal {
+		writeError(w, http.StatusBadRequest, errPersonalInvite.Error())
+		return
+	}
 	var req struct {
 		Role string `json:"role"`
 	}
@@ -87,24 +100,42 @@ func (a *App) handleJoinOrganization(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	invite, err := a.store.Repository().GetOrganizationInviteByCodeHash(r.Context(), codeHash(req.Code))
+	org, err := a.joinOrganizationWithCode(r.Context(), user.ID, req.Code)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid invite")
-		return
-	}
-	if invite.ConsumedAt != nil || time.Now().UTC().After(invite.ExpiresAt) {
-		writeError(w, http.StatusBadRequest, "invite expired")
-		return
-	}
-	if err := a.store.Repository().AddOrganizationMember(r.Context(), invite.OrganizationID, user.ID, invite.Role); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	_ = a.store.Repository().MarkOrganizationInviteConsumed(r.Context(), invite.ID, time.Now().UTC())
-	org, err := a.store.Repository().GetOrganization(r.Context(), invite.OrganizationID)
+	writeJSON(w, http.StatusOK, apiOrganizationResponse{Organization: apiOrganizationFromStore(org)})
+}
+
+func (a *App) joinOrganizationWithCode(ctx context.Context, userID, code string) (store.Organization, error) {
+	invite, err := a.store.Repository().GetOrganizationInviteByCodeHash(ctx, codeHash(code))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		return store.Organization{}, err
+	}
+	if invite.ConsumedAt != nil || time.Now().UTC().After(invite.ExpiresAt) {
+		return store.Organization{}, errors.New("invite expired")
+	}
+	if err := a.store.Repository().AddOrganizationMember(ctx, invite.OrganizationID, userID, invite.Role); err != nil {
+		return store.Organization{}, err
+	}
+	_ = a.store.Repository().MarkOrganizationInviteConsumed(ctx, invite.ID, time.Now().UTC())
+	org, err := a.store.Repository().GetOrganization(ctx, invite.OrganizationID)
+	if err != nil {
+		return store.Organization{}, err
+	}
+	return org, nil
+}
+
+func (a *App) handleLeaveOrganization(w http.ResponseWriter, r *http.Request, user store.User) {
+	orgID := r.PathValue("id")
+	if _, err := a.store.Repository().GetOrganizationMember(r.Context(), orgID, user.ID); err != nil {
+		writeError(w, http.StatusForbidden, "organization access required")
 		return
 	}
-	writeJSON(w, http.StatusOK, apiOrganizationResponse{Organization: apiOrganizationFromStore(org)})
+	if err := a.store.Repository().LeaveOrganization(r.Context(), orgID, user.ID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

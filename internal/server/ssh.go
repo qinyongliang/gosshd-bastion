@@ -56,26 +56,12 @@ func (a *App) serveSSH(ln net.Listener) error {
 	}
 }
 
-func sshServerConfig(hostKeyPath string) (*gossh.ServerConfig, error) {
-	signer, err := loadOrCreateHostSigner(hostKeyPath)
-	if err != nil {
-		return nil, err
-	}
-	cfg := &gossh.ServerConfig{
-		NoClientAuth:  true,
-		ServerVersion: "SSH-2.0-gosshd",
-	}
-	cfg.AddHostKey(signer)
-	return cfg, nil
-}
-
 func (a *App) sshServerConfig() (*gossh.ServerConfig, error) {
 	signer, err := loadOrCreateHostSigner(a.cfg.HostKeyPath)
 	if err != nil {
 		return nil, err
 	}
 	cfg := &gossh.ServerConfig{
-		NoClientAuth:  a.cfg.DatabasePath == "",
 		ServerVersion: "SSH-2.0-gosshd",
 		PublicKeyCallback: func(meta gossh.ConnMetadata, key gossh.PublicKey) (*gossh.Permissions, error) {
 			if err := a.ensureServices(context.Background()); err != nil {
@@ -148,27 +134,10 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 		}
 	}
 
-	id := conn.User()
-	if !protocol.IsValidID(id) {
-		return
-	}
-	if _, err := a.registry.Get(id); err != nil {
-		return
-	}
-
-	forwards := newForwardManager(conn)
-	go forwards.handleGlobalRequests(reqs)
+	go gossh.DiscardRequests(reqs)
 	for ch := range chans {
-		switch ch.ChannelType() {
-		case "session":
-			go a.handleSessionChannel(id, ch)
-		case "direct-tcpip":
-			go a.handleDirectTCPIP(id, ch)
-		default:
-			_ = ch.Reject(gossh.UnknownChannelType, "unsupported channel type")
-		}
+		_ = ch.Reject(gossh.Prohibited, "public key bastion authentication required")
 	}
-	forwards.closeAll()
 }
 
 func (a *App) openAgentStream(id string, req protocol.StreamRequest) (*bufio.Reader, io.ReadWriteCloser, error) {
