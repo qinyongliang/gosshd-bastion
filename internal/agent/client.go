@@ -25,12 +25,17 @@ type Client struct {
 	id  string
 }
 
+var errServerRequired = errors.New("server is required")
+
 func New(cfg Config) (*Client, error) {
+	cfg.Server = protocol.NormalizeServerURL(cfg.Server)
+	if cfg.Server == "" {
+		return nil, errServerRequired
+	}
 	id, err := protocol.LoadOrCreateID(cfg.IDFile)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Server = protocol.NormalizeServerURL(cfg.Server)
 	if cfg.Root == "" {
 		cfg.Root, err = os.Getwd()
 		if err != nil {
@@ -115,7 +120,6 @@ func (c *Client) runOnce(ctx context.Context) error {
 	}()
 	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
 		ID:              c.id,
-		Token:           c.cfg.Token,
 		EnrollmentToken: c.cfg.EnrollmentToken,
 		Version:         c.cfg.Version,
 		GOOS:            runtime.GOOS,

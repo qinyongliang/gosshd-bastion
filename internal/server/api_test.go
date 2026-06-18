@@ -507,10 +507,17 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	srv, client, _ := newAPITestServer(t)
 	defer srv.Close()
-	registerForAPI(t, client, srv.URL, "alice@example.com")
+	user := registerForAPI(t, client, srv.URL, "alice@example.com")
+	var me apiMeResponse
+	getJSON(t, client, srv.URL+"/api/me", http.StatusOK, &me)
+	if len(me.Organizations) == 0 {
+		t.Fatalf("registered user missing organization")
+	}
 
 	var enrollment apiAgentEnrollmentResponse
 	postJSON(t, client, srv.URL+"/api/agent-enrollments", map[string]any{
+		"owner_type":   "organization",
+		"owner_id":     me.Organizations[0].ID,
 		"label":        "laptop",
 		"default_host": "127.0.0.1",
 		"default_port": 22,
@@ -550,6 +557,16 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	if !strings.Contains(psBody, "sc.exe create gosshd-agent") || !strings.Contains(psBody, "sc.exe start gosshd-agent") {
 		t.Fatalf("powershell install script missing service install flow:\n%s", psBody)
 	}
+	if strings.Contains(shBody, "installl") || strings.Contains(psBody, "installl") {
+		t.Fatalf("install scripts should not accept misspelled install mode")
+	}
+
+	postJSON(t, client, srv.URL+"/api/agent-enrollments", map[string]any{
+		"label":        "missing-owner",
+		"default_host": "127.0.0.1",
+		"default_port": 22,
+	}, http.StatusBadRequest, nil)
+	_ = user
 }
 
 func newAPITestServer(t *testing.T) (*httptest.Server, *http.Client, *App) {

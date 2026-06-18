@@ -2,7 +2,6 @@ package agent
 
 type Config struct {
 	Server          string
-	Token           string
 	EnrollmentToken string
 	IDFile          string
 	Shell           string

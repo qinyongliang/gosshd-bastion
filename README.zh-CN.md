@@ -14,7 +14,7 @@ ssh test2@public-host
 
 - 使用 SQLite 持久化用户、会话、组织、用户组、目标服务、agent、安全组策略、LLM 配置、提示词资源和审计日志。
 - 首次启动会自动创建默认系统管理员账号。管理员拥有普通用户菜单，也拥有全局配置、账号管理和组织管理入口。
-- 用户注册后自动拥有一个个人组织。所有 owner 绑定默认落到这个个人组织。
+- 用户注册后自动拥有一个个人组织。前端会选择当前活跃组织，API/MCP 写入时必须显式传入 owner 范围。
 - 用户可以创建共享组织、通过邀请码邀请其他用户、加入多个组织，也可以退出共享组织。个人组织不能邀请其他用户。
 - 共享组织包含 `owner`、`admin`、`member` 三种角色。owner 可以转移所有权；admin 可以管理成员、用户组、目标服务和策略。
 - 用户可以配置自己的 SSH public key，并用普通 SSH 客户端连接目标别名。
@@ -97,6 +97,12 @@ $env:GOPROXY='https://goproxy.cn,direct'
 go test ./...
 go test ./internal/server -run TestBastionE2E -v
 go test ./internal/server -run TestDingTalkAdminOrganizationE2E -v
+GOSSHD_UI_E2E_NODE=/path/to/node \
+GOSSHD_UI_E2E_PLAYWRIGHT=/absolute/path/to/playwright \
+GOSSHD_UI_E2E_BROWSER=/absolute/path/to/chrome \
+go test ./internal/server -run TestUIE2EWithBrowser -v
 go build ./cmd/gosshd-server
 go build ./cmd/gosshd-agent
 ```
+
+`TestUIE2EWithBrowser` 缺少这三个浏览器变量时会直接失败。它会用 Playwright 和本机浏览器真实驱动内嵌界面，不会静默跳过，也不会退化成静态断言。

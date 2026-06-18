@@ -87,9 +87,6 @@ func (a *App) handleInstallSH(w http.ResponseWriter, r *http.Request, token stri
 	fmt.Fprintf(w, `#!/usr/bin/env sh
 set -eu
 mode="${1:-run}"
-if [ "$mode" = "installl" ]; then
-  mode="install"
-fi
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
 case "$arch" in
@@ -139,12 +136,10 @@ func (a *App) handleInstallPS1(w http.ResponseWriter, r *http.Request, token str
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	base := publicBaseURL(r, a.cfg.publicHost())
 	fmt.Fprintf(w, `param(
-  [switch]$Install,
-  [Alias("installl")]
-  [switch]$Installl
+  [switch]$Install
 )
 $ErrorActionPreference = "Stop"
-$isInstall = $Install -or $Installl
+$isInstall = $Install
 $tmp = Join-Path $env:TEMP "gosshd-agent.exe"
 $url = "%s/download/agent/windows/amd64"
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp

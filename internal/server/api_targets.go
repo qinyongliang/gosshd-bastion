@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -158,12 +159,13 @@ func parseTargetTags(raw string) []string {
 }
 
 func (a *App) resolveOwner(ctx context.Context, ownerType, ownerID, userID string) (string, string, error) {
-	if ownerType == "" || ownerID == "" || ownerID == "me" {
-		org, err := a.store.Repository().GetPersonalOrganizationForUser(ctx, userID)
-		if err != nil {
-			return "", "", err
-		}
-		return store.OwnerOrganization, org.ID, nil
+	ownerType = strings.TrimSpace(ownerType)
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerType == "" || ownerID == "" {
+		return "", "", errors.New("owner_type and owner_id are required")
+	}
+	if ownerType != store.OwnerOrganization {
+		return "", "", errors.New("owner_type must be organization")
 	}
 	return ownerType, ownerID, nil
 }

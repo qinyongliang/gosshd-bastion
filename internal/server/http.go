@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -40,72 +39,10 @@ func (a *App) routes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
-	mux.HandleFunc("/run.sh", a.runSH)
-	mux.HandleFunc("/run.ps1", a.runPS1)
-	mux.HandleFunc("/install.sh", a.runSH)
-	mux.HandleFunc("/install.ps1", a.runPS1)
 	mux.HandleFunc("/download/agent/", a.downloadAgent)
 	mux.HandleFunc(protocol.WebSocketPath, a.agentWS)
 	mux.Handle("/mcp", a.mcpHandler())
 	mux.HandleFunc("/", a.serveWeb)
-}
-
-func (a *App) runSH(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
-	base := publicBaseURL(r, a.cfg.publicHost())
-	sshHost, sshPort := a.publicSSHEndpoint(r)
-	tokenArg := ""
-	if a.cfg.AgentToken != "" {
-		tokenArg = fmt.Sprintf(" --token %q", a.cfg.AgentToken)
-	}
-	fmt.Fprintf(w, `#!/usr/bin/env sh
-set -eu
-export GOSSHD_SSH_HOST=%q
-export GOSSHD_SSH_PORT=%q
-os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-arch="$(uname -m)"
-case "$arch" in
-  i386|i686|386) arch="386" ;;
-  x86_64|amd64) arch="amd64" ;;
-  aarch64|arm64) arch="arm64" ;;
-  armv6l|armv6*) arch="armv6" ;;
-  armv7l|armv7*) arch="armv7" ;;
-  riscv64) arch="riscv64" ;;
-  *) echo "unsupported arch: $arch" >&2; exit 1 ;;
-esac
-tmp="${TMPDIR:-/tmp}/gosshd-agent"
-url="%s/download/agent/${os}/${arch}"
-echo "downloading $url"
-curl -fsSL "$url" -o "$tmp"
-chmod +x "$tmp"
-exec "$tmp" --server "%s"%s
-`, sshHost, sshPort, base, base, tokenArg)
-}
-
-func (a *App) runPS1(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	base := publicBaseURL(r, a.cfg.publicHost())
-	sshHost, sshPort := a.publicSSHEndpoint(r)
-	tokenArg := ""
-	if a.cfg.AgentToken != "" {
-		tokenArg = fmt.Sprintf(" --token %q", a.cfg.AgentToken)
-	}
-	fmt.Fprintf(w, `$ErrorActionPreference = "Stop"
-$env:GOSSHD_SSH_HOST = %q
-$env:GOSSHD_SSH_PORT = %q
-$machine = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-switch ($machine) {
-  "x64" { $arch = "amd64" }
-  "x86" { $arch = "386" }
-  "arm64" { $arch = "arm64" }
-  default { throw "unsupported arch: $machine" }
-}
-$tmp = Join-Path $env:TEMP "gosshd-agent.exe"
-$url = "%s/download/agent/windows/$arch"
-Write-Host "downloading $url"
-Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp
-& $tmp --server "%s"%s
-`, sshHost, sshPort, base, base, tokenArg)
 }
 
 func (a *App) downloadAgent(w http.ResponseWriter, r *http.Request) {
@@ -321,43 +258,41 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close()
 		return
 	}
-	if a.cfg.AgentToken != "" && hello.Token != a.cfg.AgentToken {
-		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "invalid agent token"})
+	if strings.TrimSpace(hello.EnrollmentToken) == "" {
+		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "enrollment token is required"})
 		_ = conn.Close()
 		return
 	}
 	registryID := hello.ID
-	if hello.EnrollmentToken != "" {
-		if err := a.ensureServices(r.Context()); err != nil {
-			_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "server storage unavailable"})
-			_ = conn.Close()
-			return
-		}
-		enrollment, err := a.store.Repository().GetAgentEnrollmentByTokenHash(r.Context(), codeHash(hello.EnrollmentToken))
-		if err != nil || time.Now().UTC().After(enrollment.ExpiresAt) {
-			_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "invalid enrollment token"})
-			_ = conn.Close()
-			return
-		}
-		agent, err := a.store.Repository().UpsertAgent(r.Context(), store.UpsertAgentParams{
-			OwnerType:        enrollment.OwnerType,
-			OwnerID:          enrollment.OwnerID,
-			EnrollmentID:     enrollment.ID,
-			Label:            enrollment.Label,
-			CurrentRuntimeID: hello.ID,
-		})
-		if err != nil {
-			_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "agent enrollment failed"})
-			_ = conn.Close()
-			return
-		}
-		if err := a.ensureAgentTarget(r.Context(), enrollment, agent); err != nil {
-			_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "agent target creation failed"})
-			_ = conn.Close()
-			return
-		}
-		registryID = agent.ID
+	if err := a.ensureServices(r.Context()); err != nil {
+		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "server storage unavailable"})
+		_ = conn.Close()
+		return
 	}
+	enrollment, err := a.store.Repository().GetAgentEnrollmentByTokenHash(r.Context(), codeHash(hello.EnrollmentToken))
+	if err != nil || time.Now().UTC().After(enrollment.ExpiresAt) {
+		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "invalid enrollment token"})
+		_ = conn.Close()
+		return
+	}
+	agent, err := a.store.Repository().UpsertAgent(r.Context(), store.UpsertAgentParams{
+		OwnerType:        enrollment.OwnerType,
+		OwnerID:          enrollment.OwnerID,
+		EnrollmentID:     enrollment.ID,
+		Label:            enrollment.Label,
+		CurrentRuntimeID: hello.ID,
+	})
+	if err != nil {
+		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "agent enrollment failed"})
+		_ = conn.Close()
+		return
+	}
+	if err := a.ensureAgentTarget(r.Context(), enrollment, agent); err != nil {
+		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "agent target creation failed"})
+		_ = conn.Close()
+		return
+	}
+	registryID = agent.ID
 	goos, goarch := hello.GOOS, hello.GOARCH
 	if goos == "" {
 		goos = runtime.GOOS
@@ -422,78 +357,20 @@ func (a *App) ensureAgentTarget(ctx context.Context, enrollment store.AgentEnrol
 	return err
 }
 
-func publicBaseURL(r *http.Request, fallbackHost string) string {
+func publicBaseURL(r *http.Request, configuredHost string) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	host := fallbackHost
+	host := configuredHost
 	if host == "" {
 		host = r.Host
 	}
 	if host == "" {
-		host = "localhost"
+		return ""
 	}
 	if runtime.GOOS == "windows" {
 		host = strings.TrimSpace(host)
 	}
 	return scheme + "://" + host
-}
-
-func (a *App) publicSSHEndpoint(r *http.Request) (string, string) {
-	host, embeddedPort := sshHostAndPort(a.cfg.PublicSSHHost)
-	if host == "" {
-		host, _ = sshHostAndPort(a.cfg.publicHost())
-	}
-	if host == "" && r != nil {
-		host, _ = sshHostAndPort(r.Host)
-	}
-	if host == "" {
-		host = "localhost"
-	}
-
-	port := strings.TrimSpace(a.cfg.PublicSSHPort)
-	if port == "" {
-		port = embeddedPort
-	}
-	if port == "" {
-		port = listenPort(a.cfg.SSHListen)
-	}
-	if port == "" {
-		port = "22"
-	}
-	return host, port
-}
-
-func sshHostAndPort(raw string) (string, string) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", ""
-	}
-	if strings.Contains(raw, "://") {
-		u, err := url.Parse(raw)
-		if err == nil {
-			raw = u.Host
-		}
-	}
-	host, port, err := net.SplitHostPort(raw)
-	if err == nil {
-		return strings.Trim(host, "[]"), port
-	}
-	return strings.Trim(raw, "[]"), ""
-}
-
-func listenPort(listen string) string {
-	listen = strings.TrimSpace(listen)
-	if listen == "" {
-		return ""
-	}
-	_, port, err := net.SplitHostPort(listen)
-	if err == nil {
-		return port
-	}
-	if strings.HasPrefix(listen, ":") {
-		return strings.TrimPrefix(listen, ":")
-	}
-	return ""
 }
