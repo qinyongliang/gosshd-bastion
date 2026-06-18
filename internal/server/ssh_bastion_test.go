@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/pem"
+	"errors"
 	"net"
 	"path/filepath"
 	"strings"
@@ -64,6 +66,45 @@ func TestSSHExecRoutesAliasToDirectTarget(t *testing.T) {
 	}
 
 	out, err := runBastionSSHCommand(sshAddr, "test2", userSigner, "whoami")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "remote" {
+		t.Fatalf("unexpected output %q", out)
+	}
+}
+
+func TestSSHExecRoutesAliasToPrivateKeyTarget(t *testing.T) {
+	app, _, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner := testSSHSigner(t)
+	targetSigner, targetPrivateKey := testSSHSignerWithPrivateKey(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestSSHServerWithAuthorizedKey(t, targetSigner.PublicKey())
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:       store.OwnerOrganization,
+		OwnerID:         personal.ID,
+		Alias:           "private-box",
+		TargetType:      store.TargetDirect,
+		Host:            host,
+		Port:            port,
+		RemoteUsername:  "remote",
+		AuthType:        store.AuthPrivateKey,
+		EncryptedSecret: targetPrivateKey,
+		CreatedBy:       user.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runBastionSSHCommand(sshAddr, "private-box", userSigner, "whoami")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,8 +340,23 @@ func runBastionSSHCommand(addr, alias string, signer gossh.Signer, command strin
 
 func startTestSSHServer(t *testing.T) (string, func()) {
 	t.Helper()
+	return startTestSSHServerWithAuthorizedKey(t, nil)
+}
+
+func startTestSSHServerWithAuthorizedKey(t *testing.T, authorizedKey gossh.PublicKey) (string, func()) {
+	t.Helper()
 	hostSigner := testSSHSigner(t)
-	cfg := &gossh.ServerConfig{NoClientAuth: true}
+	cfg := &gossh.ServerConfig{}
+	if authorizedKey == nil {
+		cfg.NoClientAuth = true
+	} else {
+		cfg.PublicKeyCallback = func(meta gossh.ConnMetadata, key gossh.PublicKey) (*gossh.Permissions, error) {
+			if bytes.Equal(key.Marshal(), authorizedKey.Marshal()) {
+				return nil, nil
+			}
+			return nil, errors.New("unauthorized")
+		}
+	}
 	cfg.AddHostKey(hostSigner)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -366,6 +422,12 @@ func handleTestSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 
 func testSSHSigner(t *testing.T) gossh.Signer {
 	t.Helper()
+	signer, _ := testSSHSignerWithPrivateKey(t)
+	return signer
+}
+
+func testSSHSignerWithPrivateKey(t *testing.T) (gossh.Signer, []byte) {
+	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -374,7 +436,11 @@ func testSSHSigner(t *testing.T) gossh.Signer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return signer
+	block, err := gossh.MarshalPrivateKey(key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer, pem.EncodeToMemory(block)
 }
 
 func mustAtoi(t *testing.T, value string) int {
