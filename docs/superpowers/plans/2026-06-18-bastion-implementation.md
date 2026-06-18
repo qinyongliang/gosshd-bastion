@@ -45,7 +45,7 @@
 - Modify `internal/agent/config.go`, `internal/agent/client.go`, `cmd/gosshd-agent/main.go`: pass enrollment token to server.
 - Modify `cmd/gosshd-server/main.go`: add flags for database path and secret key material.
 - Create `web/index.html`: management UI shell.
-- Create `web/styles.css`: dense operational UI styling.
+- Create `web/styles.css`: polished operational UI styling with spacious hierarchy, subtle motion, and clear states.
 - Create `web/app.js`: frontend state and screen routing.
 - Create `web/api.js`: fetch wrapper and typed API calls.
 - Create `web/components.js`: reusable render helpers for tables, forms, modals, badges, and buttons.
@@ -699,13 +699,15 @@ Build a plain ES-module frontend with:
 - policy editor with blacklist, whitelist, default action, LLM fields, target bindings, and user group bindings
 - audit log table
 
-Use accessible forms and compact table-first layouts. Keep CSS palette restrained and not dominated by one hue.
+Use accessible forms and table-first operational layouts, but make the interface feel polished, spacious, and lively: layered surfaces, confident spacing, responsive hover/focus states, subtle transitions, clear status badges, and thoughtful empty/loading/error states. Keep CSS palette restrained and not dominated by one hue.
 
 - [ ] **Step 4: Embed and serve UI**
 
 Use `//go:embed ../../web/*` only if the path compiles from package location; otherwise place embed in a package that can legally reference `web/*`. Register static routes after API and legacy routes so `/api/*`, `/install/*`, `/run.sh`, `/run.ps1`, `/download/*`, and `/ws/agent` keep precedence.
 
 - [ ] **Step 5: Run tests and commit**
+
+Before committing, review `web/*.html`, `web/*.css`, and `web/*.js` with the available `web-design-guidelines` skill. Fix actionable issues that affect layout, accessibility, interaction clarity, or visual polish.
 
 Run:
 

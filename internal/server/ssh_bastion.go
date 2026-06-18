@@ -1,13 +1,16 @@
 package server
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strings"
 	"time"
 
+	"github.com/qinyongliang/gosshd/internal/protocol"
 	"github.com/qinyongliang/gosshd/internal/store"
 
 	gossh "golang.org/x/crypto/ssh"
@@ -186,9 +189,6 @@ func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 }
 
 func (a *App) openTargetSSHClient(ctx context.Context, target store.SSHTarget) (*gossh.Client, error) {
-	if target.TargetType != store.TargetDirect {
-		return nil, fmt.Errorf("unsupported target type %q", target.TargetType)
-	}
 	auth := gossh.Password(string(target.EncryptedSecret))
 	if len(target.EncryptedSecret) == 0 {
 		auth = gossh.Password("")
@@ -200,7 +200,40 @@ func (a *App) openTargetSSHClient(ctx context.Context, target store.SSHTarget) (
 		Timeout:         5 * time.Second,
 	}
 	addr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
-	return gossh.Dial("tcp", addr, cfg)
+	if target.TargetType == store.TargetDirect {
+		return gossh.Dial("tcp", addr, cfg)
+	}
+	if target.TargetType == store.TargetAgent {
+		session, err := a.registry.Get(target.AgentID)
+		if err != nil {
+			return nil, err
+		}
+		stream, err := session.Open()
+		if err != nil {
+			return nil, err
+		}
+		if err := protocol.WriteJSONLine(stream, protocol.StreamRequest{Type: protocol.StreamTCP, Target: addr}); err != nil {
+			_ = stream.Close()
+			return nil, err
+		}
+		reader := bufio.NewReader(stream)
+		resp, err := protocol.ReadJSONLine[protocol.StreamResponse](reader)
+		if err != nil {
+			_ = stream.Close()
+			return nil, err
+		}
+		if !resp.OK {
+			_ = stream.Close()
+			return nil, errors.New(resp.Error)
+		}
+		conn, chans, reqs, err := gossh.NewClientConn(readWriteConn{Reader: reader, Writer: stream, Closer: stream}, addr, cfg)
+		if err != nil {
+			_ = stream.Close()
+			return nil, err
+		}
+		return gossh.NewClient(conn, chans, reqs), nil
+	}
+	return nil, fmt.Errorf("unsupported target type %q", target.TargetType)
 }
 
 func organizationIDForTarget(target store.SSHTarget) string {
@@ -213,3 +246,20 @@ func organizationIDForTarget(target store.SSHTarget) string {
 func newAuditSessionID() string {
 	return strings.ReplaceAll(time.Now().UTC().Format("20060102150405.000000000"), ".", "")
 }
+
+type readWriteConn struct {
+	io.Reader
+	io.Writer
+	io.Closer
+}
+
+func (c readWriteConn) LocalAddr() net.Addr              { return dummyAddr("local") }
+func (c readWriteConn) RemoteAddr() net.Addr             { return dummyAddr("remote") }
+func (c readWriteConn) SetDeadline(time.Time) error      { return nil }
+func (c readWriteConn) SetReadDeadline(time.Time) error  { return nil }
+func (c readWriteConn) SetWriteDeadline(time.Time) error { return nil }
+
+type dummyAddr string
+
+func (a dummyAddr) Network() string { return string(a) }
+func (a dummyAddr) String() string  { return string(a) }

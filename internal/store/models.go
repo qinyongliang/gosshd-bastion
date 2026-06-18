@@ -237,6 +237,16 @@ type CreateSSHTargetParams struct {
 	CreatedBy       string
 }
 
+type UpdateSSHTargetParams struct {
+	Alias           string
+	Host            string
+	Port            int
+	RemoteUsername  string
+	AuthType        string
+	EncryptedSecret []byte
+	AgentID         string
+}
+
 type CreateAgentEnrollmentParams struct {
 	OwnerType   string
 	OwnerID     string

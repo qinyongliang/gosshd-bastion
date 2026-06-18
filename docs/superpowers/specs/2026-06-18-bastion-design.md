@@ -132,7 +132,7 @@ Audit routes:
 
 ## Frontend
 
-Create an engineered frontend under `web/` and embed its production build into the Go server. The UI should be operational rather than marketing-oriented.
+Create an engineered frontend under `web/` and embed its production build into the Go server. The UI should be operational rather than marketing-oriented, while still feeling polished, spacious, and lively. It should read as a serious bastion-control product: clear information architecture, confident visual hierarchy, responsive state transitions, subtle motion, and crisp empty/loading/error states rather than a plain CRUD scaffold.
 
 Primary screens:
 
@@ -146,7 +146,7 @@ Primary screens:
 - Command policy editor with whitelist, blacklist, default action, and LLM settings.
 - Audit log table with target, user, command, decision, exit code, and timestamps.
 
-The UI should be built with predictable dense layouts: top navigation, left sidebar or tabbed management sections, tables for targets and audit logs, compact forms, and clear status badges.
+The UI should be built with predictable layouts: top navigation, a left sidebar or tabbed management sections, tables for targets and audit logs, compact forms, and clear status badges. Use a restrained but expressive visual system with layered surfaces, good spacing, purposeful accent color, hover/focus motion, and no marketing hero page. Before delivery, review the frontend against the available web design guidelines skill and fix actionable UI issues.
 
 ## SSH Routing
 

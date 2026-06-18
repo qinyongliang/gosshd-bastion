@@ -78,6 +78,40 @@ func (a *App) handleCreateTarget(w http.ResponseWriter, r *http.Request, user st
 	writeJSON(w, http.StatusCreated, apiTargetResponse{Target: apiTargetFromStore(target)})
 }
 
+func (a *App) handleUpdateTarget(w http.ResponseWriter, r *http.Request, user store.User) {
+	var req struct {
+		Alias          string `json:"alias"`
+		Host           string `json:"host"`
+		Port           int    `json:"port"`
+		RemoteUsername string `json:"remote_username"`
+		AuthType       string `json:"auth_type"`
+		Secret         string `json:"secret"`
+		AgentID        string `json:"agent_id"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	var secret []byte
+	if req.Secret != "" {
+		secret = []byte(req.Secret)
+	}
+	target, err := a.store.Repository().UpdateSSHTarget(r.Context(), r.PathValue("id"), store.UpdateSSHTargetParams{
+		Alias:           req.Alias,
+		Host:            req.Host,
+		Port:            req.Port,
+		RemoteUsername:  req.RemoteUsername,
+		AuthType:        req.AuthType,
+		EncryptedSecret: secret,
+		AgentID:         req.AgentID,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiTargetResponse{Target: apiTargetFromStore(target)})
+}
+
 func apiTargetFromStore(target store.SSHTarget) apiTarget {
 	return apiTarget{
 		ID:             target.ID,
