@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
@@ -328,17 +329,40 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 		"default_host": "127.0.0.1",
 		"default_port": 22,
 	}, http.StatusCreated, &enrollment)
-	if enrollment.Token == "" || enrollment.InstallSH == "" || enrollment.InstallPS1 == "" {
+	if enrollment.Token == "" || enrollment.InstallSH == "" || enrollment.InstallPS1 == "" || enrollment.ServiceSH == "" || enrollment.ServicePS1 == "" {
 		t.Fatalf("enrollment response missing install data: %+v", enrollment)
+	}
+	if !strings.Contains(enrollment.ServiceSH, "sudo sh -s -- install") {
+		t.Fatalf("shell service command missing install mode: %s", enrollment.ServiceSH)
+	}
+	if !strings.Contains(enrollment.ServicePS1, "-Install") {
+		t.Fatalf("powershell service command missing install flag: %s", enrollment.ServicePS1)
 	}
 
 	resp, err := client.Get(srv.URL + "/install/" + enrollment.Token + ".sh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("install script status mismatch: %d", resp.StatusCode)
+	}
+	shBody := readBody(t, resp)
+	resp.Body.Close()
+	if !strings.Contains(shBody, "systemctl enable --now gosshd-agent") || !strings.Contains(shBody, "--enrollment-token") {
+		t.Fatalf("shell install script missing service install flow:\n%s", shBody)
+	}
+
+	resp, err = client.Get(srv.URL + "/install/" + enrollment.Token + ".ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("install ps1 status mismatch: %d", resp.StatusCode)
+	}
+	psBody := readBody(t, resp)
+	resp.Body.Close()
+	if !strings.Contains(psBody, "sc.exe create gosshd-agent") || !strings.Contains(psBody, "sc.exe start gosshd-agent") {
+		t.Fatalf("powershell install script missing service install flow:\n%s", psBody)
 	}
 }
 

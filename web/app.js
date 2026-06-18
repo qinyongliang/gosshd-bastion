@@ -298,14 +298,18 @@ function agentPanel() {
       <button type="submit">${icon("spark")}Create enrollment</button>
     </form>
     ${state.enrollment ? `
-      <div class="command-box">
-        <code>${escapeHTML(state.enrollment.install_sh)}</code>
-        <button data-click="copy" aria-label="Copy shell install command" data-value="${escapeHTML(state.enrollment.install_sh)}">${icon("copy")}</button>
+      <div class="guide-block">
+        <strong>Run once</strong>
+        <span>Starts the agent in the current terminal session.</span>
       </div>
-      <div class="command-box">
-        <code>${escapeHTML(state.enrollment.install_ps1)}</code>
-        <button data-click="copy" aria-label="Copy PowerShell install command" data-value="${escapeHTML(state.enrollment.install_ps1)}">${icon("copy")}</button>
+      ${commandLine("Linux/macOS shell", state.enrollment.install_sh)}
+      ${commandLine("Windows PowerShell", state.enrollment.install_ps1)}
+      <div class="guide-block service">
+        <strong>Install as startup service</strong>
+        <span>Linux registers a systemd service with systemctl. Windows registers a service with sc.exe.</span>
       </div>
+      ${commandLine("Linux systemctl service", state.enrollment.service_sh)}
+      ${commandLine("Windows sc.exe service", state.enrollment.service_ps1)}
     ` : ""}
   `);
 }
@@ -389,6 +393,14 @@ function auditPanel() {
 
 function panel(title, subtitle, body) {
   return raw(`<section class="panel"><div class="panel-head"><h2>${escapeHTML(title)}</h2><p>${escapeHTML(subtitle)}</p></div>${body}</section>`);
+}
+
+function commandLine(label, value) {
+  return `<div class="command-box">
+    <span>${escapeHTML(label)}</span>
+    <code>${escapeHTML(value || "")}</code>
+    <button data-click="copy" aria-label="Copy ${escapeHTML(label)} command" data-value="${escapeHTML(value || "")}">${icon("copy").__raw}</button>
+  </div>`;
 }
 
 function metric(label, value, iconName) {

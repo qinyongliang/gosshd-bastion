@@ -46,6 +46,18 @@ Windows：
 irm http://public-host/install/<token>.ps1 | iex
 ```
 
+如果要安装为开机启动服务，使用 install 模式。Linux 会通过 `systemctl` 注册 `gosshd-agent`：
+
+```sh
+curl -fsSL http://public-host/install/<token>.sh | sudo sh -s -- install
+```
+
+Windows 会通过 `sc.exe` 注册 `gosshd-agent`：
+
+```powershell
+$s='http://public-host/install/<token>.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install
+```
+
 ## MCP
 
 MCP 端点：

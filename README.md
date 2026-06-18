@@ -46,6 +46,18 @@ Windows:
 irm http://public-host/install/<token>.ps1 | iex
 ```
 
+To install the agent as a startup service, use install mode. Linux registers `gosshd-agent` with `systemctl`:
+
+```sh
+curl -fsSL http://public-host/install/<token>.sh | sudo sh -s -- install
+```
+
+Windows registers `gosshd-agent` with `sc.exe`:
+
+```powershell
+$s='http://public-host/install/<token>.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install
+```
+
 ## MCP
 
 The MCP endpoint is:

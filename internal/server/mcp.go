@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -193,7 +194,13 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err != nil {
 				return nil, apiAgentEnrollmentResponse{}, err
 			}
-			return nil, apiAgentEnrollmentResponse{ID: enrollment.ID, Token: token}, nil
+			base := a.cfg.publicHost()
+			if base == "" {
+				base = "http://localhost"
+			} else if !strings.Contains(base, "://") {
+				base = "http://" + base
+			}
+			return nil, agentEnrollmentResponse(enrollment.ID, token, base), nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "llm_config_create", Description: "Create an LLM provider config for an owner."},
