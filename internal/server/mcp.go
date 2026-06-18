@@ -152,6 +152,7 @@ func (a *App) newMCPServer() *mcp.Server {
 			target, err := a.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
 				OwnerType:       ownerType,
 				OwnerID:         ownerID,
+				Name:            in.Name,
 				Alias:           in.Alias,
 				TargetType:      in.TargetType,
 				Host:            in.Host,
@@ -160,6 +161,7 @@ func (a *App) newMCPServer() *mcp.Server {
 				AuthType:        in.AuthType,
 				EncryptedSecret: []byte(in.Secret),
 				AgentID:         in.AgentID,
+				Tags:            in.Tags,
 				CreatedBy:       in.UserID,
 			})
 			if err != nil {
@@ -386,14 +388,16 @@ type mcpOwnerInput struct {
 
 type mcpTargetCreateInput struct {
 	mcpOwnerInput
-	Alias          string `json:"alias"`
-	TargetType     string `json:"target_type"`
-	Host           string `json:"host"`
-	Port           int    `json:"port"`
-	RemoteUsername string `json:"remote_username"`
-	AuthType       string `json:"auth_type"`
-	Secret         string `json:"secret,omitempty"`
-	AgentID        string `json:"agent_id,omitempty"`
+	Name           string   `json:"name,omitempty"`
+	Alias          string   `json:"alias"`
+	TargetType     string   `json:"target_type"`
+	Host           string   `json:"host"`
+	Port           int      `json:"port"`
+	RemoteUsername string   `json:"remote_username"`
+	AuthType       string   `json:"auth_type"`
+	Secret         string   `json:"secret,omitempty"`
+	AgentID        string   `json:"agent_id,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
 }
 
 type mcpAgentEnrollmentInput struct {

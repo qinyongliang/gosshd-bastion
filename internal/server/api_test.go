@@ -252,6 +252,7 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	postJSON(t, client, srv.URL+"/api/targets", map[string]any{
 		"owner_type":      "organization",
 		"owner_id":        org.Organization.ID,
+		"name":            "Test service",
 		"alias":           "test2",
 		"target_type":     "direct",
 		"host":            "127.0.0.1",
@@ -259,15 +260,23 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 		"remote_username": "root",
 		"auth_type":       "password",
 		"secret":          "secret",
+		"tags":            []string{"测试环境", "db"},
 	}, http.StatusCreated, &target)
-	if target.Target.ID == "" || target.Target.Alias != "test2" {
+	if target.Target.ID == "" || target.Target.Alias != "test2" || target.Target.Name != "Test service" || len(target.Target.Tags) != 2 {
 		t.Fatalf("target response mismatch: %+v", target)
+	}
+	var filtered apiTargetsResponse
+	getJSON(t, client, srv.URL+"/api/targets?owner_type=organization&owner_id="+org.Organization.ID+"&tags=%E6%B5%8B%E8%AF%95%E7%8E%AF%E5%A2%83", http.StatusOK, &filtered)
+	if len(filtered.Targets) != 1 || filtered.Targets[0].ID != target.Target.ID {
+		t.Fatalf("target tag filter mismatch: %+v", filtered)
 	}
 	var renamed apiTargetResponse
 	patchJSON(t, client, srv.URL+"/api/targets/"+target.Target.ID, map[string]any{
 		"alias": "renamed",
+		"name":  "Renamed service",
+		"tags":  []string{"prod"},
 	}, http.StatusOK, &renamed)
-	if renamed.Target.Alias != "renamed" {
+	if renamed.Target.Alias != "renamed" || renamed.Target.Name != "Renamed service" || len(renamed.Target.Tags) != 1 || renamed.Target.Tags[0] != "prod" {
 		t.Fatalf("target rename mismatch: %+v", renamed)
 	}
 	target.Target = renamed.Target

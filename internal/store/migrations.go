@@ -68,6 +68,7 @@ var migrations = []string{
 		id TEXT PRIMARY KEY,
 		owner_type TEXT NOT NULL,
 		owner_id TEXT NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
 		alias TEXT NOT NULL,
 		target_type TEXT NOT NULL,
 		host TEXT NOT NULL,
@@ -80,6 +81,22 @@ var migrations = []string{
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL,
 		UNIQUE (owner_type, owner_id, alias)
+	)`,
+	`ALTER TABLE ssh_targets ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
+	`UPDATE ssh_targets SET name = alias WHERE name = ''`,
+	`CREATE TABLE IF NOT EXISTS target_tags (
+		id TEXT PRIMARY KEY,
+		owner_type TEXT NOT NULL,
+		owner_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		UNIQUE (owner_type, owner_id, name)
+	)`,
+	`CREATE TABLE IF NOT EXISTS target_tag_bindings (
+		target_id TEXT NOT NULL REFERENCES ssh_targets(id) ON DELETE CASCADE,
+		tag_id TEXT NOT NULL REFERENCES target_tags(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (target_id, tag_id)
 	)`,
 	`CREATE TABLE IF NOT EXISTS agent_enrollments (
 		id TEXT PRIMARY KEY,

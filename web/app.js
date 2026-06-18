@@ -13,6 +13,7 @@ const state = {
   audit: [],
   llms: [],
   prompts: [],
+  targetTagFilters: [],
   notice: "",
   error: "",
   enrollment: null,
@@ -90,6 +91,12 @@ function bindEvents() {
         await navigator.clipboard.writeText(button.dataset.value || "");
         state.notice = "Copied";
       }
+      if (action === "toggle-target-tag") {
+        const tag = button.dataset.tag || "";
+        state.targetTagFilters = state.targetTagFilters.includes(tag)
+          ? state.targetTagFilters.filter((item) => item !== tag)
+          : [...state.targetTagFilters, tag];
+      }
       render();
     });
   });
@@ -122,7 +129,10 @@ async function refreshData() {
   ]);
   state.keys = keys.keys || [];
   state.groups = groups.groups || [];
-  state.targets = targets.targets || [];
+  state.targets = (targets.targets || []).map((target) => ({
+    ...target,
+    display_name: `${target.name || target.alias} (${target.alias})`,
+  }));
   state.policies = policies.policies || [];
   state.audit = audit.logs || [];
   state.llms = llms.configs || [];
@@ -266,10 +276,14 @@ function keysPanel() {
 }
 
 function targetsPanel() {
+  const tags = allTargetTags();
+  const targets = filteredTargets();
   return panel("SSH services", "Direct and agent-enrolled services share the same target model.", `
     <form data-action="create-target" class="stack">
       <div class="form-grid">
+        <input name="name" aria-label="Service name" autocomplete="off" placeholder="service name…" required />
         <input name="alias" aria-label="Target alias" autocomplete="off" placeholder="alias, e.g. test2…" required />
+        <input name="tags" aria-label="Target tags" autocomplete="off" placeholder="tags, comma separated…" />
         <select name="target_type" aria-label="Target type"><option value="direct">direct</option><option value="agent">agent</option></select>
         <input name="host" aria-label="Target host" autocomplete="off" placeholder="host…" required />
         <input name="port" aria-label="Target port" type="number" value="22" required />
@@ -280,11 +294,15 @@ function targetsPanel() {
       </div>
       <button type="submit">${icon("server")}Add service</button>
     </form>
-    ${state.targets.length ? table(["Alias", "Type", "Endpoint", "Auth"], state.targets.map((target) => [
-      escapeHTML(target.alias),
+    ${tags.length ? `<div class="filter-chips">${tags.map((tag) => `
+      <button type="button" data-click="toggle-target-tag" data-tag="${escapeHTML(tag)}" class="${state.targetTagFilters.includes(tag) ? "active" : ""}">${escapeHTML(tag)}</button>
+    `).join("")}</div>` : ""}
+    ${targets.length ? table(["Service", "Type", "Endpoint", "Auth", "Tags"], targets.map((target) => [
+      `<strong>${escapeHTML(target.name || target.alias)}</strong><small>${escapeHTML(target.alias)}</small>`,
       escapeHTML(target.target_type),
       escapeHTML(`${target.remote_username}@${target.host}:${target.port}`),
       escapeHTML(target.auth_type),
+      targetTags(target),
     ])) : emptyState("No SSH services", "Add a direct target or enroll an agent.").__raw}
   `);
 }
@@ -367,7 +385,7 @@ function policyPanel() {
       </form>
       <form data-action="bind-policy-target" class="stack mini">
         ${selectOptions("policy_id", "Policy", state.policies, "name")}
-        ${selectOptions("target_id", "Target", state.targets, "alias")}
+        ${selectOptions("target_id", "Target", state.targets, "display_name")}
         <button type="submit">Bind target</button>
       </form>
       <form data-action="bind-policy-group" class="stack mini">
@@ -442,12 +460,36 @@ function activeOrg() {
 }
 
 async function createTarget(data) {
+  const tags = splitTags(data.tags);
   await api.createTarget({
     ...ownerPayload(data),
     port: Number(data.port || 22),
+    tags,
   });
 }
 
 async function createPolicy(data) {
   await api.createPolicy(ownerPayload(data));
+}
+
+function splitTags(raw) {
+  return String(raw || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function allTargetTags() {
+  return [...new Set(state.targets.flatMap((target) => target.tags || []))].sort((a, b) => a.localeCompare(b));
+}
+
+function filteredTargets() {
+  if (!state.targetTagFilters.length) return state.targets;
+  return state.targets.filter((target) => state.targetTagFilters.every((tag) => (target.tags || []).includes(tag)));
+}
+
+function targetTags(target) {
+  const tags = target.tags || [];
+  if (!tags.length) return "";
+  return `<div class="tag-row">${tags.map((tag) => `<span>${escapeHTML(tag)}</span>`).join("")}</div>`;
 }

@@ -499,6 +499,7 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 		ID:              uuid.NewString(),
 		OwnerType:       params.OwnerType,
 		OwnerID:         params.OwnerID,
+		Name:            normalizeTargetName(params.Name, params.Alias),
 		Alias:           strings.TrimSpace(params.Alias),
 		TargetType:      params.TargetType,
 		Host:            strings.TrimSpace(params.Host),
@@ -507,39 +508,62 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 		AuthType:        params.AuthType,
 		EncryptedSecret: append([]byte(nil), params.EncryptedSecret...),
 		AgentID:         params.AgentID,
+		Tags:            normalizeTags(params.Tags),
 		CreatedBy:       params.CreatedBy,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	_, err := r.db.ExecContext(ctx, `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SSHTarget{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ssh_targets (
-			id, owner_type, owner_id, alias, target_type, host, port,
+			id, owner_type, owner_id, name, alias, target_type, host, port,
 			remote_username, auth_type, encrypted_secret, agent_id,
 			created_by, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, target.ID, target.OwnerType, target.OwnerID, target.Alias, target.TargetType, target.Host, target.Port,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, target.ID, target.OwnerType, target.OwnerID, target.Name, target.Alias, target.TargetType, target.Host, target.Port,
 		target.RemoteUsername, target.AuthType, nullableBytes(target.EncryptedSecret), nullableString(target.AgentID),
-		target.CreatedBy, formatTime(target.CreatedAt), formatTime(target.UpdatedAt))
-	if err != nil {
+		target.CreatedBy, formatTime(target.CreatedAt), formatTime(target.UpdatedAt)); err != nil {
+		return SSHTarget{}, err
+	}
+	if err := r.replaceTargetTagsTx(ctx, tx, target, now); err != nil {
+		return SSHTarget{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return SSHTarget{}, err
 	}
 	return target, nil
 }
 
 func (r *Repository) ListSSHTargets(ctx context.Context, ownerType, ownerID string) ([]SSHTarget, error) {
+	return r.ListSSHTargetsFiltered(ctx, SSHTargetFilter{OwnerType: ownerType, OwnerID: ownerID})
+}
+
+func (r *Repository) ListSSHTargetsFiltered(ctx context.Context, filter SSHTargetFilter) ([]SSHTarget, error) {
 	query := `
-		SELECT id, owner_type, owner_id, alias, target_type, host, port, remote_username,
+		SELECT id, owner_type, owner_id, COALESCE(name, ''), alias, target_type, host, port, remote_username,
 			auth_type, encrypted_secret, COALESCE(agent_id, ''), created_by, created_at, updated_at
-		FROM ssh_targets
+		FROM ssh_targets t
 		WHERE 1 = 1`
 	args := []any{}
-	if ownerType != "" {
+	if filter.OwnerType != "" {
 		query += ` AND owner_type = ?`
-		args = append(args, ownerType)
+		args = append(args, filter.OwnerType)
 	}
-	if ownerID != "" {
+	if filter.OwnerID != "" {
 		query += ` AND owner_id = ?`
-		args = append(args, ownerID)
+		args = append(args, filter.OwnerID)
+	}
+	for _, tag := range normalizeTags(filter.Tags) {
+		query += ` AND EXISTS (
+			SELECT 1 FROM target_tag_bindings b
+			JOIN target_tags tag ON tag.id = b.tag_id
+			WHERE b.target_id = t.id AND tag.name = ?
+		)`
+		args = append(args, tag)
 	}
 	query += ` ORDER BY created_at ASC`
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -555,17 +579,31 @@ func (r *Repository) ListSSHTargets(ctx context.Context, ownerType, ownerID stri
 		}
 		targets = append(targets, target)
 	}
-	return targets, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.loadTargetTags(ctx, targets); err != nil {
+		return nil, err
+	}
+	return targets, nil
 }
 
 func (r *Repository) GetSSHTarget(ctx context.Context, targetID string) (SSHTarget, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, owner_type, owner_id, alias, target_type, host, port, remote_username,
+		SELECT id, owner_type, owner_id, COALESCE(name, ''), alias, target_type, host, port, remote_username,
 			auth_type, encrypted_secret, COALESCE(agent_id, ''), created_by, created_at, updated_at
 		FROM ssh_targets
 		WHERE id = ?
 	`, targetID)
-	return scanTarget(row)
+	target, err := scanTarget(row)
+	if err != nil {
+		return SSHTarget{}, err
+	}
+	target.Tags, err = r.listTargetTags(ctx, target.ID)
+	if err != nil {
+		return SSHTarget{}, err
+	}
+	return target, nil
 }
 
 func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, params UpdateSSHTargetParams) (SSHTarget, error) {
@@ -575,6 +613,12 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 	}
 	if params.Alias != "" {
 		current.Alias = strings.TrimSpace(params.Alias)
+	}
+	if params.Name != "" {
+		current.Name = strings.TrimSpace(params.Name)
+	}
+	if strings.TrimSpace(current.Name) == "" {
+		current.Name = current.Alias
 	}
 	if params.Host != "" {
 		current.Host = strings.TrimSpace(params.Host)
@@ -594,18 +638,95 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 	if params.AgentID != "" {
 		current.AgentID = params.AgentID
 	}
+	if params.ReplaceTags {
+		current.Tags = normalizeTags(params.Tags)
+	}
 	current.UpdatedAt = time.Now().UTC()
-	_, err = r.db.ExecContext(ctx, `
-		UPDATE ssh_targets
-		SET alias = ?, host = ?, port = ?, remote_username = ?, auth_type = ?,
-			encrypted_secret = ?, agent_id = ?, updated_at = ?
-		WHERE id = ?
-	`, current.Alias, current.Host, current.Port, current.RemoteUsername, current.AuthType,
-		nullableBytes(current.EncryptedSecret), nullableString(current.AgentID), formatTime(current.UpdatedAt), current.ID)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return SSHTarget{}, err
 	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE ssh_targets
+		SET name = ?, alias = ?, host = ?, port = ?, remote_username = ?, auth_type = ?,
+			encrypted_secret = ?, agent_id = ?, updated_at = ?
+		WHERE id = ?
+	`, current.Name, current.Alias, current.Host, current.Port, current.RemoteUsername, current.AuthType,
+		nullableBytes(current.EncryptedSecret), nullableString(current.AgentID), formatTime(current.UpdatedAt), current.ID); err != nil {
+		return SSHTarget{}, err
+	}
+	if params.ReplaceTags {
+		if err := r.replaceTargetTagsTx(ctx, tx, current, current.UpdatedAt); err != nil {
+			return SSHTarget{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return SSHTarget{}, err
+	}
 	return current, nil
+}
+
+func (r *Repository) replaceTargetTagsTx(ctx context.Context, tx *sql.Tx, target SSHTarget, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM target_tag_bindings WHERE target_id = ?`, target.ID); err != nil {
+		return err
+	}
+	for _, tagName := range normalizeTags(target.Tags) {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO target_tags (id, owner_type, owner_id, name, created_at)
+			VALUES (?, ?, ?, ?, ?)
+		`, uuid.NewString(), target.OwnerType, target.OwnerID, tagName, formatTime(now)); err != nil {
+			return err
+		}
+		var tagID string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT id FROM target_tags
+			WHERE owner_type = ? AND owner_id = ? AND name = ?
+		`, target.OwnerType, target.OwnerID, tagName).Scan(&tagID); err != nil {
+			return wrapScanErr(err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO target_tag_bindings (target_id, tag_id, created_at)
+			VALUES (?, ?, ?)
+		`, target.ID, tagID, formatTime(now)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Repository) loadTargetTags(ctx context.Context, targets []SSHTarget) error {
+	for i := range targets {
+		tags, err := r.listTargetTags(ctx, targets[i].ID)
+		if err != nil {
+			return err
+		}
+		targets[i].Tags = tags
+	}
+	return nil
+}
+
+func (r *Repository) listTargetTags(ctx context.Context, targetID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT tag.name
+		FROM target_tags tag
+		JOIN target_tag_bindings binding ON binding.tag_id = tag.id
+		WHERE binding.target_id = ?
+		ORDER BY tag.name ASC
+	`, targetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tags []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+	return tags, rows.Err()
 }
 
 func (r *Repository) CreateAgentEnrollment(ctx context.Context, params CreateAgentEnrollmentParams) (AgentEnrollment, error) {
@@ -1139,11 +1260,14 @@ func scanUser(row *sql.Row) (User, error) {
 func scanTarget(row *sql.Row) (SSHTarget, error) {
 	var target SSHTarget
 	var created, updated string
-	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Alias, &target.TargetType,
+	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Name, &target.Alias, &target.TargetType,
 		&target.Host, &target.Port, &target.RemoteUsername, &target.AuthType, &target.EncryptedSecret,
 		&target.AgentID, &target.CreatedBy, &created, &updated)
 	if err != nil {
 		return SSHTarget{}, wrapScanErr(err)
+	}
+	if strings.TrimSpace(target.Name) == "" {
+		target.Name = target.Alias
 	}
 	target.CreatedAt = parseTime(created)
 	target.UpdatedAt = parseTime(updated)
@@ -1157,11 +1281,14 @@ type targetScanner interface {
 func scanTargetRows(row targetScanner) (SSHTarget, error) {
 	var target SSHTarget
 	var created, updated string
-	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Alias, &target.TargetType,
+	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Name, &target.Alias, &target.TargetType,
 		&target.Host, &target.Port, &target.RemoteUsername, &target.AuthType, &target.EncryptedSecret,
 		&target.AgentID, &target.CreatedBy, &created, &updated)
 	if err != nil {
 		return SSHTarget{}, wrapScanErr(err)
+	}
+	if strings.TrimSpace(target.Name) == "" {
+		target.Name = target.Alias
 	}
 	target.CreatedAt = parseTime(created)
 	target.UpdatedAt = parseTime(updated)
@@ -1295,6 +1422,28 @@ func personalOrganizationSlug(user User) string {
 		slug = "user"
 	}
 	return "personal-" + slug + "-" + strings.ReplaceAll(user.ID[:8], "-", "")
+}
+
+func normalizeTargetName(name, alias string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = strings.TrimSpace(alias)
+	}
+	return name
+}
+
+func normalizeTags(tags []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" || seen[tag] {
+			continue
+		}
+		seen[tag] = true
+		out = append(out, tag)
+	}
+	return out
 }
 
 func (r *Repository) String() string {

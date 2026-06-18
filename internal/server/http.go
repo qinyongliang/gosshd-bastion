@@ -409,6 +409,7 @@ func (a *App) ensureAgentTarget(ctx context.Context, enrollment store.AgentEnrol
 	_, err = a.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
 		OwnerType:      enrollment.OwnerType,
 		OwnerID:        enrollment.OwnerID,
+		Name:           alias,
 		Alias:          alias,
 		TargetType:     store.TargetAgent,
 		Host:           enrollment.DefaultHost,

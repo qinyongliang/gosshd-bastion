@@ -81,6 +81,7 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 			"user_id":         userID,
 			"owner_type":      "organization",
 			"owner_id":        orgID,
+			"name":            "Test service",
 			"alias":           "test2",
 			"target_type":     "direct",
 			"host":            "127.0.0.1",
@@ -88,6 +89,7 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 			"remote_username": "root",
 			"auth_type":       "password",
 			"secret":          "secret",
+			"tags":            []string{"测试环境"},
 		},
 	})
 	if err != nil {
@@ -95,6 +97,9 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 	}
 	if alias := stringField(t, target.StructuredContent, "target", "alias"); alias != "test2" {
 		t.Fatalf("target alias mismatch: %q in %#v", alias, target.StructuredContent)
+	}
+	if name := stringField(t, target.StructuredContent, "target", "name"); name != "Test service" {
+		t.Fatalf("target name mismatch: %q in %#v", name, target.StructuredContent)
 	}
 }
 
