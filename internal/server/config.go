@@ -3,22 +3,23 @@ package server
 const DefaultVersion = "dev"
 
 type Config struct {
-	HTTPListen        string
-	SSHListen         string
-	HostKeyPath       string
-	DatabasePath      string
-	SecretKey         string
-	SecretKeyPath     string
-	SessionCookieName string
-	PublicHost        string
-	PublicSSHHost     string
-	PublicSSHPort     string
-	AgentToken        string
-	AgentPath         string
-	AgentCachePath    string
-	Version           string
-	ReleaseBaseURL    string
-	ReleaseProxyURL   string
+	HTTPListen             string
+	SSHListen              string
+	HostKeyPath            string
+	DatabasePath           string
+	SecretKey              string
+	SecretKeyPath          string
+	BootstrapAdminPassword string
+	SessionCookieName      string
+	PublicHost             string
+	PublicSSHHost          string
+	PublicSSHPort          string
+	AgentToken             string
+	AgentPath              string
+	AgentCachePath         string
+	Version                string
+	ReleaseBaseURL         string
+	ReleaseProxyURL        string
 }
 
 func (c Config) publicHost() string {

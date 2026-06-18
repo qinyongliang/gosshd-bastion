@@ -41,8 +41,8 @@ func (a *App) handleListOrganizationGroups(w http.ResponseWriter, r *http.Reques
 
 func (a *App) handleCreateOrganizationGroup(w http.ResponseWriter, r *http.Request, user store.User) {
 	orgID := r.PathValue("id")
-	if _, err := a.store.Repository().GetOrganizationMember(r.Context(), orgID, user.ID); err != nil {
-		writeError(w, http.StatusForbidden, "organization access required")
+	if err := a.requireOrganizationAdmin(r.Context(), orgID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	var req struct {
@@ -67,8 +67,8 @@ func (a *App) handleCreateOrganizationGroup(w http.ResponseWriter, r *http.Reque
 
 func (a *App) handleAddOrganizationGroupMember(w http.ResponseWriter, r *http.Request, user store.User) {
 	orgID := r.PathValue("id")
-	if _, err := a.store.Repository().GetOrganizationMember(r.Context(), orgID, user.ID); err != nil {
-		writeError(w, http.StatusForbidden, "organization access required")
+	if err := a.requireOrganizationAdmin(r.Context(), orgID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	var req struct {
@@ -87,8 +87,8 @@ func (a *App) handleAddOrganizationGroupMember(w http.ResponseWriter, r *http.Re
 
 func (a *App) handleRemoveOrganizationGroupMember(w http.ResponseWriter, r *http.Request, user store.User) {
 	orgID := r.PathValue("id")
-	if _, err := a.store.Repository().GetOrganizationMember(r.Context(), orgID, user.ID); err != nil {
-		writeError(w, http.StatusForbidden, "organization access required")
+	if err := a.requireOrganizationAdmin(r.Context(), orgID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	if err := a.store.Repository().RemoveUserFromGroup(r.Context(), r.PathValue("group_id"), r.PathValue("user_id")); err != nil {

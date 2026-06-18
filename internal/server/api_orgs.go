@@ -43,7 +43,11 @@ func (a *App) handleListOrganizations(w http.ResponseWriter, r *http.Request, us
 		Organizations []apiOrganization `json:"organizations"`
 	}{}
 	for _, org := range orgs {
-		out.Organizations = append(out.Organizations, apiOrganizationFromStore(org))
+		apiOrg := apiOrganizationFromStore(org)
+		if member, err := a.store.Repository().GetOrganizationMember(r.Context(), org.ID, user.ID); err == nil {
+			apiOrg.Role = member.Role
+		}
+		out.Organizations = append(out.Organizations, apiOrg)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -138,4 +142,134 @@ func (a *App) handleLeaveOrganization(w http.ResponseWriter, r *http.Request, us
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleListOrganizationMembers(w http.ResponseWriter, r *http.Request, user store.User) {
+	orgID := r.PathValue("id")
+	if err := a.requireOrganizationAdmin(r.Context(), orgID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	a.writeOrganizationMembers(w, r, orgID)
+}
+
+func (a *App) handleAddOrganizationMember(w http.ResponseWriter, r *http.Request, user store.User) {
+	orgID := r.PathValue("id")
+	if err := a.requireOrganizationAdmin(r.Context(), orgID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	var req struct {
+		UserID string `json:"user_id"`
+		Email  string `json:"email"`
+		Role   string `json:"role"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" && strings.TrimSpace(req.Email) != "" {
+		target, err := a.store.Repository().GetUserByEmail(r.Context(), req.Email)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		userID = target.ID
+	}
+	if userID == "" {
+		writeError(w, http.StatusBadRequest, "user_id or email is required")
+		return
+	}
+	role := strings.TrimSpace(req.Role)
+	if role == "" {
+		role = store.RoleMember
+	}
+	if role == store.RoleOwner {
+		writeError(w, http.StatusBadRequest, "use transfer owner endpoint")
+		return
+	}
+	if err := a.store.Repository().AddOrganizationMember(r.Context(), orgID, userID, role); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (a *App) handleUpdateOrganizationMember(w http.ResponseWriter, r *http.Request, user store.User) {
+	orgID := r.PathValue("id")
+	if err := a.requireOrganizationAdmin(r.Context(), orgID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	a.updateOrganizationMemberRole(w, r, orgID, r.PathValue("user_id"))
+}
+
+func (a *App) handleRemoveOrganizationMember(w http.ResponseWriter, r *http.Request, user store.User) {
+	orgID := r.PathValue("id")
+	if err := a.requireOrganizationAdmin(r.Context(), orgID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if err := a.store.Repository().RemoveOrganizationMember(r.Context(), orgID, r.PathValue("user_id")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleTransferOrganizationOwner(w http.ResponseWriter, r *http.Request, user store.User) {
+	orgID := r.PathValue("id")
+	if err := a.requireOrganizationOwner(r.Context(), orgID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	a.transferOrganizationOwner(w, r, orgID)
+}
+
+func (a *App) writeOrganizationMembers(w http.ResponseWriter, r *http.Request, orgID string) {
+	members, err := a.store.Repository().ListOrganizationMembers(r.Context(), orgID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := apiOrganizationMembersResponse{}
+	for _, member := range members {
+		out.Members = append(out.Members, apiOrganizationMemberFromStore(member))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) updateOrganizationMemberRole(w http.ResponseWriter, r *http.Request, orgID, userID string) {
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.Role == store.RoleOwner {
+		writeError(w, http.StatusBadRequest, "use transfer owner endpoint")
+		return
+	}
+	if err := a.store.Repository().UpdateOrganizationMemberRole(r.Context(), orgID, userID, req.Role); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (a *App) transferOrganizationOwner(w http.ResponseWriter, r *http.Request, orgID string) {
+	var req struct {
+		UserID string `json:"user_id"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if err := a.store.Repository().TransferOrganizationOwner(r.Context(), orgID, req.UserID, store.RoleAdmin); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
