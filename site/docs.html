@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Documentation for GOSSHD Bastion, an AI service bastion with SSH aliases, agent enrollment, policies, LLM review, and audit logs."
+    />
+    <title>Documentation | GOSSHD Bastion</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="docs">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <canvas class="space-canvas" id="spaceCanvas" aria-hidden="true"></canvas>
+    <header class="site-header">
+      <a class="brand" href="./index.html" aria-label="GOSSHD Bastion home">
+        <span class="brand-mark">GB</span>
+        <span>GOSSHD Bastion</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="./index.html">Home</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="#agents">Agents</a>
+        <a href="#policies">Policies</a>
+        <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
+      </nav>
+    </header>
+
+    <main class="docs-layout" id="main">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <a href="#overview">Overview</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="#identity">Identity</a>
+        <a href="#targets">SSH targets</a>
+        <a href="#agents">Agent install</a>
+        <a href="#policies">Command policies</a>
+        <a href="#llm">LLM review</a>
+        <a href="#audit">Audit</a>
+        <a href="#release">Release packages</a>
+      </aside>
+
+      <article class="docs-content">
+        <section class="docs-hero" id="overview">
+          <p class="eyebrow">Documentation</p>
+          <h1>Operate SSH access for AI services without giving automation a blind shell.</h1>
+          <p>
+            GOSSHD Bastion is a single Go server with SQLite storage, an embedded console, and an SSH endpoint.
+            It turns users, organizations, public keys, direct targets, agent targets, command safety groups,
+            LLM review, and audit logs into one deployable control plane.
+          </p>
+        </section>
+
+        <section class="doc-section" id="quickstart">
+          <h2>Quickstart</h2>
+          <ol class="steps">
+            <li>Download a server archive from the release page.</li>
+            <li>Start the server with HTTP, SSH, database, and host-key paths.</li>
+            <li>Open the console, register a user, and add your SSH public key.</li>
+            <li>Add a direct target or enroll an agent target.</li>
+            <li>Connect with the target alias as the SSH username.</li>
+          </ol>
+          <pre><code>gosshd-server \
+  --http-listen :80 \
+  --ssh-listen :22 \
+  --database-path gosshd.db \
+  --host-key-path gosshd_host_key</code></pre>
+          <pre><code>ssh test2@public-host</code></pre>
+        </section>
+
+        <section class="doc-section" id="identity">
+          <h2>Identity model</h2>
+          <p>
+            Users authenticate to the web console with email and password. Users authenticate to SSH with their
+            configured public keys. During SSH login, the presented public key maps to a platform user, and the SSH
+            username maps to a target alias.
+          </p>
+          <p>
+            Every registered user receives a personal organization. Shared organizations can invite users, and every
+            organization includes a default all-members group for policy binding.
+          </p>
+        </section>
+
+        <section class="doc-section" id="targets">
+          <h2>SSH targets</h2>
+          <div class="doc-grid">
+            <article>
+              <h3>Direct target</h3>
+              <p>The bastion connects directly to a host and port using password or private-key authentication.</p>
+            </article>
+            <article>
+              <h3>Agent target</h3>
+              <p>The bastion opens a TCP stream through an enrolled agent, then performs the SSH handshake over it.</p>
+            </article>
+          </div>
+          <p>
+            Agent-enrolled hosts are normal SSH targets. They can be renamed, bound to policies, and filtered in audit
+            views just like manually added targets.
+          </p>
+        </section>
+
+        <section class="doc-section" id="agents">
+          <h2>Agent install</h2>
+          <p>Create an enrollment in the console. The default command runs the agent in the current shell.</p>
+          <pre><code>curl -fsSL http://public-host/install/&lt;token&gt;.sh | sh</code></pre>
+          <pre><code>irm http://public-host/install/&lt;token&gt;.ps1 | iex</code></pre>
+          <p>Use install mode when the agent should survive restarts.</p>
+          <pre><code>curl -fsSL http://public-host/install/&lt;token&gt;.sh | sudo sh -s -- install</code></pre>
+          <pre><code>$s='http://public-host/install/&lt;token&gt;.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install</code></pre>
+          <p>Linux uses systemd through <code>systemctl</code>. Windows uses <code>sc.exe</code>.</p>
+        </section>
+
+        <section class="doc-section" id="policies">
+          <h2>Command safety groups</h2>
+          <p>
+            Policies bind to targets and optionally to organization user groups. A policy with no user-group binding
+            applies to all users who can access the target.
+          </p>
+          <ol class="steps">
+            <li>Whitelist rules allow exact, prefix, or contains matches.</li>
+            <li>Blacklist rules deny exact, prefix, or contains matches.</li>
+            <li>Unmatched commands can be sent to LLM review.</li>
+            <li>If no LLM is configured, the policy default action is used.</li>
+          </ol>
+        </section>
+
+        <section class="doc-section" id="llm">
+          <h2>LLM review</h2>
+          <p>
+            LLM configs use an OpenAI-compatible chat completions contract with base URL, API key, model, timeout,
+            and prompt resource. The model response must be JSON with <code>allow</code> and <code>reason</code>.
+            Invalid JSON and request errors fail closed.
+          </p>
+        </section>
+
+        <section class="doc-section" id="audit">
+          <h2>Audit logs</h2>
+          <p>
+            Exec attempts record user, target, organization, session, command, request type, decision, reason,
+            exit code, timing, and remote address. The audit table is built for AI operations where command provenance
+            matters after the fact.
+          </p>
+        </section>
+
+        <section class="doc-section" id="release">
+          <h2>Release packages</h2>
+          <p>
+            The current release publishes cross-platform server archives and standalone agent binaries. This version
+            intentionally does not publish full packages.
+          </p>
+          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.0-bastion">Open v0.1.0-bastion</a>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <span>GOSSHD Bastion docs</span>
+      <a href="./index.html">Home</a>
+      <a href="https://github.com/qinyongliang/gosshd-bastion/issues">Issues</a>
+    </footer>
+    <script src="./main.js"></script>
+  </body>
+</html>

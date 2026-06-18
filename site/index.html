@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="GOSSHD Bastion is an AI-native SSH access plane for agents, tools, and operators that need audited access to private services."
+    />
+    <title>GOSSHD Bastion | AI Service Bastion</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="home">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <canvas class="space-canvas" id="spaceCanvas" aria-hidden="true"></canvas>
+    <header class="site-header">
+      <a class="brand" href="./index.html" aria-label="GOSSHD Bastion home">
+        <span class="brand-mark">GB</span>
+        <span>GOSSHD Bastion</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="#architecture">Architecture</a>
+        <a href="#security">Security</a>
+        <a href="./docs.html">Docs</a>
+        <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Bastion for AI services</p>
+          <h1>GOSSHD Bastion</h1>
+          <p class="hero-lede">
+            A sci-fi quiet access plane where AI agents, operators, and automation reach SSH services through aliases,
+            policy checks, and complete command audit trails.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button primary" href="./docs.html">Read the docs</a>
+            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.0-bastion">Download release</a>
+          </div>
+          <dl class="signal-row" aria-label="Product highlights">
+            <div>
+              <dt>AI ready</dt>
+              <dd>LLM command review</dd>
+            </div>
+            <div>
+              <dt>SSH native</dt>
+              <dd><code>ssh test2@host</code></dd>
+            </div>
+            <div>
+              <dt>Audited</dt>
+              <dd>Every exec decision</dd>
+            </div>
+          </dl>
+        </div>
+        <aside class="mission-panel" aria-label="Live access trace preview">
+          <div class="panel-status">
+            <span class="status-dot"></span>
+            <span>policy stream active</span>
+          </div>
+          <div class="trace-list">
+            <span>public key mapped to user: ai-runner</span>
+            <span>alias resolved: inference-gpu</span>
+            <span>group policy: production-ai</span>
+            <span>LLM verdict: allow with watch</span>
+            <span>audit row sealed: exit 0</span>
+          </div>
+        </aside>
+      </section>
+
+      <section class="product-band" id="architecture">
+        <div class="section-heading">
+          <p class="eyebrow">Control plane</p>
+          <h2>One gateway for human operators and autonomous AI work.</h2>
+          <p>
+            GOSSHD Bastion keeps the SSH interface familiar while moving identity, target routing, command policy,
+            and audit into a SQLite-backed control plane.
+          </p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card">
+            <span class="card-code">01</span>
+            <h3>Public-key identity</h3>
+            <p>SSH keys identify platform users. The SSH username becomes the target alias, so access stays simple.</p>
+          </article>
+          <article class="feature-card">
+            <span class="card-code">02</span>
+            <h3>Agent-backed services</h3>
+            <p>Private hosts enroll through install scripts and become normal renameable SSH targets.</p>
+          </article>
+          <article class="feature-card">
+            <span class="card-code">03</span>
+            <h3>Command security groups</h3>
+            <p>Bind whitelist, blacklist, or LLM-backed review policies to targets and organization user groups.</p>
+          </article>
+          <article class="feature-card">
+            <span class="card-code">04</span>
+            <h3>Audit for automation</h3>
+            <p>Every exec attempt records user, target, decision, reason, timing, exit code, and remote address.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="diagram-band">
+        <div class="diagram-shell" aria-label="AI bastion request flow">
+          <div class="diagram-node source">AI agent</div>
+          <div class="diagram-link"></div>
+          <div class="diagram-node core">GOSSHD Bastion</div>
+          <div class="diagram-link"></div>
+          <div class="diagram-node target">SSH service</div>
+        </div>
+        <div class="diagram-copy">
+          <p class="eyebrow">Alias route</p>
+          <h2><code>ssh inference-gpu@public-ip</code></h2>
+          <p>
+            The presented key finds the user. The alias finds a personal or organization target. A policy decides
+            whether the command runs locally, through an agent, or gets denied before it reaches production.
+          </p>
+        </div>
+      </section>
+
+      <section class="product-band security-band" id="security">
+        <div class="section-heading">
+          <p class="eyebrow">AI safety posture</p>
+          <h2>Designed for tools that can act faster than humans can review.</h2>
+        </div>
+        <div class="security-grid">
+          <article>
+            <h3>Default group model</h3>
+            <p>Every organization has an all-members group, and policies can target one or more groups.</p>
+          </article>
+          <article>
+            <h3>Fail-closed LLM review</h3>
+            <p>OpenAI-compatible review can decide unmatched commands. Invalid responses are denied.</p>
+          </article>
+          <article>
+            <h3>Startup agents</h3>
+            <p>Linux agents install with systemd. Windows agents install with sc.exe for boot-time availability.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="quickstart-band">
+        <div>
+          <p class="eyebrow">First launch</p>
+          <h2>Bring the bastion online.</h2>
+        </div>
+        <pre><code>gosshd-server \
+  --http-listen :80 \
+  --ssh-listen :22 \
+  --database-path gosshd.db \
+  --host-key-path gosshd_host_key</code></pre>
+        <a class="button primary" href="./docs.html#quickstart">Open quickstart</a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>GOSSHD Bastion</span>
+      <a href="./docs.html">Documentation</a>
+      <a href="https://github.com/qinyongliang/gosshd-bastion">Source</a>
+    </footer>
+    <script src="./main.js"></script>
+  </body>
+</html>
