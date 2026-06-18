@@ -48,6 +48,7 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 		"command_policies",
 		"policy_rules",
 		"policy_targets",
+		"policy_target_tags",
 		"policy_user_groups",
 		"llm_policy_configs",
 		"llm_prompt_resources",
@@ -244,6 +245,9 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if err := repo.AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
 		t.Fatal(err)
 	}
+	if err := repo.AttachPolicyToTargetTag(ctx, policy.ID, OwnerOrganization, personal.ID, "prod"); err != nil {
+		t.Fatal(err)
+	}
 	if err := repo.AttachPolicyToUserGroup(ctx, policy.ID, groups[0].ID); err != nil {
 		t.Fatal(err)
 	}
@@ -253,6 +257,9 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 	if len(policies) != 1 || len(policies[0].Rules) != 1 || policies[0].Rules[0].ID != rule.ID || len(policies[0].UserGroupIDs) != 1 {
 		t.Fatalf("policy attachment mismatch: %#v", policies)
+	}
+	if len(policies[0].TargetTags) != 1 || policies[0].TargetTags[0] != "prod" {
+		t.Fatalf("policy target tag mismatch: %#v", policies[0])
 	}
 	if policies[0].LLMConfigID != llm.ID {
 		t.Fatalf("policy llm config mismatch: %#v", policies[0])

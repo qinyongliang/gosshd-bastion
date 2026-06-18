@@ -300,6 +300,21 @@ func (a *App) newMCPServer() *mcp.Server {
 			return nil, mcpOK{OK: true}, nil
 		})
 
+	mcp.AddTool(s, &mcp.Tool{Name: "policy_bind_target_tag", Description: "Bind a policy to every SSH target with a tag."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpPolicyTagInput) (*mcp.CallToolResult, mcpOK, error) {
+			if err := a.ensureServices(ctx); err != nil {
+				return nil, mcpOK{}, err
+			}
+			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, in.UserID)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			if err := a.store.Repository().AttachPolicyToTargetTag(ctx, in.PolicyID, ownerType, ownerID, in.Tag); err != nil {
+				return nil, mcpOK{}, err
+			}
+			return nil, mcpOK{OK: true}, nil
+		})
+
 	mcp.AddTool(s, &mcp.Tool{Name: "policy_bind_user_group", Description: "Bind a policy to an organization user group."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpPolicyGroupInput) (*mcp.CallToolResult, mcpOK, error) {
 			if err := a.ensureServices(ctx); err != nil {
@@ -440,6 +455,12 @@ type mcpPolicyRuleInput struct {
 type mcpPolicyTargetInput struct {
 	PolicyID string `json:"policy_id"`
 	TargetID string `json:"target_id"`
+}
+
+type mcpPolicyTagInput struct {
+	mcpOwnerInput
+	PolicyID string `json:"policy_id"`
+	Tag      string `json:"tag"`
 }
 
 type mcpPolicyGroupInput struct {

@@ -39,7 +39,7 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !mcpHasTool(tools, "target_create") || !mcpHasTool(tools, "policy_create") || !mcpHasTool(tools, "llm_prompt_create") {
+	if !mcpHasTool(tools, "target_create") || !mcpHasTool(tools, "policy_create") || !mcpHasTool(tools, "policy_bind_target_tag") || !mcpHasTool(tools, "llm_prompt_create") {
 		t.Fatalf("expected bastion tools, got %+v", tools.Tools)
 	}
 

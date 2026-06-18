@@ -1036,6 +1036,11 @@ func (r *Repository) ListCommandPolicies(ctx context.Context, ownerType, ownerID
 			return nil, err
 		}
 		policy.UserGroupIDs = userGroupIDs
+		targetTags, err := r.listPolicyTargetTags(ctx, policy.ID)
+		if err != nil {
+			return nil, err
+		}
+		policy.TargetTags = targetTags
 		policies = append(policies, policy)
 	}
 	return policies, rows.Err()
@@ -1068,6 +1073,37 @@ func (r *Repository) AttachPolicyToTarget(ctx context.Context, policyID, targetI
 	return err
 }
 
+func (r *Repository) AttachPolicyToTargetTag(ctx context.Context, policyID, ownerType, ownerID, tagName string) error {
+	tagName = strings.TrimSpace(tagName)
+	if tagName == "" {
+		return errors.New("tag name is required")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO target_tags (id, owner_type, owner_id, name, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, uuid.NewString(), ownerType, ownerID, tagName, formatTime(time.Now().UTC())); err != nil {
+		return err
+	}
+	var tagID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id FROM target_tags WHERE owner_type = ? AND owner_id = ? AND name = ?
+	`, ownerType, ownerID, tagName).Scan(&tagID); err != nil {
+		return wrapScanErr(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO policy_target_tags (policy_id, tag_id)
+		VALUES (?, ?)
+	`, policyID, tagID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (r *Repository) AttachPolicyToUserGroup(ctx context.Context, policyID, groupID string) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO policy_user_groups (policy_id, group_id)
@@ -1088,10 +1124,17 @@ func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string)
 		SELECT p.id, p.owner_type, p.owner_id, p.name, p.default_action,
 			COALESCE(p.llm_config_id, ''), COALESCE(p.llm_prompt_id, ''), p.created_at
 		FROM command_policies p
-		JOIN policy_targets pt ON pt.policy_id = p.id
-		WHERE pt.target_id = ?
+		WHERE EXISTS (
+			SELECT 1 FROM policy_targets pt
+			WHERE pt.policy_id = p.id AND pt.target_id = ?
+		) OR EXISTS (
+			SELECT 1
+			FROM policy_target_tags ptt
+			JOIN target_tag_bindings ttb ON ttb.tag_id = ptt.tag_id
+			WHERE ptt.policy_id = p.id AND ttb.target_id = ?
+		)
 		ORDER BY p.created_at ASC
-	`, targetID)
+	`, targetID, targetID)
 	if err != nil {
 		return nil, err
 	}
@@ -1115,6 +1158,11 @@ func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string)
 			return nil, err
 		}
 		policy.UserGroupIDs = userGroupIDs
+		targetTags, err := r.listPolicyTargetTags(ctx, policy.ID)
+		if err != nil {
+			return nil, err
+		}
+		policy.TargetTags = targetTags
 		policies = append(policies, policy)
 	}
 	return policies, rows.Err()
@@ -1139,6 +1187,29 @@ func (r *Repository) listPolicyUserGroupIDs(ctx context.Context, policyID string
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func (r *Repository) listPolicyTargetTags(ctx context.Context, policyID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT tag.name
+		FROM target_tags tag
+		JOIN policy_target_tags binding ON binding.tag_id = tag.id
+		WHERE binding.policy_id = ?
+		ORDER BY tag.name ASC
+	`, policyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tags []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+	return tags, rows.Err()
 }
 
 func (r *Repository) listPolicyRules(ctx context.Context, policyID string) ([]PolicyRule, error) {

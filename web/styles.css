@@ -319,6 +319,10 @@ code {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.grid.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .grid.tight {
   margin-bottom: 0;
 }
@@ -574,7 +578,7 @@ td small {
     position: relative;
     height: auto;
   }
-  .metrics, .grid.two, .grid.three {
+  .metrics, .grid.two, .grid.three, .grid.four {
     grid-template-columns: 1fr;
   }
   .form-grid, .inline-form {

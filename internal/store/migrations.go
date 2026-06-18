@@ -145,6 +145,11 @@ var migrations = []string{
 		target_id TEXT NOT NULL REFERENCES ssh_targets(id) ON DELETE CASCADE,
 		PRIMARY KEY (policy_id, target_id)
 	)`,
+	`CREATE TABLE IF NOT EXISTS policy_target_tags (
+		policy_id TEXT NOT NULL REFERENCES command_policies(id) ON DELETE CASCADE,
+		tag_id TEXT NOT NULL REFERENCES target_tags(id) ON DELETE CASCADE,
+		PRIMARY KEY (policy_id, tag_id)
+	)`,
 	`CREATE TABLE IF NOT EXISTS policy_user_groups (
 		policy_id TEXT NOT NULL REFERENCES command_policies(id) ON DELETE CASCADE,
 		group_id TEXT NOT NULL REFERENCES organization_user_groups(id) ON DELETE CASCADE,

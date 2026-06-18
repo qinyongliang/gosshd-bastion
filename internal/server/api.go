@@ -88,6 +88,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/policies", a.requireUser(a.handleCreatePolicy))
 	mux.HandleFunc("POST /api/policies/{id}/rules", a.requireUser(a.handleCreatePolicyRule))
 	mux.HandleFunc("POST /api/policies/{id}/targets", a.requireUser(a.handleAttachPolicyTarget))
+	mux.HandleFunc("POST /api/policies/{id}/target-tags", a.requireUser(a.handleAttachPolicyTargetTag))
 	mux.HandleFunc("POST /api/policies/{id}/user-groups", a.requireUser(a.handleAttachPolicyUserGroup))
 	mux.HandleFunc("GET /api/audit", a.requireUser(a.handleListAuditLogs))
 	mux.HandleFunc("GET /install/{file}", a.handleInstall)

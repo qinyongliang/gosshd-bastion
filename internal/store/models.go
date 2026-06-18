@@ -163,6 +163,7 @@ type CommandPolicy struct {
 	CreatedAt     time.Time
 	Rules         []PolicyRule
 	UserGroupIDs  []string
+	TargetTags    []string
 }
 
 type PolicyRule struct {

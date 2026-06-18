@@ -51,6 +51,7 @@ function bindEvents() {
         pattern: data.pattern,
       });
       if (action === "bind-policy-target") await api.bindTarget(data.policy_id, data.target_id);
+      if (action === "bind-policy-tag") await api.bindTargetTag(data.policy_id, { ...owner(), tag: data.tag });
       if (action === "bind-policy-group") await api.bindGroup(data.policy_id, data.group_id);
       form.reset();
       state.notice = "Saved";
@@ -360,6 +361,7 @@ function promptPanel() {
 }
 
 function policyPanel() {
+  const tagChoices = allTargetTags().map((tag) => ({ id: tag, name: tag }));
   return panel("Command security groups", "Bind policies to targets and user groups. Blacklists, whitelists, and LLM review can be combined.", `
     <form data-action="create-policy" class="stack">
       <div class="form-grid">
@@ -370,12 +372,13 @@ function policyPanel() {
       </div>
       <button type="submit">${icon("shield")}Create policy</button>
     </form>
-    ${state.policies.length ? table(["Policy", "Default", "Groups"], state.policies.map((policy) => [
+    ${state.policies.length ? table(["Policy", "Default", "Tags", "Groups"], state.policies.map((policy) => [
       escapeHTML(policy.name),
       escapeHTML(policy.default_action),
+      targetPolicyTags(policy),
       (policy.user_group_ids || []).length || "all users",
     ])) : emptyState("No policies", "Create a policy and bind it below.").__raw}
-    <div class="grid three tight">
+    <div class="grid four tight">
       <form data-action="add-rule" class="stack mini">
         ${selectOptions("policy_id", "Policy", state.policies, "name")}
         <select name="rule_type" aria-label="Rule type"><option value="blacklist">blacklist</option><option value="whitelist">whitelist</option></select>
@@ -387,6 +390,11 @@ function policyPanel() {
         ${selectOptions("policy_id", "Policy", state.policies, "name")}
         ${selectOptions("target_id", "Target", state.targets, "display_name")}
         <button type="submit">Bind target</button>
+      </form>
+      <form data-action="bind-policy-tag" class="stack mini">
+        ${selectOptions("policy_id", "Policy", state.policies, "name")}
+        ${selectOptions("tag", "Target tag", tagChoices, "name")}
+        <button type="submit">Bind tag</button>
       </form>
       <form data-action="bind-policy-group" class="stack mini">
         ${selectOptions("policy_id", "Policy", state.policies, "name")}
@@ -490,6 +498,12 @@ function filteredTargets() {
 
 function targetTags(target) {
   const tags = target.tags || [];
+  if (!tags.length) return "";
+  return `<div class="tag-row">${tags.map((tag) => `<span>${escapeHTML(tag)}</span>`).join("")}</div>`;
+}
+
+function targetPolicyTags(policy) {
+  const tags = policy.target_tags || [];
   if (!tags.length) return "";
   return `<div class="tag-row">${tags.map((tag) => `<span>${escapeHTML(tag)}</span>`).join("")}</div>`;
 }
