@@ -20,8 +20,10 @@ var migrations = []string{
 		name TEXT NOT NULL,
 		slug TEXT NOT NULL UNIQUE,
 		owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		is_personal INTEGER NOT NULL DEFAULT 0,
 		created_at TEXT NOT NULL
 	)`,
+	`ALTER TABLE organizations ADD COLUMN is_personal INTEGER NOT NULL DEFAULT 0`,
 	`CREATE TABLE IF NOT EXISTS organization_members (
 		organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
 		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -109,8 +111,10 @@ var migrations = []string{
 		name TEXT NOT NULL,
 		default_action TEXT NOT NULL,
 		llm_config_id TEXT,
+		llm_prompt_id TEXT,
 		created_at TEXT NOT NULL
 	)`,
+	`ALTER TABLE command_policies ADD COLUMN llm_prompt_id TEXT`,
 	`CREATE TABLE IF NOT EXISTS policy_rules (
 		id TEXT PRIMARY KEY,
 		policy_id TEXT NOT NULL REFERENCES command_policies(id) ON DELETE CASCADE,
@@ -137,8 +141,17 @@ var migrations = []string{
 		base_url TEXT NOT NULL,
 		api_key_encrypted BLOB,
 		model TEXT NOT NULL,
-		prompt TEXT NOT NULL,
 		timeout_seconds INTEGER NOT NULL,
+		created_at TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS llm_prompt_resources (
+		id TEXT PRIMARY KEY,
+		owner_type TEXT NOT NULL,
+		owner_id TEXT NOT NULL,
+		title TEXT NOT NULL,
+		content TEXT NOT NULL,
+		is_default INTEGER NOT NULL,
+		is_readonly INTEGER NOT NULL,
 		created_at TEXT NOT NULL
 	)`,
 	`CREATE TABLE IF NOT EXISTS command_audit_logs (

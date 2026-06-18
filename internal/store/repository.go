@@ -26,11 +26,26 @@ func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (U
 		PasswordHash: append([]byte(nil), params.PasswordHash...),
 		CreatedAt:    now,
 	}
-	_, err := r.db.ExecContext(ctx, `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users (id, email, display_name, password_hash, created_at)
 		VALUES (?, ?, ?, ?, ?)
-	`, user.ID, user.Email, user.DisplayName, user.PasswordHash, formatTime(user.CreatedAt))
-	if err != nil {
+	`, user.ID, user.Email, user.DisplayName, user.PasswordHash, formatTime(user.CreatedAt)); err != nil {
+		return User{}, err
+	}
+	if _, err := r.createOrganizationTx(ctx, tx, CreateOrganizationParams{
+		Name:        personalOrganizationName(user),
+		Slug:        personalOrganizationSlug(user),
+		OwnerUserID: user.ID,
+		IsPersonal:  true,
+	}, now); err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return User{}, err
 	}
 	return user, nil
@@ -92,22 +107,34 @@ func (r *Repository) DeleteSessionByTokenHash(ctx context.Context, tokenHash []b
 
 func (r *Repository) CreateOrganization(ctx context.Context, params CreateOrganizationParams) (Organization, error) {
 	now := time.Now().UTC()
-	org := Organization{
-		ID:          uuid.NewString(),
-		Name:        strings.TrimSpace(params.Name),
-		Slug:        strings.TrimSpace(params.Slug),
-		OwnerUserID: params.OwnerUserID,
-		CreatedAt:   now,
-	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Organization{}, err
 	}
 	defer tx.Rollback()
+	org, err := r.createOrganizationTx(ctx, tx, params, now)
+	if err != nil {
+		return Organization{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Organization{}, err
+	}
+	return org, nil
+}
+
+func (r *Repository) createOrganizationTx(ctx context.Context, tx *sql.Tx, params CreateOrganizationParams, now time.Time) (Organization, error) {
+	org := Organization{
+		ID:          uuid.NewString(),
+		Name:        strings.TrimSpace(params.Name),
+		Slug:        strings.TrimSpace(params.Slug),
+		OwnerUserID: params.OwnerUserID,
+		IsPersonal:  params.IsPersonal,
+		CreatedAt:   now,
+	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO organizations (id, name, slug, owner_user_id, created_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, org.ID, org.Name, org.Slug, org.OwnerUserID, formatTime(org.CreatedAt)); err != nil {
+		INSERT INTO organizations (id, name, slug, owner_user_id, is_personal, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, org.ID, org.Name, org.Slug, org.OwnerUserID, boolInt(org.IsPersonal), formatTime(org.CreatedAt)); err != nil {
 		return Organization{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -129,7 +156,11 @@ func (r *Repository) CreateOrganization(ctx context.Context, params CreateOrgani
 	`, groupID, org.OwnerUserID, formatTime(now)); err != nil {
 		return Organization{}, err
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO llm_prompt_resources (
+			id, owner_type, owner_id, title, content, is_default, is_readonly, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, uuid.NewString(), OwnerOrganization, org.ID, DefaultLLMPromptTitle, DefaultLLMPromptContent, 1, 1, formatTime(now)); err != nil {
 		return Organization{}, err
 	}
 	return org, nil
@@ -152,11 +183,11 @@ func (r *Repository) GetOrganizationMember(ctx context.Context, organizationID, 
 
 func (r *Repository) ListOrganizationsForUser(ctx context.Context, userID string) ([]Organization, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT o.id, o.name, o.slug, o.owner_user_id, o.created_at
+		SELECT o.id, o.name, o.slug, o.owner_user_id, o.is_personal, o.created_at
 		FROM organizations o
 		JOIN organization_members m ON m.organization_id = o.id
 		WHERE m.user_id = ?
-		ORDER BY o.created_at ASC
+		ORDER BY o.is_personal DESC, o.created_at ASC
 	`, userID)
 	if err != nil {
 		return nil, err
@@ -165,10 +196,12 @@ func (r *Repository) ListOrganizationsForUser(ctx context.Context, userID string
 	var orgs []Organization
 	for rows.Next() {
 		var org Organization
+		var isPersonal int
 		var created string
-		if err := rows.Scan(&org.ID, &org.Name, &org.Slug, &org.OwnerUserID, &created); err != nil {
+		if err := rows.Scan(&org.ID, &org.Name, &org.Slug, &org.OwnerUserID, &isPersonal, &created); err != nil {
 			return nil, err
 		}
+		org.IsPersonal = isPersonal == 1
 		org.CreatedAt = parseTime(created)
 		orgs = append(orgs, org)
 	}
@@ -266,16 +299,65 @@ func (r *Repository) UserInGroup(ctx context.Context, groupID, userID string) (b
 
 func (r *Repository) GetOrganization(ctx context.Context, id string) (Organization, error) {
 	var org Organization
+	var isPersonal int
 	var created string
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, name, slug, owner_user_id, created_at
+		SELECT id, name, slug, owner_user_id, is_personal, created_at
 		FROM organizations WHERE id = ?
-	`, id).Scan(&org.ID, &org.Name, &org.Slug, &org.OwnerUserID, &created)
+	`, id).Scan(&org.ID, &org.Name, &org.Slug, &org.OwnerUserID, &isPersonal, &created)
 	if err != nil {
 		return Organization{}, wrapScanErr(err)
 	}
+	org.IsPersonal = isPersonal == 1
 	org.CreatedAt = parseTime(created)
 	return org, nil
+}
+
+func (r *Repository) GetPersonalOrganizationForUser(ctx context.Context, userID string) (Organization, error) {
+	var org Organization
+	var isPersonal int
+	var created string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, name, slug, owner_user_id, is_personal, created_at
+		FROM organizations
+		WHERE owner_user_id = ? AND is_personal = 1
+	`, userID).Scan(&org.ID, &org.Name, &org.Slug, &org.OwnerUserID, &isPersonal, &created)
+	if err != nil {
+		return Organization{}, wrapScanErr(err)
+	}
+	org.IsPersonal = isPersonal == 1
+	org.CreatedAt = parseTime(created)
+	return org, nil
+}
+
+func (r *Repository) LeaveOrganization(ctx context.Context, organizationID, userID string) error {
+	org, err := r.GetOrganization(ctx, organizationID)
+	if err != nil {
+		return err
+	}
+	if org.IsPersonal {
+		return errors.New("personal organization cannot be left")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM organization_user_group_members
+		WHERE user_id = ? AND group_id IN (
+			SELECT id FROM organization_user_groups WHERE organization_id = ?
+		)
+	`, userID, organizationID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM organization_members
+		WHERE organization_id = ? AND user_id = ?
+	`, organizationID, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *Repository) CreateOrganizationInvite(ctx context.Context, params CreateOrganizationInviteParams) (OrganizationInvite, error) {
@@ -526,16 +608,6 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 	return current, nil
 }
 
-func (r *Repository) ResolveUserTarget(ctx context.Context, userID, alias string) (SSHTarget, error) {
-	row := r.db.QueryRowContext(ctx, `
-		SELECT id, owner_type, owner_id, alias, target_type, host, port, remote_username,
-			auth_type, encrypted_secret, COALESCE(agent_id, ''), created_by, created_at, updated_at
-		FROM ssh_targets
-		WHERE owner_type = ? AND owner_id = ? AND alias = ?
-	`, OwnerUser, userID, strings.TrimSpace(alias))
-	return scanTarget(row)
-}
-
 func (r *Repository) CreateAgentEnrollment(ctx context.Context, params CreateAgentEnrollmentParams) (AgentEnrollment, error) {
 	enrollment := AgentEnrollment{
 		ID:          uuid.NewString(),
@@ -671,6 +743,127 @@ func (r *Repository) GetAgentByEnrollment(ctx context.Context, enrollmentID stri
 	return agent, nil
 }
 
+func (r *Repository) CreateLLMPolicyConfig(ctx context.Context, params CreateLLMPolicyConfigParams) (LLMPolicyConfig, error) {
+	cfg := LLMPolicyConfig{
+		ID:              uuid.NewString(),
+		OwnerType:       params.OwnerType,
+		OwnerID:         params.OwnerID,
+		Name:            strings.TrimSpace(params.Name),
+		BaseURL:         strings.TrimRight(strings.TrimSpace(params.BaseURL), "/"),
+		EncryptedAPIKey: append([]byte(nil), params.EncryptedAPIKey...),
+		Model:           strings.TrimSpace(params.Model),
+		TimeoutSeconds:  params.TimeoutSeconds,
+		CreatedAt:       time.Now().UTC(),
+	}
+	if cfg.TimeoutSeconds <= 0 {
+		cfg.TimeoutSeconds = 10
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO llm_policy_configs (
+			id, owner_type, owner_id, name, base_url, api_key_encrypted, model,
+			timeout_seconds, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, cfg.ID, cfg.OwnerType, cfg.OwnerID, cfg.Name, cfg.BaseURL, nullableBytes(cfg.EncryptedAPIKey),
+		cfg.Model, cfg.TimeoutSeconds, formatTime(cfg.CreatedAt))
+	if err != nil {
+		return LLMPolicyConfig{}, err
+	}
+	return cfg, nil
+}
+
+func (r *Repository) GetLLMPolicyConfig(ctx context.Context, id string) (LLMPolicyConfig, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, name, base_url, api_key_encrypted, model,
+			timeout_seconds, created_at
+		FROM llm_policy_configs
+		WHERE id = ?
+	`, id)
+	return scanLLMPolicyConfig(row)
+}
+
+func (r *Repository) ListLLMPolicyConfigs(ctx context.Context, ownerType, ownerID string) ([]LLMPolicyConfig, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, owner_type, owner_id, name, base_url, api_key_encrypted, model,
+			timeout_seconds, created_at
+		FROM llm_policy_configs
+		WHERE owner_type = ? AND owner_id = ?
+		ORDER BY created_at ASC
+	`, ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var configs []LLMPolicyConfig
+	for rows.Next() {
+		cfg, err := scanLLMPolicyConfigRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		configs = append(configs, cfg)
+	}
+	return configs, rows.Err()
+}
+
+func (r *Repository) CreateLLMPromptResource(ctx context.Context, params CreateLLMPromptResourceParams) (LLMPromptResource, error) {
+	prompt := LLMPromptResource{
+		ID:         uuid.NewString(),
+		OwnerType:  params.OwnerType,
+		OwnerID:    params.OwnerID,
+		Title:      strings.TrimSpace(params.Title),
+		Content:    strings.TrimSpace(params.Content),
+		IsDefault:  params.IsDefault,
+		IsReadonly: params.IsReadonly,
+		CreatedAt:  time.Now().UTC(),
+	}
+	if prompt.Title == "" {
+		prompt.Title = DefaultLLMPromptTitle
+	}
+	if prompt.Content == "" {
+		prompt.Content = DefaultLLMPromptContent
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO llm_prompt_resources (
+			id, owner_type, owner_id, title, content, is_default, is_readonly, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, prompt.ID, prompt.OwnerType, prompt.OwnerID, prompt.Title, prompt.Content,
+		boolInt(prompt.IsDefault), boolInt(prompt.IsReadonly), formatTime(prompt.CreatedAt))
+	if err != nil {
+		return LLMPromptResource{}, err
+	}
+	return prompt, nil
+}
+
+func (r *Repository) GetLLMPromptResource(ctx context.Context, id string) (LLMPromptResource, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, title, content, is_default, is_readonly, created_at
+		FROM llm_prompt_resources
+		WHERE id = ?
+	`, id)
+	return scanLLMPromptResource(row)
+}
+
+func (r *Repository) ListLLMPromptResources(ctx context.Context, ownerType, ownerID string) ([]LLMPromptResource, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, owner_type, owner_id, title, content, is_default, is_readonly, created_at
+		FROM llm_prompt_resources
+		WHERE owner_type = ? AND owner_id = ?
+		ORDER BY is_default DESC, created_at ASC
+	`, ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var prompts []LLMPromptResource
+	for rows.Next() {
+		prompt, err := scanLLMPromptResourceRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		prompts = append(prompts, prompt)
+	}
+	return prompts, rows.Err()
+}
+
 func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateCommandPolicyParams) (CommandPolicy, error) {
 	policy := CommandPolicy{
 		ID:            uuid.NewString(),
@@ -679,12 +872,14 @@ func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateComma
 		Name:          strings.TrimSpace(params.Name),
 		DefaultAction: params.DefaultAction,
 		LLMConfigID:   params.LLMConfigID,
+		LLMPromptID:   params.LLMPromptID,
 		CreatedAt:     time.Now().UTC(),
 	}
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO command_policies (id, owner_type, owner_id, name, default_action, llm_config_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, policy.ID, policy.OwnerType, policy.OwnerID, policy.Name, policy.DefaultAction, nullableString(policy.LLMConfigID), formatTime(policy.CreatedAt))
+		INSERT INTO command_policies (id, owner_type, owner_id, name, default_action, llm_config_id, llm_prompt_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, policy.ID, policy.OwnerType, policy.OwnerID, policy.Name, policy.DefaultAction,
+		nullableString(policy.LLMConfigID), nullableString(policy.LLMPromptID), formatTime(policy.CreatedAt))
 	if err != nil {
 		return CommandPolicy{}, err
 	}
@@ -693,7 +888,7 @@ func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateComma
 
 func (r *Repository) ListCommandPolicies(ctx context.Context, ownerType, ownerID string) ([]CommandPolicy, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, owner_type, owner_id, name, default_action, COALESCE(llm_config_id, ''), created_at
+		SELECT id, owner_type, owner_id, name, default_action, COALESCE(llm_config_id, ''), COALESCE(llm_prompt_id, ''), created_at
 		FROM command_policies
 		WHERE owner_type = ? AND owner_id = ?
 		ORDER BY created_at ASC
@@ -706,7 +901,7 @@ func (r *Repository) ListCommandPolicies(ctx context.Context, ownerType, ownerID
 	for rows.Next() {
 		var policy CommandPolicy
 		var created string
-		if err := rows.Scan(&policy.ID, &policy.OwnerType, &policy.OwnerID, &policy.Name, &policy.DefaultAction, &policy.LLMConfigID, &created); err != nil {
+		if err := rows.Scan(&policy.ID, &policy.OwnerType, &policy.OwnerID, &policy.Name, &policy.DefaultAction, &policy.LLMConfigID, &policy.LLMPromptID, &created); err != nil {
 			return nil, err
 		}
 		policy.CreatedAt = parseTime(created)
@@ -769,7 +964,8 @@ func (r *Repository) DetachPolicyFromUserGroup(ctx context.Context, policyID, gr
 
 func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string) ([]CommandPolicy, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT p.id, p.owner_type, p.owner_id, p.name, p.default_action, COALESCE(p.llm_config_id, ''), p.created_at
+		SELECT p.id, p.owner_type, p.owner_id, p.name, p.default_action,
+			COALESCE(p.llm_config_id, ''), COALESCE(p.llm_prompt_id, ''), p.created_at
 		FROM command_policies p
 		JOIN policy_targets pt ON pt.policy_id = p.id
 		WHERE pt.target_id = ?
@@ -784,7 +980,7 @@ func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string)
 	for rows.Next() {
 		var policy CommandPolicy
 		var created string
-		if err := rows.Scan(&policy.ID, &policy.OwnerType, &policy.OwnerID, &policy.Name, &policy.DefaultAction, &policy.LLMConfigID, &created); err != nil {
+		if err := rows.Scan(&policy.ID, &policy.OwnerType, &policy.OwnerID, &policy.Name, &policy.DefaultAction, &policy.LLMConfigID, &policy.LLMPromptID, &created); err != nil {
 			return nil, err
 		}
 		policy.CreatedAt = parseTime(created)
@@ -972,6 +1168,51 @@ func scanTargetRows(row targetScanner) (SSHTarget, error) {
 	return target, nil
 }
 
+func scanLLMPolicyConfig(row *sql.Row) (LLMPolicyConfig, error) {
+	cfg, err := scanLLMPolicyConfigRows(row)
+	if err != nil {
+		return LLMPolicyConfig{}, wrapScanErr(err)
+	}
+	return cfg, nil
+}
+
+func scanLLMPolicyConfigRows(row targetScanner) (LLMPolicyConfig, error) {
+	var cfg LLMPolicyConfig
+	var apiKey []byte
+	var created string
+	err := row.Scan(&cfg.ID, &cfg.OwnerType, &cfg.OwnerID, &cfg.Name, &cfg.BaseURL,
+		&apiKey, &cfg.Model, &cfg.TimeoutSeconds, &created)
+	if err != nil {
+		return LLMPolicyConfig{}, err
+	}
+	cfg.EncryptedAPIKey = append([]byte(nil), apiKey...)
+	cfg.CreatedAt = parseTime(created)
+	return cfg, nil
+}
+
+func scanLLMPromptResource(row *sql.Row) (LLMPromptResource, error) {
+	prompt, err := scanLLMPromptResourceRows(row)
+	if err != nil {
+		return LLMPromptResource{}, wrapScanErr(err)
+	}
+	return prompt, nil
+}
+
+func scanLLMPromptResourceRows(row targetScanner) (LLMPromptResource, error) {
+	var prompt LLMPromptResource
+	var isDefault, isReadonly int
+	var created string
+	err := row.Scan(&prompt.ID, &prompt.OwnerType, &prompt.OwnerID, &prompt.Title, &prompt.Content,
+		&isDefault, &isReadonly, &created)
+	if err != nil {
+		return LLMPromptResource{}, err
+	}
+	prompt.IsDefault = isDefault == 1
+	prompt.IsReadonly = isReadonly == 1
+	prompt.CreatedAt = parseTime(created)
+	return prompt, nil
+}
+
 func wrapScanErr(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -1024,6 +1265,36 @@ func boolInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func personalOrganizationName(user User) string {
+	name := strings.TrimSpace(user.DisplayName)
+	if name == "" {
+		name = user.Email
+	}
+	return name + " Personal"
+}
+
+func personalOrganizationSlug(user User) string {
+	local := user.Email
+	if i := strings.Index(local, "@"); i >= 0 {
+		local = local[:i]
+	}
+	var b strings.Builder
+	for _, ch := range strings.ToLower(local) {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+			b.WriteRune(ch)
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('-')
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		slug = "user"
+	}
+	return "personal-" + slug + "-" + strings.ReplaceAll(user.ID[:8], "-", "")
 }
 
 func (r *Repository) String() string {

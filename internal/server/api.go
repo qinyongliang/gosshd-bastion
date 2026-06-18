@@ -21,9 +21,10 @@ type apiUser struct {
 }
 
 type apiOrganization struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Slug string `json:"slug"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Slug       string `json:"slug"`
+	IsPersonal bool   `json:"is_personal"`
 }
 
 type apiPublicKey struct {
@@ -67,6 +68,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/orgs", a.requireUser(a.handleListOrganizations))
 	mux.HandleFunc("POST /api/orgs/{id}/invites", a.requireUser(a.handleCreateOrganizationInvite))
 	mux.HandleFunc("POST /api/orgs/join", a.requireUser(a.handleJoinOrganization))
+	mux.HandleFunc("POST /api/orgs/{id}/leave", a.requireUser(a.handleLeaveOrganization))
 	mux.HandleFunc("GET /api/orgs/{id}/groups", a.requireUser(a.handleListOrganizationGroups))
 	mux.HandleFunc("POST /api/orgs/{id}/groups", a.requireUser(a.handleCreateOrganizationGroup))
 	mux.HandleFunc("POST /api/orgs/{id}/groups/{group_id}/members", a.requireUser(a.handleAddOrganizationGroupMember))
@@ -78,6 +80,10 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/targets", a.requireUser(a.handleCreateTarget))
 	mux.HandleFunc("PATCH /api/targets/{id}", a.requireUser(a.handleUpdateTarget))
 	mux.HandleFunc("POST /api/agent-enrollments", a.requireUser(a.handleCreateAgentEnrollment))
+	mux.HandleFunc("GET /api/llm-configs", a.requireUser(a.handleListLLMConfigs))
+	mux.HandleFunc("POST /api/llm-configs", a.requireUser(a.handleCreateLLMConfig))
+	mux.HandleFunc("GET /api/llm-prompts", a.requireUser(a.handleListLLMPrompts))
+	mux.HandleFunc("POST /api/llm-prompts", a.requireUser(a.handleCreateLLMPrompt))
 	mux.HandleFunc("GET /api/policies", a.requireUser(a.handleListPolicies))
 	mux.HandleFunc("POST /api/policies", a.requireUser(a.handleCreatePolicy))
 	mux.HandleFunc("POST /api/policies/{id}/rules", a.requireUser(a.handleCreatePolicyRule))
@@ -151,7 +157,7 @@ func apiUserFromStore(user store.User) apiUser {
 }
 
 func apiOrganizationFromStore(org store.Organization) apiOrganization {
-	return apiOrganization{ID: org.ID, Name: org.Name, Slug: org.Slug}
+	return apiOrganization{ID: org.ID, Name: org.Name, Slug: org.Slug, IsPersonal: org.IsPersonal}
 }
 
 func apiPublicKeyFromStore(key store.PublicKey) apiPublicKey {

@@ -3,7 +3,6 @@ package store
 import "time"
 
 const (
-	OwnerUser         = "user"
 	OwnerOrganization = "organization"
 
 	RoleOwner  = "owner"
@@ -29,6 +28,9 @@ const (
 	RequestExec  = "exec"
 	RequestShell = "shell"
 	RequestSFTP  = "sftp"
+
+	DefaultLLMPromptTitle   = "Default SSH Command Review"
+	DefaultLLMPromptContent = "You are reviewing an SSH command for a bastion host. Respond with JSON only: {\"allow\":true|false,\"reason\":\"short reason\"}. Deny destructive, privilege-escalation, persistence, credential-exfiltration, and unclear high-risk commands unless there is an explicit safe operational reason."
 )
 
 type User struct {
@@ -52,6 +54,7 @@ type Organization struct {
 	Name        string
 	Slug        string
 	OwnerUserID string
+	IsPersonal  bool
 	CreatedAt   time.Time
 }
 
@@ -146,6 +149,7 @@ type CommandPolicy struct {
 	Name          string
 	DefaultAction string
 	LLMConfigID   string
+	LLMPromptID   string
 	CreatedAt     time.Time
 	Rules         []PolicyRule
 	UserGroupIDs  []string
@@ -168,9 +172,38 @@ type LLMPolicyConfig struct {
 	BaseURL         string
 	EncryptedAPIKey []byte
 	Model           string
-	Prompt          string
 	TimeoutSeconds  int
 	CreatedAt       time.Time
+}
+
+type LLMPromptResource struct {
+	ID         string
+	OwnerType  string
+	OwnerID    string
+	Title      string
+	Content    string
+	IsDefault  bool
+	IsReadonly bool
+	CreatedAt  time.Time
+}
+
+type CreateLLMPolicyConfigParams struct {
+	OwnerType       string
+	OwnerID         string
+	Name            string
+	BaseURL         string
+	EncryptedAPIKey []byte
+	Model           string
+	TimeoutSeconds  int
+}
+
+type CreateLLMPromptResourceParams struct {
+	OwnerType  string
+	OwnerID    string
+	Title      string
+	Content    string
+	IsDefault  bool
+	IsReadonly bool
 }
 
 type CommandAuditLog struct {
@@ -199,6 +232,7 @@ type CreateOrganizationParams struct {
 	Name        string
 	Slug        string
 	OwnerUserID string
+	IsPersonal  bool
 }
 
 type CreateOrganizationUserGroupParams struct {
@@ -272,6 +306,7 @@ type CreateCommandPolicyParams struct {
 	Name          string
 	DefaultAction string
 	LLMConfigID   string
+	LLMPromptID   string
 }
 
 type CreatePolicyRuleParams struct {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -56,6 +57,9 @@ func (s *Store) ApplyMigrations(ctx context.Context) error {
 	defer tx.Rollback()
 	for _, stmt := range migrations {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+				continue
+			}
 			return fmt.Errorf("apply migration: %w", err)
 		}
 	}

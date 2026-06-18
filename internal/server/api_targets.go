@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/qinyongliang/gosshd/internal/store"
@@ -57,7 +58,11 @@ func (a *App) handleCreateTarget(w http.ResponseWriter, r *http.Request, user st
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	ownerType, ownerID := resolveOwner(req.OwnerType, req.OwnerID, user.ID)
+	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	target, err := a.store.Repository().CreateSSHTarget(r.Context(), store.CreateSSHTargetParams{
 		OwnerType:       ownerType,
 		OwnerID:         ownerID,
@@ -127,9 +132,13 @@ func apiTargetFromStore(target store.SSHTarget) apiTarget {
 	}
 }
 
-func resolveOwner(ownerType, ownerID, userID string) (string, string) {
+func (a *App) resolveOwner(ctx context.Context, ownerType, ownerID, userID string) (string, string, error) {
 	if ownerType == "" || ownerID == "" || ownerID == "me" {
-		return store.OwnerUser, userID
+		org, err := a.store.Repository().GetPersonalOrganizationForUser(ctx, userID)
+		if err != nil {
+			return "", "", err
+		}
+		return store.OwnerOrganization, org.ID, nil
 	}
-	return ownerType, ownerID
+	return ownerType, ownerID, nil
 }

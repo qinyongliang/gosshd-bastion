@@ -28,7 +28,11 @@ func (a *App) handleCreateAgentEnrollment(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	ownerType, ownerID := resolveOwner(req.OwnerType, req.OwnerID, user.ID)
+	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	token, hash, err := randomCode()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

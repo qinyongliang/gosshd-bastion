@@ -46,6 +46,8 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/install.ps1", a.runPS1)
 	mux.HandleFunc("/download/agent/", a.downloadAgent)
 	mux.HandleFunc(protocol.WebSocketPath, a.agentWS)
+	mux.Handle("/mcp", a.mcpHandler())
+	mux.HandleFunc("/", a.serveWeb)
 }
 
 func (a *App) runSH(w http.ResponseWriter, r *http.Request) {
@@ -192,13 +194,6 @@ func (a *App) localAgentPath(goos, goarch, name string) (string, bool) {
 	versioned := filepath.Join(a.cfg.AgentPath, a.cfg.version(), goos, goarch, name)
 	if _, err := os.Stat(versioned); err == nil {
 		return versioned, true
-	}
-	if a.cfg.version() != DefaultVersion {
-		return "", false
-	}
-	legacy := filepath.Join(a.cfg.AgentPath, goos, goarch, name)
-	if _, err := os.Stat(legacy); err == nil {
-		return legacy, true
 	}
 	return "", false
 }

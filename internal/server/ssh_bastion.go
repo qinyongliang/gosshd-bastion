@@ -39,10 +39,20 @@ func (a *App) resolveBastionTarget(ctx context.Context, userID, alias string) (s
 	if err := a.ensureServices(ctx); err != nil {
 		return store.SSHTarget{}, err
 	}
-	if target, err := a.store.Repository().ResolveUserTarget(ctx, userID, alias); err == nil {
-		return target, nil
-	} else if !isNotFound(err) {
+	personal, err := a.store.Repository().GetPersonalOrganizationForUser(ctx, userID)
+	if err != nil {
 		return store.SSHTarget{}, err
+	}
+	for _, ownerID := range []string{personal.ID} {
+		targets, err := a.store.Repository().ListSSHTargets(ctx, store.OwnerOrganization, ownerID)
+		if err != nil {
+			return store.SSHTarget{}, err
+		}
+		for _, target := range targets {
+			if target.Alias == alias {
+				return target, nil
+			}
+		}
 	}
 	orgs, err := a.store.Repository().ListOrganizationsForUser(ctx, userID)
 	if err != nil {
@@ -50,6 +60,9 @@ func (a *App) resolveBastionTarget(ctx context.Context, userID, alias string) (s
 	}
 	var matches []store.SSHTarget
 	for _, org := range orgs {
+		if org.ID == personal.ID {
+			continue
+		}
 		targets, err := a.store.Repository().ListSSHTargets(ctx, store.OwnerOrganization, org.ID)
 		if err != nil {
 			return store.SSHTarget{}, err
