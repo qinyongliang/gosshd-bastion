@@ -202,9 +202,9 @@ func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 }
 
 func (a *App) openTargetSSHClient(ctx context.Context, target store.SSHTarget) (*gossh.Client, error) {
-	auth := gossh.Password(string(target.EncryptedSecret))
-	if len(target.EncryptedSecret) == 0 {
-		auth = gossh.Password("")
+	auth, err := targetAuthMethod(target)
+	if err != nil {
+		return nil, err
 	}
 	cfg := &gossh.ClientConfig{
 		User:            target.RemoteUsername,
@@ -247,6 +247,21 @@ func (a *App) openTargetSSHClient(ctx context.Context, target store.SSHTarget) (
 		return gossh.NewClient(conn, chans, reqs), nil
 	}
 	return nil, fmt.Errorf("unsupported target type %q", target.TargetType)
+}
+
+func targetAuthMethod(target store.SSHTarget) (gossh.AuthMethod, error) {
+	switch target.AuthType {
+	case store.AuthPrivateKey:
+		signer, err := gossh.ParsePrivateKey(target.EncryptedSecret)
+		if err != nil {
+			return nil, fmt.Errorf("parse target private key: %w", err)
+		}
+		return gossh.PublicKeys(signer), nil
+	case store.AuthPassword, "":
+		return gossh.Password(string(target.EncryptedSecret)), nil
+	default:
+		return nil, fmt.Errorf("unsupported target auth type %q", target.AuthType)
+	}
 }
 
 func organizationIDForTarget(target store.SSHTarget) string {
