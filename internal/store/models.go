@@ -248,6 +248,14 @@ type CreateAgentEnrollmentParams struct {
 	ExpiresAt   time.Time
 }
 
+type UpsertAgentParams struct {
+	OwnerType        string
+	OwnerID          string
+	EnrollmentID     string
+	Label            string
+	CurrentRuntimeID string
+}
+
 type CreateCommandPolicyParams struct {
 	OwnerType     string
 	OwnerID       string

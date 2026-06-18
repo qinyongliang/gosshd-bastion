@@ -539,6 +539,88 @@ func (r *Repository) ListAgentEnrollments(ctx context.Context, ownerType, ownerI
 	return enrollments, rows.Err()
 }
 
+func (r *Repository) GetAgentEnrollmentByTokenHash(ctx context.Context, tokenHash []byte) (AgentEnrollment, error) {
+	var enrollment AgentEnrollment
+	var created, expires string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, token_hash, label, default_host, default_port,
+			created_by, created_at, expires_at, COALESCE(consumed_agent_id, '')
+		FROM agent_enrollments
+		WHERE token_hash = ?
+	`, tokenHash).Scan(&enrollment.ID, &enrollment.OwnerType, &enrollment.OwnerID, &enrollment.TokenHash, &enrollment.Label,
+		&enrollment.DefaultHost, &enrollment.DefaultPort, &enrollment.CreatedBy, &created, &expires, &enrollment.ConsumedAgentID)
+	if err != nil {
+		return AgentEnrollment{}, wrapScanErr(err)
+	}
+	enrollment.CreatedAt = parseTime(created)
+	enrollment.ExpiresAt = parseTime(expires)
+	return enrollment, nil
+}
+
+func (r *Repository) UpsertAgent(ctx context.Context, params UpsertAgentParams) (Agent, error) {
+	now := time.Now().UTC()
+	if existing, err := r.GetAgentByEnrollment(ctx, params.EnrollmentID); err == nil {
+		_, err := r.db.ExecContext(ctx, `
+			UPDATE agents SET current_runtime_id = ?, last_seen_at = ?
+			WHERE id = ?
+		`, params.CurrentRuntimeID, formatTime(now), existing.ID)
+		if err != nil {
+			return Agent{}, err
+		}
+		existing.CurrentRuntimeID = params.CurrentRuntimeID
+		existing.LastSeenAt = now
+		return existing, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return Agent{}, err
+	}
+	agent := Agent{
+		ID:               uuid.NewString(),
+		OwnerType:        params.OwnerType,
+		OwnerID:          params.OwnerID,
+		EnrollmentID:     params.EnrollmentID,
+		Label:            params.Label,
+		CurrentRuntimeID: params.CurrentRuntimeID,
+		LastSeenAt:       now,
+		CreatedAt:        now,
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Agent{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO agents (id, owner_type, owner_id, enrollment_id, label, current_runtime_id, last_seen_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, agent.ID, agent.OwnerType, agent.OwnerID, agent.EnrollmentID, agent.Label, agent.CurrentRuntimeID, formatTime(agent.LastSeenAt), formatTime(agent.CreatedAt)); err != nil {
+		return Agent{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE agent_enrollments SET consumed_agent_id = ? WHERE id = ?
+	`, agent.ID, agent.EnrollmentID); err != nil {
+		return Agent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Agent{}, err
+	}
+	return agent, nil
+}
+
+func (r *Repository) GetAgentByEnrollment(ctx context.Context, enrollmentID string) (Agent, error) {
+	var agent Agent
+	var lastSeen, created string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, COALESCE(enrollment_id, ''), label, current_runtime_id, last_seen_at, created_at
+		FROM agents
+		WHERE enrollment_id = ?
+	`, enrollmentID).Scan(&agent.ID, &agent.OwnerType, &agent.OwnerID, &agent.EnrollmentID, &agent.Label, &agent.CurrentRuntimeID, &lastSeen, &created)
+	if err != nil {
+		return Agent{}, wrapScanErr(err)
+	}
+	agent.LastSeenAt = parseTime(lastSeen)
+	agent.CreatedAt = parseTime(created)
+	return agent, nil
+}
+
 func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateCommandPolicyParams) (CommandPolicy, error) {
 	policy := CommandPolicy{
 		ID:            uuid.NewString(),

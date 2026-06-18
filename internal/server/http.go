@@ -18,6 +18,7 @@ import (
 
 	"github.com/qinyongliang/gosshd/internal/protocol"
 	"github.com/qinyongliang/gosshd/internal/relay"
+	"github.com/qinyongliang/gosshd/internal/store"
 
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"
@@ -329,6 +330,33 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close()
 		return
 	}
+	registryID := hello.ID
+	if hello.EnrollmentToken != "" {
+		if err := a.ensureServices(r.Context()); err != nil {
+			_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "server storage unavailable"})
+			_ = conn.Close()
+			return
+		}
+		enrollment, err := a.store.Repository().GetAgentEnrollmentByTokenHash(r.Context(), codeHash(hello.EnrollmentToken))
+		if err != nil || time.Now().UTC().After(enrollment.ExpiresAt) {
+			_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "invalid enrollment token"})
+			_ = conn.Close()
+			return
+		}
+		agent, err := a.store.Repository().UpsertAgent(r.Context(), store.UpsertAgentParams{
+			OwnerType:        enrollment.OwnerType,
+			OwnerID:          enrollment.OwnerID,
+			EnrollmentID:     enrollment.ID,
+			Label:            enrollment.Label,
+			CurrentRuntimeID: hello.ID,
+		})
+		if err != nil {
+			_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "agent enrollment failed"})
+			_ = conn.Close()
+			return
+		}
+		registryID = agent.ID
+	}
 	goos, goarch := hello.GOOS, hello.GOARCH
 	if goos == "" {
 		goos = runtime.GOOS
@@ -347,12 +375,12 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("yamux server failed: %v", err)
 		return
 	}
-	a.registry.Register(hello.ID, session)
-	log.Printf("agent online: %s", hello.ID)
+	a.registry.Register(registryID, session)
+	log.Printf("agent online: %s", registryID)
 	go func() {
 		<-session.CloseChan()
-		a.registry.Unregister(hello.ID, session)
-		log.Printf("agent offline: %s", hello.ID)
+		a.registry.Unregister(registryID, session)
+		log.Printf("agent offline: %s", registryID)
 	}()
 }
 
