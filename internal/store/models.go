@@ -104,6 +104,7 @@ type SSHTarget struct {
 	ID              string
 	OwnerType       string
 	OwnerID         string
+	Name            string
 	Alias           string
 	TargetType      string
 	Host            string
@@ -112,9 +113,18 @@ type SSHTarget struct {
 	AuthType        string
 	EncryptedSecret []byte
 	AgentID         string
+	Tags            []string
 	CreatedBy       string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+}
+
+type TargetTag struct {
+	ID        string
+	OwnerType string
+	OwnerID   string
+	Name      string
+	CreatedAt time.Time
 }
 
 type AgentEnrollment struct {
@@ -260,6 +270,7 @@ type CreatePublicKeyParams struct {
 type CreateSSHTargetParams struct {
 	OwnerType       string
 	OwnerID         string
+	Name            string
 	Alias           string
 	TargetType      string
 	Host            string
@@ -268,10 +279,12 @@ type CreateSSHTargetParams struct {
 	AuthType        string
 	EncryptedSecret []byte
 	AgentID         string
+	Tags            []string
 	CreatedBy       string
 }
 
 type UpdateSSHTargetParams struct {
+	Name            string
 	Alias           string
 	Host            string
 	Port            int
@@ -279,6 +292,14 @@ type UpdateSSHTargetParams struct {
 	AuthType        string
 	EncryptedSecret []byte
 	AgentID         string
+	Tags            []string
+	ReplaceTags     bool
+}
+
+type SSHTargetFilter struct {
+	OwnerType string
+	OwnerID   string
+	Tags      []string
 }
 
 type CreateAgentEnrollmentParams struct {

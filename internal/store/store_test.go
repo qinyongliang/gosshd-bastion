@@ -144,6 +144,7 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	target, err := repo.CreateSSHTarget(ctx, CreateSSHTargetParams{
 		OwnerType:       OwnerOrganization,
 		OwnerID:         personal.ID,
+		Name:            "Test service",
 		Alias:           "test2",
 		TargetType:      TargetDirect,
 		Host:            "127.0.0.1",
@@ -151,6 +152,7 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 		RemoteUsername:  "root",
 		AuthType:        AuthPassword,
 		EncryptedSecret: []byte("secret"),
+		Tags:            []string{"测试环境", "db", "测试环境"},
 		CreatedBy:       user.ID,
 	})
 	if err != nil {
@@ -163,6 +165,32 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if len(personalTargets) != 1 || personalTargets[0].ID != target.ID {
 		t.Fatalf("personal target mismatch: %#v", personalTargets)
 	}
+	if personalTargets[0].Name != "Test service" || len(personalTargets[0].Tags) != 2 {
+		t.Fatalf("target name/tags mismatch: %#v", personalTargets[0])
+	}
+	filteredTargets, err := repo.ListSSHTargetsFiltered(ctx, SSHTargetFilter{
+		OwnerType: OwnerOrganization,
+		OwnerID:   personal.ID,
+		Tags:      []string{"测试环境"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filteredTargets) != 1 || filteredTargets[0].ID != target.ID {
+		t.Fatalf("tag-filtered targets mismatch: %#v", filteredTargets)
+	}
+	updatedTarget, err := repo.UpdateSSHTarget(ctx, target.ID, UpdateSSHTargetParams{
+		Name:        "Renamed service",
+		Tags:        []string{"prod"},
+		ReplaceTags: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedTarget.Name != "Renamed service" || len(updatedTarget.Tags) != 1 || updatedTarget.Tags[0] != "prod" {
+		t.Fatalf("updated target name/tags mismatch: %#v", updatedTarget)
+	}
+	target = updatedTarget
 
 	llm, err := repo.CreateLLMPolicyConfig(ctx, CreateLLMPolicyConfigParams{
 		OwnerType:       OwnerOrganization,
