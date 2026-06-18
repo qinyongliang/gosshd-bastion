@@ -74,6 +74,16 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/keys", a.requireUser(a.handleListPublicKeys))
 	mux.HandleFunc("POST /api/keys", a.requireUser(a.handleCreatePublicKey))
 	mux.HandleFunc("DELETE /api/keys/{id}", a.requireUser(a.handleDeletePublicKey))
+	mux.HandleFunc("GET /api/targets", a.requireUser(a.handleListTargets))
+	mux.HandleFunc("POST /api/targets", a.requireUser(a.handleCreateTarget))
+	mux.HandleFunc("POST /api/agent-enrollments", a.requireUser(a.handleCreateAgentEnrollment))
+	mux.HandleFunc("GET /api/policies", a.requireUser(a.handleListPolicies))
+	mux.HandleFunc("POST /api/policies", a.requireUser(a.handleCreatePolicy))
+	mux.HandleFunc("POST /api/policies/{id}/rules", a.requireUser(a.handleCreatePolicyRule))
+	mux.HandleFunc("POST /api/policies/{id}/targets", a.requireUser(a.handleAttachPolicyTarget))
+	mux.HandleFunc("POST /api/policies/{id}/user-groups", a.requireUser(a.handleAttachPolicyUserGroup))
+	mux.HandleFunc("GET /api/audit", a.requireUser(a.handleListAuditLogs))
+	mux.HandleFunc("GET /install/{file}", a.handleInstall)
 }
 
 func (a *App) requireUser(next func(http.ResponseWriter, *http.Request, store.User)) http.HandlerFunc {

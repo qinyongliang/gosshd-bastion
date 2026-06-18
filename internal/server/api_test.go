@@ -11,11 +11,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/qinyongliang/gosshd/internal/store"
+
 	gossh "golang.org/x/crypto/ssh"
 )
 
 func TestAPIRegisterLoginMeAndLogout(t *testing.T) {
-	srv, client := newAPITestServer(t)
+	srv, client, _ := newAPITestServer(t)
 	defer srv.Close()
 
 	var reg apiUserResponse
@@ -47,7 +49,7 @@ func TestAPIRegisterLoginMeAndLogout(t *testing.T) {
 }
 
 func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
-	srv, alice := newAPITestServer(t)
+	srv, alice, _ := newAPITestServer(t)
 	defer srv.Close()
 	registerForAPI(t, alice, srv.URL, "alice@example.com")
 
@@ -86,7 +88,7 @@ func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
 }
 
 func TestAPIOrganizationDefaultAndCustomUserGroups(t *testing.T) {
-	srv, alice := newAPITestServer(t)
+	srv, alice, _ := newAPITestServer(t)
 	defer srv.Close()
 	aliceUser := registerForAPI(t, alice, srv.URL, "alice@example.com")
 
@@ -130,7 +132,7 @@ func TestAPIOrganizationDefaultAndCustomUserGroups(t *testing.T) {
 }
 
 func TestAPIPublicKeyCRUD(t *testing.T) {
-	srv, client := newAPITestServer(t)
+	srv, client, _ := newAPITestServer(t)
 	defer srv.Close()
 	registerForAPI(t, client, srv.URL, "alice@example.com")
 
@@ -170,7 +172,104 @@ func TestAPIPublicKeyCRUD(t *testing.T) {
 	}
 }
 
-func newAPITestServer(t *testing.T) (*httptest.Server, *http.Client) {
+func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
+	srv, client, app := newAPITestServer(t)
+	defer srv.Close()
+	user := registerForAPI(t, client, srv.URL, "alice@example.com")
+
+	var org apiOrganizationResponse
+	postJSON(t, client, srv.URL+"/api/orgs", map[string]string{"name": "Ops", "slug": "ops"}, http.StatusCreated, &org)
+	var groups apiUserGroupsResponse
+	getJSON(t, client, srv.URL+"/api/orgs/"+org.Organization.ID+"/groups", http.StatusOK, &groups)
+	if len(groups.Groups) != 1 {
+		t.Fatalf("missing default group")
+	}
+
+	var target apiTargetResponse
+	postJSON(t, client, srv.URL+"/api/targets", map[string]any{
+		"owner_type":      "organization",
+		"owner_id":        org.Organization.ID,
+		"alias":           "test2",
+		"target_type":     "direct",
+		"host":            "127.0.0.1",
+		"port":            22,
+		"remote_username": "root",
+		"auth_type":       "password",
+		"secret":          "secret",
+	}, http.StatusCreated, &target)
+	if target.Target.ID == "" || target.Target.Alias != "test2" {
+		t.Fatalf("target response mismatch: %+v", target)
+	}
+
+	var policy apiPolicyResponse
+	postJSON(t, client, srv.URL+"/api/policies", map[string]any{
+		"owner_type":     "organization",
+		"owner_id":       org.Organization.ID,
+		"name":           "strict",
+		"default_action": "deny",
+	}, http.StatusCreated, &policy)
+	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/rules", map[string]string{
+		"rule_type":    "whitelist",
+		"pattern_type": "exact",
+		"pattern":      "whoami",
+	}, http.StatusCreated, nil)
+	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/targets", map[string]string{
+		"target_id": target.Target.ID,
+	}, http.StatusOK, nil)
+	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/user-groups", map[string]string{
+		"group_id": groups.Groups[0].ID,
+	}, http.StatusOK, nil)
+
+	audit, err := app.store.Repository().CreateCommandAuditLog(contextBackground(), store.CreateCommandAuditLogParams{
+		UserID:         user.User.ID,
+		TargetID:       target.Target.ID,
+		OrganizationID: org.Organization.ID,
+		SessionID:      "session-1",
+		Command:        "whoami",
+		RequestType:    store.RequestExec,
+		PolicyDecision: store.DecisionAllow,
+		PolicyReason:   "whitelist",
+		ExitCode:       intPtr(0),
+		RemoteAddress:  "127.0.0.1:12345",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs apiAuditLogsResponse
+	getJSON(t, client, srv.URL+"/api/audit", http.StatusOK, &logs)
+	if len(logs.Logs) != 1 || logs.Logs[0].ID != audit.ID || logs.Logs[0].Command != "whoami" {
+		t.Fatalf("audit logs mismatch: %+v", logs)
+	}
+}
+
+func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
+	srv, client, _ := newAPITestServer(t)
+	defer srv.Close()
+	registerForAPI(t, client, srv.URL, "alice@example.com")
+
+	var enrollment apiAgentEnrollmentResponse
+	postJSON(t, client, srv.URL+"/api/agent-enrollments", map[string]any{
+		"owner_type":   "user",
+		"owner_id":     "me",
+		"label":        "laptop",
+		"default_host": "127.0.0.1",
+		"default_port": 22,
+	}, http.StatusCreated, &enrollment)
+	if enrollment.Token == "" || enrollment.InstallSH == "" || enrollment.InstallPS1 == "" {
+		t.Fatalf("enrollment response missing install data: %+v", enrollment)
+	}
+
+	resp, err := client.Get(srv.URL + "/install/" + enrollment.Token + ".sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("install script status mismatch: %d", resp.StatusCode)
+	}
+}
+
+func newAPITestServer(t *testing.T) (*httptest.Server, *http.Client, *App) {
 	t.Helper()
 	app := NewApp(Config{
 		DatabasePath:      filepath.Join(t.TempDir(), "gosshd.db"),
@@ -184,7 +283,7 @@ func newAPITestServer(t *testing.T) (*httptest.Server, *http.Client) {
 			app.store.Close()
 		}
 	})
-	return srv, apiClient(t)
+	return srv, apiClient(t), app
 }
 
 func apiClient(t *testing.T) *http.Client {
@@ -265,4 +364,8 @@ func testAPISigner(t *testing.T) gossh.Signer {
 		t.Fatal(err)
 	}
 	return signer
+}
+
+func intPtr(v int) *int {
+	return &v
 }

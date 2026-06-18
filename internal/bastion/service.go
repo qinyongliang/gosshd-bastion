@@ -27,3 +27,69 @@ func (s *Service) NormalizeAuthorizedKey(raw string) (string, string, error) {
 func (s *Service) LookupUserByPublicKey(ctx context.Context, key gossh.PublicKey) (store.User, error) {
 	return s.repo.GetUserByPublicKeyFingerprint(ctx, gossh.FingerprintSHA256(key))
 }
+
+func (s *Service) EvaluateCommand(ctx context.Context, userID, targetID, command string) (Decision, error) {
+	policies, err := s.repo.ListPoliciesForTarget(ctx, targetID)
+	if err != nil {
+		return Decision{}, err
+	}
+	trimmed := strings.TrimSpace(command)
+	result := Decision{Action: store.DecisionAllow, Reason: "no policy"}
+	for _, policy := range policies {
+		applies, err := s.policyAppliesToUser(ctx, policy, userID)
+		if err != nil {
+			return Decision{}, err
+		}
+		if !applies {
+			continue
+		}
+		policyDecision := Decision{Action: policy.DefaultAction, Reason: "default " + policy.DefaultAction}
+		for _, rule := range policy.Rules {
+			if !ruleMatches(rule, trimmed) {
+				continue
+			}
+			if rule.RuleType == store.RuleWhitelist {
+				policyDecision = Decision{Action: store.DecisionAllow, Reason: "whitelist: " + rule.Pattern}
+				break
+			}
+			if rule.RuleType == store.RuleBlacklist {
+				return Decision{Action: store.DecisionDeny, Reason: "blacklist: " + rule.Pattern}, nil
+			}
+		}
+		if policyDecision.Action == store.DecisionDeny {
+			return policyDecision, nil
+		}
+		result = policyDecision
+	}
+	return result, nil
+}
+
+func (s *Service) policyAppliesToUser(ctx context.Context, policy store.CommandPolicy, userID string) (bool, error) {
+	if len(policy.UserGroupIDs) == 0 {
+		return true, nil
+	}
+	for _, groupID := range policy.UserGroupIDs {
+		ok, err := s.repo.UserInGroup(ctx, groupID, userID)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func ruleMatches(rule store.PolicyRule, command string) bool {
+	pattern := strings.TrimSpace(rule.Pattern)
+	switch rule.PatternType {
+	case store.PatternExact:
+		return command == pattern
+	case store.PatternPrefix:
+		return strings.HasPrefix(command, pattern)
+	case store.PatternContains:
+		return strings.Contains(command, pattern)
+	default:
+		return false
+	}
+}
