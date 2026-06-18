@@ -1,0 +1,176 @@
+package server
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/qinyongliang/gosshd/internal/store"
+)
+
+type apiUser struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+}
+
+type apiOrganization struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type apiPublicKey struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Fingerprint string `json:"fingerprint"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type apiUserResponse struct {
+	User apiUser `json:"user"`
+}
+
+type apiMeResponse struct {
+	User          apiUser           `json:"user"`
+	Organizations []apiOrganization `json:"organizations"`
+}
+
+type apiOrganizationResponse struct {
+	Organization apiOrganization `json:"organization"`
+}
+
+type apiInviteResponse struct {
+	Code string `json:"code"`
+}
+
+type apiPublicKeyResponse struct {
+	Key apiPublicKey `json:"key"`
+}
+
+type apiPublicKeysResponse struct {
+	Keys []apiPublicKey `json:"keys"`
+}
+
+func (a *App) apiRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/auth/register", a.handleRegister)
+	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
+	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
+	mux.HandleFunc("GET /api/me", a.requireUser(a.handleMe))
+	mux.HandleFunc("POST /api/orgs", a.requireUser(a.handleCreateOrganization))
+	mux.HandleFunc("GET /api/orgs", a.requireUser(a.handleListOrganizations))
+	mux.HandleFunc("POST /api/orgs/{id}/invites", a.requireUser(a.handleCreateOrganizationInvite))
+	mux.HandleFunc("POST /api/orgs/join", a.requireUser(a.handleJoinOrganization))
+	mux.HandleFunc("GET /api/orgs/{id}/groups", a.requireUser(a.handleListOrganizationGroups))
+	mux.HandleFunc("POST /api/orgs/{id}/groups", a.requireUser(a.handleCreateOrganizationGroup))
+	mux.HandleFunc("POST /api/orgs/{id}/groups/{group_id}/members", a.requireUser(a.handleAddOrganizationGroupMember))
+	mux.HandleFunc("DELETE /api/orgs/{id}/groups/{group_id}/members/{user_id}", a.requireUser(a.handleRemoveOrganizationGroupMember))
+	mux.HandleFunc("GET /api/keys", a.requireUser(a.handleListPublicKeys))
+	mux.HandleFunc("POST /api/keys", a.requireUser(a.handleCreatePublicKey))
+	mux.HandleFunc("DELETE /api/keys/{id}", a.requireUser(a.handleDeletePublicKey))
+}
+
+func (a *App) requireUser(next func(http.ResponseWriter, *http.Request, store.User)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := a.ensureServices(r.Context()); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		cookie, err := r.Cookie(a.sessionCookieName())
+		if err != nil || strings.TrimSpace(cookie.Value) == "" {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		user, err := a.auth.UserForSession(r.Context(), cookie.Value)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		next(w, r, user)
+	}
+}
+
+func readJSON(r *http.Request, dst any) error {
+	defer r.Body.Close()
+	return json.NewDecoder(r.Body).Decode(dst)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if v != nil {
+		_ = json.NewEncoder(w).Encode(v)
+	}
+}
+
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func setSessionCookie(w http.ResponseWriter, name, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Now().Add(30 * 24 * time.Hour),
+	})
+}
+
+func clearSessionCookie(w http.ResponseWriter, name string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+}
+
+func apiUserFromStore(user store.User) apiUser {
+	return apiUser{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName}
+}
+
+func apiOrganizationFromStore(org store.Organization) apiOrganization {
+	return apiOrganization{ID: org.ID, Name: org.Name, Slug: org.Slug}
+}
+
+func apiPublicKeyFromStore(key store.PublicKey) apiPublicKey {
+	return apiPublicKey{
+		ID:          key.ID,
+		Name:        key.Name,
+		Fingerprint: key.Fingerprint,
+		CreatedAt:   key.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func randomCode() (string, []byte, error) {
+	var raw [24]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", nil, err
+	}
+	code := base64.RawURLEncoding.EncodeToString(raw[:])
+	sum := sha256.Sum256([]byte(code))
+	return code, sum[:], nil
+}
+
+func codeHash(code string) []byte {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(code)))
+	return sum[:]
+}
+
+func isNotFound(err error) bool {
+	return errors.Is(err, store.ErrNotFound)
+}
+
+func contextBackground() context.Context {
+	return context.Background()
+}

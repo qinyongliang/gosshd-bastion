@@ -38,6 +38,8 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 		"sessions",
 		"organizations",
 		"organization_members",
+		"organization_user_groups",
+		"organization_user_group_members",
 		"organization_invites",
 		"user_public_keys",
 		"ssh_targets",
@@ -46,6 +48,7 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 		"command_policies",
 		"policy_rules",
 		"policy_targets",
+		"policy_user_groups",
 		"llm_policy_configs",
 		"command_audit_logs",
 	} {
@@ -90,6 +93,20 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 	if member.Role != RoleOwner {
 		t.Fatalf("owner role mismatch: got %q", member.Role)
+	}
+	groups, err := repo.ListOrganizationUserGroups(ctx, org.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || !groups[0].IsDefault {
+		t.Fatalf("default group missing: %#v", groups)
+	}
+	inGroup, err := repo.UserInGroup(ctx, groups[0].ID, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inGroup {
+		t.Fatalf("organization creator is not in default user group")
 	}
 
 	key, err := repo.CreatePublicKey(ctx, CreatePublicKeyParams{
@@ -153,11 +170,14 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if err := repo.AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
 		t.Fatal(err)
 	}
+	if err := repo.AttachPolicyToUserGroup(ctx, policy.ID, groups[0].ID); err != nil {
+		t.Fatal(err)
+	}
 	policies, err := repo.ListPoliciesForTarget(ctx, target.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(policies) != 1 || len(policies[0].Rules) != 1 || policies[0].Rules[0].ID != rule.ID {
+	if len(policies) != 1 || len(policies[0].Rules) != 1 || policies[0].Rules[0].ID != rule.ID || len(policies[0].UserGroupIDs) != 1 {
 		t.Fatalf("policy attachment mismatch: %#v", policies)
 	}
 

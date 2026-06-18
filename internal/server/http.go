@@ -33,6 +33,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func (a *App) routes(mux *http.ServeMux) {
+	a.apiRoutes(mux)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))

@@ -29,6 +29,21 @@ var migrations = []string{
 		created_at TEXT NOT NULL,
 		PRIMARY KEY (organization_id, user_id)
 	)`,
+	`CREATE TABLE IF NOT EXISTS organization_user_groups (
+		id TEXT PRIMARY KEY,
+		organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		slug TEXT NOT NULL,
+		is_default INTEGER NOT NULL,
+		created_at TEXT NOT NULL,
+		UNIQUE (organization_id, slug)
+	)`,
+	`CREATE TABLE IF NOT EXISTS organization_user_group_members (
+		group_id TEXT NOT NULL REFERENCES organization_user_groups(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (group_id, user_id)
+	)`,
 	`CREATE TABLE IF NOT EXISTS organization_invites (
 		id TEXT PRIMARY KEY,
 		organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -108,6 +123,11 @@ var migrations = []string{
 		policy_id TEXT NOT NULL REFERENCES command_policies(id) ON DELETE CASCADE,
 		target_id TEXT NOT NULL REFERENCES ssh_targets(id) ON DELETE CASCADE,
 		PRIMARY KEY (policy_id, target_id)
+	)`,
+	`CREATE TABLE IF NOT EXISTS policy_user_groups (
+		policy_id TEXT NOT NULL REFERENCES command_policies(id) ON DELETE CASCADE,
+		group_id TEXT NOT NULL REFERENCES organization_user_groups(id) ON DELETE CASCADE,
+		PRIMARY KEY (policy_id, group_id)
 	)`,
 	`CREATE TABLE IF NOT EXISTS llm_policy_configs (
 		id TEXT PRIMARY KEY,

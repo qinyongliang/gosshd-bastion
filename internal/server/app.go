@@ -9,11 +9,19 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/qinyongliang/gosshd/internal/auth"
+	"github.com/qinyongliang/gosshd/internal/bastion"
+	"github.com/qinyongliang/gosshd/internal/store"
 )
 
 type App struct {
 	cfg      Config
 	registry *AgentRegistry
+	store    *store.Store
+	auth     *auth.Service
+	bastion  *bastion.Service
+	initMu   sync.Mutex
 	httpSrv  *http.Server
 	sshLn    net.Listener
 }
@@ -27,6 +35,29 @@ func NewApp(cfg Config) *App {
 
 func (a *App) Registry() *AgentRegistry {
 	return a.registry
+}
+
+func (a *App) ensureServices(ctx context.Context) error {
+	a.initMu.Lock()
+	defer a.initMu.Unlock()
+	if a.store != nil {
+		return nil
+	}
+	st, err := store.Open(ctx, a.cfg.DatabasePath)
+	if err != nil {
+		return err
+	}
+	a.store = st
+	a.auth = auth.NewService(st.Repository())
+	a.bastion = bastion.NewService(st.Repository())
+	return nil
+}
+
+func (a *App) sessionCookieName() string {
+	if a.cfg.SessionCookieName != "" {
+		return a.cfg.SessionCookieName
+	}
+	return "gosshd_session"
 }
 
 func (a *App) Run(ctx context.Context) error {

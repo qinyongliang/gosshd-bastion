@@ -26,10 +26,11 @@
 - Create `internal/server/api.go`: API route registration, JSON helpers, auth middleware.
 - Create `internal/server/api_auth.go`: register/login/logout/me handlers.
 - Create `internal/server/api_orgs.go`: organization and invite handlers.
+- Create `internal/server/api_groups.go`: organization user group handlers.
 - Create `internal/server/api_keys.go`: public key handlers.
 - Create `internal/server/api_targets.go`: target handlers.
 - Create `internal/server/api_agents.go`: agent enrollment and agent listing handlers.
-- Create `internal/server/api_policies.go`: policy, rule, and policy-target handlers.
+- Create `internal/server/api_policies.go`: policy, rule, policy-target, and policy-user-group handlers.
 - Create `internal/server/api_audit.go`: audit listing handler.
 - Create `internal/server/api_test.go`: HTTP API integration tests.
 - Create `internal/server/ssh_bastion.go`: public-key SSH auth, alias resolution, target SSH client connection, and channel bridging.
@@ -93,9 +94,9 @@ func TestOpenAppliesBastionSchema(t *testing.T)
 func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T)
 ```
 
-The first test opens `filepath.Join(t.TempDir(), "gosshd.db")`, queries `sqlite_master`, and asserts these tables exist: `users`, `sessions`, `organizations`, `organization_members`, `organization_invites`, `user_public_keys`, `ssh_targets`, `agent_enrollments`, `agents`, `command_policies`, `policy_rules`, `policy_targets`, `llm_policy_configs`, `command_audit_logs`.
+The first test opens `filepath.Join(t.TempDir(), "gosshd.db")`, queries `sqlite_master`, and asserts these tables exist: `users`, `sessions`, `organizations`, `organization_members`, `organization_user_groups`, `organization_user_group_members`, `organization_invites`, `user_public_keys`, `ssh_targets`, `agent_enrollments`, `agents`, `command_policies`, `policy_rules`, `policy_targets`, `policy_user_groups`, `llm_policy_configs`, `command_audit_logs`.
 
-The second test creates a user, organization, public key, direct target, policy, policy rule, policy target link, and audit log through repository methods. It then reads each item back and asserts persisted ids are non-empty and relationships match.
+The second test creates a user, organization, default user group membership, public key, direct target, policy, policy rule, policy target link, policy user group link, and audit log through repository methods. It then reads each item back and asserts persisted ids are non-empty and relationships match.
 
 - [ ] **Step 3: Run tests to verify failure**
 
@@ -240,12 +241,13 @@ git commit -m "feat: add auth sessions and public key lookup"
 
 ---
 
-### Task 3: HTTP API Foundation, Auth API, Organizations, and Keys
+### Task 3: HTTP API Foundation, Auth API, Organizations, User Groups, and Keys
 
 **Files:**
 - Create: `internal/server/api.go`
 - Create: `internal/server/api_auth.go`
 - Create: `internal/server/api_orgs.go`
+- Create: `internal/server/api_groups.go`
 - Create: `internal/server/api_keys.go`
 - Create: `internal/server/api_test.go`
 - Modify: `internal/server/app.go`
@@ -259,10 +261,11 @@ Create `internal/server/api_test.go` tests:
 ```go
 func TestAPIRegisterLoginMeAndLogout(t *testing.T)
 func TestAPIOrganizationCreateInviteJoin(t *testing.T)
+func TestAPIOrganizationDefaultAndCustomUserGroups(t *testing.T)
 func TestAPIPublicKeyCRUD(t *testing.T)
 ```
 
-Use `httptest.NewServer` with `NewApp(Config{DatabasePath: tempDB, SecretKeyPath: tempKey})`. Register users through HTTP, preserve cookies with `http.Client` and `cookiejar.Jar`, create an organization, create an invite, join with a second user, add and delete a public key, and assert JSON responses.
+Use `httptest.NewServer` with `NewApp(Config{DatabasePath: tempDB, SecretKeyPath: tempKey})`. Register users through HTTP, preserve cookies with `http.Client` and `cookiejar.Jar`, create an organization, assert its default all-members user group exists and contains the creator, create an invite, join with a second user, assert the second user is also in the default group, create a custom group, add/remove a member, add and delete a public key, and assert JSON responses.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -307,6 +310,10 @@ Register routes in `routes`:
 - `GET /api/orgs`
 - `POST /api/orgs/{id}/invites`
 - `POST /api/orgs/join`
+- `GET /api/orgs/{id}/groups`
+- `POST /api/orgs/{id}/groups`
+- `POST /api/orgs/{id}/groups/{group_id}/members`
+- `DELETE /api/orgs/{id}/groups/{group_id}/members/{user_id}`
 - `GET /api/keys`
 - `POST /api/keys`
 - `DELETE /api/keys/{id}`
@@ -332,12 +339,12 @@ Run:
 $env:GOPROXY='https://goproxy.cn,direct'
 go test ./...
 git add cmd/gosshd-server internal/auth internal/bastion internal/server internal/store
-git commit -m "feat: add management auth organization and key APIs"
+git commit -m "feat: add management auth organization group and key APIs"
 ```
 
 ---
 
-### Task 4: Target, Agent Enrollment, Policy, and Audit APIs
+### Task 4: Target, Agent Enrollment, Policy, User Group Binding, and Audit APIs
 
 **Files:**
 - Create: `internal/server/api_targets.go`
@@ -360,7 +367,7 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T)
 func TestPolicyEvaluationWhitelistBlacklistAndDefault(t *testing.T)
 ```
 
-The API test creates a direct target alias `test2`, creates a policy with default `deny`, adds a whitelist rule, attaches it to the target, inserts an audit log through service code, and reads it through `/api/audit`.
+The API test creates a direct target alias `test2`, creates a policy with default `deny`, adds a whitelist rule, attaches it to the target, attaches it to the organization default user group, inserts an audit log through service code, and reads it through `/api/audit`.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -379,6 +386,7 @@ Add:
 
 - `EvaluateCommand(ctx, user, target, command string) (Decision, error)`
 - rule matching for `exact`, `prefix`, `contains`
+- applicability: policy applies when it has no user-group bindings or the user belongs to at least one bound group
 - precedence: whitelist allows, blacklist denies, unmatched uses LLM when configured, otherwise default action
 - audit helper methods for allowed and denied commands
 
@@ -399,6 +407,8 @@ Register:
 - `POST /api/policies/{id}/rules`
 - `POST /api/policies/{id}/targets`
 - `DELETE /api/policies/{id}/targets/{target_id}`
+- `POST /api/policies/{id}/user-groups`
+- `DELETE /api/policies/{id}/user-groups/{group_id}`
 - `GET /api/audit`
 
 - [ ] **Step 5: Run tests and commit**
@@ -685,7 +695,8 @@ Build a plain ES-module frontend with:
 - public key table and form
 - target table and create form for direct and agent targets
 - agent enrollment command view
-- policy editor with blacklist, whitelist, default action, and LLM fields
+- organization user group management
+- policy editor with blacklist, whitelist, default action, LLM fields, target bindings, and user group bindings
 - audit log table
 
 Use accessible forms and compact table-first layouts. Keep CSS palette restrained and not dominated by one hue.
@@ -729,15 +740,16 @@ The test must:
 2. Register a user through HTTP.
 3. Add the user's SSH public key through HTTP.
 4. Create an organization through HTTP.
-5. Start a local in-process SSH target server.
-6. Add direct target alias `test2`.
-7. SSH to bastion with public-key auth and `User: "test2"`.
-8. Execute a command and assert output.
-9. Query `/api/audit` and assert command, target, user, allow decision, and exit code.
-10. Attach blacklist policy and assert denied command exits 126 and writes denied audit.
-11. Attach whitelist rule and assert allowed command succeeds.
-12. Create agent enrollment, start agent with token, add agent-backed target alias, execute through it, and assert output plus audit.
-13. Request `/` and assert the management UI entrypoint is served.
+5. Assert the default all-members user group exists and includes the creator.
+6. Start a local in-process SSH target server.
+7. Add direct target alias `test2`.
+8. SSH to bastion with public-key auth and `User: "test2"`.
+9. Execute a command and assert output.
+10. Query `/api/audit` and assert command, target, user, allow decision, and exit code.
+11. Attach blacklist policy to `test2` and the default group, and assert denied command exits 126 and writes denied audit.
+12. Attach whitelist rule and assert allowed command succeeds.
+13. Create agent enrollment, start agent with token, add agent-backed target alias, execute through it, and assert output plus audit.
+14. Request `/` and assert the management UI entrypoint is served.
 
 - [ ] **Step 2: Run e2e test to verify failure or pass depending on prior tasks**
 
@@ -794,7 +806,7 @@ git commit -m "test: add bastion e2e coverage"
 Run:
 
 ```powershell
-rg -n "NoClientAuth|ssh UUID|UUID@|AgentToken|EnrollmentToken|command_audit_logs|policy_rules|llm_policy_configs" .
+rg -n "NoClientAuth|ssh UUID|UUID@|AgentToken|EnrollmentToken|organization_user_groups|policy_user_groups|command_audit_logs|policy_rules|llm_policy_configs" .
 ```
 
 Expected:
@@ -802,6 +814,7 @@ Expected:
 - `NoClientAuth` does not appear in active SSH server config.
 - `ssh UUID` and `UUID@` only appear as legacy documentation or tests that explicitly verify compatibility.
 - enrollment, audit, policies, and LLM tables are present in implementation and tests.
+- organization user groups and policy user-group bindings are present in implementation and tests.
 
 - [ ] **Step 2: Run complete tests**
 
@@ -843,11 +856,12 @@ Map objective requirements to evidence:
 - SQLite: schema and store tests.
 - Organization/user system: API tests and e2e setup.
 - login/create/join org: API tests and e2e.
+- organization user groups: default group repository/API tests, custom group API tests, and e2e default group assertions.
 - user public key: API tests and SSH auth test.
 - direct and agent SSH services with alias: SSH tests and e2e.
 - `ssh test2@public-ip` semantics: SSH tests using `User: "test2"`.
 - command recording: audit API assertions and e2e.
-- command security groups: policy tests and e2e allow/deny.
+- command security groups: policy tests and e2e allow/deny, including policy binding to one or more user groups.
 - LLM path: LLM unit tests and policy integration tests.
 - engineered frontend/backend components: web serving test and API tests.
 - complete e2e: `TestBastionE2E`.
@@ -860,4 +874,3 @@ If Step 1 through Step 5 required code or docs changes, run:
 git add .
 git commit -m "chore: harden bastion completion checks"
 ```
-

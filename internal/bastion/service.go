@@ -20,6 +20,10 @@ func NormalizeAuthorizedKey(raw string) (string, string, error) {
 	return normalized + "\n", gossh.FingerprintSHA256(key), nil
 }
 
+func (s *Service) NormalizeAuthorizedKey(raw string) (string, string, error) {
+	return NormalizeAuthorizedKey(raw)
+}
+
 func (s *Service) LookupUserByPublicKey(ctx context.Context, key gossh.PublicKey) (store.User, error) {
 	return s.repo.GetUserByPublicKeyFingerprint(ctx, gossh.FingerprintSHA256(key))
 }
