@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -53,6 +54,9 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 		"llm_policy_configs",
 		"llm_prompt_resources",
 		"command_audit_logs",
+		"external_identities",
+		"system_settings",
+		"oauth_states",
 	} {
 		if !got[table] {
 			t.Fatalf("schema missing table %s; got %#v", table, got)
@@ -297,4 +301,200 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 
 func intPtr(v int) *int {
 	return &v
+}
+
+func TestRepositoryEnsuresBootstrapAdmin(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+
+	admin, createdPassword, err := repo.EnsureBootstrapAdmin(ctx, "admin-pass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdPassword != "admin-pass" {
+		t.Fatalf("bootstrap password mismatch: %q", createdPassword)
+	}
+	if admin.Email != "admin" || !admin.IsSystemAdmin || admin.AuthProvider != "local" || len(admin.PasswordHash) == 0 {
+		t.Fatalf("admin mismatch: %#v", admin)
+	}
+	personal, err := repo.GetPersonalOrganizationForUser(ctx, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !personal.IsPersonal {
+		t.Fatalf("admin personal organization missing: %#v", personal)
+	}
+
+	again, createdPassword, err := repo.EnsureBootstrapAdmin(ctx, "new-pass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != admin.ID || createdPassword != "" {
+		t.Fatalf("existing admin should be reused without password echo: %#v %q", again, createdPassword)
+	}
+}
+
+func TestRepositorySystemSettingsExternalIdentityAndOAuthState(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+
+	user, err := repo.CreateUser(ctx, CreateUserParams{
+		Email:        "dora@example.com",
+		DisplayName:  "Dora",
+		PasswordHash: []byte("hash"),
+		AuthProvider: "local",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.UpsertSystemSetting(ctx, "dingtalk", []byte(`{"enabled":true}`), user.ID); err != nil {
+		t.Fatal(err)
+	}
+	setting, err := repo.GetSystemSetting(ctx, "dingtalk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(setting.ValueJSON) != `{"enabled":true}` || setting.UpdatedBy != user.ID {
+		t.Fatalf("setting mismatch: %#v", setting)
+	}
+
+	identity, err := repo.CreateExternalIdentity(ctx, CreateExternalIdentityParams{
+		UserID:         user.ID,
+		Provider:       "dingtalk",
+		Subject:        "union-1",
+		Email:          "dora@example.com",
+		DisplayName:    "Dora Ding",
+		RawProfileJSON: `{"unionid":"union-1"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := repo.GetExternalIdentity(ctx, "dingtalk", "union-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.ID != identity.ID || found.UserID != user.ID || found.Email != "dora@example.com" {
+		t.Fatalf("identity mismatch: %#v", found)
+	}
+
+	expires := time.Now().UTC().Add(time.Hour)
+	if err := repo.CreateOAuthState(ctx, "dingtalk", []byte("state-hash"), "/targets", expires); err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.ConsumeOAuthState(ctx, "dingtalk", []byte("state-hash"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Provider != "dingtalk" || state.RedirectAfter != "/targets" {
+		t.Fatalf("oauth state mismatch: %#v", state)
+	}
+	if _, err := repo.ConsumeOAuthState(ctx, "dingtalk", []byte("state-hash")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected state to be single-use, got %v", err)
+	}
+
+	if err := repo.CreateOAuthState(ctx, "dingtalk", []byte("expired"), "/", time.Now().UTC().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ConsumeOAuthState(ctx, "dingtalk", []byte("expired")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected expired state to be rejected, got %v", err)
+	}
+}
+
+func TestRepositoryOrganizationMembersRolesAndOwnerTransfer(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+
+	alice, err := repo.CreateUser(ctx, CreateUserParams{Email: "alice@example.com", DisplayName: "Alice", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := repo.CreateUser(ctx, CreateUserParams{Email: "bob@example.com", DisplayName: "Bob", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := repo.CreateOrganization(ctx, CreateOrganizationParams{Name: "Ops", Slug: "ops-transfer", OwnerUserID: alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AddOrganizationMember(ctx, org.ID, bob.ID, RoleMember); err != nil {
+		t.Fatal(err)
+	}
+	members, err := repo.ListOrganizationMembers(ctx, org.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("member list mismatch: %#v", members)
+	}
+	if err := repo.UpdateOrganizationMemberRole(ctx, org.ID, bob.ID, RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	bobMember, err := repo.GetOrganizationMember(ctx, org.ID, bob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bobMember.Role != RoleAdmin {
+		t.Fatalf("bob role mismatch: %#v", bobMember)
+	}
+	if err := repo.TransferOrganizationOwner(ctx, org.ID, bob.ID, RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	org, err = repo.GetOrganization(ctx, org.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if org.OwnerUserID != bob.ID {
+		t.Fatalf("owner id not transferred: %#v", org)
+	}
+	aliceMember, err := repo.GetOrganizationMember(ctx, org.ID, alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobMember, err = repo.GetOrganizationMember(ctx, org.ID, bob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aliceMember.Role != RoleAdmin || bobMember.Role != RoleOwner {
+		t.Fatalf("roles after transfer mismatch: alice=%#v bob=%#v", aliceMember, bobMember)
+	}
+	defaultGroup, err := repo.GetDefaultOrganizationUserGroup(ctx, org.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, userID := range []string{alice.ID, bob.ID} {
+		inGroup, err := repo.UserInGroup(ctx, defaultGroup.ID, userID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !inGroup {
+			t.Fatalf("user %s missing from default group", userID)
+		}
+	}
+
+	personal, err := repo.GetPersonalOrganizationForUser(ctx, alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.TransferOrganizationOwner(ctx, personal.ID, bob.ID, RoleAdmin); err == nil {
+		t.Fatalf("expected personal organization transfer to fail")
+	}
+	if err := repo.RemoveOrganizationMember(ctx, org.ID, bob.ID); err == nil {
+		t.Fatalf("expected removing current owner to fail")
+	}
 }

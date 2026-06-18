@@ -38,6 +38,9 @@ type User struct {
 	Email        string
 	DisplayName  string
 	PasswordHash []byte
+	IsSystemAdmin bool
+	AuthProvider  string
+	DisabledAt    *time.Time
 	CreatedAt    time.Time
 }
 
@@ -61,6 +64,15 @@ type Organization struct {
 type OrganizationMember struct {
 	OrganizationID string
 	UserID         string
+	Role           string
+	CreatedAt      time.Time
+}
+
+type OrganizationMemberWithUser struct {
+	OrganizationID string
+	UserID         string
+	Email          string
+	DisplayName    string
 	Role           string
 	CreatedAt      time.Time
 }
@@ -198,6 +210,33 @@ type LLMPromptResource struct {
 	CreatedAt  time.Time
 }
 
+type ExternalIdentity struct {
+	ID             string
+	UserID         string
+	Provider       string
+	Subject        string
+	Email          string
+	DisplayName    string
+	RawProfileJSON string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type SystemSetting struct {
+	Key       string
+	ValueJSON string
+	UpdatedAt time.Time
+	UpdatedBy string
+}
+
+type OAuthState struct {
+	StateHash     []byte
+	Provider      string
+	RedirectAfter string
+	ExpiresAt     time.Time
+	CreatedAt     time.Time
+}
+
 type CreateLLMPolicyConfigParams struct {
 	OwnerType       string
 	OwnerID         string
@@ -237,6 +276,17 @@ type CreateUserParams struct {
 	Email        string
 	DisplayName  string
 	PasswordHash []byte
+	IsSystemAdmin bool
+	AuthProvider  string
+}
+
+type CreateExternalIdentityParams struct {
+	UserID         string
+	Provider       string
+	Subject        string
+	Email          string
+	DisplayName    string
+	RawProfileJSON string
 }
 
 type CreateOrganizationParams struct {
