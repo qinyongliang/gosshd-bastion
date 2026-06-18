@@ -127,7 +127,7 @@ func TestPolicyEvaluationUsesLLMWhenNoRuleMatches(t *testing.T) {
 	policy, err := repo.CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
 		OwnerType:     store.OwnerOrganization,
 		OwnerID:       org.ID,
-		Name:          "llm fallback",
+		Name:          "llm review",
 		DefaultAction: store.DecisionAllow,
 		LLMConfigID:   llm.ID,
 		LLMPromptID:   prompt.ID,

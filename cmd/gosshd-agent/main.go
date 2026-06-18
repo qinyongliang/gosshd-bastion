@@ -17,8 +17,7 @@ var version = "dev"
 func main() {
 	var cfg agent.Config
 	cfg.Version = version
-	flag.StringVar(&cfg.Server, "server", "http://localhost", "public gosshd server URL")
-	flag.StringVar(&cfg.Token, "token", "", "optional shared token for server registration")
+	flag.StringVar(&cfg.Server, "server", "", "public gosshd server URL (required)")
 	flag.StringVar(&cfg.EnrollmentToken, "enrollment-token", "", "owner-scoped bastion enrollment token")
 	flag.StringVar(&cfg.IDFile, "id-file", "", "path to stable local agent id file")
 	flag.StringVar(&cfg.Shell, "shell", "", "shell executable; defaults to parent process shell, SHELL, or login shell")

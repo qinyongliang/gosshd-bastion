@@ -14,7 +14,7 @@ The server authenticates the SSH public key, resolves `test2` inside the user's 
 
 - SQLite persistence for users, sessions, organizations, groups, targets, agents, policies, LLM configs, prompt resources, and audit logs.
 - A default system administrator account is bootstrapped on first run. Admins keep normal user menus and also get global settings, account management, and organization management.
-- Every registered user gets a personal organization. Owner bindings default to that personal organization.
+- Every registered user gets a personal organization. The UI selects an active organization, and API/MCP writes require explicit owner scope.
 - Users can create shared organizations, invite others with codes, join multiple organizations, and leave shared organizations. Personal organizations cannot invite other users.
 - Shared organizations have `owner`, `admin`, and `member` roles. Owners can transfer ownership; admins can manage members, user groups, targets, and policies.
 - Users can add SSH public keys and connect to target aliases with normal SSH clients.
@@ -97,6 +97,12 @@ $env:GOPROXY='https://goproxy.cn,direct'
 go test ./...
 go test ./internal/server -run TestBastionE2E -v
 go test ./internal/server -run TestDingTalkAdminOrganizationE2E -v
+GOSSHD_UI_E2E_NODE=/path/to/node \
+GOSSHD_UI_E2E_PLAYWRIGHT=/absolute/path/to/playwright \
+GOSSHD_UI_E2E_BROWSER=/absolute/path/to/chrome \
+go test ./internal/server -run TestUIE2EWithBrowser -v
 go build ./cmd/gosshd-server
 go build ./cmd/gosshd-agent
 ```
+
+`TestUIE2EWithBrowser` intentionally fails when the three browser variables are missing. It drives the real embedded UI with Playwright and a local browser; it is not skipped or replaced by static assertions.

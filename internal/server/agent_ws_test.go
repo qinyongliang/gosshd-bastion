@@ -3,7 +3,6 @@ package server
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -20,7 +19,9 @@ import (
 )
 
 func TestAgentWSReturnsVersionAndAgentDownloadURL(t *testing.T) {
-	app := NewApp(Config{Version: "v1.2.3", PublicHost: "relay.example.com"})
+	ctx := context.Background()
+	app := NewApp(Config{Version: "v1.2.3", PublicHost: "relay.example.com", DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	token := createAgentEnrollmentForTest(t, ctx, app, "relay-agent")
 	mux := http.NewServeMux()
 	app.routes(mux)
 	srv := httptest.NewServer(mux)
@@ -35,10 +36,11 @@ func TestAgentWSReturnsVersionAndAgentDownloadURL(t *testing.T) {
 	conn := relay.NewWSConn(ws)
 
 	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
-		ID:      "11111111-1111-4111-8111-111111111111",
-		Version: "v1.2.2",
-		GOOS:    "linux",
-		GOARCH:  "amd64",
+		ID:              "11111111-1111-4111-8111-111111111111",
+		EnrollmentToken: token,
+		Version:         "v1.2.2",
+		GOOS:            "linux",
+		GOARCH:          "amd64",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +57,9 @@ func TestAgentWSReturnsVersionAndAgentDownloadURL(t *testing.T) {
 }
 
 func TestAgentWSDefaultsMissingPlatformToServerPlatform(t *testing.T) {
-	app := NewApp(Config{Version: "v1.2.3"})
+	ctx := context.Background()
+	app := NewApp(Config{Version: "v1.2.3", DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	token := createAgentEnrollmentForTest(t, ctx, app, "platform-agent")
 	mux := http.NewServeMux()
 	app.routes(mux)
 	srv := httptest.NewServer(mux)
@@ -70,8 +74,9 @@ func TestAgentWSDefaultsMissingPlatformToServerPlatform(t *testing.T) {
 	conn := relay.NewWSConn(ws)
 
 	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
-		ID:      "11111111-1111-4111-8111-111111111111",
-		Version: "v1.2.2",
+		ID:              "11111111-1111-4111-8111-111111111111",
+		EnrollmentToken: token,
+		Version:         "v1.2.2",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -105,11 +110,10 @@ func TestAgentWSEnrollmentCreatesPersistedAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	token := "enroll-token"
-	sum := sha256.Sum256([]byte(token))
 	enrollment, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
 		OwnerType:   store.OwnerOrganization,
 		OwnerID:     personal.ID,
-		TokenHash:   sum[:],
+		TokenHash:   codeHash(token),
 		Label:       "laptop",
 		DefaultHost: "127.0.0.1",
 		DefaultPort: 22,
@@ -160,6 +164,34 @@ func TestAgentWSEnrollmentCreatesPersistedAgent(t *testing.T) {
 	}
 }
 
+func TestAgentWSRejectsMissingEnrollmentToken(t *testing.T) {
+	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	t.Cleanup(func() {
+		if app.store != nil {
+			_ = app.store.Close()
+		}
+	})
+	mux := http.NewServeMux()
+	app.routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	conn := dialAgentWS(t, srv.URL)
+	defer conn.Close()
+	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
+		ID: "11111111-1111-4111-8111-111111111111",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := protocol.ReadJSONLine[protocol.StreamResponse](bufio.NewReader(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK || resp.Error != "enrollment token is required" {
+		t.Fatalf("expected enrollment-token rejection, got %+v", resp)
+	}
+}
+
 func TestAgentWSRejectsInvalidEnrollmentToken(t *testing.T) {
 	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
 	t.Cleanup(func() {
@@ -197,4 +229,38 @@ func dialAgentWS(t *testing.T, serverURL string) *relay.WSConn {
 		t.Fatal(err)
 	}
 	return relay.NewWSConn(ws)
+}
+
+func createAgentEnrollmentForTest(t *testing.T, ctx context.Context, app *App, label string) string {
+	t.Helper()
+	if err := app.ensureServices(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if app.store != nil {
+			_ = app.store.Close()
+		}
+	})
+	user, err := app.store.Repository().CreateUser(ctx, store.CreateUserParams{Email: label + "@example.com", DisplayName: label, PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := label + "-token"
+	if _, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
+		OwnerType:   store.OwnerOrganization,
+		OwnerID:     org.ID,
+		TokenHash:   codeHash(token),
+		Label:       label,
+		DefaultHost: "127.0.0.1",
+		DefaultPort: 22,
+		CreatedBy:   user.ID,
+		ExpiresAt:   time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return token
 }

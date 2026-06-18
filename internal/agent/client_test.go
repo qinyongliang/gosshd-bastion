@@ -1,10 +1,22 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestNewRequiresExplicitServer(t *testing.T) {
+	idFile := filepath.Join(t.TempDir(), "agent.json")
+	_, err := New(Config{IDFile: idFile})
+	if !errors.Is(err, errServerRequired) && (err == nil || err.Error() != "server is required") {
+		t.Fatalf("expected server required error, got %v", err)
+	}
+	if _, statErr := os.Stat(idFile); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("server validation should happen before creating id file, stat error: %v", statErr)
+	}
+}
 
 func TestSSHAddressUsesPublicSSHHint(t *testing.T) {
 	client, err := New(Config{

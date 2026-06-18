@@ -47,8 +47,20 @@ function bindEvents() {
         await refresh();
         return;
       }
-      if (action === "create-org") await api.createOrg(data);
-      if (action === "join-org") await api.joinOrg(data.code);
+      if (action === "create-org") {
+        const out = await api.createOrg(data);
+        state.activeOrgID = out.organization?.id || "";
+        state.notice = "Saved";
+        await refresh();
+        return;
+      }
+      if (action === "join-org") {
+        const out = await api.joinOrg(data.code);
+        state.activeOrgID = out.organization?.id || "";
+        state.notice = "Saved";
+        await refresh();
+        return;
+      }
       if (action === "create-key") await api.createKey({ name: data.name, authorized_key: data.authorized_key });
       if (action === "create-group") await api.createGroup(activeOrg().id, data);
       if (action === "add-org-member") await api.addOrgMember(activeOrg().id, { ...data, role: data.role || "member" });
@@ -227,7 +239,8 @@ function render() {
     app.innerHTML = renderAuth(state);
     return;
   }
-  app.innerHTML = renderShell(renderRoute());
+  const shell = renderShell(renderRoute());
+  app.innerHTML = shell.__raw || shell;
 }
 
 function renderRoute() {

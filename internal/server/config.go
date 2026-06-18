@@ -12,9 +12,6 @@ type Config struct {
 	BootstrapAdminPassword string
 	SessionCookieName      string
 	PublicHost             string
-	PublicSSHHost          string
-	PublicSSHPort          string
-	AgentToken             string
 	AgentPath              string
 	AgentCachePath         string
 	Version                string
@@ -41,8 +38,5 @@ func (c Config) releaseBaseURL() string {
 }
 
 func (c Config) releaseProxyURL() string {
-	if c.ReleaseProxyURL != "" {
-		return c.ReleaseProxyURL
-	}
-	return "https://gh-proxy.com/"
+	return c.ReleaseProxyURL
 }

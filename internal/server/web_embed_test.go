@@ -18,7 +18,6 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 	for _, path := range []string{
 		"/",
 		"/main.js",
-		"/app.js",
 		"/state.js",
 		"/router.js",
 		"/components/layout.js",
@@ -46,7 +45,7 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 			}
 			continue
 		}
-		if path != "/app.js" && len(body) < 200 {
+		if len(body) < 200 {
 			t.Fatalf("%s asset too small", path)
 		}
 		if path == "/views/auth.js" && !strings.Contains(body, "DingTalk login") {
@@ -57,6 +56,18 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		}
 		if path == "/views/agents.js" && (!strings.Contains(body, "systemctl") || !strings.Contains(body, "sc.exe")) {
 			t.Fatalf("agent guide did not include startup service instructions")
+		}
+	}
+
+	for _, path := range []string{"/app.js", "/components.js", "/missing-module.js", "/unknown-route"} {
+		resp, err := srv.Client().Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s should be a strict 404, got %d", path, resp.StatusCode)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -198,8 +199,9 @@ func (a *App) newMCPServer() *mcp.Server {
 			}
 			base := a.cfg.publicHost()
 			if base == "" {
-				base = "http://localhost"
-			} else if !strings.Contains(base, "://") {
+				return nil, apiAgentEnrollmentResponse{}, errors.New("public host is required for agent enrollment install commands")
+			}
+			if !strings.Contains(base, "://") {
 				base = "http://" + base
 			}
 			return nil, agentEnrollmentResponse(enrollment.ID, token, base), nil
@@ -397,8 +399,8 @@ type mcpPublicKeyInput struct {
 
 type mcpOwnerInput struct {
 	UserID    string `json:"user_id"`
-	OwnerType string `json:"owner_type,omitempty"`
-	OwnerID   string `json:"owner_id,omitempty"`
+	OwnerType string `json:"owner_type"`
+	OwnerID   string `json:"owner_id"`
 }
 
 type mcpTargetCreateInput struct {
