@@ -52,6 +52,44 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (User, er
 	return scanUser(row)
 }
 
+func (r *Repository) CreateSession(ctx context.Context, userID string, tokenHash []byte, expiresAt time.Time) (Session, error) {
+	session := Session{
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		TokenHash: append([]byte(nil), tokenHash...),
+		ExpiresAt: expiresAt.UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, session.ID, session.UserID, session.TokenHash, formatTime(session.ExpiresAt), formatTime(session.CreatedAt))
+	if err != nil {
+		return Session{}, err
+	}
+	return session, nil
+}
+
+func (r *Repository) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error) {
+	var session Session
+	var expires, created string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, user_id, token_hash, expires_at, created_at
+		FROM sessions WHERE token_hash = ?
+	`, tokenHash).Scan(&session.ID, &session.UserID, &session.TokenHash, &expires, &created)
+	if err != nil {
+		return Session{}, wrapScanErr(err)
+	}
+	session.ExpiresAt = parseTime(expires)
+	session.CreatedAt = parseTime(created)
+	return session, nil
+}
+
+func (r *Repository) DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, tokenHash)
+	return err
+}
+
 func (r *Repository) CreateOrganization(ctx context.Context, params CreateOrganizationParams) (Organization, error) {
 	now := time.Now().UTC()
 	org := Organization{
