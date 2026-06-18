@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/binary"
@@ -42,7 +43,7 @@ type forwardedTCPIPPayload struct {
 }
 
 func (a *App) serveSSH(ln net.Listener) error {
-	cfg, err := sshServerConfig(a.cfg.HostKeyPath)
+	cfg, err := a.sshServerConfig()
 	if err != nil {
 		return err
 	}
@@ -63,6 +64,29 @@ func sshServerConfig(hostKeyPath string) (*gossh.ServerConfig, error) {
 	cfg := &gossh.ServerConfig{
 		NoClientAuth:  true,
 		ServerVersion: "SSH-2.0-gosshd",
+	}
+	cfg.AddHostKey(signer)
+	return cfg, nil
+}
+
+func (a *App) sshServerConfig() (*gossh.ServerConfig, error) {
+	signer, err := loadOrCreateHostSigner(a.cfg.HostKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &gossh.ServerConfig{
+		NoClientAuth:  a.cfg.DatabasePath == "",
+		ServerVersion: "SSH-2.0-gosshd",
+		PublicKeyCallback: func(meta gossh.ConnMetadata, key gossh.PublicKey) (*gossh.Permissions, error) {
+			if err := a.ensureServices(context.Background()); err != nil {
+				return nil, err
+			}
+			user, err := a.bastion.LookupUserByPublicKey(context.Background(), key)
+			if err != nil {
+				return nil, err
+			}
+			return &gossh.Permissions{Extensions: map[string]string{"user_id": user.ID}}, nil
+		},
 	}
 	cfg.AddHostKey(signer)
 	return cfg, nil
@@ -116,6 +140,13 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 		return
 	}
 	defer conn.Close()
+
+	if conn.Permissions != nil {
+		if userID := conn.Permissions.Extensions["user_id"]; userID != "" {
+			a.handleBastionSSHConn(conn, chans, reqs, userID)
+			return
+		}
+	}
 
 	id := conn.User()
 	if !protocol.IsValidID(id) {
