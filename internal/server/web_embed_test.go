@@ -15,7 +15,19 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	for _, path := range []string{"/", "/app.js", "/styles.css", "/targets"} {
+	for _, path := range []string{
+		"/",
+		"/main.js",
+		"/app.js",
+		"/state.js",
+		"/router.js",
+		"/components/layout.js",
+		"/views/auth.js",
+		"/views/agents.js",
+		"/views/system-admin.js",
+		"/styles.css",
+		"/targets",
+	} {
 		resp, err := srv.Client().Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -29,12 +41,21 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 			if !strings.Contains(body, "gosshd Bastion") {
 				t.Fatalf("%s did not serve index: %s", path, body)
 			}
+			if path == "/" && !strings.Contains(body, "main.js") {
+				t.Fatalf("%s did not load modular frontend: %s", path, body)
+			}
 			continue
 		}
-		if len(body) < 200 {
+		if path != "/app.js" && len(body) < 200 {
 			t.Fatalf("%s asset too small", path)
 		}
-		if path == "/app.js" && (!strings.Contains(body, "systemctl") || !strings.Contains(body, "sc.exe")) {
+		if path == "/views/auth.js" && !strings.Contains(body, "DingTalk login") {
+			t.Fatalf("auth view did not include DingTalk login action")
+		}
+		if path == "/views/system-admin.js" && (!strings.Contains(body, "Global settings") || !strings.Contains(body, "Account management") || !strings.Contains(body, "Organization management")) {
+			t.Fatalf("system admin view did not include settings/users/org management")
+		}
+		if path == "/views/agents.js" && (!strings.Contains(body, "systemctl") || !strings.Contains(body, "sc.exe")) {
 			t.Fatalf("agent guide did not include startup service instructions")
 		}
 	}
