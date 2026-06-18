@@ -301,9 +301,21 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/targets", map[string]string{
 		"target_id": target.Target.ID,
 	}, http.StatusOK, nil)
+	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/target-tags", map[string]string{
+		"owner_type": "organization",
+		"owner_id":   org.Organization.ID,
+		"tag":        "prod",
+	}, http.StatusOK, nil)
 	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/user-groups", map[string]string{
 		"group_id": groups.Groups[0].ID,
 	}, http.StatusOK, nil)
+	var listedPolicies struct {
+		Policies []apiPolicy `json:"policies"`
+	}
+	getJSON(t, client, srv.URL+"/api/policies?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &listedPolicies)
+	if len(listedPolicies.Policies) != 1 || len(listedPolicies.Policies[0].TargetTags) != 1 || listedPolicies.Policies[0].TargetTags[0] != "prod" {
+		t.Fatalf("policy target tags mismatch: %+v", listedPolicies)
+	}
 
 	audit, err := app.store.Repository().CreateCommandAuditLog(contextBackground(), store.CreateCommandAuditLogParams{
 		UserID:         user.User.ID,

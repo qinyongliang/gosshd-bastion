@@ -37,6 +37,7 @@ export const api = {
   createPolicy: (body) => request("/api/policies", post(body)),
   addRule: (policyID, body) => request(`/api/policies/${policyID}/rules`, post(body)),
   bindTarget: (policyID, targetID) => request(`/api/policies/${policyID}/targets`, post({ target_id: targetID })),
+  bindTargetTag: (policyID, body) => request(`/api/policies/${policyID}/target-tags`, post(body)),
   bindGroup: (policyID, groupID) => request(`/api/policies/${policyID}/user-groups`, post({ group_id: groupID })),
   audit: () => request("/api/audit"),
 };

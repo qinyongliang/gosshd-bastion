@@ -15,6 +15,7 @@ type apiPolicy struct {
 	LLMConfigID   string   `json:"llm_config_id,omitempty"`
 	LLMPromptID   string   `json:"llm_prompt_id,omitempty"`
 	UserGroupIDs  []string `json:"user_group_ids"`
+	TargetTags    []string `json:"target_tags"`
 }
 
 type apiPolicyResponse struct {
@@ -258,6 +259,28 @@ func (a *App) handleAttachPolicyTarget(w http.ResponseWriter, r *http.Request, u
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (a *App) handleAttachPolicyTargetTag(w http.ResponseWriter, r *http.Request, user store.User) {
+	var req struct {
+		OwnerType string `json:"owner_type"`
+		OwnerID   string `json:"owner_id"`
+		Tag       string `json:"tag"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.store.Repository().AttachPolicyToTargetTag(r.Context(), r.PathValue("id"), ownerType, ownerID, req.Tag); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (a *App) handleAttachPolicyUserGroup(w http.ResponseWriter, r *http.Request, user store.User) {
 	var req struct {
 		GroupID string `json:"group_id"`
@@ -283,6 +306,7 @@ func apiPolicyFromStore(policy store.CommandPolicy) apiPolicy {
 		LLMConfigID:   policy.LLMConfigID,
 		LLMPromptID:   policy.LLMPromptID,
 		UserGroupIDs:  policy.UserGroupIDs,
+		TargetTags:    policy.TargetTags,
 	}
 }
 
