@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var ErrNotFound = errors.New("not found")
+
+const defaultAuthProvider = "local"
 
 type Repository struct {
 	db *sql.DB
@@ -20,11 +23,13 @@ type Repository struct {
 func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (User, error) {
 	now := time.Now().UTC()
 	user := User{
-		ID:           uuid.NewString(),
-		Email:        strings.ToLower(strings.TrimSpace(params.Email)),
-		DisplayName:  strings.TrimSpace(params.DisplayName),
-		PasswordHash: append([]byte(nil), params.PasswordHash...),
-		CreatedAt:    now,
+		ID:            uuid.NewString(),
+		Email:         strings.ToLower(strings.TrimSpace(params.Email)),
+		DisplayName:   strings.TrimSpace(params.DisplayName),
+		PasswordHash:  append([]byte(nil), params.PasswordHash...),
+		IsSystemAdmin: params.IsSystemAdmin,
+		AuthProvider:  normalizeAuthProvider(params.AuthProvider),
+		CreatedAt:     now,
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -32,9 +37,12 @@ func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (U
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO users (id, email, display_name, password_hash, created_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, user.ID, user.Email, user.DisplayName, user.PasswordHash, formatTime(user.CreatedAt)); err != nil {
+		INSERT INTO users (
+			id, email, display_name, password_hash, is_system_admin, auth_provider,
+			disabled_at, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, user.ID, user.Email, user.DisplayName, user.PasswordHash, boolInt(user.IsSystemAdmin),
+		user.AuthProvider, nullableTime(user.DisabledAt), formatTime(user.CreatedAt)); err != nil {
 		return User{}, err
 	}
 	if _, err := r.createOrganizationTx(ctx, tx, CreateOrganizationParams{
@@ -53,7 +61,8 @@ func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (U
 
 func (r *Repository) GetUser(ctx context.Context, id string) (User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, email, display_name, password_hash, created_at
+		SELECT id, email, display_name, password_hash, is_system_admin,
+			auth_provider, disabled_at, created_at
 		FROM users WHERE id = ?
 	`, id)
 	return scanUser(row)
@@ -61,10 +70,76 @@ func (r *Repository) GetUser(ctx context.Context, id string) (User, error) {
 
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, email, display_name, password_hash, created_at
+		SELECT id, email, display_name, password_hash, is_system_admin,
+			auth_provider, disabled_at, created_at
 		FROM users WHERE email = ?
 	`, strings.ToLower(strings.TrimSpace(email)))
 	return scanUser(row)
+}
+
+func (r *Repository) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, email, display_name, password_hash, is_system_admin,
+			auth_provider, disabled_at, created_at
+		FROM users
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []User
+	for rows.Next() {
+		user, err := scanUserRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
+func (r *Repository) UpdateUserSystemAdmin(ctx context.Context, userID string, isAdmin bool) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE users SET is_system_admin = ? WHERE id = ?
+	`, boolInt(isAdmin), userID)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
+func (r *Repository) EnsureBootstrapAdmin(ctx context.Context, password string) (User, string, error) {
+	if existing, err := r.GetUserByEmail(ctx, "admin"); err == nil {
+		if !existing.IsSystemAdmin {
+			if err := r.UpdateUserSystemAdmin(ctx, existing.ID, true); err != nil {
+				return User{}, "", err
+			}
+			existing.IsSystemAdmin = true
+		}
+		return existing, "", nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return User{}, "", err
+	}
+	password = strings.TrimSpace(password)
+	if password == "" {
+		password = uuid.NewString()
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return User{}, "", err
+	}
+	user, err := r.CreateUser(ctx, CreateUserParams{
+		Email:         "admin",
+		DisplayName:   "Administrator",
+		PasswordHash:  hash,
+		IsSystemAdmin: true,
+		AuthProvider:  defaultAuthProvider,
+	})
+	if err != nil {
+		return User{}, "", err
+	}
+	return user, password, nil
 }
 
 func (r *Repository) CreateSession(ctx context.Context, userID string, tokenHash []byte, expiresAt time.Time) (Session, error) {
@@ -103,6 +178,129 @@ func (r *Repository) GetSessionByTokenHash(ctx context.Context, tokenHash []byte
 func (r *Repository) DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, tokenHash)
 	return err
+}
+
+func (r *Repository) UpsertSystemSetting(ctx context.Context, key string, valueJSON []byte, updatedBy string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return errors.New("setting key is required")
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO system_settings (key, value_json, updated_at, updated_by)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET
+			value_json = excluded.value_json,
+			updated_at = excluded.updated_at,
+			updated_by = excluded.updated_by
+	`, key, string(valueJSON), formatTime(time.Now().UTC()), nullableString(updatedBy))
+	return err
+}
+
+func (r *Repository) GetSystemSetting(ctx context.Context, key string) (SystemSetting, error) {
+	var setting SystemSetting
+	var updated string
+	var updatedBy sql.NullString
+	err := r.db.QueryRowContext(ctx, `
+		SELECT key, value_json, updated_at, updated_by
+		FROM system_settings
+		WHERE key = ?
+	`, strings.TrimSpace(key)).Scan(&setting.Key, &setting.ValueJSON, &updated, &updatedBy)
+	if err != nil {
+		return SystemSetting{}, wrapScanErr(err)
+	}
+	setting.UpdatedAt = parseTime(updated)
+	if updatedBy.Valid {
+		setting.UpdatedBy = updatedBy.String
+	}
+	return setting, nil
+}
+
+func (r *Repository) CreateExternalIdentity(ctx context.Context, params CreateExternalIdentityParams) (ExternalIdentity, error) {
+	now := time.Now().UTC()
+	identity := ExternalIdentity{
+		ID:             uuid.NewString(),
+		UserID:         params.UserID,
+		Provider:       strings.TrimSpace(params.Provider),
+		Subject:        strings.TrimSpace(params.Subject),
+		Email:          strings.ToLower(strings.TrimSpace(params.Email)),
+		DisplayName:    strings.TrimSpace(params.DisplayName),
+		RawProfileJSON: strings.TrimSpace(params.RawProfileJSON),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if identity.Provider == "" || identity.Subject == "" {
+		return ExternalIdentity{}, errors.New("external identity provider and subject are required")
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO external_identities (
+			id, user_id, provider, subject, email, display_name, raw_profile_json,
+			created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, identity.ID, identity.UserID, identity.Provider, identity.Subject, identity.Email, identity.DisplayName,
+		identity.RawProfileJSON, formatTime(identity.CreatedAt), formatTime(identity.UpdatedAt))
+	if err != nil {
+		return ExternalIdentity{}, err
+	}
+	return identity, nil
+}
+
+func (r *Repository) GetExternalIdentity(ctx context.Context, provider, subject string) (ExternalIdentity, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, user_id, provider, subject, email, display_name, raw_profile_json,
+			created_at, updated_at
+		FROM external_identities
+		WHERE provider = ? AND subject = ?
+	`, strings.TrimSpace(provider), strings.TrimSpace(subject))
+	return scanExternalIdentity(row)
+}
+
+func (r *Repository) CreateOAuthState(ctx context.Context, provider string, stateHash []byte, redirectAfter string, expiresAt time.Time) error {
+	provider = strings.TrimSpace(provider)
+	if provider == "" || len(stateHash) == 0 {
+		return errors.New("oauth provider and state are required")
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO oauth_states (state_hash, provider, redirect_after, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, append([]byte(nil), stateHash...), provider, strings.TrimSpace(redirectAfter),
+		formatTime(expiresAt.UTC()), formatTime(time.Now().UTC()))
+	return err
+}
+
+func (r *Repository) ConsumeOAuthState(ctx context.Context, provider string, stateHash []byte) (OAuthState, error) {
+	provider = strings.TrimSpace(provider)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return OAuthState{}, err
+	}
+	defer tx.Rollback()
+	var state OAuthState
+	var expires, created string
+	err = tx.QueryRowContext(ctx, `
+		SELECT state_hash, provider, redirect_after, expires_at, created_at
+		FROM oauth_states
+		WHERE provider = ? AND state_hash = ?
+	`, provider, stateHash).Scan(&state.StateHash, &state.Provider, &state.RedirectAfter, &expires, &created)
+	if err != nil {
+		return OAuthState{}, wrapScanErr(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM oauth_states WHERE provider = ? AND state_hash = ?
+	`, provider, stateHash); err != nil {
+		return OAuthState{}, err
+	}
+	state.ExpiresAt = parseTime(expires)
+	state.CreatedAt = parseTime(created)
+	if time.Now().UTC().After(state.ExpiresAt) {
+		if err := tx.Commit(); err != nil {
+			return OAuthState{}, err
+		}
+		return OAuthState{}, ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return OAuthState{}, err
+	}
+	return state, nil
 }
 
 func (r *Repository) CreateOrganization(ctx context.Context, params CreateOrganizationParams) (Organization, error) {
@@ -179,6 +377,33 @@ func (r *Repository) GetOrganizationMember(ctx context.Context, organizationID, 
 	}
 	member.CreatedAt = parseTime(created)
 	return member, nil
+}
+
+func (r *Repository) ListOrganizationMembers(ctx context.Context, organizationID string) ([]OrganizationMemberWithUser, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT m.organization_id, m.user_id, u.email, u.display_name, m.role, m.created_at
+		FROM organization_members m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.organization_id = ?
+		ORDER BY
+			CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,
+			u.email ASC
+	`, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var members []OrganizationMemberWithUser
+	for rows.Next() {
+		var member OrganizationMemberWithUser
+		var created string
+		if err := rows.Scan(&member.OrganizationID, &member.UserID, &member.Email, &member.DisplayName, &member.Role, &created); err != nil {
+			return nil, err
+		}
+		member.CreatedAt = parseTime(created)
+		members = append(members, member)
+	}
+	return members, rows.Err()
 }
 
 func (r *Repository) ListOrganizationsForUser(ctx context.Context, userID string) ([]Organization, error) {
@@ -313,6 +538,31 @@ func (r *Repository) GetOrganization(ctx context.Context, id string) (Organizati
 	return org, nil
 }
 
+func (r *Repository) ListOrganizations(ctx context.Context) ([]Organization, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, name, slug, owner_user_id, is_personal, created_at
+		FROM organizations
+		ORDER BY is_personal ASC, created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var orgs []Organization
+	for rows.Next() {
+		var org Organization
+		var isPersonal int
+		var created string
+		if err := rows.Scan(&org.ID, &org.Name, &org.Slug, &org.OwnerUserID, &isPersonal, &created); err != nil {
+			return nil, err
+		}
+		org.IsPersonal = isPersonal == 1
+		org.CreatedAt = parseTime(created)
+		orgs = append(orgs, org)
+	}
+	return orgs, rows.Err()
+}
+
 func (r *Repository) GetPersonalOrganizationForUser(ctx context.Context, userID string) (Organization, error) {
 	var org Organization
 	var isPersonal int
@@ -428,6 +678,107 @@ func (r *Repository) AddOrganizationMember(ctx context.Context, organizationID, 
 	return tx.Commit()
 }
 
+func (r *Repository) UpdateOrganizationMemberRole(ctx context.Context, organizationID, userID, role string) error {
+	role = strings.TrimSpace(role)
+	if role != RoleAdmin && role != RoleMember && role != RoleOwner {
+		return errors.New("invalid organization role")
+	}
+	org, err := r.GetOrganization(ctx, organizationID)
+	if err != nil {
+		return err
+	}
+	if org.OwnerUserID == userID && role != RoleOwner {
+		return errors.New("organization owner role cannot be changed without transfer")
+	}
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE organization_members SET role = ?
+		WHERE organization_id = ? AND user_id = ?
+	`, role, organizationID, userID)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
+func (r *Repository) RemoveOrganizationMember(ctx context.Context, organizationID, userID string) error {
+	org, err := r.GetOrganization(ctx, organizationID)
+	if err != nil {
+		return err
+	}
+	if org.OwnerUserID == userID {
+		return errors.New("organization owner cannot be removed")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM organization_user_group_members
+		WHERE user_id = ? AND group_id IN (
+			SELECT id FROM organization_user_groups WHERE organization_id = ?
+		)
+	`, userID, organizationID); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM organization_members
+		WHERE organization_id = ? AND user_id = ?
+	`, organizationID, userID)
+	if err != nil {
+		return err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) TransferOrganizationOwner(ctx context.Context, organizationID, newOwnerID, previousOwnerRole string) error {
+	if previousOwnerRole == "" {
+		previousOwnerRole = RoleAdmin
+	}
+	if previousOwnerRole != RoleAdmin && previousOwnerRole != RoleMember {
+		return errors.New("previous owner role must be admin or member")
+	}
+	org, err := r.GetOrganization(ctx, organizationID)
+	if err != nil {
+		return err
+	}
+	if org.IsPersonal {
+		return errors.New("personal organization owner cannot be transferred")
+	}
+	if org.OwnerUserID == newOwnerID {
+		return nil
+	}
+	if _, err := r.GetOrganizationMember(ctx, organizationID, newOwnerID); err != nil {
+		return err
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE organizations SET owner_user_id = ? WHERE id = ?
+	`, newOwnerID, organizationID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE organization_members SET role = ?
+		WHERE organization_id = ? AND user_id = ?
+	`, previousOwnerRole, organizationID, org.OwnerUserID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE organization_members SET role = ?
+		WHERE organization_id = ? AND user_id = ?
+	`, RoleOwner, organizationID, newOwnerID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (r *Repository) MarkOrganizationInviteConsumed(ctx context.Context, inviteID string, consumedAt time.Time) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE organization_invites SET consumed_at = ? WHERE id = ?
@@ -456,7 +807,8 @@ func (r *Repository) CreatePublicKey(ctx context.Context, params CreatePublicKey
 
 func (r *Repository) GetUserByPublicKeyFingerprint(ctx context.Context, fingerprint string) (User, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT u.id, u.email, u.display_name, u.password_hash, u.created_at
+		SELECT u.id, u.email, u.display_name, u.password_hash, u.is_system_admin,
+			u.auth_provider, u.disabled_at, u.created_at
 		FROM users u
 		JOIN user_public_keys k ON k.user_id = u.id
 		WHERE k.fingerprint = ?
@@ -1318,14 +1670,46 @@ func (r *Repository) ListCommandAuditLogs(ctx context.Context, filter AuditLogFi
 }
 
 func scanUser(row *sql.Row) (User, error) {
-	var user User
-	var created string
-	err := row.Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &created)
+	user, err := scanUserRows(row)
 	if err != nil {
 		return User{}, wrapScanErr(err)
 	}
+	return user, nil
+}
+
+func scanUserRows(row targetScanner) (User, error) {
+	var user User
+	var created string
+	var isSystemAdmin int
+	var disabled sql.NullString
+	err := row.Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash,
+		&isSystemAdmin, &user.AuthProvider, &disabled, &created)
+	if err != nil {
+		return User{}, err
+	}
+	user.IsSystemAdmin = isSystemAdmin == 1
+	if strings.TrimSpace(user.AuthProvider) == "" {
+		user.AuthProvider = defaultAuthProvider
+	}
+	if disabled.Valid {
+		v := parseTime(disabled.String)
+		user.DisabledAt = &v
+	}
 	user.CreatedAt = parseTime(created)
 	return user, nil
+}
+
+func scanExternalIdentity(row targetScanner) (ExternalIdentity, error) {
+	var identity ExternalIdentity
+	var created, updated string
+	err := row.Scan(&identity.ID, &identity.UserID, &identity.Provider, &identity.Subject,
+		&identity.Email, &identity.DisplayName, &identity.RawProfileJSON, &created, &updated)
+	if err != nil {
+		return ExternalIdentity{}, wrapScanErr(err)
+	}
+	identity.CreatedAt = parseTime(created)
+	identity.UpdatedAt = parseTime(updated)
+	return identity, nil
 }
 
 func scanTarget(row *sql.Row) (SSHTarget, error) {
@@ -1463,6 +1847,25 @@ func boolInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func normalizeAuthProvider(provider string) string {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return defaultAuthProvider
+	}
+	return provider
+}
+
+func requireRowsAffected(res sql.Result) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func personalOrganizationName(user User) string {

@@ -6,8 +6,14 @@ var migrations = []string{
 		email TEXT NOT NULL UNIQUE,
 		display_name TEXT NOT NULL,
 		password_hash BLOB NOT NULL,
+		is_system_admin INTEGER NOT NULL DEFAULT 0,
+		auth_provider TEXT NOT NULL DEFAULT 'local',
+		disabled_at TEXT,
 		created_at TEXT NOT NULL
 	)`,
+	`ALTER TABLE users ADD COLUMN is_system_admin INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'local'`,
+	`ALTER TABLE users ADD COLUMN disabled_at TEXT`,
 	`CREATE TABLE IF NOT EXISTS sessions (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -190,5 +196,31 @@ var migrations = []string{
 		started_at TEXT NOT NULL,
 		ended_at TEXT,
 		remote_address TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS external_identities (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		provider TEXT NOT NULL,
+		subject TEXT NOT NULL,
+		email TEXT NOT NULL,
+		display_name TEXT NOT NULL,
+		raw_profile_json TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		UNIQUE (provider, subject)
+	)`,
+	`CREATE TABLE IF NOT EXISTS system_settings (
+		key TEXT PRIMARY KEY,
+		value_json TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		updated_by TEXT
+	)`,
+	`CREATE TABLE IF NOT EXISTS oauth_states (
+		state_hash BLOB NOT NULL,
+		provider TEXT NOT NULL,
+		redirect_after TEXT NOT NULL,
+		expires_at TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (provider, state_hash)
 	)`,
 }
