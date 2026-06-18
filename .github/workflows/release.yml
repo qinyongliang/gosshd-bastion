@@ -41,7 +41,25 @@ jobs:
             version="${{ inputs.version }}"
           fi
 
-          platforms=(
+          server_platforms=(
+            "linux amd64 - linux-amd64 amd64"
+            "linux arm64 - linux-arm64 arm64"
+            "linux 386 - linux-386 386"
+            "linux arm 6 linux-armv6 armv6"
+            "linux arm 7 linux-armv7 armv7"
+            "linux riscv64 - linux-riscv64 riscv64"
+            "windows amd64 - windows-amd64 amd64"
+            "windows arm64 - windows-arm64 arm64"
+            "windows 386 - windows-386 386"
+            "darwin amd64 - darwin-amd64 amd64"
+            "darwin arm64 - darwin-arm64 arm64"
+            "freebsd amd64 - freebsd-amd64 amd64"
+            "freebsd arm64 - freebsd-arm64 arm64"
+            "openbsd amd64 - openbsd-amd64 amd64"
+            "openbsd arm64 - openbsd-arm64 arm64"
+          )
+
+          agent_platforms=(
             "linux amd64 - linux-amd64 amd64"
             "linux arm64 - linux-arm64 arm64"
             "linux 386 - linux-386 386"
@@ -77,7 +95,7 @@ jobs:
 
           mkdir -p build/server build/agent dist
 
-          for item in "${platforms[@]}"; do
+          for item in "${server_platforms[@]}"; do
             read -r goos goarch goarm platform agent_arch <<< "$item"
             suffix=""
             if [ "$goos" = "windows" ]; then
@@ -85,18 +103,28 @@ jobs:
             fi
 
             server_dir="build/server/$platform"
-            agent_dir="build/agent/$goos/$agent_arch"
-            mkdir -p "$server_dir" "$agent_dir"
+            mkdir -p "$server_dir"
 
             echo "building server $platform"
             build_go "$goos" "$goarch" "$goarm" "$server_dir/gosshd-server$suffix" "-X main.version=$version" ./cmd/gosshd-server
+          done
+
+          for item in "${agent_platforms[@]}"; do
+            read -r goos goarch goarm platform agent_arch <<< "$item"
+            suffix=""
+            if [ "$goos" = "windows" ]; then
+              suffix=".exe"
+            fi
+
+            agent_dir="build/agent/$goos/$agent_arch"
+            mkdir -p "$agent_dir"
 
             echo "building agent $platform"
             build_go "$goos" "$goarch" "$goarm" "$agent_dir/gosshd-agent$suffix" "-X main.version=$version" ./cmd/gosshd-agent
             cp "$agent_dir/gosshd-agent$suffix" "dist/gosshd-agent-$version-$goos-$agent_arch$suffix"
           done
 
-          for item in "${platforms[@]}"; do
+          for item in "${server_platforms[@]}"; do
             read -r goos _ _ platform _ <<< "$item"
             suffix=""
             if [ "$goos" = "windows" ]; then
