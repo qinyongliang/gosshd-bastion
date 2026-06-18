@@ -445,7 +445,7 @@ func TestAgentWSEnrollmentCreatesPersistedAgent(t *testing.T)
 func TestAgentWSRejectsInvalidEnrollmentToken(t *testing.T)
 ```
 
-The success test creates an enrollment through the repository, connects websocket with `AgentHello{EnrollmentToken: rawToken}`, expects OK, and asserts an `agents` row exists and the registry has the persisted agent id online.
+The success test creates an enrollment through the repository, connects websocket with `AgentHello{EnrollmentToken: rawToken}`, expects OK, and asserts an `agents` row exists, a normal `ssh_targets` row with `target_type = agent` exists and uses the enrollment label as its initial alias, and the registry has the persisted agent id online.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -464,7 +464,7 @@ Add `EnrollmentToken string json:"enrollment_token,omitempty"` to `protocol.Agen
 
 - [ ] **Step 4: Update agent websocket registration**
 
-When enrollment token is present, validate token hash, create/update persisted agent, and register yamux session by persisted agent id. Without enrollment token, keep legacy UUID registration.
+When enrollment token is present, validate token hash, create/update persisted agent, create/update a normal renameable `ssh_targets` row for the agent-backed SSH service, and register yamux session by persisted agent id. Without enrollment token, keep legacy UUID registration.
 
 - [ ] **Step 5: Run tests and commit**
 
@@ -562,7 +562,7 @@ Add:
 func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T)
 ```
 
-Start app HTTP and SSH listeners, start `agent.Client` with an enrollment token, start a local in-process SSH target reachable from the agent process, create an agent target alias, connect to bastion with `User: "agentbox"`, and assert command output plus audit row.
+Start app HTTP and SSH listeners, start `agent.Client` with an enrollment token, start a local in-process SSH target reachable from the agent process, assert the enrollment created a normal agent-backed target, rename that target alias to `agentbox`, connect to bastion with `User: "agentbox"`, and assert command output plus audit row.
 
 - [ ] **Step 2: Run test to verify failure**
 
@@ -748,7 +748,7 @@ The test must:
 10. Query `/api/audit` and assert command, target, user, allow decision, and exit code.
 11. Attach blacklist policy to `test2` and the default group, and assert denied command exits 126 and writes denied audit.
 12. Attach whitelist rule and assert allowed command succeeds.
-13. Create agent enrollment, start agent with token, add agent-backed target alias, execute through it, and assert output plus audit.
+13. Create agent enrollment, start agent with token, assert a normal agent-backed target is created, rename its alias, execute through it, and assert output plus audit.
 14. Request `/` and assert the management UI entrypoint is served.
 
 - [ ] **Step 2: Run e2e test to verify failure or pass depending on prior tasks**
@@ -859,6 +859,7 @@ Map objective requirements to evidence:
 - organization user groups: default group repository/API tests, custom group API tests, and e2e default group assertions.
 - user public key: API tests and SSH auth test.
 - direct and agent SSH services with alias: SSH tests and e2e.
+- agent-enrolled clients as normal targets: enrollment websocket/API tests, target rename test, and e2e.
 - `ssh test2@public-ip` semantics: SSH tests using `User: "test2"`.
 - command recording: audit API assertions and e2e.
 - command security groups: policy tests and e2e allow/deny, including policy binding to one or more user groups.

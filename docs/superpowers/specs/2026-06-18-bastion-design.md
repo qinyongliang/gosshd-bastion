@@ -43,6 +43,8 @@ SSH targets represent remote SSH services. A target belongs either to a user or 
 - `direct`: the bastion server opens an SSH client connection to `host:port`.
 - `agent`: the bastion server opens a TCP stream through an enrolled agent, then starts an SSH client connection to the private `host:port` reachable from that agent.
 
+Agent-enrolled hosts are not a separate user-facing resource type. When an agent enrollment succeeds, the server creates or updates a normal `ssh_targets` row with `target_type = agent`. Its alias defaults from the enrollment label, and users can rename it just like a target created with host, username, password, or private key credentials.
+
 Command policies attach to one or more targets and may attach to one or more organization user groups. A policy contains blacklist and whitelist rules and may optionally delegate unmatched commands to an LLM provider configuration. A policy without user-group bindings applies to all users who can access the target. A policy with user-group bindings applies only when the authenticated user belongs to at least one bound group.
 
 Audit logs record SSH attempts, executed commands, policy decisions, and session outcomes.
@@ -184,9 +186,9 @@ This makes the previous curl-installed agent part of the bastion resource model 
 
 The existing `/run.sh` and `/run.ps1` routes remain for backward compatibility while the new owner-scoped install scripts live under `/install/{token}.sh` and `/install/{token}.ps1`.
 
-The agent protocol adds an enrollment token field. When an agent connects with an enrollment token, the server validates it against `agent_enrollments`, creates or updates an `agents` row, and registers the runtime session under the persisted agent id. The in-memory registry should move from raw agent UUIDs to persisted agent ids while still tracking the current yamux session.
+The agent protocol adds an enrollment token field. When an agent connects with an enrollment token, the server validates it against `agent_enrollments`, creates or updates an `agents` row, creates or updates a normal `ssh_targets` row for that enrolled host, and registers the runtime session under the persisted agent id. The in-memory registry should move from raw agent UUIDs to persisted agent ids while still tracking the current yamux session.
 
-Install scripts set the server URL, public SSH hint, and enrollment token. The agent still prints a useful status message, but access instructions should point users to the management UI target alias flow rather than `ssh UUID@host`.
+Install scripts set the server URL, public SSH hint, and enrollment token. The agent still prints a useful status message, but access instructions should point users to the management UI target alias flow rather than `ssh UUID@host`. The resulting target appears in the same target list as manually added SSH services and supports rename, policy binding, and audit filtering.
 
 ## Command Auditing
 
@@ -264,7 +266,7 @@ The delivered branch must include an automated e2e test that proves the core pro
 9. Query audit logs and assert the command, user, target, decision, and exit code were recorded.
 10. Attach a blacklist policy to `test2` and the default all-members user group, execute a denied command, assert exit code 126 and audit decision `deny`.
 11. Attach a whitelist rule for an allowed command, execute it, and assert success.
-12. Create an agent enrollment, start an agent using that token, add an agent-backed target alias, execute a command through it, and assert output plus audit log.
+12. Create an agent enrollment, start an agent using that token, assert a normal renameable agent-backed target appears, rename its alias, execute a command through it, and assert output plus audit log.
 13. Exercise UI build artifacts by building the frontend and verifying the server serves the built app entrypoint.
 
 The test command should be documented and runnable on the development machine. If the frontend uses Node tooling, the e2e command must install dependencies through the lockfile or use the checked-in dependency metadata.
