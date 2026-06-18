@@ -15,9 +15,11 @@ import (
 )
 
 type apiUser struct {
-	ID          string `json:"id"`
-	Email       string `json:"email"`
-	DisplayName string `json:"display_name"`
+	ID            string `json:"id"`
+	Email         string `json:"email"`
+	DisplayName   string `json:"display_name"`
+	IsSystemAdmin bool   `json:"is_system_admin"`
+	AuthProvider  string `json:"auth_provider"`
 }
 
 type apiOrganization struct {
@@ -25,6 +27,7 @@ type apiOrganization struct {
 	Name       string `json:"name"`
 	Slug       string `json:"slug"`
 	IsPersonal bool   `json:"is_personal"`
+	Role       string `json:"role,omitempty"`
 }
 
 type apiPublicKey struct {
@@ -63,12 +66,29 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/register", a.handleRegister)
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
+	mux.HandleFunc("GET /api/auth/providers", a.handleAuthProviders)
+	mux.HandleFunc("GET /api/auth/dingtalk/start", a.handleDingTalkStart)
+	mux.HandleFunc("GET /api/auth/dingtalk/callback", a.handleDingTalkCallback)
 	mux.HandleFunc("GET /api/me", a.requireUser(a.handleMe))
+	mux.HandleFunc("GET /api/admin/settings", a.requireSystemAdmin(a.handleAdminSettings))
+	mux.HandleFunc("PUT /api/admin/settings/dingtalk", a.requireSystemAdmin(a.handleUpdateDingTalkSettings))
+	mux.HandleFunc("PUT /api/admin/settings/ldap", a.requireSystemAdmin(a.handleUpdateLDAPSettings))
+	mux.HandleFunc("GET /api/admin/users", a.requireSystemAdmin(a.handleAdminListUsers))
+	mux.HandleFunc("PATCH /api/admin/users/{id}", a.requireSystemAdmin(a.handleAdminUpdateUser))
+	mux.HandleFunc("GET /api/admin/orgs", a.requireSystemAdmin(a.handleAdminListOrganizations))
+	mux.HandleFunc("GET /api/admin/orgs/{id}/members", a.requireSystemAdmin(a.handleAdminListOrganizationMembers))
+	mux.HandleFunc("PATCH /api/admin/orgs/{id}/members/{user_id}", a.requireSystemAdmin(a.handleAdminUpdateOrganizationMember))
+	mux.HandleFunc("POST /api/admin/orgs/{id}/transfer-owner", a.requireSystemAdmin(a.handleAdminTransferOrganizationOwner))
 	mux.HandleFunc("POST /api/orgs", a.requireUser(a.handleCreateOrganization))
 	mux.HandleFunc("GET /api/orgs", a.requireUser(a.handleListOrganizations))
 	mux.HandleFunc("POST /api/orgs/{id}/invites", a.requireUser(a.handleCreateOrganizationInvite))
 	mux.HandleFunc("POST /api/orgs/join", a.requireUser(a.handleJoinOrganization))
 	mux.HandleFunc("POST /api/orgs/{id}/leave", a.requireUser(a.handleLeaveOrganization))
+	mux.HandleFunc("GET /api/orgs/{id}/members", a.requireUser(a.handleListOrganizationMembers))
+	mux.HandleFunc("POST /api/orgs/{id}/members", a.requireUser(a.handleAddOrganizationMember))
+	mux.HandleFunc("PATCH /api/orgs/{id}/members/{user_id}", a.requireUser(a.handleUpdateOrganizationMember))
+	mux.HandleFunc("DELETE /api/orgs/{id}/members/{user_id}", a.requireUser(a.handleRemoveOrganizationMember))
+	mux.HandleFunc("POST /api/orgs/{id}/transfer-owner", a.requireUser(a.handleTransferOrganizationOwner))
 	mux.HandleFunc("GET /api/orgs/{id}/groups", a.requireUser(a.handleListOrganizationGroups))
 	mux.HandleFunc("POST /api/orgs/{id}/groups", a.requireUser(a.handleCreateOrganizationGroup))
 	mux.HandleFunc("POST /api/orgs/{id}/groups/{group_id}/members", a.requireUser(a.handleAddOrganizationGroupMember))
@@ -92,6 +112,44 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/policies/{id}/user-groups", a.requireUser(a.handleAttachPolicyUserGroup))
 	mux.HandleFunc("GET /api/audit", a.requireUser(a.handleListAuditLogs))
 	mux.HandleFunc("GET /install/{file}", a.handleInstall)
+}
+
+func (a *App) requireSystemAdmin(next func(http.ResponseWriter, *http.Request, store.User)) http.HandlerFunc {
+	return a.requireUser(func(w http.ResponseWriter, r *http.Request, user store.User) {
+		if !user.IsSystemAdmin {
+			writeError(w, http.StatusForbidden, "system admin required")
+			return
+		}
+		next(w, r, user)
+	})
+}
+
+func (a *App) requireOrganizationAdmin(ctx context.Context, orgID string, user store.User) error {
+	if user.IsSystemAdmin {
+		return nil
+	}
+	member, err := a.store.Repository().GetOrganizationMember(ctx, orgID, user.ID)
+	if err != nil {
+		return err
+	}
+	if member.Role != store.RoleOwner && member.Role != store.RoleAdmin {
+		return errors.New("organization admin required")
+	}
+	return nil
+}
+
+func (a *App) requireOrganizationOwner(ctx context.Context, orgID string, user store.User) error {
+	if user.IsSystemAdmin {
+		return nil
+	}
+	member, err := a.store.Repository().GetOrganizationMember(ctx, orgID, user.ID)
+	if err != nil {
+		return err
+	}
+	if member.Role != store.RoleOwner {
+		return errors.New("organization owner required")
+	}
+	return nil
 }
 
 func (a *App) requireUser(next func(http.ResponseWriter, *http.Request, store.User)) http.HandlerFunc {
@@ -154,7 +212,13 @@ func clearSessionCookie(w http.ResponseWriter, name string) {
 }
 
 func apiUserFromStore(user store.User) apiUser {
-	return apiUser{ID: user.ID, Email: user.Email, DisplayName: user.DisplayName}
+	return apiUser{
+		ID:            user.ID,
+		Email:         user.Email,
+		DisplayName:   user.DisplayName,
+		IsSystemAdmin: user.IsSystemAdmin,
+		AuthProvider:  user.AuthProvider,
+	}
 }
 
 func apiOrganizationFromStore(org store.Organization) apiOrganization {

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 
@@ -50,6 +51,15 @@ func (a *App) ensureServices(ctx context.Context) error {
 	a.store = st
 	a.auth = auth.NewService(st.Repository())
 	a.bastion = bastion.NewService(st.Repository())
+	password := strings.TrimSpace(a.cfg.BootstrapAdminPassword)
+	if password == "" {
+		password = strings.TrimSpace(os.Getenv("GOSSHD_BOOTSTRAP_ADMIN_PASSWORD"))
+	}
+	if admin, createdPassword, err := st.Repository().EnsureBootstrapAdmin(ctx, password); err != nil {
+		return err
+	} else if createdPassword != "" {
+		log.Printf("bootstrap admin account ready: email=%s password=%s", admin.Email, createdPassword)
+	}
 	return nil
 }
 

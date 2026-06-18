@@ -21,6 +21,7 @@ func main() {
 	flag.StringVar(&cfg.DatabasePath, "database-path", "gosshd.db", "SQLite database path")
 	flag.StringVar(&cfg.SecretKey, "secret-key", "", "secret key material used to encrypt stored credentials")
 	flag.StringVar(&cfg.SecretKeyPath, "secret-key-path", "", "path to secret key material used to encrypt stored credentials")
+	flag.StringVar(&cfg.BootstrapAdminPassword, "bootstrap-admin-password", "", "password for first-run admin account; falls back to GOSSHD_BOOTSTRAP_ADMIN_PASSWORD or generated")
 	flag.StringVar(&cfg.SessionCookieName, "session-cookie-name", "", "HTTP session cookie name")
 	flag.StringVar(&cfg.PublicHost, "public-host", "", "public host override used in run scripts; defaults to the request Host")
 	flag.StringVar(&cfg.PublicSSHHost, "public-ssh-host", "", "public SSH host shown by agents; defaults to public host or the request Host")

@@ -34,14 +34,14 @@ const (
 )
 
 type User struct {
-	ID           string
-	Email        string
-	DisplayName  string
-	PasswordHash []byte
+	ID            string
+	Email         string
+	DisplayName   string
+	PasswordHash  []byte
 	IsSystemAdmin bool
 	AuthProvider  string
 	DisabledAt    *time.Time
-	CreatedAt    time.Time
+	CreatedAt     time.Time
 }
 
 type Session struct {
@@ -273,9 +273,9 @@ type CommandAuditLog struct {
 }
 
 type CreateUserParams struct {
-	Email        string
-	DisplayName  string
-	PasswordHash []byte
+	Email         string
+	DisplayName   string
+	PasswordHash  []byte
 	IsSystemAdmin bool
 	AuthProvider  string
 }

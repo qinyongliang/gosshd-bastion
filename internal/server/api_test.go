@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -47,6 +48,170 @@ func TestAPIRegisterLoginMeAndLogout(t *testing.T) {
 	if me.User.ID != reg.User.ID {
 		t.Fatalf("me user mismatch: %+v", me)
 	}
+}
+
+func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
+	srv, adminClient, _ := newAPITestServer(t)
+	defer srv.Close()
+
+	var admin apiUserResponse
+	postJSON(t, adminClient, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "admin",
+		"password": "admin-pass",
+	}, http.StatusOK, &admin)
+	if !admin.User.IsSystemAdmin {
+		t.Fatalf("admin user should be system admin: %+v", admin)
+	}
+
+	var settings map[string]any
+	getJSON(t, adminClient, srv.URL+"/api/admin/settings", http.StatusOK, &settings)
+
+	putJSON(t, adminClient, srv.URL+"/api/admin/settings/dingtalk", map[string]any{
+		"enabled":        true,
+		"client_id":      "app-key",
+		"client_secret":  "app-secret",
+		"auth_url":       "https://login.dingtalk.example/authorize",
+		"token_url":      "https://login.dingtalk.example/token",
+		"userinfo_url":   "https://login.dingtalk.example/userinfo",
+		"redirect_url":   "https://bastion.example/api/auth/dingtalk/callback",
+		"default_role":   "member",
+		"default_org_id": "org-1",
+	}, http.StatusOK, nil)
+	putJSON(t, adminClient, srv.URL+"/api/admin/settings/ldap", map[string]any{
+		"enabled":       true,
+		"server_url":    "ldap://ldap.example",
+		"bind_dn":       "cn=reader,dc=example,dc=com",
+		"bind_password": "secret",
+		"base_dn":       "dc=example,dc=com",
+		"user_filter":   "(uid={username})",
+		"email_attr":    "mail",
+		"name_attr":     "cn",
+	}, http.StatusOK, nil)
+	getJSON(t, adminClient, srv.URL+"/api/admin/settings", http.StatusOK, &settings)
+	if settings["dingtalk"] == nil || settings["ldap"] == nil {
+		t.Fatalf("settings response missing providers: %+v", settings)
+	}
+
+	regular := apiClient(t)
+	registerForAPI(t, regular, srv.URL, "regular@example.com")
+	getJSON(t, regular, srv.URL+"/api/admin/settings", http.StatusForbidden, nil)
+}
+
+func TestAPIDingTalkMockLoginCreatesAndAssignsUser(t *testing.T) {
+	srv, adminClient, _ := newAPITestServer(t)
+	defer srv.Close()
+	postJSON(t, adminClient, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "admin",
+		"password": "admin-pass",
+	}, http.StatusOK, nil)
+	var org apiOrganizationResponse
+	postJSON(t, adminClient, srv.URL+"/api/orgs", map[string]string{
+		"name": "Ops",
+		"slug": "ops-dingtalk",
+	}, http.StatusCreated, &org)
+	mock := newServerMockDingTalk(t, "union-api-1", "open-api-1", "Dora", "dora@example.com")
+	putJSON(t, adminClient, srv.URL+"/api/admin/settings/dingtalk", map[string]any{
+		"enabled":        true,
+		"client_id":      "app-key",
+		"client_secret":  "app-secret",
+		"auth_url":       mock.URL + "/authorize",
+		"token_url":      mock.URL + "/token",
+		"userinfo_url":   mock.URL + "/userinfo",
+		"redirect_url":   srv.URL + "/api/auth/dingtalk/callback",
+		"default_role":   "member",
+		"default_org_id": org.Organization.ID,
+	}, http.StatusOK, nil)
+
+	dingtalkClient := apiClientNoRedirect(t)
+	resp, err := dingtalkClient.Get(srv.URL + "/api/auth/dingtalk/start?redirect_after=/targets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("start status mismatch: %d", resp.StatusCode)
+	}
+	location := resp.Header.Get("Location")
+	state := mustQueryParam(t, location, "state")
+	resp, err = dingtalkClient.Get(srv.URL + "/api/auth/dingtalk/callback?code=valid-code&state=" + url.QueryEscape(state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("callback status mismatch: %d", resp.StatusCode)
+	}
+
+	var me apiMeResponse
+	getJSON(t, dingtalkClient, srv.URL+"/api/me", http.StatusOK, &me)
+	if me.User.Email != "dora@example.com" || me.User.AuthProvider != "dingtalk" {
+		t.Fatalf("dingtalk me mismatch: %+v", me)
+	}
+	if !hasOrganization(me.Organizations, org.Organization.ID) {
+		t.Fatalf("dingtalk user missing default org: %+v", me.Organizations)
+	}
+	var members apiOrganizationMembersResponse
+	getJSON(t, adminClient, srv.URL+"/api/admin/orgs/"+org.Organization.ID+"/members", http.StatusOK, &members)
+	if !hasMemberRole(members.Members, me.User.ID, store.RoleMember) {
+		t.Fatalf("dingtalk user missing member role: %+v", members)
+	}
+}
+
+func TestAPIOrganizationMemberRoleAndOwnerTransfer(t *testing.T) {
+	srv, alice, _ := newAPITestServer(t)
+	defer srv.Close()
+	aliceUser := registerForAPI(t, alice, srv.URL, "alice@example.com")
+	var org apiOrganizationResponse
+	postJSON(t, alice, srv.URL+"/api/orgs", map[string]string{"name": "Ops", "slug": "ops-members"}, http.StatusCreated, &org)
+	bob := apiClient(t)
+	bobUser := registerForAPI(t, bob, srv.URL, "bob@example.com")
+	postJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members", map[string]string{
+		"user_id": bobUser.User.ID,
+		"role":    "member",
+	}, http.StatusOK, nil)
+
+	var members apiOrganizationMembersResponse
+	getJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members", http.StatusOK, &members)
+	if !hasMemberRole(members.Members, bobUser.User.ID, store.RoleMember) {
+		t.Fatalf("bob member missing: %+v", members)
+	}
+	patchJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members/"+bobUser.User.ID, map[string]string{
+		"role": "admin",
+	}, http.StatusOK, nil)
+	getJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members", http.StatusOK, &members)
+	if !hasMemberRole(members.Members, bobUser.User.ID, store.RoleAdmin) {
+		t.Fatalf("bob admin role missing: %+v", members)
+	}
+	patchJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members/"+bobUser.User.ID, map[string]string{
+		"role": "member",
+	}, http.StatusOK, nil)
+	postJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/transfer-owner", map[string]string{
+		"user_id": bobUser.User.ID,
+	}, http.StatusOK, nil)
+	getJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members", http.StatusOK, &members)
+	if !hasMemberRole(members.Members, bobUser.User.ID, store.RoleOwner) || !hasMemberRole(members.Members, aliceUser.User.ID, store.RoleAdmin) {
+		t.Fatalf("owner transfer roles mismatch: %+v", members)
+	}
+}
+
+func TestAPIOrganizationMemberManagementForbiddenForMember(t *testing.T) {
+	srv, alice, _ := newAPITestServer(t)
+	defer srv.Close()
+	registerForAPI(t, alice, srv.URL, "alice@example.com")
+	var org apiOrganizationResponse
+	postJSON(t, alice, srv.URL+"/api/orgs", map[string]string{"name": "Ops", "slug": "ops-forbidden"}, http.StatusCreated, &org)
+	bob := apiClient(t)
+	bobUser := registerForAPI(t, bob, srv.URL, "bob@example.com")
+	postJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members", map[string]string{
+		"user_id": bobUser.User.ID,
+		"role":    "member",
+	}, http.StatusOK, nil)
+	patchJSON(t, bob, srv.URL+"/api/orgs/"+org.Organization.ID+"/members/"+bobUser.User.ID, map[string]string{
+		"role": "admin",
+	}, http.StatusForbidden, nil)
+	postJSON(t, bob, srv.URL+"/api/orgs/"+org.Organization.ID+"/transfer-owner", map[string]string{
+		"user_id": bobUser.User.ID,
+	}, http.StatusForbidden, nil)
 }
 
 func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
@@ -390,8 +555,9 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 func newAPITestServer(t *testing.T) (*httptest.Server, *http.Client, *App) {
 	t.Helper()
 	app := NewApp(Config{
-		DatabasePath:      filepath.Join(t.TempDir(), "gosshd.db"),
-		SessionCookieName: "gosshd_test_session",
+		DatabasePath:           filepath.Join(t.TempDir(), "gosshd.db"),
+		SessionCookieName:      "gosshd_test_session",
+		BootstrapAdminPassword: "admin-pass",
 	})
 	mux := http.NewServeMux()
 	app.routes(mux)
@@ -411,6 +577,15 @@ func apiClient(t *testing.T) *http.Client {
 		t.Fatal(err)
 	}
 	return &http.Client{Jar: jar}
+}
+
+func apiClientNoRedirect(t *testing.T) *http.Client {
+	t.Helper()
+	client := apiClient(t)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return client
 }
 
 func registerForAPI(t *testing.T, client *http.Client, baseURL, email string) apiUserResponse {
@@ -497,6 +672,32 @@ func patchJSON(t *testing.T, client *http.Client, url string, body any, wantStat
 	}
 }
 
+func putJSON(t *testing.T, client *http.Client, url string, body any, wantStatus int, out any) {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != wantStatus {
+		t.Fatalf("PUT %s status mismatch: got %d want %d", url, resp.StatusCode, wantStatus)
+	}
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func testAPISigner(t *testing.T) gossh.Signer {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -530,4 +731,57 @@ func hasPersonalOrganization(orgs []apiOrganization) bool {
 		}
 	}
 	return false
+}
+
+func hasMemberRole(members []apiOrganizationMember, userID, role string) bool {
+	for _, member := range members {
+		if member.UserID == userID && member.Role == role {
+			return true
+		}
+	}
+	return false
+}
+
+func newServerMockDingTalk(t *testing.T, unionID, openID, name, email string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if r.Form.Get("code") != "valid-code" {
+			http.Error(w, "bad code", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "mock-access-token",
+			"expires_in":   3600,
+		})
+	})
+	mux.HandleFunc("/userinfo", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer mock-access-token" {
+			http.Error(w, "missing token", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"unionid": unionID,
+			"openid":  openID,
+			"name":    name,
+			"email":   email,
+		})
+	})
+	return httptest.NewServer(mux)
+}
+
+func mustQueryParam(t *testing.T, rawURL, key string) string {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := u.Query().Get(key)
+	if value == "" {
+		t.Fatalf("missing query param %q in %s", key, rawURL)
+	}
+	return value
 }
