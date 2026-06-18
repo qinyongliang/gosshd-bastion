@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
 type mcpOK struct {

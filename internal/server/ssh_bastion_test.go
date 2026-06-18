@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/qinyongliang/gosshd/internal/agent"
-	"github.com/qinyongliang/gosshd/internal/bastion"
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/agent"
+	"github.com/qinyongliang/gosshd-bastion/internal/bastion"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
 	gossh "golang.org/x/crypto/ssh"
 )

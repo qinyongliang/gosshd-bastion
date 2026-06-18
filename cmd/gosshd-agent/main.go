@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/qinyongliang/gosshd/internal/agent"
+	"github.com/qinyongliang/gosshd-bastion/internal/agent"
 )
 
 var version = "dev"

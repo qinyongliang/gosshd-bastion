@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/qinyongliang/gosshd/internal/agent"
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/agent"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
 	gossh "golang.org/x/crypto/ssh"
 )

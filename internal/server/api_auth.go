@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
 func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {

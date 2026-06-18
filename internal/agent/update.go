@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qinyongliang/gosshd/internal/protocol"
+	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 )
 
 var errAgentRestarting = errors.New("agent restarting after update")

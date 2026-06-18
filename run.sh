@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-repo="${GOSSHD_REPO:-qinyongliang/gosshd}"
+repo="${GOSSHD_REPO:-qinyongliang/gosshd-bastion}"
 version="${GOSSHD_VERSION:-}"
 proxy="${GOSSHD_PROXY_URL:-https://gh-proxy.com/}"
 

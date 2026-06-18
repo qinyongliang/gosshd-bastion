@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
 type apiAgentEnrollmentResponse struct {

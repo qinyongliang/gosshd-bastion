@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
 var errPersonalInvite = errors.New("personal organization cannot invite users")

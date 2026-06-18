@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qinyongliang/gosshd/internal/protocol"
-	"github.com/qinyongliang/gosshd/internal/relay"
+	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
+	"github.com/qinyongliang/gosshd-bastion/internal/relay"
 
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"

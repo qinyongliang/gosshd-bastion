@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
 	"golang.org/x/crypto/bcrypt"
 )

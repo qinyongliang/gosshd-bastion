@@ -9,7 +9,7 @@ import (
 func TestAgentReleaseURLUsesRawAgentAsset(t *testing.T) {
 	app := NewApp(Config{Version: "v1.2.3"})
 	got := app.agentReleaseURL("linux", "amd64", "gosshd-agent")
-	want := "https://github.com/qinyongliang/gosshd/releases/download/v1.2.3/gosshd-agent-v1.2.3-linux-amd64"
+	want := "https://github.com/qinyongliang/gosshd-bastion/releases/download/v1.2.3/gosshd-agent-v1.2.3-linux-amd64"
 	if got != want {
 		t.Fatalf("agent release url mismatch:\n got: %s\nwant: %s", got, want)
 	}
@@ -18,7 +18,7 @@ func TestAgentReleaseURLUsesRawAgentAsset(t *testing.T) {
 func TestAgentReleaseURLUsesWindowsExtension(t *testing.T) {
 	app := NewApp(Config{Version: "v1.2.3"})
 	got := app.agentReleaseURL("windows", "arm64", "gosshd-agent.exe")
-	want := "https://github.com/qinyongliang/gosshd/releases/download/v1.2.3/gosshd-agent-v1.2.3-windows-arm64.exe"
+	want := "https://github.com/qinyongliang/gosshd-bastion/releases/download/v1.2.3/gosshd-agent-v1.2.3-windows-arm64.exe"
 	if got != want {
 		t.Fatalf("agent release url mismatch:\n got: %s\nwant: %s", got, want)
 	}

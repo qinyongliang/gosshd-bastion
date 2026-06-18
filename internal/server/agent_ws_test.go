@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/qinyongliang/gosshd/internal/protocol"
-	"github.com/qinyongliang/gosshd/internal/relay"
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
+	"github.com/qinyongliang/gosshd-bastion/internal/relay"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
 	"github.com/gorilla/websocket"
 )

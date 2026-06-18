@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/qinyongliang/gosshd/internal/protocol"
+	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
 	"github.com/creack/pty"
 )

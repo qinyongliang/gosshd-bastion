@@ -1,4 +1,4 @@
-module github.com/qinyongliang/gosshd
+module github.com/qinyongliang/gosshd-bastion
 
 go 1.26
 
