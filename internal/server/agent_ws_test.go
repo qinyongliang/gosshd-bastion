@@ -147,6 +147,13 @@ func TestAgentWSEnrollmentCreatesPersistedAgent(t *testing.T) {
 	if _, err := app.Registry().Get(agent.ID); err != nil {
 		t.Fatalf("persisted agent not online: %v", err)
 	}
+	targets, err := app.store.Repository().ListSSHTargets(ctx, store.OwnerUser, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].TargetType != store.TargetAgent || targets[0].Alias != "laptop" || targets[0].AgentID != agent.ID {
+		t.Fatalf("agent target mismatch: %+v", targets)
+	}
 }
 
 func TestAgentWSRejectsInvalidEnrollmentToken(t *testing.T) {

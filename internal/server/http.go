@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -355,6 +356,11 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 			_ = conn.Close()
 			return
 		}
+		if err := a.ensureAgentTarget(r.Context(), enrollment, agent); err != nil {
+			_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "agent target creation failed"})
+			_ = conn.Close()
+			return
+		}
 		registryID = agent.ID
 	}
 	goos, goarch := hello.GOOS, hello.GOARCH
@@ -382,6 +388,42 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		a.registry.Unregister(registryID, session)
 		log.Printf("agent offline: %s", registryID)
 	}()
+}
+
+func (a *App) ensureAgentTarget(ctx context.Context, enrollment store.AgentEnrollment, agent store.Agent) error {
+	targets, err := a.store.Repository().ListSSHTargets(ctx, enrollment.OwnerType, enrollment.OwnerID)
+	if err != nil {
+		return err
+	}
+	for _, target := range targets {
+		if target.TargetType == store.TargetAgent && target.AgentID == agent.ID {
+			_, err := a.store.Repository().UpdateSSHTarget(ctx, target.ID, store.UpdateSSHTargetParams{
+				Host:           enrollment.DefaultHost,
+				Port:           enrollment.DefaultPort,
+				RemoteUsername: target.RemoteUsername,
+				AuthType:       target.AuthType,
+				AgentID:        agent.ID,
+			})
+			return err
+		}
+	}
+	alias := enrollment.Label
+	if strings.TrimSpace(alias) == "" {
+		alias = "agent-" + agent.ID[:8]
+	}
+	_, err = a.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      enrollment.OwnerType,
+		OwnerID:        enrollment.OwnerID,
+		Alias:          alias,
+		TargetType:     store.TargetAgent,
+		Host:           enrollment.DefaultHost,
+		Port:           enrollment.DefaultPort,
+		RemoteUsername: "root",
+		AuthType:       store.AuthPassword,
+		AgentID:        agent.ID,
+		CreatedBy:      enrollment.CreatedBy,
+	})
+	return err
 }
 
 func publicBaseURL(r *http.Request, fallbackHost string) string {

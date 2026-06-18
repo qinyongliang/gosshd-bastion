@@ -76,6 +76,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/keys/{id}", a.requireUser(a.handleDeletePublicKey))
 	mux.HandleFunc("GET /api/targets", a.requireUser(a.handleListTargets))
 	mux.HandleFunc("POST /api/targets", a.requireUser(a.handleCreateTarget))
+	mux.HandleFunc("PATCH /api/targets/{id}", a.requireUser(a.handleUpdateTarget))
 	mux.HandleFunc("POST /api/agent-enrollments", a.requireUser(a.handleCreateAgentEnrollment))
 	mux.HandleFunc("GET /api/policies", a.requireUser(a.handleListPolicies))
 	mux.HandleFunc("POST /api/policies", a.requireUser(a.handleCreatePolicy))

@@ -200,6 +200,14 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if target.Target.ID == "" || target.Target.Alias != "test2" {
 		t.Fatalf("target response mismatch: %+v", target)
 	}
+	var renamed apiTargetResponse
+	patchJSON(t, client, srv.URL+"/api/targets/"+target.Target.ID, map[string]any{
+		"alias": "renamed",
+	}, http.StatusOK, &renamed)
+	if renamed.Target.Alias != "renamed" {
+		t.Fatalf("target rename mismatch: %+v", renamed)
+	}
+	target.Target = renamed.Target
 
 	var policy apiPolicyResponse
 	postJSON(t, client, srv.URL+"/api/policies", map[string]any{
@@ -345,6 +353,32 @@ func getJSON(t *testing.T, client *http.Client, url string, wantStatus int, out 
 	defer resp.Body.Close()
 	if resp.StatusCode != wantStatus {
 		t.Fatalf("GET %s status mismatch: got %d want %d", url, resp.StatusCode, wantStatus)
+	}
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func patchJSON(t *testing.T, client *http.Client, url string, body any, wantStatus int, out any) {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPatch, url, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != wantStatus {
+		t.Fatalf("PATCH %s status mismatch: got %d want %d", url, resp.StatusCode, wantStatus)
 	}
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {

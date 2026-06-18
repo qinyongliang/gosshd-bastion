@@ -476,6 +476,56 @@ func (r *Repository) ListSSHTargets(ctx context.Context, ownerType, ownerID stri
 	return targets, rows.Err()
 }
 
+func (r *Repository) GetSSHTarget(ctx context.Context, targetID string) (SSHTarget, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, alias, target_type, host, port, remote_username,
+			auth_type, encrypted_secret, COALESCE(agent_id, ''), created_by, created_at, updated_at
+		FROM ssh_targets
+		WHERE id = ?
+	`, targetID)
+	return scanTarget(row)
+}
+
+func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, params UpdateSSHTargetParams) (SSHTarget, error) {
+	current, err := r.GetSSHTarget(ctx, targetID)
+	if err != nil {
+		return SSHTarget{}, err
+	}
+	if params.Alias != "" {
+		current.Alias = strings.TrimSpace(params.Alias)
+	}
+	if params.Host != "" {
+		current.Host = strings.TrimSpace(params.Host)
+	}
+	if params.Port != 0 {
+		current.Port = params.Port
+	}
+	if params.RemoteUsername != "" {
+		current.RemoteUsername = strings.TrimSpace(params.RemoteUsername)
+	}
+	if params.AuthType != "" {
+		current.AuthType = params.AuthType
+	}
+	if params.EncryptedSecret != nil {
+		current.EncryptedSecret = append([]byte(nil), params.EncryptedSecret...)
+	}
+	if params.AgentID != "" {
+		current.AgentID = params.AgentID
+	}
+	current.UpdatedAt = time.Now().UTC()
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE ssh_targets
+		SET alias = ?, host = ?, port = ?, remote_username = ?, auth_type = ?,
+			encrypted_secret = ?, agent_id = ?, updated_at = ?
+		WHERE id = ?
+	`, current.Alias, current.Host, current.Port, current.RemoteUsername, current.AuthType,
+		nullableBytes(current.EncryptedSecret), nullableString(current.AgentID), formatTime(current.UpdatedAt), current.ID)
+	if err != nil {
+		return SSHTarget{}, err
+	}
+	return current, nil
+}
+
 func (r *Repository) ResolveUserTarget(ctx context.Context, userID, alias string) (SSHTarget, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, owner_type, owner_id, alias, target_type, host, port, remote_username,

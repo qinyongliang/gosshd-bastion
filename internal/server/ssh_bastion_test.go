@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/qinyongliang/gosshd/internal/agent"
 	"github.com/qinyongliang/gosshd/internal/bastion"
 	"github.com/qinyongliang/gosshd/internal/store"
 
@@ -130,6 +131,83 @@ func TestSSHDeniesBlacklistedExecAndAudits(t *testing.T) {
 	}
 	if len(logs) != 1 || logs[0].PolicyDecision != store.DecisionDeny || logs[0].Command != "rm -rf /tmp/example" {
 		t.Fatalf("deny audit mismatch: %+v", logs)
+	}
+}
+
+func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
+	app, httpAddr, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner := testSSHSigner(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestSSHServer(t)
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+
+	token := "agent-route-token"
+	if _, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
+		OwnerType:   store.OwnerUser,
+		OwnerID:     user.ID,
+		TokenHash:   codeHash(token),
+		Label:       "agentbox-initial",
+		DefaultHost: host,
+		DefaultPort: port,
+		CreatedBy:   user.ID,
+		ExpiresAt:   time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	agentClient, err := agent.New(agent.Config{
+		Server:          "http://" + httpAddr,
+		EnrollmentToken: token,
+		IDFile:          filepath.Join(t.TempDir(), "agent.json"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentCtx, cancelAgent := context.WithCancel(ctx)
+	defer cancelAgent()
+	go func() {
+		if err := agentClient.Run(agentCtx); err != nil {
+			t.Logf("agent stopped: %v", err)
+		}
+	}()
+	var target store.SSHTarget
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		targets, err := app.store.Repository().ListSSHTargets(ctx, store.OwnerUser, user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, candidate := range targets {
+			if candidate.TargetType == store.TargetAgent {
+				target = candidate
+				break
+			}
+		}
+		if target.ID != "" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if target.ID == "" {
+		t.Fatalf("agent target was not created")
+	}
+	renamed, err := app.store.Repository().UpdateSSHTarget(ctx, target.ID, store.UpdateSSHTargetParams{Alias: "agentbox"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Alias != "agentbox" {
+		t.Fatalf("rename mismatch: %+v", renamed)
+	}
+
+	out, err := runBastionSSHCommand(sshAddr, "agentbox", userSigner, "whoami")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "remote" {
+		t.Fatalf("unexpected agent output %q", out)
 	}
 }
 
