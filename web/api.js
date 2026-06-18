@@ -13,12 +13,18 @@ export async function request(path, options = {}) {
 
 export const api = {
   me: () => request("/api/me"),
+  authProviders: () => request("/api/auth/providers"),
   register: (body) => request("/api/auth/register", post(body)),
   login: (body) => request("/api/auth/login", post(body)),
   logout: () => request("/api/auth/logout", post({})),
   createOrg: (body) => request("/api/orgs", post(body)),
   joinOrg: (code) => request("/api/orgs/join", post({ code })),
   leaveOrg: (id) => request(`/api/orgs/${id}/leave`, post({})),
+  orgMembers: (orgID) => request(`/api/orgs/${orgID}/members`),
+  addOrgMember: (orgID, body) => request(`/api/orgs/${orgID}/members`, post(body)),
+  updateOrgMember: (orgID, userID, body) => request(`/api/orgs/${orgID}/members/${userID}`, patch(body)),
+  removeOrgMember: (orgID, userID) => request(`/api/orgs/${orgID}/members/${userID}`, { method: "DELETE" }),
+  transferOrgOwner: (orgID, userID) => request(`/api/orgs/${orgID}/transfer-owner`, post({ user_id: userID })),
   groups: (orgID) => request(`/api/orgs/${orgID}/groups`),
   createGroup: (orgID, body) => request(`/api/orgs/${orgID}/groups`, post(body)),
   invite: (orgID, role) => request(`/api/orgs/${orgID}/invites`, post({ role })),
@@ -40,6 +46,15 @@ export const api = {
   bindTargetTag: (policyID, body) => request(`/api/policies/${policyID}/target-tags`, post(body)),
   bindGroup: (policyID, groupID) => request(`/api/policies/${policyID}/user-groups`, post({ group_id: groupID })),
   audit: () => request("/api/audit"),
+  adminSettings: () => request("/api/admin/settings"),
+  updateDingTalkSettings: (body) => request("/api/admin/settings/dingtalk", put(body)),
+  updateLDAPSettings: (body) => request("/api/admin/settings/ldap", put(body)),
+  adminUsers: () => request("/api/admin/users"),
+  updateAdminUser: (id, body) => request(`/api/admin/users/${id}`, patch(body)),
+  adminOrgs: () => request("/api/admin/orgs"),
+  adminOrgMembers: (orgID) => request(`/api/admin/orgs/${orgID}/members`),
+  adminUpdateOrgMember: (orgID, userID, body) => request(`/api/admin/orgs/${orgID}/members/${userID}`, patch(body)),
+  adminTransferOrgOwner: (orgID, userID) => request(`/api/admin/orgs/${orgID}/transfer-owner`, post({ user_id: userID })),
 };
 
 function post(body) {
@@ -48,6 +63,10 @@ function post(body) {
 
 function patch(body) {
   return { method: "PATCH", headers: jsonHeaders, body: JSON.stringify(body) };
+}
+
+function put(body) {
+  return { method: "PUT", headers: jsonHeaders, body: JSON.stringify(body) };
 }
 
 function ownerQuery(owner) {

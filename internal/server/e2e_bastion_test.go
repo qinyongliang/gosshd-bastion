@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -174,6 +175,152 @@ func TestBastionE2E(t *testing.T) {
 	_ = user
 }
 
+func TestDingTalkAdminOrganizationE2E(t *testing.T) {
+	srv, adminClient, app := newAPITestServer(t)
+	defer srv.Close()
+
+	var admin apiUserResponse
+	postJSON(t, adminClient, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "admin",
+		"password": "admin-pass",
+	}, http.StatusOK, &admin)
+	if !admin.User.IsSystemAdmin {
+		t.Fatalf("bootstrap admin should be system admin: %+v", admin.User)
+	}
+
+	var org apiOrganizationResponse
+	postJSON(t, adminClient, srv.URL+"/api/orgs", map[string]string{
+		"name": "E2E Ops",
+		"slug": "e2e-ops",
+	}, http.StatusCreated, &org)
+
+	mock := newServerMockDingTalk(t, "union-e2e-1", "open-e2e-1", "Ding User", "ding-user@example.com")
+	defer mock.Close()
+	putJSON(t, adminClient, srv.URL+"/api/admin/settings/dingtalk", map[string]any{
+		"enabled":        true,
+		"client_id":      "app-key",
+		"client_secret":  "app-secret",
+		"auth_url":       mock.URL + "/authorize",
+		"token_url":      mock.URL + "/token",
+		"userinfo_url":   mock.URL + "/userinfo",
+		"redirect_url":   srv.URL + "/api/auth/dingtalk/callback",
+		"default_role":   "member",
+		"default_org_id": org.Organization.ID,
+	}, http.StatusOK, nil)
+	putJSON(t, adminClient, srv.URL+"/api/admin/settings/ldap", map[string]any{
+		"enabled":       true,
+		"server_url":    "ldap://ldap.example",
+		"bind_dn":       "cn=reader,dc=example,dc=com",
+		"bind_password": "secret",
+		"base_dn":       "dc=example,dc=com",
+		"user_filter":   "(uid={username})",
+		"email_attr":    "mail",
+		"name_attr":     "cn",
+	}, http.StatusOK, nil)
+
+	dingtalkClient := apiClientNoRedirect(t)
+	resp, err := dingtalkClient.Get(srv.URL + "/api/auth/dingtalk/start?redirect_after=/targets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("dingtalk start status mismatch: %d", resp.StatusCode)
+	}
+	oauthState := mustQueryParam(t, resp.Header.Get("Location"), "state")
+	resp, err = dingtalkClient.Get(srv.URL + "/api/auth/dingtalk/callback?code=valid-code&state=" + url.QueryEscape(oauthState))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("dingtalk callback status mismatch: %d", resp.StatusCode)
+	}
+
+	var dingMe apiMeResponse
+	getJSON(t, dingtalkClient, srv.URL+"/api/me", http.StatusOK, &dingMe)
+	if dingMe.User.Email != "ding-user@example.com" || dingMe.User.AuthProvider != "dingtalk" {
+		t.Fatalf("dingtalk user mismatch: %+v", dingMe.User)
+	}
+	if !hasOrganization(dingMe.Organizations, org.Organization.ID) || orgRole(dingMe.Organizations, org.Organization.ID) != store.RoleMember {
+		t.Fatalf("dingtalk user was not added to default organization as member: %+v", dingMe.Organizations)
+	}
+	defaultGroup, err := app.store.Repository().GetDefaultOrganizationUserGroup(context.Background(), org.Organization.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inDefaultGroup, err := app.store.Repository().UserInGroup(context.Background(), defaultGroup.ID, dingMe.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inDefaultGroup {
+		t.Fatalf("dingtalk user was not added to default all-members group")
+	}
+
+	var users struct {
+		Users []apiUser `json:"users"`
+	}
+	getJSON(t, adminClient, srv.URL+"/api/admin/users", http.StatusOK, &users)
+	if !hasAPIUser(users.Users, dingMe.User.ID) || !hasAPIUser(users.Users, admin.User.ID) {
+		t.Fatalf("admin user list missing expected users: %+v", users.Users)
+	}
+	var orgs struct {
+		Organizations []apiOrganization `json:"organizations"`
+	}
+	getJSON(t, adminClient, srv.URL+"/api/admin/orgs", http.StatusOK, &orgs)
+	if !hasOrganization(orgs.Organizations, org.Organization.ID) {
+		t.Fatalf("admin org list missing created org: %+v", orgs.Organizations)
+	}
+
+	patchJSON(t, adminClient, srv.URL+"/api/orgs/"+org.Organization.ID+"/members/"+dingMe.User.ID, map[string]string{
+		"role": "admin",
+	}, http.StatusOK, nil)
+	patchJSON(t, adminClient, srv.URL+"/api/orgs/"+org.Organization.ID+"/members/"+dingMe.User.ID, map[string]string{
+		"role": "member",
+	}, http.StatusOK, nil)
+	postJSON(t, adminClient, srv.URL+"/api/orgs/"+org.Organization.ID+"/transfer-owner", map[string]string{
+		"user_id": dingMe.User.ID,
+	}, http.StatusOK, nil)
+	var members apiOrganizationMembersResponse
+	getJSON(t, adminClient, srv.URL+"/api/admin/orgs/"+org.Organization.ID+"/members", http.StatusOK, &members)
+	if !hasMemberRole(members.Members, dingMe.User.ID, store.RoleOwner) || !hasMemberRole(members.Members, admin.User.ID, store.RoleAdmin) {
+		t.Fatalf("owner transfer did not set expected roles: %+v", members.Members)
+	}
+
+	memberClient := apiClient(t)
+	member := registerForAPI(t, memberClient, srv.URL, "plain-member@example.com")
+	postJSON(t, adminClient, srv.URL+"/api/orgs/"+org.Organization.ID+"/members", map[string]string{
+		"user_id": member.User.ID,
+		"role":    "member",
+	}, http.StatusOK, nil)
+	patchJSON(t, memberClient, srv.URL+"/api/orgs/"+org.Organization.ID+"/members/"+member.User.ID, map[string]string{
+		"role": "admin",
+	}, http.StatusForbidden, nil)
+
+	postJSON(t, adminClient, srv.URL+"/api/admin/orgs/"+org.Organization.ID+"/transfer-owner", map[string]string{
+		"user_id": admin.User.ID,
+	}, http.StatusOK, nil)
+	getJSON(t, adminClient, srv.URL+"/api/admin/orgs/"+org.Organization.ID+"/members", http.StatusOK, &members)
+	if !hasMemberRole(members.Members, admin.User.ID, store.RoleOwner) || !hasMemberRole(members.Members, dingMe.User.ID, store.RoleAdmin) {
+		t.Fatalf("system admin transfer did not repair owner: %+v", members.Members)
+	}
+
+	for _, path := range []string{"/", "/main.js", "/views/auth.js", "/views/system-admin.js", "/components/layout.js"} {
+		resp, err := adminClient.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := readBody(t, resp)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s status mismatch: %d", path, resp.StatusCode)
+		}
+		if path == "/" && !strings.Contains(body, "main.js") {
+			t.Fatalf("frontend index did not load modular frontend")
+		}
+	}
+}
+
 func assertAuditContains(t *testing.T, client *http.Client, baseURL, command, decision string) {
 	t.Helper()
 	var logs apiAuditLogsResponse
@@ -184,6 +331,24 @@ func assertAuditContains(t *testing.T, client *http.Client, baseURL, command, de
 		}
 	}
 	t.Fatalf("audit missing %q/%q in %+v", command, decision, logs.Logs)
+}
+
+func orgRole(orgs []apiOrganization, id string) string {
+	for _, org := range orgs {
+		if org.ID == id {
+			return org.Role
+		}
+	}
+	return ""
+}
+
+func hasAPIUser(users []apiUser, id string) bool {
+	for _, user := range users {
+		if user.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func waitForAgentTarget(t *testing.T, app *App, orgID string) store.SSHTarget {
