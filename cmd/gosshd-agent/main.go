@@ -19,6 +19,7 @@ func main() {
 	cfg.Version = version
 	flag.StringVar(&cfg.Server, "server", "http://localhost", "public gosshd server URL")
 	flag.StringVar(&cfg.Token, "token", "", "optional shared token for server registration")
+	flag.StringVar(&cfg.EnrollmentToken, "enrollment-token", "", "owner-scoped bastion enrollment token")
 	flag.StringVar(&cfg.IDFile, "id-file", "", "path to stable local agent id file")
 	flag.StringVar(&cfg.Shell, "shell", "", "shell executable; defaults to parent process shell, SHELL, or login shell")
 	flag.StringVar(&cfg.Root, "root", "", "working directory; defaults to the directory where the agent starts")

@@ -35,11 +35,12 @@ const (
 )
 
 type AgentHello struct {
-	ID      string `json:"id"`
-	Token   string `json:"token,omitempty"`
-	Version string `json:"version,omitempty"`
-	GOOS    string `json:"goos,omitempty"`
-	GOARCH  string `json:"goarch,omitempty"`
+	ID              string `json:"id"`
+	Token           string `json:"token,omitempty"`
+	EnrollmentToken string `json:"enrollment_token,omitempty"`
+	Version         string `json:"version,omitempty"`
+	GOOS            string `json:"goos,omitempty"`
+	GOARCH          string `json:"goarch,omitempty"`
 }
 
 type StreamRequest struct {

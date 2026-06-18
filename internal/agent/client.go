@@ -114,11 +114,12 @@ func (c *Client) runOnce(ctx context.Context) error {
 		}
 	}()
 	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
-		ID:      c.id,
-		Token:   c.cfg.Token,
-		Version: c.cfg.Version,
-		GOOS:    runtime.GOOS,
-		GOARCH:  runtime.GOARCH,
+		ID:              c.id,
+		Token:           c.cfg.Token,
+		EnrollmentToken: c.cfg.EnrollmentToken,
+		Version:         c.cfg.Version,
+		GOOS:            runtime.GOOS,
+		GOARCH:          runtime.GOARCH,
 	}); err != nil {
 		return err
 	}

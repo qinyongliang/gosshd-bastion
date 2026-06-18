@@ -2,14 +2,19 @@ package server
 
 import (
 	"bufio"
+	"context"
+	"crypto/sha256"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/qinyongliang/gosshd/internal/protocol"
 	"github.com/qinyongliang/gosshd/internal/relay"
+	"github.com/qinyongliang/gosshd/internal/store"
 
 	"github.com/gorilla/websocket"
 )
@@ -78,4 +83,107 @@ func TestAgentWSDefaultsMissingPlatformToServerPlatform(t *testing.T) {
 	if !strings.HasSuffix(resp.AgentDownloadURL, wantSuffix) {
 		t.Fatalf("download URL %q does not end with %q", resp.AgentDownloadURL, wantSuffix)
 	}
+}
+
+func TestAgentWSEnrollmentCreatesPersistedAgent(t *testing.T) {
+	ctx := context.Background()
+	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	if err := app.ensureServices(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if app.store != nil {
+			_ = app.store.Close()
+		}
+	})
+	user, err := app.store.Repository().CreateUser(ctx, store.CreateUserParams{Email: "agent@example.com", DisplayName: "Agent", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := "enroll-token"
+	sum := sha256.Sum256([]byte(token))
+	enrollment, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
+		OwnerType:   store.OwnerUser,
+		OwnerID:     user.ID,
+		TokenHash:   sum[:],
+		Label:       "laptop",
+		DefaultHost: "127.0.0.1",
+		DefaultPort: 22,
+		CreatedBy:   user.ID,
+		ExpiresAt:   time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	app.routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	conn := dialAgentWS(t, srv.URL)
+	defer conn.Close()
+	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
+		ID:              "11111111-1111-4111-8111-111111111111",
+		EnrollmentToken: token,
+		GOOS:            "linux",
+		GOARCH:          "amd64",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := protocol.ReadJSONLine[protocol.StreamResponse](bufio.NewReader(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK {
+		t.Fatalf("agent rejected: %+v", resp)
+	}
+	agent, err := app.store.Repository().GetAgentByEnrollment(ctx, enrollment.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.ID == "" || agent.OwnerID != user.ID {
+		t.Fatalf("persisted agent mismatch: %+v", agent)
+	}
+	if _, err := app.Registry().Get(agent.ID); err != nil {
+		t.Fatalf("persisted agent not online: %v", err)
+	}
+}
+
+func TestAgentWSRejectsInvalidEnrollmentToken(t *testing.T) {
+	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	t.Cleanup(func() {
+		if app.store != nil {
+			_ = app.store.Close()
+		}
+	})
+	mux := http.NewServeMux()
+	app.routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	conn := dialAgentWS(t, srv.URL)
+	defer conn.Close()
+	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
+		ID:              "11111111-1111-4111-8111-111111111111",
+		EnrollmentToken: "missing",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := protocol.ReadJSONLine[protocol.StreamResponse](bufio.NewReader(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.OK {
+		t.Fatalf("expected rejection, got %+v", resp)
+	}
+}
+
+func dialAgentWS(t *testing.T, serverURL string) *relay.WSConn {
+	t.Helper()
+	wsURL := "ws" + strings.TrimPrefix(serverURL, "http") + protocol.WebSocketPath
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return relay.NewWSConn(ws)
 }
