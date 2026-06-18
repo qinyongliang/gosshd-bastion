@@ -116,6 +116,19 @@ func (r *Repository) CreateOrganization(ctx context.Context, params CreateOrgani
 	`, org.ID, org.OwnerUserID, RoleOwner, formatTime(now)); err != nil {
 		return Organization{}, err
 	}
+	groupID := uuid.NewString()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO organization_user_groups (id, organization_id, name, slug, is_default, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, groupID, org.ID, "All Members", "all", 1, formatTime(now)); err != nil {
+		return Organization{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO organization_user_group_members (group_id, user_id, created_at)
+		VALUES (?, ?, ?)
+	`, groupID, org.OwnerUserID, formatTime(now)); err != nil {
+		return Organization{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Organization{}, err
 	}
@@ -135,6 +148,209 @@ func (r *Repository) GetOrganizationMember(ctx context.Context, organizationID, 
 	}
 	member.CreatedAt = parseTime(created)
 	return member, nil
+}
+
+func (r *Repository) ListOrganizationsForUser(ctx context.Context, userID string) ([]Organization, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT o.id, o.name, o.slug, o.owner_user_id, o.created_at
+		FROM organizations o
+		JOIN organization_members m ON m.organization_id = o.id
+		WHERE m.user_id = ?
+		ORDER BY o.created_at ASC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var orgs []Organization
+	for rows.Next() {
+		var org Organization
+		var created string
+		if err := rows.Scan(&org.ID, &org.Name, &org.Slug, &org.OwnerUserID, &created); err != nil {
+			return nil, err
+		}
+		org.CreatedAt = parseTime(created)
+		orgs = append(orgs, org)
+	}
+	return orgs, rows.Err()
+}
+
+func (r *Repository) CreateOrganizationUserGroup(ctx context.Context, params CreateOrganizationUserGroupParams) (OrganizationUserGroup, error) {
+	group := OrganizationUserGroup{
+		ID:             uuid.NewString(),
+		OrganizationID: params.OrganizationID,
+		Name:           strings.TrimSpace(params.Name),
+		Slug:           strings.TrimSpace(params.Slug),
+		IsDefault:      params.IsDefault,
+		CreatedAt:      time.Now().UTC(),
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO organization_user_groups (id, organization_id, name, slug, is_default, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, group.ID, group.OrganizationID, group.Name, group.Slug, boolInt(group.IsDefault), formatTime(group.CreatedAt))
+	if err != nil {
+		return OrganizationUserGroup{}, err
+	}
+	return group, nil
+}
+
+func (r *Repository) ListOrganizationUserGroups(ctx context.Context, organizationID string) ([]OrganizationUserGroup, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, organization_id, name, slug, is_default, created_at
+		FROM organization_user_groups
+		WHERE organization_id = ?
+		ORDER BY is_default DESC, created_at ASC
+	`, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var groups []OrganizationUserGroup
+	for rows.Next() {
+		var group OrganizationUserGroup
+		var isDefault int
+		var created string
+		if err := rows.Scan(&group.ID, &group.OrganizationID, &group.Name, &group.Slug, &isDefault, &created); err != nil {
+			return nil, err
+		}
+		group.IsDefault = isDefault == 1
+		group.CreatedAt = parseTime(created)
+		groups = append(groups, group)
+	}
+	return groups, rows.Err()
+}
+
+func (r *Repository) GetDefaultOrganizationUserGroup(ctx context.Context, organizationID string) (OrganizationUserGroup, error) {
+	var group OrganizationUserGroup
+	var isDefault int
+	var created string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, name, slug, is_default, created_at
+		FROM organization_user_groups
+		WHERE organization_id = ? AND is_default = 1
+	`, organizationID).Scan(&group.ID, &group.OrganizationID, &group.Name, &group.Slug, &isDefault, &created)
+	if err != nil {
+		return OrganizationUserGroup{}, wrapScanErr(err)
+	}
+	group.IsDefault = isDefault == 1
+	group.CreatedAt = parseTime(created)
+	return group, nil
+}
+
+func (r *Repository) AddUserToGroup(ctx context.Context, groupID, userID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO organization_user_group_members (group_id, user_id, created_at)
+		VALUES (?, ?, ?)
+	`, groupID, userID, formatTime(time.Now().UTC()))
+	return err
+}
+
+func (r *Repository) RemoveUserFromGroup(ctx context.Context, groupID, userID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM organization_user_group_members
+		WHERE group_id = ? AND user_id = ?
+	`, groupID, userID)
+	return err
+}
+
+func (r *Repository) UserInGroup(ctx context.Context, groupID, userID string) (bool, error) {
+	var count int
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM organization_user_group_members
+		WHERE group_id = ? AND user_id = ?
+	`, groupID, userID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (r *Repository) GetOrganization(ctx context.Context, id string) (Organization, error) {
+	var org Organization
+	var created string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, name, slug, owner_user_id, created_at
+		FROM organizations WHERE id = ?
+	`, id).Scan(&org.ID, &org.Name, &org.Slug, &org.OwnerUserID, &created)
+	if err != nil {
+		return Organization{}, wrapScanErr(err)
+	}
+	org.CreatedAt = parseTime(created)
+	return org, nil
+}
+
+func (r *Repository) CreateOrganizationInvite(ctx context.Context, params CreateOrganizationInviteParams) (OrganizationInvite, error) {
+	invite := OrganizationInvite{
+		ID:             uuid.NewString(),
+		OrganizationID: params.OrganizationID,
+		CodeHash:       append([]byte(nil), params.CodeHash...),
+		Role:           params.Role,
+		ExpiresAt:      params.ExpiresAt.UTC(),
+		CreatedBy:      params.CreatedBy,
+		CreatedAt:      time.Now().UTC(),
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO organization_invites (id, organization_id, code_hash, role, expires_at, created_by, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, invite.ID, invite.OrganizationID, invite.CodeHash, invite.Role, formatTime(invite.ExpiresAt), invite.CreatedBy, formatTime(invite.CreatedAt))
+	if err != nil {
+		return OrganizationInvite{}, err
+	}
+	return invite, nil
+}
+
+func (r *Repository) GetOrganizationInviteByCodeHash(ctx context.Context, codeHash []byte) (OrganizationInvite, error) {
+	var invite OrganizationInvite
+	var expires, created string
+	var consumed sql.NullString
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, code_hash, role, expires_at, created_by, created_at, consumed_at
+		FROM organization_invites WHERE code_hash = ?
+	`, codeHash).Scan(&invite.ID, &invite.OrganizationID, &invite.CodeHash, &invite.Role, &expires, &invite.CreatedBy, &created, &consumed)
+	if err != nil {
+		return OrganizationInvite{}, wrapScanErr(err)
+	}
+	invite.ExpiresAt = parseTime(expires)
+	invite.CreatedAt = parseTime(created)
+	if consumed.Valid {
+		v := parseTime(consumed.String)
+		invite.ConsumedAt = &v
+	}
+	return invite, nil
+}
+
+func (r *Repository) AddOrganizationMember(ctx context.Context, organizationID, userID, role string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO organization_members (organization_id, user_id, role, created_at)
+		VALUES (?, ?, ?, ?)
+	`, organizationID, userID, role, formatTime(time.Now().UTC())); err != nil {
+		return err
+	}
+	var defaultGroupID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id FROM organization_user_groups
+		WHERE organization_id = ? AND is_default = 1
+	`, organizationID).Scan(&defaultGroupID); err != nil {
+		return wrapScanErr(err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO organization_user_group_members (group_id, user_id, created_at)
+		VALUES (?, ?, ?)
+	`, defaultGroupID, userID, formatTime(time.Now().UTC())); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) MarkOrganizationInviteConsumed(ctx context.Context, inviteID string, consumedAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE organization_invites SET consumed_at = ? WHERE id = ?
+	`, formatTime(consumedAt), inviteID)
+	return err
 }
 
 func (r *Repository) CreatePublicKey(ctx context.Context, params CreatePublicKeyParams) (PublicKey, error) {
@@ -164,6 +380,35 @@ func (r *Repository) GetUserByPublicKeyFingerprint(ctx context.Context, fingerpr
 		WHERE k.fingerprint = ?
 	`, strings.TrimSpace(fingerprint))
 	return scanUser(row)
+}
+
+func (r *Repository) ListPublicKeysForUser(ctx context.Context, userID string) ([]PublicKey, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, user_id, name, authorized_key, fingerprint, created_at
+		FROM user_public_keys
+		WHERE user_id = ?
+		ORDER BY created_at ASC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []PublicKey
+	for rows.Next() {
+		var key PublicKey
+		var created string
+		if err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.AuthorizedKey, &key.Fingerprint, &created); err != nil {
+			return nil, err
+		}
+		key.CreatedAt = parseTime(created)
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+func (r *Repository) DeletePublicKey(ctx context.Context, userID, keyID string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM user_public_keys WHERE user_id = ? AND id = ?`, userID, keyID)
+	return err
 }
 
 func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTargetParams) (SSHTarget, error) {
@@ -256,6 +501,21 @@ func (r *Repository) AttachPolicyToTarget(ctx context.Context, policyID, targetI
 	return err
 }
 
+func (r *Repository) AttachPolicyToUserGroup(ctx context.Context, policyID, groupID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO policy_user_groups (policy_id, group_id)
+		VALUES (?, ?)
+	`, policyID, groupID)
+	return err
+}
+
+func (r *Repository) DetachPolicyFromUserGroup(ctx context.Context, policyID, groupID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM policy_user_groups WHERE policy_id = ? AND group_id = ?
+	`, policyID, groupID)
+	return err
+}
+
 func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string) ([]CommandPolicy, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT p.id, p.owner_type, p.owner_id, p.name, p.default_action, COALESCE(p.llm_config_id, ''), p.created_at
@@ -282,9 +542,35 @@ func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string)
 			return nil, err
 		}
 		policy.Rules = rules
+		userGroupIDs, err := r.listPolicyUserGroupIDs(ctx, policy.ID)
+		if err != nil {
+			return nil, err
+		}
+		policy.UserGroupIDs = userGroupIDs
 		policies = append(policies, policy)
 	}
 	return policies, rows.Err()
+}
+
+func (r *Repository) listPolicyUserGroupIDs(ctx context.Context, policyID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT group_id FROM policy_user_groups
+		WHERE policy_id = ?
+		ORDER BY group_id ASC
+	`, policyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *Repository) listPolicyRules(ctx context.Context, policyID string) ([]PolicyRule, error) {
@@ -462,6 +748,13 @@ func nullableTime(value *time.Time) any {
 		return nil
 	}
 	return formatTime(*value)
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (r *Repository) String() string {

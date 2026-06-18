@@ -62,6 +62,21 @@ type OrganizationMember struct {
 	CreatedAt      time.Time
 }
 
+type OrganizationUserGroup struct {
+	ID             string
+	OrganizationID string
+	Name           string
+	Slug           string
+	IsDefault      bool
+	CreatedAt      time.Time
+}
+
+type OrganizationUserGroupMember struct {
+	GroupID   string
+	UserID    string
+	CreatedAt time.Time
+}
+
 type OrganizationInvite struct {
 	ID             string
 	OrganizationID string
@@ -133,6 +148,7 @@ type CommandPolicy struct {
 	LLMConfigID   string
 	CreatedAt     time.Time
 	Rules         []PolicyRule
+	UserGroupIDs  []string
 }
 
 type PolicyRule struct {
@@ -183,6 +199,21 @@ type CreateOrganizationParams struct {
 	Name        string
 	Slug        string
 	OwnerUserID string
+}
+
+type CreateOrganizationUserGroupParams struct {
+	OrganizationID string
+	Name           string
+	Slug           string
+	IsDefault      bool
+}
+
+type CreateOrganizationInviteParams struct {
+	OrganizationID string
+	CodeHash       []byte
+	Role           string
+	ExpiresAt      time.Time
+	CreatedBy      string
 }
 
 type CreatePublicKeyParams struct {
