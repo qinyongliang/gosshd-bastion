@@ -7,7 +7,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/qinyongliang/gosshd/internal/protocol"
+	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
 	"github.com/pkg/sftp"
 )

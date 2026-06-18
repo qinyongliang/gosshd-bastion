@@ -8,7 +8,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/qinyongliang/gosshd/internal/protocol"
+	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 )
 
 func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) {

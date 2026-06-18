@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	webassets "github.com/qinyongliang/gosshd/web"
+	webassets "github.com/qinyongliang/gosshd-bastion/web"
 )
 
 func (a *App) serveWeb(w http.ResponseWriter, r *http.Request) {

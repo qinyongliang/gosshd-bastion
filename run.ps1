@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$repo = if ($env:GOSSHD_REPO) { $env:GOSSHD_REPO } else { "qinyongliang/gosshd" }
+$repo = if ($env:GOSSHD_REPO) { $env:GOSSHD_REPO } else { "qinyongliang/gosshd-bastion" }
 $version = $env:GOSSHD_VERSION
 $proxy = if ($env:GOSSHD_PROXY_URL) { $env:GOSSHD_PROXY_URL } else { "https://gh-proxy.com/" }
 

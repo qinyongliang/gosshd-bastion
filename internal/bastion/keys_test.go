@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
 	gossh "golang.org/x/crypto/ssh"
 )

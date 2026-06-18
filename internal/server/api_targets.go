@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
 type apiTarget struct {

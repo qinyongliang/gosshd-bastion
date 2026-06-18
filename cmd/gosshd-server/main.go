@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/qinyongliang/gosshd/internal/server"
+	"github.com/qinyongliang/gosshd-bastion/internal/server"
 )
 
 var version = server.DefaultVersion

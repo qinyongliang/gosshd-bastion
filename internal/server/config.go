@@ -36,7 +36,7 @@ func (c Config) releaseBaseURL() string {
 	if c.ReleaseBaseURL != "" {
 		return c.ReleaseBaseURL
 	}
-	return "https://github.com/qinyongliang/gosshd/releases/download"
+	return "https://github.com/qinyongliang/gosshd-bastion/releases/download"
 }
 
 func (c Config) releaseProxyURL() string {

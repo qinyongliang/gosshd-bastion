@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/qinyongliang/gosshd/internal/auth"
-	"github.com/qinyongliang/gosshd/internal/bastion"
-	"github.com/qinyongliang/gosshd/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/auth"
+	"github.com/qinyongliang/gosshd-bastion/internal/bastion"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
 type App struct {

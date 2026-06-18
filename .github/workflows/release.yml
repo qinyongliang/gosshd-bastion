@@ -104,26 +104,17 @@ jobs:
             fi
 
             package_dir="package/gosshd-$platform"
-            full_package_dir="package/gosshd-$version-$platform-full"
             mkdir -p "$package_dir"
             cp "build/server/$platform/gosshd-server$suffix" "$package_dir/"
             cp README.md README.zh-CN.md run.sh run.ps1 "$package_dir/"
             cp LICENSE* "$package_dir/" 2>/dev/null || true
 
-            mkdir -p "$full_package_dir"
-            cp -R "$package_dir/." "$full_package_dir/"
-            mkdir -p "$full_package_dir/dist/agent/$version"
-            cp -R build/agent/. "$full_package_dir/dist/agent/$version/"
-
             if [ "$goos" = "windows" ]; then
               (cd package && zip -9 -r "../dist/gosshd-$version-$platform.zip" "gosshd-$platform")
-              (cd package && zip -9 -r "../dist/gosshd-$version-$platform-full.zip" "gosshd-$version-$platform-full")
             else
               tar -C package -czf "dist/gosshd-$version-$platform.tar.gz" "gosshd-$platform"
-              tar -C package -czf "dist/gosshd-$version-$platform-full.tar.gz" "gosshd-$version-$platform-full"
             fi
             rm -rf "$package_dir"
-            rm -rf "$full_package_dir"
           done
 
           (cd dist && sha256sum * > checksums.txt)

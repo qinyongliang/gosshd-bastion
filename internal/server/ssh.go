@@ -18,7 +18,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/qinyongliang/gosshd/internal/protocol"
+	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
 	gossh "golang.org/x/crypto/ssh"
 )
