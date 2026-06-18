@@ -34,6 +34,9 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		if len(body) < 200 {
 			t.Fatalf("%s asset too small", path)
 		}
+		if path == "/app.js" && (!strings.Contains(body, "systemctl") || !strings.Contains(body, "sc.exe")) {
+			t.Fatalf("agent guide did not include startup service instructions")
+		}
 	}
 }
 

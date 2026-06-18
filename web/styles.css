@@ -440,7 +440,8 @@ tr:last-child td {
 }
 
 .command-box {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.32fr) minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   margin-top: 10px;
@@ -451,9 +452,30 @@ tr:last-child td {
   color: #f8fbff;
 }
 
+.command-box span {
+  color: #b8c4d4;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .command-box code {
-  flex: 1;
   overflow-wrap: anywhere;
+}
+
+.guide-block {
+  display: grid;
+  gap: 3px;
+  margin-top: 14px;
+}
+
+.guide-block span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.guide-block.service {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 
 .chips, .list-lines {
@@ -516,6 +538,12 @@ tr:last-child td {
   }
   .form-grid, .inline-form {
     grid-template-columns: 1fr;
+  }
+  .command-box {
+    grid-template-columns: 1fr auto;
+  }
+  .command-box span {
+    grid-column: 1 / -1;
   }
 }
 
