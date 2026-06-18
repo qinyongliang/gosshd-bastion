@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="GOSSHD Bastion">
+  <rect width="64" height="64" rx="12" fill="#04070c"/>
+  <path d="M14 20h36v24H14z" fill="none" stroke="#67e8f9" stroke-width="4"/>
+  <path d="M22 44V30a10 10 0 0 1 20 0v14" fill="none" stroke="#72f2a6" stroke-width="4"/>
+  <circle cx="32" cy="34" r="4" fill="#ffd166"/>
+</svg>

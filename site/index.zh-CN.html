@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="GOSSHD Bastion 是为 AI 服务设计的 SSH 堡垒机，为 Agent、自动化工具和运维人员提供别名访问、策略审核和完整命令审计。"
+    />
+    <title>GOSSHD Bastion | 为 AI 服务的堡垒机</title>
+    <link rel="alternate" hreflang="en" href="./index.html" />
+    <link rel="alternate" hreflang="zh-CN" href="./index.zh-CN.html" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="home">
+    <a class="skip-link" href="#main">跳到正文</a>
+    <canvas class="space-canvas" id="spaceCanvas" aria-hidden="true"></canvas>
+    <header class="site-header">
+      <a class="brand" href="./index.zh-CN.html" aria-label="GOSSHD Bastion 首页">
+        <span class="brand-mark">GB</span>
+        <span>GOSSHD Bastion</span>
+      </a>
+      <nav class="site-nav" aria-label="主导航">
+        <a href="#architecture">架构</a>
+        <a href="#security">安全</a>
+        <a href="./docs.zh-CN.html">文档</a>
+        <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
+        <span class="language-switch" role="group" aria-label="语言">
+          <a href="./index.html" lang="en">EN</a>
+          <a class="is-active" href="./index.zh-CN.html" lang="zh-CN" aria-current="page">中文</a>
+        </span>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">为 AI 服务的堡垒机</p>
+          <h1>GOSSHD Bastion</h1>
+          <p class="hero-lede">
+            面向 AI Agent、自动化工具和运维人员的 SSH 访问平面，通过别名、策略审核和完整命令审计连接私有服务。
+          </p>
+          <div class="hero-actions" aria-label="主要操作">
+            <a class="button primary" href="./docs.zh-CN.html">阅读文档</a>
+            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.0-bastion">下载版本</a>
+          </div>
+          <dl class="signal-row" aria-label="产品亮点">
+            <div>
+              <dt>AI 就绪</dt>
+              <dd>LLM 命令审核</dd>
+            </div>
+            <div>
+              <dt>SSH 原生</dt>
+              <dd><code>ssh test2@host</code></dd>
+            </div>
+            <div>
+              <dt>全量审计</dt>
+              <dd>每次执行决策</dd>
+            </div>
+          </dl>
+        </div>
+        <aside class="mission-panel" aria-label="访问链路预览">
+          <div class="panel-status">
+            <span class="status-dot"></span>
+            <span>策略流运行中</span>
+          </div>
+          <div class="trace-list">
+            <span>公钥映射用户: ai-runner</span>
+            <span>别名解析: inference-gpu</span>
+            <span>用户组策略: production-ai</span>
+            <span>LLM 判定: allow with watch</span>
+            <span>审计记录已封存: exit 0</span>
+          </div>
+        </aside>
+      </section>
+
+      <section class="product-band" id="architecture">
+        <div class="section-heading">
+          <p class="eyebrow">控制平面</p>
+          <h2>为人类运维和自主 AI 任务提供同一个入口。</h2>
+          <p>
+            GOSSHD Bastion 保留熟悉的 SSH 使用方式，同时把身份、目标路由、命令策略和审计放入 SQLite 支撑的控制平面。
+          </p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card">
+            <span class="card-code">01</span>
+            <h3>公钥身份</h3>
+            <p>SSH 公钥识别平台用户。SSH 用户名就是目标别名，访问方式保持简单直接。</p>
+          </article>
+          <article class="feature-card">
+            <span class="card-code">02</span>
+            <h3>Agent 服务</h3>
+            <p>私有主机通过安装脚本注册，之后就是普通、可重命名的 SSH 目标。</p>
+          </article>
+          <article class="feature-card">
+            <span class="card-code">03</span>
+            <h3>命令安全组</h3>
+            <p>把白名单、黑名单或 LLM 审核策略绑定到目标和组织用户组。</p>
+          </article>
+          <article class="feature-card">
+            <span class="card-code">04</span>
+            <h3>自动化审计</h3>
+            <p>每次执行都会记录用户、目标、决策、原因、耗时、退出码和远端地址。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="diagram-band">
+        <div class="diagram-shell" aria-label="AI 堡垒机请求流程">
+          <div class="diagram-node source">AI Agent</div>
+          <div class="diagram-link"></div>
+          <div class="diagram-node core">GOSSHD Bastion</div>
+          <div class="diagram-link"></div>
+          <div class="diagram-node target">SSH 服务</div>
+        </div>
+        <div class="diagram-copy">
+          <p class="eyebrow">别名路由</p>
+          <h2><code>ssh inference-gpu@public-ip</code></h2>
+          <p>
+            提交的公钥找到用户，SSH 用户名找到个人或组织下的目标别名。策略决定命令是否直连执行、经 Agent 执行，或在抵达生产环境前被拒绝。
+          </p>
+        </div>
+      </section>
+
+      <section class="product-band security-band" id="security">
+        <div class="section-heading">
+          <p class="eyebrow">AI 安全姿态</p>
+          <h2>为行动速度超过人工审核的工具而设计。</h2>
+        </div>
+        <div class="security-grid">
+          <article>
+            <h3>默认全员组</h3>
+            <p>每个组织都有默认全员用户组，策略可以绑定一个或多个用户组。</p>
+          </article>
+          <article>
+            <h3>默认拒绝的 LLM 审核</h3>
+            <p>OpenAI 兼容的审核可以处理未命中的命令。无效响应会被拒绝。</p>
+          </article>
+          <article>
+            <h3>开机启动 Agent</h3>
+            <p>Linux Agent 通过 systemd 安装。Windows Agent 通过 sc.exe 安装。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="quickstart-band">
+        <div>
+          <p class="eyebrow">首次启动</p>
+          <h2>启动堡垒机。</h2>
+        </div>
+        <pre><code>gosshd-server \
+  --http-listen :80 \
+  --ssh-listen :22 \
+  --database-path gosshd.db \
+  --host-key-path gosshd_host_key</code></pre>
+        <a class="button primary" href="./docs.zh-CN.html#quickstart">打开快速开始</a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>GOSSHD Bastion</span>
+      <a href="./docs.zh-CN.html">文档</a>
+      <a href="https://github.com/qinyongliang/gosshd-bastion">源码</a>
+    </footer>
+    <script src="./main.js"></script>
+  </body>
+</html>
