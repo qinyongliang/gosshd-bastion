@@ -118,7 +118,7 @@ func (a *App) logStartupInstructions() {
 	log.Printf("http listening on %s", a.cfg.HTTPListen)
 	log.Printf("ssh listening on %s", a.cfg.SSHListen)
 	log.Printf("health check: curl %s/healthz", base)
-	log.Printf("create scoped agent installers in the web console: %s/agents", base)
+	log.Printf("create private-node install tokens in the web console: %s/targets", base)
 }
 
 func (a *App) startupHTTPBase() string {
