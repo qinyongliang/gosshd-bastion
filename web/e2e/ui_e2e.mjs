@@ -11,9 +11,22 @@ const browser = await chromium.launch({
   executablePath: browserExecutable,
   headless: true,
 });
+let enContext;
 
 try {
-  const page = await browser.newPage();
+  const zhContext = await browser.newContext({ locale: "zh-CN" });
+  await zhContext.addInitScript(() => {
+    Object.defineProperty(navigator, "languages", { get: () => ["zh-CN", "zh"] });
+    Object.defineProperty(navigator, "language", { get: () => "zh-CN" });
+  });
+  const zhPage = await zhContext.newPage();
+  zhPage.setDefaultTimeout(10_000);
+  await zhPage.goto(`${baseURL}/`, { waitUntil: "networkidle" });
+  await zhPage.getByRole("tab", { name: "登录" }).waitFor();
+  await zhContext.close();
+
+  enContext = await browser.newContext({ locale: "en-US" });
+  const page = await enContext.newPage();
   page.setDefaultTimeout(10_000);
   page.on("console", (message) => {
     if (message.type() === "error") console.error(`browser console: ${message.text()}`);
@@ -29,6 +42,8 @@ try {
   await assertStatus(page, "/unknown-route", 404);
 
   await page.goto(`${baseURL}/`, { waitUntil: "networkidle" });
+  await page.evaluate(() => localStorage.setItem("gosshd_locale", "en"));
+  await page.reload({ waitUntil: "networkidle" });
   await expectFormCount(page, "login", 1);
   await expectFormCount(page, "register", 0);
   await page.getByRole("tab", { name: "Register" }).click();
@@ -37,6 +52,15 @@ try {
   await page.getByRole("tab", { name: "Login" }).click();
   await expectFormCount(page, "login", 1);
   await expectFormCount(page, "register", 0);
+  await page.getByRole("button", { name: "中文" }).click();
+  await page.getByRole("tab", { name: "注册" }).waitFor();
+  if ((await page.evaluate(() => localStorage.getItem("gosshd_locale"))) !== "zh-CN") {
+    throw new Error("locale was not persisted after switching to zh-CN");
+  }
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("tab", { name: "登录" }).waitFor();
+  await page.getByRole("button", { name: "EN" }).click();
+  await page.getByRole("tab", { name: "Login" }).waitFor();
   const loginForm = page.locator('form[data-action="login"]');
   await loginForm.locator('input[name="email"]').fill("admin");
   await loginForm.locator('input[name="password"]').fill("admin-pass");
@@ -87,6 +111,7 @@ try {
   await page.getByRole("heading", { name: "Organization members" }).waitFor();
   await expectText(page, "All Members");
 } finally {
+  await enContext?.close().catch(() => {});
   await browser.close();
 }
 
@@ -104,7 +129,12 @@ async function assertStatus(page, route, expected) {
 }
 
 async function expectText(page, text) {
-  await page.getByText(text, { exact: false }).first().waitFor();
+  try {
+    await page.getByText(text, { exact: false }).first().waitFor();
+  } catch (error) {
+    console.error(await page.locator("body").innerText().catch(() => "<body unavailable>"));
+    throw error;
+  }
 }
 
 async function expectFormCount(page, action, expected) {

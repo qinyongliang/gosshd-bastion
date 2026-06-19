@@ -18,6 +18,7 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 	for _, path := range []string{
 		"/",
 		"/main.js",
+		"/i18n.js",
 		"/state.js",
 		"/router.js",
 		"/components/layout.js",
@@ -48,13 +49,16 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		if len(body) < 200 {
 			t.Fatalf("%s asset too small", path)
 		}
-		if path == "/views/auth.js" && !strings.Contains(body, "DingTalk login") {
+		if path == "/i18n.js" && (!strings.Contains(body, "gosshd_locale") || !strings.Contains(body, "zh-CN") || !strings.Contains(body, "systemctl") || !strings.Contains(body, "sc.exe")) {
+			t.Fatalf("i18n module did not include locale persistence")
+		}
+		if path == "/views/auth.js" && !strings.Contains(body, "auth.dingTalk") {
 			t.Fatalf("auth view did not include DingTalk login action")
 		}
-		if path == "/views/system-admin.js" && (!strings.Contains(body, "Global settings") || !strings.Contains(body, "Account management") || !strings.Contains(body, "Organization management")) {
+		if path == "/views/system-admin.js" && (!strings.Contains(body, "admin.globalTitle") || !strings.Contains(body, "admin.accountTitle") || !strings.Contains(body, "admin.orgTitle")) {
 			t.Fatalf("system admin view did not include settings/users/org management")
 		}
-		if path == "/views/agents.js" && (!strings.Contains(body, "systemctl") || !strings.Contains(body, "sc.exe")) {
+		if path == "/views/agents.js" && (!strings.Contains(body, "agents.linuxService") || !strings.Contains(body, "agents.windowsService")) {
 			t.Fatalf("agent guide did not include startup service instructions")
 		}
 	}

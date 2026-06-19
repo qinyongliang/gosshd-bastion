@@ -1,31 +1,32 @@
 import { state } from "../state.js";
-import { commandLine, icon, panel } from "../components/html.js";
+import { commandLine, escapeHTML, icon, panel } from "../components/html.js";
+import { t } from "../i18n.js";
 
 export function renderAgents() {
-  return panel("Agent SSH enrollment", "Create an enrollment and install a private-side agent as a startup service when needed.", `
+  return panel(t("agents.title"), t("agents.sub"), `
     <form data-action="create-agent" class="stack">
-      <input name="label" aria-label="Agent service alias" autocomplete="off" placeholder="service alias" required />
-      <input name="default_host" aria-label="Agent default host" autocomplete="off" value="127.0.0.1" required />
-      <input name="default_port" aria-label="Agent default SSH port" type="number" value="22" required />
-      <button type="submit">${icon("spark").__raw}Create enrollment</button>
+      <input name="label" aria-label="${escapeHTML(t("agents.alias"))}" autocomplete="off" placeholder="${escapeHTML(t("agents.aliasPlaceholder"))}" required />
+      <input name="default_host" aria-label="${escapeHTML(t("agents.host"))}" autocomplete="off" value="127.0.0.1" required />
+      <input name="default_port" aria-label="${escapeHTML(t("agents.port"))}" type="number" value="22" required />
+      <button type="submit">${icon("spark").__raw}${escapeHTML(t("agents.create"))}</button>
     </form>
     <div class="guide-block service">
-      <strong>Startup install</strong>
-      <span>Run the install command with sh on Linux to register a systemd service with systemctl. On Windows, run the PowerShell install command to register the agent with sc.exe.</span>
+      <strong>${escapeHTML(t("agents.startupTitle"))}</strong>
+      <span>${escapeHTML(t("agents.startupBody"))}</span>
     </div>
     ${state.enrollment ? `
       <div class="guide-block">
-        <strong>Run once</strong>
-        <span>Starts the agent in the current terminal session.</span>
+        <strong>${escapeHTML(t("agents.runOnceTitle"))}</strong>
+        <span>${escapeHTML(t("agents.runOnceBody"))}</span>
       </div>
-      ${commandLine("Linux/macOS shell", state.enrollment.install_sh)}
-      ${commandLine("Windows PowerShell", state.enrollment.install_ps1)}
+      ${commandLine(t("agents.linuxShell"), state.enrollment.install_sh)}
+      ${commandLine(t("agents.windowsPowerShell"), state.enrollment.install_ps1)}
       <div class="guide-block service">
-        <strong>Install as startup service</strong>
-        <span>Linux uses systemctl. Windows uses sc.exe. The agent registers as a normal SSH service and can be renamed in SSH services.</span>
+        <strong>${escapeHTML(t("agents.installTitle"))}</strong>
+        <span>${escapeHTML(t("agents.installBody"))}</span>
       </div>
-      ${commandLine("Linux systemctl service", state.enrollment.service_sh)}
-      ${commandLine("Windows sc.exe service", state.enrollment.service_ps1)}
+      ${commandLine(t("agents.linuxService"), state.enrollment.service_sh)}
+      ${commandLine(t("agents.windowsService"), state.enrollment.service_ps1)}
     ` : ""}
   `);
 }

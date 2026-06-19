@@ -1,3 +1,5 @@
+import { getLocale } from "./i18n.js";
+
 export const state = {
   user: null,
   providers: { dingtalk: { enabled: false } },
@@ -18,6 +20,7 @@ export const state = {
   adminMembers: [],
   selectedAdminOrgID: "",
   targetTagFilters: [],
+  locale: getLocale(),
   authMode: "login",
   notice: "",
   error: "",

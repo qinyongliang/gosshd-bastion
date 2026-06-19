@@ -1,3 +1,5 @@
+import { t } from "../i18n.js";
+
 export function html(strings, ...values) {
   return strings.reduce((out, part, index) => out + part + escapeHTML(values[index] ?? ""), "");
 }
@@ -74,6 +76,47 @@ export function commandLine(label, value) {
   return `<div class="command-box">
     <span>${escapeHTML(label)}</span>
     <code>${escapeHTML(value || "")}</code>
-    <button data-click="copy" aria-label="Copy ${escapeHTML(label)} command" data-value="${escapeHTML(value || "")}">${icon("copy").__raw}</button>
+    <button data-click="copy" aria-label="${escapeHTML(t("common.copy"))} ${escapeHTML(label)} command" data-value="${escapeHTML(value || "")}">${icon("copy").__raw}</button>
   </div>`;
+}
+
+export function languageSwitch(locale) {
+  const current = locale || "en";
+  return raw(`<div class="language-switch" role="group" aria-label="${escapeHTML(t("language.aria"))}">
+    <button type="button" data-click="set-locale" data-locale="en" class="${current === "en" ? "active" : ""}">${escapeHTML(t("language.english"))}</button>
+    <button type="button" data-click="set-locale" data-locale="zh-CN" class="${current === "zh-CN" ? "active" : ""}">${escapeHTML(t("language.chinese"))}</button>
+  </div>`);
+}
+
+export function hudLine() {
+  return raw(`<div class="hud-line">
+    <span class="hud-pill"><i class="hud-dot"></i>SSH ingress online</span>
+    <span class="hud-pill">policy latency 38ms</span>
+    <span class="hud-pill">LLM guard armed</span>
+  </div>`);
+}
+
+export function orbitMap() {
+  return raw(`<div class="orbit-map">
+    <div class="orbit-ring"></div><div class="orbit-ring"></div><div class="orbit-ring"></div>
+    <div class="orbit-path p1"></div><div class="orbit-path p2"></div><div class="orbit-path p3"></div>
+    <div class="orbit-node n1">${escapeHTML(t("dashboard.orbitAgent"))}</div>
+    <div class="orbit-node n2">${escapeHTML(t("dashboard.orbitKey"))}</div>
+    <div class="orbit-node n3">${escapeHTML(t("dashboard.orbitTarget"))}</div>
+    <div class="orbit-node n4">${escapeHTML(t("dashboard.orbitAudit"))}</div>
+    <div class="orbit-core">${escapeHTML(t("dashboard.orbitCore"))}</div>
+  </div>`);
+}
+
+export function streamList() {
+  const rows = [
+    ["dashboard.streamIdentity", "dashboard.streamIdentityValue"],
+    ["dashboard.streamRoute", "dashboard.streamRouteValue"],
+    ["dashboard.streamPolicy", "dashboard.streamPolicyValue"],
+    ["dashboard.streamLLM", "dashboard.streamLLMValue"],
+    ["dashboard.streamAudit", "dashboard.streamAuditValue"],
+  ];
+  return raw(`<div class="stream-list">${rows.map(([label, value]) => `
+    <span><b>${escapeHTML(t(label))}</b>${escapeHTML(t(value))}</span>
+  `).join("")}</div>`);
 }
