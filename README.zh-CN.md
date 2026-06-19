@@ -4,7 +4,7 @@
 
 `gosshd-bastion` 是一个面向 AI 服务、自动化 Agent 和运维人员的 SSH 堡垒机。它以单个 Go 服务运行，内置 Web 控制台、SQLite 存储、SSH 网关、Agent 注册、命令安全组、LLM 实时审核钩子和 MCP 控制面。
 
-当前公开版本是 [`v0.1.16-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.16-bastion)。最新版本入口在 [GitHub Releases](https://github.com/qinyongliang/gosshd-bastion/releases/latest)。
+当前公开版本是 [`v0.1.17-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.17-bastion)。最新版本入口在 [GitHub Releases](https://github.com/qinyongliang/gosshd-bastion/releases/latest)。
 
 ## 当前已实现
 
@@ -15,7 +15,8 @@
 - 用户配置自己的 SSH public key 后，可以通过堡垒机 SSH 登录。SSH 用户名就是目标别名，例如 `test2`。
 - SSH 服务支持显示名称、别名、主机、端口、远程用户名、认证方式和多个标签。标签是独立表，可用于筛选和安全组绑定。
 - 支持直连 SSH 服务，认证方式包括账号密码和私钥。
-- 支持 Agent SSH 服务。Agent 注册会生成带 token 的 Linux/macOS 与 Windows 命令，并包含开机启动安装命令。Agent 上线后会成为普通 SSH 服务，可以重命名、改标签、筛选和绑定安全组。
+- 支持私有节点 SSH 服务。在 SSH 服务页可以生成带 token 的 Linux/macOS 与 Windows 安装命令，并包含开机启动安装命令。私有节点上线后会成为普通 SSH 服务，可以重命名、改标签、筛选和绑定安全组。
+- SSH 服务器高级配置支持选择已有 SSH 服务作为跳板机/Proxy，用于访问私有网段。
 - 命令安全组支持黑名单、白名单、精确/前缀/包含匹配、目标绑定、目标标签绑定、用户组绑定、默认允许/拒绝，以及未命中规则时接入 LLM 审核。
 - 对 SSH `exec` 命令请求写入审计日志，包括命令、目标、策略决策、原因和退出码。
 - 支持钉钉 OAuth 登录。首次通过钉钉登录的用户可以自动创建本地账号，并加入默认组织和角色。
@@ -42,7 +43,7 @@
 Linux 从 GitHub Releases 安装示例：
 
 ```sh
-version=v0.1.16-bastion
+version=v0.1.17-bastion
 platform=linux-amd64
 
 curl -fL -o "gosshd-${version}-${platform}.tar.gz" \
@@ -89,9 +90,9 @@ ssh -p 22022 test2@bastion.example.com hostname
 
 堡垒机会先通过 SSH public key 找到用户，再优先在用户个人组织中解析别名 `test2`，然后查找用户加入的共享组织。如果多个共享组织里存在同名别名，请求会因为歧义被拒绝。
 
-## Agent 注册
+## 私有节点注册
 
-在 **Agent SSH** 页面创建 Agent enrollment。返回结果会给出当前 owner 范围下带 token 的安装命令。
+打开 **SSH 服务**，点击 **添加服务**，选择 **私有节点** tab。填写服务别名并创建安装令牌后，会返回当前 owner 范围下带 token 的安装命令。
 
 Linux/macOS 一次运行：
 
@@ -117,7 +118,7 @@ Windows 使用 `sc.exe` 安装为开机启动服务：
 $s='http://bastion.example.com:18080/install/<token>.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install
 ```
 
-服务端会优先从本地 `--agent-path` 提供 Agent 二进制；如果本地没有，则从 GitHub Release 下载匹配平台的 Agent 到 `--agent-cache-path`，再提供给私有主机。
+服务端会优先从本地 `--agent-path` 提供私有节点二进制；如果本地没有，则从 GitHub Release 下载匹配平台的私有节点程序到 `--agent-cache-path`，再提供给私有主机。
 
 ## 命令安全组
 

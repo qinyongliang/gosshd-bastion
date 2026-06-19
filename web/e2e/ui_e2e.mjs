@@ -90,14 +90,19 @@ try {
   await page.getByRole("button", { name: "UI Ops" }).click();
 
   await page.getByRole("button", { name: "SSH services" }).click();
+  await expectCount(page.getByRole("button", { name: "Agent SSH" }), 0);
   await page.getByRole("button", { name: "Add service" }).first().click();
   const targetForm = page.locator('form[data-action="create-target"]');
   await targetForm.getByLabel("Service name").fill("UI Service");
   await targetForm.getByLabel("Target alias").fill("ui-test2");
   await targetForm.getByLabel("Target tags").fill("测试环境, ui");
+  await targetForm.getByRole("button", { name: "Next" }).click();
   await targetForm.getByLabel("Target host").fill("127.0.0.1");
   await targetForm.getByLabel("Target port").fill("22");
   await targetForm.getByLabel("Remote username").fill("root");
+  await targetForm.getByRole("button", { name: "Next" }).click();
+  await targetForm.getByLabel("Target secret").fill("root-pass");
+  await targetForm.getByRole("button", { name: "Next" }).click();
   await targetForm.getByRole("button", { name: "Add service" }).click();
   await expectText(page, "ui-test2");
   await expectText(page, "测试环境");
@@ -105,13 +110,13 @@ try {
   await expectText(page, "Route preview");
   await closeDrawer(page);
 
-  await page.getByRole("button", { name: "Agent SSH" }).click();
-  await page.getByRole("button", { name: "New enrollment" }).click();
+  await page.getByRole("button", { name: "Add service" }).first().click();
+  await page.getByRole("button", { name: "Private node" }).click();
   const agentForm = page.locator('form[data-action="create-agent"]');
   await expectCount(agentForm.getByLabel("Agent default host"), 0);
   await expectCount(agentForm.getByLabel("Agent default SSH port"), 0);
-  await agentForm.getByLabel("Agent service alias").fill("ui-agent");
-  await agentForm.getByRole("button", { name: "Create enrollment" }).click();
+  await agentForm.getByLabel("Service alias").fill("ui-agent");
+  await agentForm.getByRole("button", { name: "Create install token" }).click();
   await expectText(page, "systemctl");
   await page.evaluate(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });

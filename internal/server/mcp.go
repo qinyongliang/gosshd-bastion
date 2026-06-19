@@ -162,6 +162,7 @@ func (a *App) newMCPServer() *mcp.Server {
 				AuthType:        in.AuthType,
 				EncryptedSecret: []byte(in.Secret),
 				AgentID:         in.AgentID,
+				ProxyTargetID:   in.ProxyTargetID,
 				Tags:            in.Tags,
 				CreatedBy:       in.UserID,
 			})
@@ -415,6 +416,7 @@ type mcpTargetCreateInput struct {
 	AuthType       string   `json:"auth_type"`
 	Secret         string   `json:"secret,omitempty"`
 	AgentID        string   `json:"agent_id,omitempty"`
+	ProxyTargetID  string   `json:"proxy_target_id,omitempty"`
 	Tags           []string `json:"tags,omitempty"`
 }
 

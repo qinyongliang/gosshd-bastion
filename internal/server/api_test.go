@@ -504,6 +504,25 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if target.Target.ID == "" || target.Target.Alias != "test2" || target.Target.Name != "Test service" || len(target.Target.Tags) != 2 {
 		t.Fatalf("target response mismatch: %+v", target)
 	}
+	var proxied apiTargetResponse
+	postJSON(t, client, srv.URL+"/api/targets", map[string]any{
+		"owner_type":       "organization",
+		"owner_id":         org.Organization.ID,
+		"name":             "Private subnet service",
+		"alias":            "private-subnet",
+		"target_type":      "direct",
+		"host":             "10.0.0.8",
+		"port":             22,
+		"remote_username":  "root",
+		"auth_type":        "password",
+		"secret":           "secret",
+		"proxy_target_id":  target.Target.ID,
+		"tags":             []string{"private"},
+		"unexpected_field": "ignored",
+	}, http.StatusCreated, &proxied)
+	if proxied.Target.ProxyTargetID != target.Target.ID {
+		t.Fatalf("proxied target response mismatch: %+v", proxied)
+	}
 	var filtered apiTargetsResponse
 	getJSON(t, client, srv.URL+"/api/targets?owner_type=organization&owner_id="+org.Organization.ID+"&tags=%E6%B5%8B%E8%AF%95%E7%8E%AF%E5%A2%83", http.StatusOK, &filtered)
 	if len(filtered.Targets) != 1 || filtered.Targets[0].ID != target.Target.ID {

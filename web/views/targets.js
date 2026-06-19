@@ -1,7 +1,8 @@
 import { allTargetTags, filteredTargets, state } from "../state.js";
 import { emptyState, escapeHTML, icon, raw } from "../components/html.js";
-import { cloudTable, detailList, drawer, modal, resourceHeader, resourceToolbar, rowButton, sectionBlock, selectionSummary, stepper } from "../components/management.js";
+import { cloudTable, detailList, drawer, modal, resourceHeader, resourceToolbar, rowButton, sectionBlock, selectionSummary, stepper, tabs } from "../components/management.js";
 import { optionText, t } from "../i18n.js";
+import { enrollmentDrawer } from "./agents.js";
 
 export function renderTargets() {
   const tags = allTargetTags();
@@ -32,6 +33,7 @@ export function renderTargets() {
     }).__raw}
     ${targetTable(targets).__raw}
     ${createTargetModal().__raw || ""}
+    ${enrollmentDrawer().__raw || ""}
     ${targetDrawer().__raw || ""}
   `);
 }
@@ -59,50 +61,172 @@ function targetTable(targets) {
 }
 
 function createTargetModal() {
+  const mode = state.ui.targetCreateMode || "direct";
   return modal(state, "create-target", {
     title: t("targets.createModalTitle"),
     subtitle: t("targets.createModalSub"),
     size: "wide",
     body: `
-      ${stepper([t("targets.basicInfo"), t("targets.connection"), t("targets.authentication"), t("management.relationships")]).__raw}
-      <form data-action="create-target" data-close-overlay="modal" class="modal-form">
-        <div class="form-section">
-          <h3>${escapeHTML(t("targets.basicInfo"))}</h3>
-          <div class="form-grid">
-            <label class="field"><span>${escapeHTML(t("targets.serviceName"))}</span><input name="name" autocomplete="off" placeholder="${escapeHTML(t("targets.serviceNamePlaceholder"))}" required /></label>
-            <label class="field"><span>${escapeHTML(t("targets.alias"))}</span><input name="alias" autocomplete="off" placeholder="${escapeHTML(t("targets.aliasPlaceholder"))}" required /></label>
-            <label class="field"><span>${escapeHTML(t("targets.type"))}</span><select name="target_type"><option value="direct">${escapeHTML(t("targetTypes.direct"))}</option><option value="agent">${escapeHTML(t("targetTypes.agent"))}</option></select></label>
-          </div>
-        </div>
-        <div class="form-section">
-          <h3>${escapeHTML(t("targets.connection"))}</h3>
-          <div class="form-grid">
-            <label class="field"><span>${escapeHTML(t("targets.host"))}</span><input name="host" autocomplete="off" placeholder="${escapeHTML(t("targets.hostPlaceholder"))}" required /></label>
-            <label class="field"><span>${escapeHTML(t("targets.port"))}</span><input name="port" type="number" value="22" required /></label>
-            <label class="field"><span>${escapeHTML(t("targets.remoteUsername"))}</span><input name="remote_username" autocomplete="off" placeholder="${escapeHTML(t("targets.remoteUsernamePlaceholder"))}" required /></label>
-          </div>
-        </div>
-        <div class="form-section">
-          <h3>${escapeHTML(t("targets.authentication"))}</h3>
-          <div class="form-grid">
-            <label class="field"><span>${escapeHTML(t("targets.authType"))}</span><select name="auth_type"><option value="password">${escapeHTML(t("authTypes.password"))}</option><option value="private_key">${escapeHTML(t("authTypes.private_key"))}</option></select></label>
-            <label class="field span-two"><span>${escapeHTML(t("targets.secret"))}</span><input name="secret" autocomplete="off" placeholder="${escapeHTML(t("targets.secretPlaceholder"))}" /></label>
-          </div>
-        </div>
-        <div class="form-section">
-          <h3>${escapeHTML(t("management.relationships"))}</h3>
-          <div class="form-grid">
-            <label class="field span-two"><span>${escapeHTML(t("targets.tags"))}</span><input name="tags" autocomplete="off" placeholder="${escapeHTML(t("targets.tagsPlaceholder"))}" /></label>
-            <label class="field"><span>${escapeHTML(t("targets.agentID"))}</span><input name="agent_id" autocomplete="off" placeholder="${escapeHTML(t("targets.agentIDPlaceholder"))}" /></label>
-          </div>
-        </div>
-        <footer class="modal-actions">
-          <button type="button" data-click="close-overlays">${escapeHTML(t("common.cancel"))}</button>
-          <button type="submit" class="primary">${icon("server").__raw}${escapeHTML(t("targets.add"))}</button>
-        </footer>
-      </form>
+      ${tabs([
+        { label: t("targets.tabServer"), action: "set-target-create-mode", value: "direct", active: mode === "direct" },
+        { label: t("targets.tabPrivate"), action: "set-target-create-mode", value: "private", active: mode === "private" },
+      ]).__raw}
+      ${mode === "private" ? privateNodeForm() : sshServerWizard()}
     `,
   });
+}
+
+function sshServerWizard() {
+  const step = Math.max(0, Math.min(Number(state.ui.targetCreateStep || 0), 3));
+  const draft = targetDraft();
+  const visibleFields = [
+    ["name", "alias", "tags"],
+    ["host", "port", "remote_username"],
+    ["auth_type", "secret", "proxy_target_id"],
+    [],
+  ][step];
+  return `
+    ${stepper([t("targets.stepIdentity"), t("targets.stepEndpoint"), t("targets.stepSecurity"), t("targets.stepReview")], step).__raw}
+    <form data-action="create-target" data-close-overlay="modal" class="modal-form target-wizard">
+      ${hiddenDraftInputs(draft, visibleFields)}
+      ${step === 0 ? identityStep(draft) : ""}
+      ${step === 1 ? endpointStep(draft) : ""}
+      ${step === 2 ? securityStep(draft) : ""}
+      ${step === 3 ? reviewStep(draft) : ""}
+      <footer class="modal-actions">
+        <button type="button" data-click="close-overlays">${escapeHTML(t("common.cancel"))}</button>
+        ${step > 0 ? `<button type="button" data-click="target-create-step" data-step="${step - 1}">${escapeHTML(t("targets.back"))}</button>` : ""}
+        ${step < 3 ? `<button type="button" class="primary" data-click="target-create-step" data-step="${step + 1}">${escapeHTML(t("targets.next"))}</button>` : `<button type="submit" class="primary">${icon("server").__raw}${escapeHTML(t("targets.add"))}</button>`}
+      </footer>
+    </form>
+  `;
+}
+
+function privateNodeForm() {
+  return `
+    <form data-action="create-agent" class="modal-form private-node-form">
+      <section class="wizard-card">
+        <h3>${escapeHTML(t("targets.privateTitle"))}</h3>
+        <p>${escapeHTML(t("targets.privateSub"))}</p>
+        <div class="form-grid single">
+          <label class="field"><span>${escapeHTML(t("targets.privateAlias"))}</span><input name="label" autocomplete="off" placeholder="${escapeHTML(t("targets.aliasPlaceholder"))}" required /></label>
+        </div>
+        <div class="guide-grid private-node-guide">
+          <span><b>Linux</b>${escapeHTML(t("agents.linuxService"))}</span>
+          <span><b>Windows</b>${escapeHTML(t("agents.windowsService"))}</span>
+        </div>
+      </section>
+      <footer class="modal-actions">
+        <button type="button" data-click="close-overlays">${escapeHTML(t("common.cancel"))}</button>
+        <button type="submit" class="primary">${icon("spark").__raw}${escapeHTML(t("targets.createPrivate"))}</button>
+      </footer>
+    </form>
+  `;
+}
+
+function identityStep(draft) {
+  return `
+    <section class="wizard-card">
+      <h3>${escapeHTML(t("targets.stepIdentity"))}</h3>
+      <p>${escapeHTML(t("targets.stepIdentitySub"))}</p>
+      <div class="form-grid">
+        <label class="field"><span>${escapeHTML(t("targets.serviceName"))}</span><input name="name" value="${escapeHTML(draft.name)}" autocomplete="off" placeholder="${escapeHTML(t("targets.serviceNamePlaceholder"))}" required /></label>
+        <label class="field"><span>${escapeHTML(t("targets.alias"))}</span><input name="alias" value="${escapeHTML(draft.alias)}" autocomplete="off" placeholder="${escapeHTML(t("targets.aliasPlaceholder"))}" required /></label>
+        <label class="field span-two"><span>${escapeHTML(t("targets.tags"))}</span><input name="tags" value="${escapeHTML(draft.tags)}" autocomplete="off" placeholder="${escapeHTML(t("targets.tagsPlaceholder"))}" /></label>
+      </div>
+    </section>
+  `;
+}
+
+function endpointStep(draft) {
+  return `
+    <section class="wizard-card">
+      <h3>${escapeHTML(t("targets.stepEndpoint"))}</h3>
+      <p>${escapeHTML(t("targets.stepEndpointSub"))}</p>
+      <div class="form-grid">
+        <label class="field span-two"><span>${escapeHTML(t("targets.host"))}</span><input name="host" value="${escapeHTML(draft.host)}" autocomplete="off" placeholder="${escapeHTML(t("targets.hostPlaceholder"))}" required /></label>
+        <label class="field"><span>${escapeHTML(t("targets.port"))}</span><input name="port" type="number" value="${escapeHTML(draft.port)}" required /></label>
+        <label class="field"><span>${escapeHTML(t("targets.remoteUsername"))}</span><input name="remote_username" value="${escapeHTML(draft.remote_username)}" autocomplete="off" placeholder="${escapeHTML(t("targets.remoteUsernamePlaceholder"))}" required /></label>
+      </div>
+    </section>
+  `;
+}
+
+function securityStep(draft) {
+  return `
+    <section class="wizard-card">
+      <h3>${escapeHTML(t("targets.stepSecurity"))}</h3>
+      <p>${escapeHTML(t("targets.stepSecuritySub"))}</p>
+      <div class="form-grid">
+        <label class="field"><span>${escapeHTML(t("targets.authType"))}</span><select name="auth_type">${authOptions(draft.auth_type)}</select></label>
+        <label class="field span-two"><span>${escapeHTML(t("targets.secret"))}</span><input name="secret" value="${escapeHTML(draft.secret)}" autocomplete="off" placeholder="${escapeHTML(t("targets.secretPlaceholder"))}" /></label>
+      </div>
+      <details class="advanced-panel">
+        <summary>${escapeHTML(t("targets.advancedProxy"))}</summary>
+        <p>${escapeHTML(t("targets.advancedProxySub"))}</p>
+        <label class="field"><span>${escapeHTML(t("targets.proxyTarget"))}</span><select name="proxy_target_id">${proxyOptions(draft.proxy_target_id)}</select></label>
+      </details>
+    </section>
+  `;
+}
+
+function reviewStep(draft) {
+  return `
+    <section class="wizard-card">
+      <h3>${escapeHTML(t("targets.stepReview"))}</h3>
+      <p>${escapeHTML(t("targets.stepReviewSub"))}</p>
+      <div class="review-grid">
+        <span><b>${escapeHTML(t("targets.serviceName"))}</b>${escapeHTML(draft.name || "-")}</span>
+        <span><b>${escapeHTML(t("targets.alias"))}</b>${escapeHTML(draft.alias || "-")}</span>
+        <span><b>${escapeHTML(t("targets.tableEndpoint"))}</b>${escapeHTML(`${draft.remote_username || "-"}@${draft.host || "-"}:${draft.port || "22"}`)}</span>
+        <span><b>${escapeHTML(t("targets.proxyTarget"))}</b>${escapeHTML(proxyLabel(draft.proxy_target_id))}</span>
+      </div>
+    </section>
+  `;
+}
+
+function targetDraft() {
+  return {
+    target_type: "direct",
+    agent_id: "",
+    name: "",
+    alias: "",
+    tags: "",
+    host: "",
+    port: "22",
+    remote_username: "",
+    auth_type: "password",
+    secret: "",
+    proxy_target_id: "",
+    ...(state.ui.targetCreateDraft || {}),
+  };
+}
+
+function hiddenDraftInputs(draft, visibleFields) {
+  const visible = new Set(visibleFields);
+  const fields = ["target_type", "agent_id", "name", "alias", "tags", "host", "port", "remote_username", "auth_type", "secret", "proxy_target_id"];
+  return fields
+    .filter((name) => !visible.has(name))
+    .map((name) => `<input type="hidden" name="${escapeHTML(name)}" value="${escapeHTML(draft[name] || "")}" />`)
+    .join("");
+}
+
+function authOptions(selected) {
+  return ["password", "private_key"].map((value) => `<option value="${escapeHTML(value)}" ${selected === value ? "selected" : ""}>${escapeHTML(optionText("authTypes", value))}</option>`).join("");
+}
+
+function proxyOptions(selected) {
+  const options = [`<option value="">${escapeHTML(t("targets.noProxy"))}</option>`];
+  for (const target of state.targets) {
+    options.push(`<option value="${escapeHTML(target.id)}" ${selected === target.id ? "selected" : ""}>${escapeHTML(target.name || target.alias)} (${escapeHTML(target.alias)})</option>`);
+  }
+  return options.join("");
+}
+
+function proxyLabel(id) {
+  if (!id) return t("targets.noProxy");
+  const target = state.targets.find((item) => item.id === id);
+  return target ? `${target.name || target.alias} (${target.alias})` : id;
 }
 
 function targetDrawer() {

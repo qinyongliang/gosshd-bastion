@@ -21,6 +21,7 @@ type apiTarget struct {
 	RemoteUsername string   `json:"remote_username"`
 	AuthType       string   `json:"auth_type"`
 	AgentID        string   `json:"agent_id,omitempty"`
+	ProxyTargetID  string   `json:"proxy_target_id,omitempty"`
 	Tags           []string `json:"tags"`
 }
 
@@ -62,6 +63,7 @@ func (a *App) handleCreateTarget(w http.ResponseWriter, r *http.Request, user st
 		AuthType       string   `json:"auth_type"`
 		Secret         string   `json:"secret"`
 		AgentID        string   `json:"agent_id"`
+		ProxyTargetID  string   `json:"proxy_target_id"`
 		Tags           []string `json:"tags"`
 	}
 	if err := readJSON(r, &req); err != nil {
@@ -70,6 +72,10 @@ func (a *App) handleCreateTarget(w http.ResponseWriter, r *http.Request, user st
 	}
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
 	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.validateProxyTarget(r.Context(), ownerType, ownerID, req.ProxyTargetID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -85,6 +91,7 @@ func (a *App) handleCreateTarget(w http.ResponseWriter, r *http.Request, user st
 		AuthType:        req.AuthType,
 		EncryptedSecret: []byte(req.Secret),
 		AgentID:         req.AgentID,
+		ProxyTargetID:   req.ProxyTargetID,
 		Tags:            req.Tags,
 		CreatedBy:       user.ID,
 	})
@@ -105,10 +112,20 @@ func (a *App) handleUpdateTarget(w http.ResponseWriter, r *http.Request, user st
 		AuthType       string   `json:"auth_type"`
 		Secret         string   `json:"secret"`
 		AgentID        string   `json:"agent_id"`
+		ProxyTargetID  string   `json:"proxy_target_id"`
 		Tags           []string `json:"tags"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	current, err := a.store.Repository().GetSSHTarget(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err := a.validateProxyTarget(r.Context(), current.OwnerType, current.OwnerID, req.ProxyTargetID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	var secret []byte
@@ -124,6 +141,7 @@ func (a *App) handleUpdateTarget(w http.ResponseWriter, r *http.Request, user st
 		AuthType:        req.AuthType,
 		EncryptedSecret: secret,
 		AgentID:         req.AgentID,
+		ProxyTargetID:   req.ProxyTargetID,
 		Tags:            req.Tags,
 		ReplaceTags:     req.Tags != nil,
 	})
@@ -132,6 +150,21 @@ func (a *App) handleUpdateTarget(w http.ResponseWriter, r *http.Request, user st
 		return
 	}
 	writeJSON(w, http.StatusOK, apiTargetResponse{Target: apiTargetFromStore(target)})
+}
+
+func (a *App) validateProxyTarget(ctx context.Context, ownerType, ownerID, proxyTargetID string) error {
+	proxyTargetID = strings.TrimSpace(proxyTargetID)
+	if proxyTargetID == "" {
+		return nil
+	}
+	proxy, err := a.store.Repository().GetSSHTarget(ctx, proxyTargetID)
+	if err != nil {
+		return err
+	}
+	if proxy.OwnerType != ownerType || proxy.OwnerID != ownerID {
+		return errors.New("proxy target must belong to the same owner")
+	}
+	return nil
 }
 
 func apiTargetFromStore(target store.SSHTarget) apiTarget {
@@ -147,6 +180,7 @@ func apiTargetFromStore(target store.SSHTarget) apiTarget {
 		RemoteUsername: target.RemoteUsername,
 		AuthType:       target.AuthType,
 		AgentID:        target.AgentID,
+		ProxyTargetID:  target.ProxyTargetID,
 		Tags:           append([]string(nil), target.Tags...),
 	}
 }

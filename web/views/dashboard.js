@@ -27,7 +27,7 @@ export function renderDashboard() {
       ${panel(t("dashboard.fastTitle"), t("dashboard.fastSub"), `
         <div class="action-grid">
           <button data-click="navigate" data-route="targets">${escapeHTML(t("dashboard.manageTargets"))}</button>
-          <button data-click="navigate" data-route="agents">${escapeHTML(t("dashboard.createAgent"))}</button>
+          <button data-click="open-private-node-create">${escapeHTML(t("dashboard.createAgent"))}</button>
           <button data-click="navigate" data-route="policies">${escapeHTML(t("dashboard.bindPolicies"))}</button>
           <button data-click="navigate" data-route="audit">${escapeHTML(t("dashboard.reviewAudit"))}</button>
         </div>

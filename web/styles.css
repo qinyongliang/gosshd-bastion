@@ -728,6 +728,84 @@ html[data-theme="dark"] .theme-switch {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.target-wizard,
+.private-node-form {
+  display: grid;
+  gap: 14px;
+}
+
+.wizard-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(225, 247, 250, 0.62));
+}
+
+html[data-theme="dark"] .wizard-card {
+  background: linear-gradient(135deg, rgba(8, 17, 30, 0.76), rgba(10, 47, 59, 0.44));
+}
+
+.wizard-card h3,
+.wizard-card p {
+  margin: 0;
+}
+
+.wizard-card p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.advanced-panel {
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+html[data-theme="dark"] .advanced-panel {
+  background: rgba(2, 6, 12, 0.34);
+}
+
+.advanced-panel summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.advanced-panel p {
+  margin: 8px 0 12px;
+}
+
+.review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.review-grid span {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .review-grid span {
+  background: rgba(2, 6, 12, 0.42);
+}
+
+.review-grid b {
+  color: var(--ink);
+}
+
+.private-node-guide {
+  margin-top: 2px;
+}
+
 .mini {
   padding: 12px;
   border: 1px solid var(--line);

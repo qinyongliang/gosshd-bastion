@@ -90,6 +90,7 @@ var migrations = []string{
 	)`,
 	`ALTER TABLE ssh_targets ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
 	`UPDATE ssh_targets SET name = alias WHERE name = ''`,
+	`ALTER TABLE ssh_targets ADD COLUMN proxy_target_id TEXT`,
 	`CREATE TABLE IF NOT EXISTS target_tags (
 		id TEXT PRIMARY KEY,
 		owner_type TEXT NOT NULL,
