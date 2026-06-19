@@ -64,14 +64,15 @@
             <li>使用 HTTP、SSH、数据库和 host key 路径启动服务。</li>
             <li>打开控制台，注册用户，并添加自己的 SSH 公钥。</li>
             <li>添加直连目标，或注册 Agent 目标。</li>
-            <li>把目标别名作为 SSH 用户名进行连接。</li>
+            <li>把目标别名作为 SSH 用户名执行 SSH 命令。</li>
           </ol>
           <pre><code>gosshd-server \
-  --http-listen :80 \
-  --ssh-listen :22 \
-  --database-path gosshd.db \
-  --host-key-path gosshd_host_key</code></pre>
-          <pre><code>ssh test2@public-host</code></pre>
+  --http-listen :18080 \
+  --ssh-listen :22022 \
+  --database-path ./data/gosshd.db \
+  --host-key-path ./data/gosshd_host_key \
+  --public-host bastion.example.com:18080</code></pre>
+          <pre><code>ssh -p 22022 test2@bastion.example.com hostname</code></pre>
         </section>
 
         <section class="doc-section" id="identity">
@@ -105,11 +106,11 @@
         <section class="doc-section" id="agents">
           <h2>Agent 安装</h2>
           <p>在控制台的新建 SSH 目标页面进入 SSH Agent 标签页，创建注册令牌并复制引导命令。默认命令会在当前 shell 中运行 Agent。</p>
-          <pre><code>curl -fsSL http://public-host/install/&lt;token&gt;.sh | sh</code></pre>
-          <pre><code>irm http://public-host/install/&lt;token&gt;.ps1 | iex</code></pre>
+          <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sh</code></pre>
+          <pre><code>irm http://bastion.example.com:18080/install/&lt;token&gt;.ps1 | iex</code></pre>
           <p>需要开机启动时使用 install 模式。</p>
-          <pre><code>curl -fsSL http://public-host/install/&lt;token&gt;.sh | sudo sh -s -- install</code></pre>
-          <pre><code>$s='http://public-host/install/&lt;token&gt;.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install</code></pre>
+          <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sudo sh -s -- install</code></pre>
+          <pre><code>$s='http://bastion.example.com:18080/install/&lt;token&gt;.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install</code></pre>
           <p>Linux 安装脚本通过 systemd 和 <code>systemctl</code> 配置服务。Windows 安装脚本通过 <code>sc.exe</code> 配置服务。</p>
         </section>
 
@@ -147,7 +148,7 @@
           <p>
             当前版本发布跨平台 server 压缩包和独立 agent 二进制。本版本暂不发布 full 包。
           </p>
-          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.0-bastion">打开 v0.1.0-bastion</a>
+          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.8-bastion">打开 v0.1.8-bastion</a>
         </section>
       </article>
     </main>

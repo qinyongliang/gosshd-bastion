@@ -65,14 +65,15 @@
             <li>Start the server with HTTP, SSH, database, and host-key paths.</li>
             <li>Open the console, register a user, and add your SSH public key.</li>
             <li>Add a direct target or enroll an agent target.</li>
-            <li>Connect with the target alias as the SSH username.</li>
+            <li>Run SSH commands with the target alias as the SSH username.</li>
           </ol>
           <pre><code>gosshd-server \
-  --http-listen :80 \
-  --ssh-listen :22 \
-  --database-path gosshd.db \
-  --host-key-path gosshd_host_key</code></pre>
-          <pre><code>ssh test2@public-host</code></pre>
+  --http-listen :18080 \
+  --ssh-listen :22022 \
+  --database-path ./data/gosshd.db \
+  --host-key-path ./data/gosshd_host_key \
+  --public-host bastion.example.com:18080</code></pre>
+          <pre><code>ssh -p 22022 test2@bastion.example.com hostname</code></pre>
         </section>
 
         <section class="doc-section" id="identity">
@@ -109,11 +110,11 @@
         <section class="doc-section" id="agents">
           <h2>Agent install</h2>
           <p>Create an enrollment in the console. The default command runs the agent in the current shell.</p>
-          <pre><code>curl -fsSL http://public-host/install/&lt;token&gt;.sh | sh</code></pre>
-          <pre><code>irm http://public-host/install/&lt;token&gt;.ps1 | iex</code></pre>
+          <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sh</code></pre>
+          <pre><code>irm http://bastion.example.com:18080/install/&lt;token&gt;.ps1 | iex</code></pre>
           <p>Use install mode when the agent should survive restarts.</p>
-          <pre><code>curl -fsSL http://public-host/install/&lt;token&gt;.sh | sudo sh -s -- install</code></pre>
-          <pre><code>$s='http://public-host/install/&lt;token&gt;.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install</code></pre>
+          <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sudo sh -s -- install</code></pre>
+          <pre><code>$s='http://bastion.example.com:18080/install/&lt;token&gt;.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install</code></pre>
           <p>Linux uses systemd through <code>systemctl</code>. Windows uses <code>sc.exe</code>.</p>
         </section>
 
@@ -155,7 +156,7 @@
             The current release publishes cross-platform server archives and standalone agent binaries. This version
             intentionally does not publish full packages.
           </p>
-          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.0-bastion">Open v0.1.0-bastion</a>
+          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.8-bastion">Open v0.1.8-bastion</a>
         </section>
       </article>
     </main>

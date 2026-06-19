@@ -2,107 +2,182 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`gosshd` is now a SQLite-backed SSH bastion. Users sign in to the web console, manage organizations, add SSH public keys, register direct or agent-backed SSH services, and connect with standard SSH aliases:
+`gosshd-bastion` is an SSH bastion built for AI services, automation agents, and operators that need audited access to private machines. It runs as a single Go server with an embedded web console, SQLite storage, an SSH gateway, agent enrollment, command safety policies, LLM review hooks, and an MCP control plane.
 
-```sh
-ssh test2@public-host
-```
+The current public release is [`v0.1.8-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.8-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
 
-The server authenticates the SSH public key, resolves `test2` inside the user's personal organization first, then shared organizations, evaluates command policies, and writes audit logs.
+## What Works Now
 
-## Features
-
-- SQLite persistence for users, sessions, organizations, groups, targets, agents, policies, LLM configs, prompt resources, and audit logs.
-- A default system administrator account is bootstrapped on first run. Admins keep normal user menus and also get global settings, account management, and organization management.
-- Every registered user gets a personal organization. The UI selects an active organization, and API/MCP writes require explicit owner scope.
-- Users can create shared organizations, invite others with codes, join multiple organizations, and leave shared organizations. Personal organizations cannot invite other users.
-- Shared organizations have `owner`, `admin`, and `member` roles. Owners can transfer ownership; admins can manage members, user groups, targets, and policies.
-- Users can add SSH public keys and connect to target aliases with normal SSH clients.
-- Targets can be direct SSH services or enrolled agents installed with `curl`/PowerShell commands. Agent targets are normal renameable SSH services.
-- Command policies support blacklist rules, whitelist rules, user-group bindings, target bindings, default allow/deny, and optional LLM review.
-- LLM provider configs are owner-level resources. Prompt resources are owner-level resources; a readonly default prompt is created for each personal/shared organization.
-- DingTalk OAuth login can be enabled from the system admin console. New DingTalk users are created automatically and can be assigned to a default organization and role.
-- LDAP connection settings can be stored from the system admin console; LDAP login itself is reserved for a later slice.
+- SQLite-backed users, sessions, organizations, organization members, user groups, SSH public keys, SSH services, target tags, agent enrollments, command policies, LLM configs, prompt resources, and audit logs.
+- A first-run `admin` account. System admins keep normal user menus and also get system settings, account management, and organization repair tools.
+- Personal and shared organizations. Every user gets a personal organization. Shared organizations support `owner`, `admin`, and `member` roles.
+- Organization user groups. Every organization has a default all-members group, and command policies can bind to one or more user groups.
+- SSH public-key login to the bastion. The SSH username is the target alias, for example `test2`.
+- SSH services with a display name, alias, host, port, remote username, auth type, and multiple tags. Tags are stored as first-class records and can be used for filtering and policy binding.
+- Direct SSH services using password or private-key authentication.
+- Agent-backed SSH services. Agent enrollment returns tokenized Linux/macOS and Windows commands, including startup-service install commands. Once an agent registers, it becomes a normal SSH service and can be renamed, retagged, filtered, and bound to policies.
+- Command safety groups with whitelist and blacklist rules, exact/prefix/contains matching, target binding, target-tag binding, user-group binding, default allow/deny, and optional LLM review when no rule matches.
+- Command audit logs for SSH `exec` requests, including command, target, policy decision, reason, and exit code.
+- DingTalk OAuth login. New DingTalk users can be auto-created and placed into a default organization and role.
+- LDAP settings in the admin console. LDAP login is not active in this release.
+- Embedded web UI with Simplified Chinese as the default locale, English switching, persisted language preference, white default theme, dark theme switching, resource tables, tag filters, modals, and detail drawers.
 - `/mcp` exposes the control plane through the official Model Context Protocol Go SDK.
-- The management console is embedded into the server binary.
 
-## Run
+## Current Boundaries
+
+- The SSH gateway currently supports command execution requests such as `ssh test2@bastion.example.com hostname`. Interactive shell and SFTP are not exposed in this slice.
+- Target passwords/private keys and LLM API keys are stored in the SQLite database as provided by the API in this release. Restrict database access and use host/disk protection until credential encryption is completed.
+- GitHub Pages source lives under `site/` and the workflow is present, but Pages publishing depends on the repository/account Pages availability.
+- This release publishes cross-platform server packages and standalone agent binaries. It does not publish a `full` package.
+
+## Release Assets
+
+Each release publishes:
+
+- `gosshd-<version>-linux-amd64.tar.gz`, `gosshd-<version>-darwin-arm64.tar.gz`, and other server packages.
+- `gosshd-<version>-windows-amd64.zip` and other Windows server packages.
+- `gosshd-agent-<version>-<goos>-<goarch>` standalone agent binaries.
+- `checksums.txt`.
+
+Example Linux install from GitHub Releases:
 
 ```sh
-gosshd-server \
-  --http-listen :80 \
-  --ssh-listen :22 \
-  --database-path gosshd.db \
-  --host-key-path gosshd_host_key \
+version=v0.1.8-bastion
+platform=linux-amd64
+
+curl -fL -o "gosshd-${version}-${platform}.tar.gz" \
+  "https://github.com/qinyongliang/gosshd-bastion/releases/download/${version}/gosshd-${version}-${platform}.tar.gz"
+
+tar -xzf "gosshd-${version}-${platform}.tar.gz"
+cd "gosshd-${platform}"
+mkdir -p data agent-cache
+
+./gosshd-server \
+  --http-listen :18080 \
+  --ssh-listen :22022 \
+  --database-path ./data/gosshd.db \
+  --host-key-path ./data/gosshd_host_key \
+  --agent-cache-path ./agent-cache \
+  --public-host bastion.example.com:18080 \
   --bootstrap-admin-password 'change-me'
 ```
 
-Open `http://public-host/`, sign in as `admin`, add your SSH public key, then add a target with alias `test2`.
+Open `http://bastion.example.com:18080/` and sign in as:
+
+```text
+email: admin
+password: change-me
+```
 
 The bootstrap admin password is resolved in this order:
 
 1. `--bootstrap-admin-password`
 2. `GOSSHD_BOOTSTRAP_ADMIN_PASSWORD`
-3. A generated password printed once in the server log when the account is first created
+3. a random password printed once in the server log when the first admin account is created
+
+## First Use
+
+1. Sign in as `admin`.
+2. Add your SSH public key under **Public keys**.
+3. Create or select an organization.
+4. Add an SSH service with a display name, alias such as `test2`, authentication method, and tags such as `test-env`.
+5. Run a command through the bastion:
+
+```sh
+ssh -p 22022 test2@bastion.example.com hostname
+```
+
+The bastion authenticates your public key, resolves alias `test2` first in your personal organization and then in shared organizations. If a shared alias appears in more than one organization, the request is rejected as ambiguous.
+
+## Agent Enrollment
+
+Create an agent enrollment in the **Agent SSH** page. The response contains the tokenized commands for the selected owner scope.
+
+Linux/macOS run once:
+
+```sh
+curl -fsSL http://bastion.example.com:18080/install/<token>.sh | sh
+```
+
+Linux startup service with `systemctl`:
+
+```sh
+curl -fsSL http://bastion.example.com:18080/install/<token>.sh | sudo sh -s -- install
+```
+
+Windows run once:
+
+```powershell
+irm http://bastion.example.com:18080/install/<token>.ps1 | iex
+```
+
+Windows startup service with `sc.exe`:
+
+```powershell
+$s='http://bastion.example.com:18080/install/<token>.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install
+```
+
+The server serves agent binaries from local `--agent-path` when present, otherwise it downloads the matching release asset into `--agent-cache-path` and serves it to the private host.
+
+## Command Policies
+
+Command safety groups are evaluated per target:
+
+- Policies can bind directly to SSH services.
+- Policies can bind to target tags, so editing a service's tags immediately changes which tag-bound policies apply.
+- Policies can bind to organization user groups. If no user group is bound, the policy applies to all users who can reach the target.
+- Blacklist rules deny immediately.
+- Whitelist rules allow matching commands.
+- If no rule matches and an LLM config is attached, the command is sent to the configured model with the selected prompt. The model must return JSON: `{"allow": true|false, "reason": "short reason"}`.
+- If no rule and no LLM applies, the policy's default action is used.
 
 ## System Administration
 
-System admins can open the system administration view to manage:
+System admins can manage:
 
-- DingTalk settings: enabled flag, client id/secret, auth/token/userinfo URLs, redirect URL, default organization, and default role.
-- LDAP settings: enabled flag, server URL, bind DN/password, base DN, user filter, email attribute, and name attribute. These settings are stored for configuration, but LDAP login is not active in this version.
+- DingTalk login settings: enabled flag, client id/secret, auth/token/userinfo URLs, redirect URL, default organization, and default role.
+- LDAP connection settings: server URL, bind DN/password, base DN, user filter, email attribute, and display-name attribute. LDAP login is reserved for a later release.
 - Accounts: promote or demote system administrators.
-- Organizations: list organizations, inspect members, update roles, and transfer ownership for repair.
+- Organizations: inspect members, update roles, and transfer ownership for repair.
 
 Organization owners can transfer ownership to an existing member. The previous owner becomes `admin`. Personal organization ownership cannot be transferred.
-
-For an agent-backed target, create an agent enrollment in the console and run the generated command on the private host:
-
-```sh
-curl -fsSL http://public-host/install/<token>.sh | sh
-```
-
-Windows:
-
-```powershell
-irm http://public-host/install/<token>.ps1 | iex
-```
-
-To install the agent as a startup service, use install mode. Linux registers `gosshd-agent` with `systemctl`:
-
-```sh
-curl -fsSL http://public-host/install/<token>.sh | sudo sh -s -- install
-```
-
-Windows registers `gosshd-agent` with `sc.exe`:
-
-```powershell
-$s='http://public-host/install/<token>.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install
-```
 
 ## MCP
 
 The MCP endpoint is:
 
 ```text
-http://public-host/mcp
+http://bastion.example.com:18080/mcp
 ```
 
-It exposes tools for registration, organization management, public keys, targets, agent enrollments, LLM configs, prompt resources, command policies, policy bindings, and audit logs.
+It exposes tools for registration, organizations, public keys, targets, target tags, agent enrollments, LLM configs, prompt resources, command policies, policy bindings, and audit logs.
 
-## Verify
+## Development
+
+Normal Go checks:
+
+```sh
+go test ./...
+go build ./cmd/gosshd-server ./cmd/gosshd-agent
+```
+
+Browser E2E on Windows PowerShell:
 
 ```powershell
 $env:GOPROXY='https://goproxy.cn,direct'
-go test ./...
-go test ./internal/server -run TestBastionE2E -v
-go test ./internal/server -run TestDingTalkAdminOrganizationE2E -v
+$env:GOSSHD_UI_E2E_NODE='C:\path\to\node.exe'
+$env:GOSSHD_UI_E2E_PLAYWRIGHT='C:\path\to\playwright'
+$env:GOSSHD_UI_E2E_BROWSER='C:\path\to\chrome.exe'
+go test ./internal/server -run TestUIE2EWithBrowser -v
+```
+
+Browser E2E on Linux/macOS:
+
+```sh
 GOSSHD_UI_E2E_NODE=/path/to/node \
 GOSSHD_UI_E2E_PLAYWRIGHT=/absolute/path/to/playwright \
 GOSSHD_UI_E2E_BROWSER=/absolute/path/to/chrome \
 go test ./internal/server -run TestUIE2EWithBrowser -v
-go build ./cmd/gosshd-server
-go build ./cmd/gosshd-agent
 ```
 
-`TestUIE2EWithBrowser` intentionally fails when the three browser variables are missing. It drives the real embedded UI with Playwright and a local browser; it is not skipped or replaced by static assertions.
+`TestUIE2EWithBrowser` intentionally fails when the browser variables are missing. It drives the embedded UI with Playwright and a real browser.
