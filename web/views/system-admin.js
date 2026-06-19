@@ -1,5 +1,5 @@
 import { filteredAdminUsers, state } from "../state.js";
-import { emptyState, escapeHTML, icon, raw } from "../components/html.js";
+import { emptyState, escapeHTML, raw } from "../components/html.js";
 import { selectOptions } from "../components/forms.js";
 import { cloudTable, drawer, modal, resourceHeader, resourceToolbar, rowButton, sectionBlock, selectionSummary } from "../components/management.js";
 import { optionText, t } from "../i18n.js";
@@ -12,10 +12,6 @@ export function renderSystemAdmin() {
     ${resourceHeader({
       title: t("admin.title"),
       subtitle: t("admin.globalSub"),
-      actions: `
-        <button type="button" data-click="open-modal" data-modal="admin-dingtalk">${escapeHTML(t("admin.configureDingTalk"))}</button>
-        <button type="button" class="primary" data-click="open-modal" data-modal="admin-ldap">${icon("settings").__raw}${escapeHTML(t("admin.configureLDAP"))}</button>
-      `,
       stats: [
         { label: t("admin.usersTotal"), value: state.adminUsers.length },
         { label: t("admin.adminsTotal"), value: state.adminUsers.filter((user) => user.is_system_admin).length, tone: "warning" },
