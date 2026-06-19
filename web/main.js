@@ -88,7 +88,7 @@ function bindEvents() {
       if (action === "create-target") await createTarget(data);
       if (action === "rename-target") await renameTarget(form.dataset.targetId, data);
       if (action === "create-agent") {
-        state.enrollment = await api.enrollAgent({ ...ownerPayload(data), default_port: Number(data.default_port || 22) });
+        state.enrollment = await api.enrollAgent({ ...ownerPayload(data), default_host: "127.0.0.1", default_port: 22 });
         state.ui.modal = "";
         state.ui.drawer = "agent-enrollment";
       }

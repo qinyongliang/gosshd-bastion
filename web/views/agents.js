@@ -38,10 +38,8 @@ function createAgentModal() {
     subtitle: t("agents.createModalSub"),
     body: `
       <form data-action="create-agent" class="modal-form">
-        <div class="form-grid">
+        <div class="form-grid single">
           <label class="field"><span>${escapeHTML(t("agents.alias"))}</span><input name="label" autocomplete="off" placeholder="${escapeHTML(t("agents.aliasPlaceholder"))}" required /></label>
-          <label class="field"><span>${escapeHTML(t("agents.host"))}</span><input name="default_host" autocomplete="off" value="127.0.0.1" required /></label>
-          <label class="field"><span>${escapeHTML(t("agents.port"))}</span><input name="default_port" type="number" value="22" required /></label>
         </div>
         <footer class="modal-actions">
           <button type="button" data-click="close-overlays">${escapeHTML(t("common.cancel"))}</button>

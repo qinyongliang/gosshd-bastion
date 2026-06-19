@@ -724,6 +724,10 @@ html[data-theme="dark"] .theme-switch {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.form-grid.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .mini {
   padding: 12px;
   border: 1px solid var(--line);

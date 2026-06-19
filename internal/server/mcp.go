@@ -184,13 +184,14 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err != nil {
 				return nil, apiAgentEnrollmentResponse{}, err
 			}
+			defaultHost, defaultPort := agentEnrollmentDefaults(in.DefaultHost, in.DefaultPort)
 			enrollment, err := a.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
 				OwnerType:   ownerType,
 				OwnerID:     ownerID,
 				TokenHash:   hash,
 				Label:       in.Label,
-				DefaultHost: in.DefaultHost,
-				DefaultPort: in.DefaultPort,
+				DefaultHost: defaultHost,
+				DefaultPort: defaultPort,
 				CreatedBy:   in.UserID,
 				ExpiresAt:   time.Now().UTC().Add(30 * 24 * time.Hour),
 			})
@@ -420,8 +421,8 @@ type mcpTargetCreateInput struct {
 type mcpAgentEnrollmentInput struct {
 	mcpOwnerInput
 	Label       string `json:"label"`
-	DefaultHost string `json:"default_host"`
-	DefaultPort int    `json:"default_port"`
+	DefaultHost string `json:"default_host,omitempty"`
+	DefaultPort int    `json:"default_port,omitempty"`
 }
 
 type mcpLLMConfigInput struct {
