@@ -94,7 +94,7 @@ function userTable() {
 function orgTable() {
   if (!state.adminOrgs.length) return emptyState(t("admin.noOrgLoaded"), t("admin.noOrgLoadedBody")).__raw;
   return cloudTable([t("admin.organization"), t("orgs.tableSlug"), t("management.operations")], state.adminOrgs.map((org) => [
-    `<strong>${escapeHTML(org.name)}</strong><small>${escapeHTML(org.id)}</small>`,
+    `<strong>${escapeHTML(org.name)}</strong>`,
     escapeHTML(org.slug || "-"),
     rowButton(t("admin.openOrg"), "open-admin-org", { "org-id": org.id }),
   ])).__raw;
@@ -108,15 +108,18 @@ function usersModal() {
   return modal(state, "admin-users", {
     title: t("admin.accountTitle"),
     subtitle: t("admin.accountModalSub"),
+    bodyClass: "modal-body-list",
     size: "wide",
     body: `
-      ${resourceToolbar({
-        searchAction: "set-admin-user-filter",
-        query: state.adminUserQuery,
-        searchPlaceholder: t("admin.accountSearch"),
-        actions: `<button type="button" data-click="clear-admin-user-filter">${escapeHTML(t("targets.clearFilters"))}</button>`,
-      }).__raw}
-      ${userTable()}
+      <div class="modal-list-shell">
+        ${resourceToolbar({
+          searchAction: "set-admin-user-filter",
+          query: state.adminUserQuery,
+          searchPlaceholder: t("admin.accountSearch"),
+          actions: `<button type="button" data-click="clear-admin-user-filter">${escapeHTML(t("targets.clearFilters"))}</button>`,
+        }).__raw}
+        ${userTable()}
+      </div>
     `,
   });
 }
@@ -125,8 +128,9 @@ function orgsModal() {
   return modal(state, "admin-orgs", {
     title: t("admin.orgTitle"),
     subtitle: t("admin.orgModalSub"),
+    bodyClass: "modal-body-list",
     size: "wide",
-    body: orgTable(),
+    body: `<div class="modal-list-shell single">${orgTable()}</div>`,
   });
 }
 
@@ -136,10 +140,11 @@ function resetPasswordModal() {
   return modal(state, "admin-reset-password", {
     title: t("admin.resetPasswordModalTitle"),
     subtitle: `${user.display_name || user.email} · ${user.email}`,
+    slot: "modalLayer",
     body: `
-      <form data-action="admin-reset-password" data-user-id="${escapeHTML(user.id)}" data-close-overlay="modal" class="modal-form">
+      <form data-action="admin-reset-password" data-user-id="${escapeHTML(user.id)}" data-close-overlay="modal-layer" class="modal-form">
         <label class="field"><span>${escapeHTML(t("admin.newPassword"))}</span><input name="password" type="password" autocomplete="new-password" required placeholder="${escapeHTML(t("admin.newPasswordPlaceholder"))}" /></label>
-        <footer class="modal-actions"><button type="button" data-click="close-overlays">${escapeHTML(t("common.cancel"))}</button><button type="submit" class="primary">${escapeHTML(t("admin.saveNewPassword"))}</button></footer>
+        <footer class="modal-actions"><button type="button" data-click="close-modal-layer">${escapeHTML(t("common.cancel"))}</button><button type="submit" class="primary">${escapeHTML(t("admin.saveNewPassword"))}</button></footer>
       </form>
     `,
   });
@@ -200,11 +205,42 @@ function orgDrawer() {
   return drawer(state, "admin-org", {
     title: org.name,
     subtitle: t("admin.orgDrawerTitle"),
-    body: state.adminMembers.length ? cloudTable([t("admin.tableUser"), t("admin.tableRole"), t("admin.tableSetRole"), t("admin.tableTransfer")], state.adminMembers.map((member) => [
-      `<strong>${escapeHTML(member.display_name || member.email)}</strong><small>${escapeHTML(member.email)}</small>`,
-      escapeHTML(optionText("roles", member.role)),
-      `<form data-action="admin-update-org-member" data-user-id="${escapeHTML(member.user_id)}" class="row-form"><select name="role" aria-label="${escapeHTML(t("members.role"))}"><option value="member" ${member.role === "member" ? "selected" : ""}>${escapeHTML(t("roles.member"))}</option><option value="admin" ${member.role === "admin" ? "selected" : ""}>${escapeHTML(t("roles.admin"))}</option></select><button type="submit">${escapeHTML(t("common.save"))}</button></form>`,
-      `<button data-click="admin-transfer-org-owner" data-user-id="${escapeHTML(member.user_id)}" class="danger small">${escapeHTML(t("admin.makeOwner"))}</button>`,
-    ])).__raw : emptyState(t("admin.noOrgLoaded"), t("admin.noOrgLoadedBody")).__raw,
+    body: state.adminMembers.length ? adminMemberList() : emptyState(t("admin.noOrgLoaded"), t("admin.noOrgLoadedBody")).__raw,
   });
+}
+
+function adminMemberList() {
+  return `
+    <div class="admin-member-list">
+      ${state.adminMembers.map((member) => adminMemberCard(member)).join("")}
+    </div>
+  `;
+}
+
+function adminMemberCard(member) {
+  const isOwner = member.role === "owner";
+  const displayName = member.display_name || member.email;
+  const roleLabel = optionText("roles", member.role);
+  const roleControl = isOwner
+    ? `<span class="admin-owner-note">${escapeHTML(t("members.ownerLocked"))}</span>`
+    : `
+      <form data-action="admin-update-org-member" data-user-id="${escapeHTML(member.user_id)}" class="row-form admin-member-role-form">
+        <select name="role" aria-label="${escapeHTML(t("members.role"))}">
+          <option value="member" ${member.role === "member" ? "selected" : ""}>${escapeHTML(t("roles.member"))}</option>
+          <option value="admin" ${member.role === "admin" ? "selected" : ""}>${escapeHTML(t("roles.admin"))}</option>
+        </select>
+        <button type="submit">${escapeHTML(t("common.save"))}</button>
+      </form>
+      <button data-click="admin-transfer-org-owner" data-user-id="${escapeHTML(member.user_id)}" class="danger small">${escapeHTML(t("admin.makeOwner"))}</button>
+    `;
+  return `
+    <article class="admin-member-card ${isOwner ? "owner" : ""}">
+      <div class="admin-member-main">
+        <strong>${escapeHTML(displayName)}</strong>
+        <small>${escapeHTML(member.email)}</small>
+      </div>
+      <span class="badge ${isOwner ? "info" : ""}">${escapeHTML(roleLabel)}</span>
+      <div class="admin-member-actions">${roleControl}</div>
+    </article>
+  `;
 }

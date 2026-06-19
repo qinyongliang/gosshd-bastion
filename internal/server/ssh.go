@@ -71,7 +71,10 @@ func (a *App) sshServerConfig() (*gossh.ServerConfig, error) {
 			if err != nil {
 				return nil, err
 			}
-			return &gossh.Permissions{Extensions: map[string]string{"user_id": user.ID}}, nil
+			return &gossh.Permissions{Extensions: map[string]string{
+				"user_id":                user.ID,
+				"public_key_fingerprint": gossh.FingerprintSHA256(key),
+			}}, nil
 		},
 	}
 	cfg.AddHostKey(signer)
@@ -129,7 +132,7 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 
 	if conn.Permissions != nil {
 		if userID := conn.Permissions.Extensions["user_id"]; userID != "" {
-			a.handleBastionSSHConn(conn, chans, reqs, userID)
+			a.handleBastionSSHConn(conn, chans, reqs, userID, conn.Permissions.Extensions["public_key_fingerprint"])
 			return
 		}
 	}

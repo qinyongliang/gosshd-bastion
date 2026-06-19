@@ -173,6 +173,12 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if personalTargets[0].Name != "Test service" || len(personalTargets[0].Tags) != 2 {
 		t.Fatalf("target name/tags mismatch: %#v", personalTargets[0])
 	}
+	if len(personalTargets[0].TagColors) != 2 {
+		t.Fatalf("target tag colors missing: %#v", personalTargets[0].TagColors)
+	}
+	if _, err := normalizeTargetTagColor(personalTargets[0].TagColors["测试环境"]); err != nil {
+		t.Fatalf("target tag color is not from fixed palette: %#v", personalTargets[0].TagColors)
+	}
 	filteredTargets, err := repo.ListSSHTargetsFiltered(ctx, SSHTargetFilter{
 		OwnerType: OwnerOrganization,
 		OwnerID:   personal.ID,
@@ -194,6 +200,19 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 	if updatedTarget.Name != "Renamed service" || len(updatedTarget.Tags) != 1 || updatedTarget.Tags[0] != "prod" {
 		t.Fatalf("updated target name/tags mismatch: %#v", updatedTarget)
+	}
+	if err := repo.UpdateTargetTagColor(ctx, OwnerOrganization, personal.ID, "prod", "blue"); err != nil {
+		t.Fatal(err)
+	}
+	coloredTarget, err := repo.GetSSHTarget(ctx, updatedTarget.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coloredTarget.TagColors["prod"] != "blue" {
+		t.Fatalf("updated target tag color mismatch: %#v", coloredTarget.TagColors)
+	}
+	if err := repo.UpdateTargetTagColor(ctx, OwnerOrganization, personal.ID, "prod", "infrared"); err == nil {
+		t.Fatal("expected invalid tag color to fail")
 	}
 	target = updatedTarget
 
@@ -275,17 +294,18 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	started := time.Now().UTC()
 	ended := started.Add(time.Second)
 	audit, err := repo.CreateCommandAuditLog(ctx, CreateCommandAuditLogParams{
-		UserID:         user.ID,
-		TargetID:       target.ID,
-		SessionID:      "session-1",
-		Command:        "whoami",
-		RequestType:    RequestExec,
-		PolicyDecision: DecisionAllow,
-		PolicyReason:   "whitelist",
-		ExitCode:       intPtr(0),
-		StartedAt:      started,
-		EndedAt:        &ended,
-		RemoteAddress:  "127.0.0.1:12345",
+		UserID:               user.ID,
+		TargetID:             target.ID,
+		PublicKeyFingerprint: key.Fingerprint,
+		SessionID:            "session-1",
+		Command:              "whoami",
+		RequestType:          RequestExec,
+		PolicyDecision:       DecisionAllow,
+		PolicyReason:         "whitelist",
+		ExitCode:             intPtr(0),
+		StartedAt:            started,
+		EndedAt:              &ended,
+		RemoteAddress:        "127.0.0.1:12345",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -296,6 +316,17 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 	if len(logs) != 1 || logs[0].ID != audit.ID || logs[0].Command != "whoami" {
 		t.Fatalf("audit log mismatch: %#v", logs)
+	}
+	if logs[0].UserEmail != user.Email ||
+		logs[0].UserDisplayName != user.DisplayName ||
+		logs[0].PublicKeyFingerprint != key.Fingerprint ||
+		logs[0].PublicKeyName != key.Name ||
+		logs[0].TargetName != target.Name ||
+		logs[0].TargetAlias != target.Alias ||
+		logs[0].TargetHost != target.Host ||
+		logs[0].TargetPort != target.Port ||
+		logs[0].TargetUsername != target.RemoteUsername {
+		t.Fatalf("audit log enriched fields mismatch: %#v", logs[0])
 	}
 }
 

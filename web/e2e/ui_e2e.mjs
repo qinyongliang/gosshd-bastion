@@ -23,6 +23,11 @@ try {
   zhPage.setDefaultTimeout(10_000);
   await zhPage.goto(`${baseURL}/`, { waitUntil: "networkidle" });
   await zhPage.getByRole("tab", { name: "登录" }).waitFor();
+  await zhPage.locator('form[data-action="login"] input[name="email"]').fill("admin");
+  await zhPage.locator('form[data-action="login"] input[name="password"]').fill("wrong-pass");
+  await zhPage.locator('form[data-action="login"]').getByRole("button", { name: "登录" }).click();
+  await zhPage.locator(".status.error").filter({ hasText: "邮箱或密码不正确" }).waitFor();
+  await expectCount(zhPage.locator(".status.error").filter({ hasText: "invalid credentials" }), 0);
   await zhContext.close();
 
   enContext = await browser.newContext({ locale: "en-US" });
@@ -78,6 +83,11 @@ try {
   await page.getByRole("tab", { name: "Login" }).waitFor();
   const loginForm = page.locator('form[data-action="login"]');
   await loginForm.locator('input[name="email"]').fill("admin");
+  await loginForm.locator('input[name="password"]').fill("wrong-pass");
+  await loginForm.getByRole("button", { name: "Sign in" }).click();
+  await page.locator(".status.error").filter({ hasText: "Email or password is incorrect" }).waitFor();
+  await expectCount(page.locator(".status.error").filter({ hasText: "invalid credentials" }), 0);
+  await loginForm.locator('input[name="email"]').fill("admin");
   await loginForm.locator('input[name="password"]').fill("admin-pass");
   await loginForm.getByRole("button", { name: "Sign in" }).click();
   await waitForHeading(page, "Control plane");
@@ -87,6 +97,18 @@ try {
   await expectText(page, "Direct server");
   await expectText(page, "Private node");
   await expectCount(page.locator(".access-flow-map").getByText(/AI Agent|AI agent/), 0);
+  await page.getByRole("button", { name: "Personal", exact: true }).click();
+  await expectText(page, "Personal settings");
+  await expectText(page, "Security settings");
+  await page.getByRole("button", { name: "Change password" }).click();
+  const ownPasswordForm = page.locator('form[data-action="change-own-password"]');
+  await ownPasswordForm.locator('input[name="current_password"]').fill("admin-pass");
+  await ownPasswordForm.locator('input[name="new_password"]').fill("new-admin-pass");
+  await ownPasswordForm.locator('input[name="confirm_password"]').fill("different-pass");
+  await ownPasswordForm.getByRole("button", { name: "Save password" }).click();
+  await expectText(page, "New passwords do not match");
+  await page.locator(".modal .icon-button").click();
+  await expectModalCount(page, 0);
   await expectMobileSidebar(page);
   await page.setViewportSize({ width: 1280, height: 900 });
 
@@ -117,6 +139,8 @@ try {
   await targetForm.getByLabel("Service name").fill("UI Service");
   await targetForm.getByLabel("Target alias").fill("ui-test2");
   await targetForm.getByLabel("Target tags").fill("测试环境, ui");
+  await expectCount(targetForm.locator(".tag-input-chip").filter({ hasText: "测试环境" }), 1);
+  await expectCount(targetForm.locator(".tag-input-chip").filter({ hasText: "ui" }), 1);
   await targetForm.getByRole("button", { name: "Next" }).click();
   await targetForm.getByLabel("Target host").fill("127.0.0.1");
   await targetForm.getByLabel("Target port").fill("22");
@@ -127,8 +151,37 @@ try {
   await targetForm.getByRole("button", { name: "Add service" }).click();
   await expectText(page, "ui-test2");
   await expectText(page, "测试环境");
+  const copySSHButton = page.getByRole("button", { name: "Copy SSH command" }).first();
+  await copySSHButton.waitFor();
+  const copySSHCommand = await copySSHButton.getAttribute("data-value");
+  if (copySSHCommand !== "ssh ui-test2@127.0.0.1") {
+    throw new Error(`copy ssh command mismatch: ${copySSHCommand}`);
+  }
+  await copySSHButton.click();
+  await page.locator(".copy-tip").filter({ hasText: "Copied" }).waitFor();
+  const createdTag = page.locator('.cloud-table .tag-chip[data-tag="测试环境"]').first();
+  await createdTag.waitFor();
+  await expectTagPaletteClass(createdTag);
   await page.getByRole("button", { name: "View details" }).click();
   await expectText(page, "Route preview");
+  await expectText(page, "Tag colors");
+  const detailForm = page.locator('form[data-action="rename-target"]');
+  await detailForm.getByLabel("Target host").fill("127.0.0.2");
+  await detailForm.getByLabel("Target port").fill("2222");
+  await detailForm.getByLabel("Remote username").fill("ubuntu");
+  await detailForm.getByLabel("Target secret").fill("rotated-pass");
+  await detailForm.getByRole("button", { name: "Save" }).click();
+  await expectText(page, "Saved");
+  await expectText(page, "ubuntu@127.0.0.2:2222");
+  const detailTagInput = page.locator(".drawer [data-tag-input]").first();
+  await detailTagInput.locator(".tag-input-chip").filter({ hasText: "ui" }).getByRole("button").click();
+  await expectCount(detailTagInput.locator(".tag-input-chip").filter({ hasText: "ui" }), 0);
+  await detailTagInput.getByLabel("Tags").fill("u");
+  await detailTagInput.locator('[data-click="tag-input-select"][data-tag="ui"]').click();
+  await expectCount(detailTagInput.locator(".tag-input-chip").filter({ hasText: "ui" }), 1);
+  const tagColorRow = page.locator(".tag-color-row").filter({ hasText: "测试环境" }).first();
+  await tagColorRow.locator('button[data-color="blue"]').click();
+  await page.locator('.drawer .tag-chip[data-tag="测试环境"].tag-color-blue').first().waitFor();
   await closeDrawer(page);
 
   await page.getByRole("button", { name: "Add service" }).first().click();
@@ -143,7 +196,8 @@ try {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
   });
   await page.locator(".command-box").first().getByRole("button", { name: /Copy/ }).click();
-  await expectText(page, "Copied");
+  await page.locator(".command-box .copy-tip").filter({ hasText: "Copied" }).waitFor();
+  await expectCount(page.locator(".status.ok").filter({ hasText: "Copied" }), 0);
   await page.getByRole("button", { name: "Windows" }).click();
   await expectText(page, "sc.exe");
   await closeDrawer(page);
@@ -156,9 +210,17 @@ try {
   await page.locator(".modal .icon-button").click();
   await expectModalCount(page, 0);
 
-  await page.getByRole("button", { name: "Audit" }).click();
+  await page.getByRole("button", { name: "Audit", exact: true }).click();
   await expectText(page, "No audit rows");
   await expectStaticEmptyState(page);
+  await seedAuditRows(page);
+  await page.getByRole("button", { name: "Dashboard" }).click();
+  await page.getByRole("button", { name: "Audit", exact: true }).click();
+  await expectText(page, "Read-only Docker status inspection");
+  await expectText(page, "UI laptop");
+  await expectText(page, "SHA256:ui-key");
+  await expectText(page, "UI Service");
+  await expectLightTablePalette(page);
 
   await page.getByRole("button", { name: "System admin" }).click();
   await page.getByRole("heading", { name: "System administration" }).waitFor();
@@ -172,18 +234,27 @@ try {
   await accountBlock.getByRole("button", { name: /Open account list/ }).click();
   await page.locator('form[data-action="admin-update-user"]').first().waitFor();
   await expectModalCount(page, 1);
+  await expectModalScrollContainment(page);
   await page.locator(".modal").getByRole("button", { name: "Reset password" }).first().click();
+  await expectModalCount(page, 2);
+  await page.getByRole("dialog", { name: "Reset user password" }).waitFor();
   await page.locator('form[data-action="admin-reset-password"] input[name="password"]').fill("new-admin-pass");
   await page.locator('form[data-action="admin-reset-password"]').getByRole("button", { name: "Save new password" }).click();
   await expectText(page, "Saved");
+  await expectModalCount(page, 1);
+  await page.getByRole("dialog", { name: "Account management" }).waitFor();
+  await page.getByRole("dialog", { name: "Account management" }).locator(".icon-button").click();
   await expectModalCount(page, 0);
   const orgBlock = page.locator(".section-block").filter({ hasText: "Organization management" }).first();
   await expectCount(orgBlock.locator(".cloud-table"), 0);
   await orgBlock.getByRole("button", { name: /Open organization list/ }).click();
   await page.locator(".modal .cloud-table").waitFor();
   await expectModalCount(page, 1);
-  await page.locator(".modal .icon-button").click();
-  await expectModalCount(page, 0);
+  await expectModalVisibleTextNoUUID(page);
+  await page.locator(".modal").getByRole("button", { name: "Manage members" }).first().click();
+  await page.locator(".drawer").waitFor();
+  await expectAdminOrgDrawerLayout(page);
+  await closeDrawer(page);
   await page.locator('.identity-grid [data-modal="admin-ldap"]').click();
   const ldapForm = page.locator('form[data-action="admin-save-ldap"]');
   await ldapForm.locator('input[name="server_url"]').fill("ldap://ui.example");
@@ -204,6 +275,7 @@ try {
   await page.locator('form[data-action="set-member-filter"] input[name="query"]').fill("admin");
   await page.locator('form[data-action="set-member-filter"]').getByRole("button", { name: "Search" }).click();
   await expectText(page, "Administrator");
+  await expectVisibleTextNoUUID(page.locator(".section-block").filter({ hasText: "Joined" }).first(), "member list");
   await page.getByRole("button", { name: "Newest" }).click();
   await page.getByRole("button", { name: "Add member" }).click();
   await expectModalCount(page, 1);
@@ -255,6 +327,13 @@ async function expectCount(locator, expected) {
   if (count !== expected) throw new Error(`locator count mismatch: got ${count} want ${expected}`);
 }
 
+async function expectTagPaletteClass(locator) {
+  const className = await locator.getAttribute("class");
+  if (!/\btag-color-(gray|red|orange|yellow|green|blue|purple)\b/.test(className || "")) {
+    throw new Error(`tag should use a fixed palette class, got ${className}`);
+  }
+}
+
 async function waitForHeading(page, name) {
   try {
     await page.getByRole("heading", { name }).waitFor();
@@ -294,6 +373,58 @@ async function addPublicKey(page, name, publicKey) {
   }
 }
 
+async function seedAuditRows(page) {
+  await page.evaluate(async () => {
+    const { state } = await import("/state.js");
+    state.audit = [{
+      command: "docker ps -q | wc -l; docker ps -a -q | wc -l",
+      user_display_name: "Administrator",
+      user_email: "admin",
+      public_key_name: "UI laptop",
+      public_key_fingerprint: "SHA256:ui-key",
+      target_name: "UI Service",
+      target_alias: "ui-test2",
+      target_endpoint: "root@127.0.0.1:22",
+      policy_decision: "allow",
+      policy_reason: "llm: Read-only Docker status inspection",
+      exit_code: 0,
+      started_at: new Date().toISOString(),
+    }];
+  });
+}
+
+async function expectLightTablePalette(page) {
+  const metrics = await page.locator(".table-wrap").first().evaluate((element) => {
+    const table = element.querySelector("table");
+    const th = element.querySelector("th");
+    const td = element.querySelector("td");
+    const code = element.querySelector("code");
+    const rgb = (value) => {
+      const match = value.match(/rgba?\(([^)]+)\)/);
+      if (!match) return [0, 0, 0];
+      return match[1].split(",").slice(0, 3).map((part) => Number(part.trim()));
+    };
+    return {
+      tableBg: rgb(getComputedStyle(table).backgroundColor),
+      thBg: rgb(getComputedStyle(th).backgroundColor),
+      tdBg: rgb(getComputedStyle(td).backgroundColor),
+      codeBg: rgb(getComputedStyle(code).backgroundColor),
+      tdColor: rgb(getComputedStyle(td).color),
+    };
+  });
+  for (const [name, value] of Object.entries({
+    tableBg: metrics.tableBg,
+    thBg: metrics.thBg,
+    tdBg: metrics.tdBg,
+    codeBg: metrics.codeBg,
+  })) {
+    const average = value.reduce((sum, item) => sum + item, 0) / value.length;
+    if (average < 220) throw new Error(`light audit table ${name} is too dark: ${value.join(",")}`);
+  }
+  const textAverage = metrics.tdColor.reduce((sum, item) => sum + item, 0) / metrics.tdColor.length;
+  if (textAverage > 90) throw new Error(`light audit table text is too pale: ${metrics.tdColor.join(",")}`);
+}
+
 async function expectStaticEmptyState(page) {
   const emptyState = page.locator(".empty-state").first();
   const orbit = emptyState.locator(".empty-orbit");
@@ -311,6 +442,65 @@ async function expectStaticEmptyState(page) {
   }
   if (!styles.backgroundImage.includes("255, 255, 255")) {
     throw new Error(`light empty state should use a light background, got ${styles.backgroundImage}`);
+  }
+}
+
+async function expectModalScrollContainment(page) {
+  const metrics = await page.locator(".modal").first().evaluate((element) => {
+    const body = element.querySelector(".surface-body");
+    const table = element.querySelector(".modal-list-shell > .cloud-table");
+    return {
+      modalOverflow: getComputedStyle(element).overflowY,
+      bodyOverflow: body ? getComputedStyle(body).overflowY : "",
+      tableOverflow: table ? getComputedStyle(table).overflowY : "",
+    };
+  });
+  if (metrics.modalOverflow !== "hidden") {
+    throw new Error(`modal should not own scrolling; got ${metrics.modalOverflow}`);
+  }
+  if (metrics.bodyOverflow !== "hidden") {
+    throw new Error(`list modal body should contain scroll regions; got ${metrics.bodyOverflow}`);
+  }
+  if (metrics.tableOverflow !== "auto") {
+    throw new Error(`modal table should own scrolling; got ${metrics.tableOverflow}`);
+  }
+}
+
+async function expectModalVisibleTextNoUUID(page) {
+  await expectVisibleTextNoUUID(page.locator(".modal").first(), "organization modal");
+}
+
+async function expectVisibleTextNoUUID(locator, label) {
+  const text = await locator.innerText();
+  if (/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(text)) {
+    throw new Error(`${label} should not expose UUIDs in visible text: ${text}`);
+  }
+}
+
+async function expectAdminOrgDrawerLayout(page) {
+  await expectCount(page.locator(".drawer .cloud-table"), 0);
+  const cardCount = await page.locator(".drawer .admin-member-card").count();
+  if (cardCount < 1) throw new Error("admin organization drawer should render member cards");
+  await expectCount(page.locator(".drawer .admin-member-card.owner"), 1);
+  await expectCount(page.locator('.drawer .admin-member-card.owner [data-click="admin-transfer-org-owner"]'), 0);
+  const metrics = await page.locator(".drawer").evaluate((element) => {
+    const list = element.querySelector(".admin-member-list");
+    const backgroundColor = getComputedStyle(element).backgroundColor;
+    const alpha = backgroundColor.startsWith("rgba(")
+      ? Number(backgroundColor.split(",").at(-1).replace(")", "").trim())
+      : 1;
+    return {
+      alpha,
+      backgroundColor,
+      listClientWidth: list ? list.clientWidth : 0,
+      listScrollWidth: list ? list.scrollWidth : 0,
+    };
+  });
+  if (metrics.alpha < 1) {
+    throw new Error(`drawer should be opaque, got ${metrics.backgroundColor}`);
+  }
+  if (metrics.listScrollWidth > metrics.listClientWidth + 1) {
+    throw new Error(`admin member list should not scroll horizontally: ${JSON.stringify(metrics)}`);
   }
 }
 

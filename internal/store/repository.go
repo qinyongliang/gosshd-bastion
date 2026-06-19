@@ -898,7 +898,7 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 	if err := tx.Commit(); err != nil {
 		return SSHTarget{}, err
 	}
-	return target, nil
+	return r.GetSSHTarget(ctx, target.ID)
 }
 
 func (r *Repository) ListSSHTargets(ctx context.Context, ownerType, ownerID string) ([]SSHTarget, error) {
@@ -962,7 +962,7 @@ func (r *Repository) GetSSHTarget(ctx context.Context, targetID string) (SSHTarg
 	if err != nil {
 		return SSHTarget{}, err
 	}
-	target.Tags, err = r.listTargetTags(ctx, target.ID)
+	target.Tags, target.TagColors, err = r.listTargetTags(ctx, target.ID)
 	if err != nil {
 		return SSHTarget{}, err
 	}
@@ -1001,7 +1001,9 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 	if params.AgentID != "" {
 		current.AgentID = params.AgentID
 	}
-	if params.ProxyTargetID != "" {
+	if params.ReplaceProxy {
+		current.ProxyTargetID = strings.TrimSpace(params.ProxyTargetID)
+	} else if params.ProxyTargetID != "" {
 		current.ProxyTargetID = strings.TrimSpace(params.ProxyTargetID)
 	}
 	if params.ReplaceTags {
@@ -1030,7 +1032,7 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 	if err := tx.Commit(); err != nil {
 		return SSHTarget{}, err
 	}
-	return current, nil
+	return r.GetSSHTarget(ctx, current.ID)
 }
 
 func (r *Repository) replaceTargetTagsTx(ctx context.Context, tx *sql.Tx, target SSHTarget, now time.Time) error {
@@ -1039,9 +1041,9 @@ func (r *Repository) replaceTargetTagsTx(ctx context.Context, tx *sql.Tx, target
 	}
 	for _, tagName := range normalizeTags(target.Tags) {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT OR IGNORE INTO target_tags (id, owner_type, owner_id, name, created_at)
-			VALUES (?, ?, ?, ?, ?)
-		`, uuid.NewString(), target.OwnerType, target.OwnerID, tagName, formatTime(now)); err != nil {
+			INSERT OR IGNORE INTO target_tags (id, owner_type, owner_id, name, color, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, uuid.NewString(), target.OwnerType, target.OwnerID, tagName, randomTargetTagColor(tagName), formatTime(now)); err != nil {
 			return err
 		}
 		var tagID string
@@ -1063,36 +1065,62 @@ func (r *Repository) replaceTargetTagsTx(ctx context.Context, tx *sql.Tx, target
 
 func (r *Repository) loadTargetTags(ctx context.Context, targets []SSHTarget) error {
 	for i := range targets {
-		tags, err := r.listTargetTags(ctx, targets[i].ID)
+		tags, colors, err := r.listTargetTags(ctx, targets[i].ID)
 		if err != nil {
 			return err
 		}
 		targets[i].Tags = tags
+		targets[i].TagColors = colors
 	}
 	return nil
 }
 
-func (r *Repository) listTargetTags(ctx context.Context, targetID string) ([]string, error) {
+func (r *Repository) listTargetTags(ctx context.Context, targetID string) ([]string, map[string]string, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT tag.name
+		SELECT tag.name, COALESCE(tag.color, '')
 		FROM target_tags tag
 		JOIN target_tag_bindings binding ON binding.tag_id = tag.id
 		WHERE binding.target_id = ?
 		ORDER BY tag.name ASC
 	`, targetID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 	var tags []string
+	colors := map[string]string{}
 	for rows.Next() {
-		var tag string
-		if err := rows.Scan(&tag); err != nil {
-			return nil, err
+		var tag, color string
+		if err := rows.Scan(&tag, &color); err != nil {
+			return nil, nil, err
+		}
+		if strings.TrimSpace(color) == "" {
+			color = fallbackTargetTagColor(tag)
 		}
 		tags = append(tags, tag)
+		colors[tag] = color
 	}
-	return tags, rows.Err()
+	return tags, colors, rows.Err()
+}
+
+func (r *Repository) UpdateTargetTagColor(ctx context.Context, ownerType, ownerID, tagName, color string) error {
+	tagName = strings.TrimSpace(tagName)
+	if tagName == "" {
+		return errors.New("tag name is required")
+	}
+	color, err := normalizeTargetTagColor(color)
+	if err != nil {
+		return err
+	}
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE target_tags
+		SET color = ?
+		WHERE owner_type = ? AND owner_id = ? AND name = ?
+	`, color, ownerType, ownerID, tagName)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
 }
 
 func (r *Repository) CreateAgentEnrollment(ctx context.Context, params CreateAgentEnrollmentParams) (AgentEnrollment, error) {
@@ -1450,9 +1478,9 @@ func (r *Repository) AttachPolicyToTargetTag(ctx context.Context, policyID, owne
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT OR IGNORE INTO target_tags (id, owner_type, owner_id, name, created_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, uuid.NewString(), ownerType, ownerID, tagName, formatTime(time.Now().UTC())); err != nil {
+		INSERT OR IGNORE INTO target_tags (id, owner_type, owner_id, name, color, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, uuid.NewString(), ownerType, ownerID, tagName, randomTargetTagColor(tagName), formatTime(time.Now().UTC())); err != nil {
 		return err
 	}
 	var tagID string
@@ -1609,27 +1637,28 @@ func (r *Repository) CreateCommandAuditLog(ctx context.Context, params CreateCom
 		started = time.Now().UTC()
 	}
 	log := CommandAuditLog{
-		ID:             uuid.NewString(),
-		UserID:         params.UserID,
-		TargetID:       params.TargetID,
-		OrganizationID: params.OrganizationID,
-		SessionID:      params.SessionID,
-		Command:        params.Command,
-		RequestType:    params.RequestType,
-		PolicyDecision: params.PolicyDecision,
-		PolicyReason:   params.PolicyReason,
-		ExitCode:       params.ExitCode,
-		StartedAt:      started.UTC(),
-		EndedAt:        params.EndedAt,
-		RemoteAddress:  params.RemoteAddress,
+		ID:                   uuid.NewString(),
+		UserID:               params.UserID,
+		TargetID:             params.TargetID,
+		OrganizationID:       params.OrganizationID,
+		PublicKeyFingerprint: strings.TrimSpace(params.PublicKeyFingerprint),
+		SessionID:            params.SessionID,
+		Command:              params.Command,
+		RequestType:          params.RequestType,
+		PolicyDecision:       params.PolicyDecision,
+		PolicyReason:         params.PolicyReason,
+		ExitCode:             params.ExitCode,
+		StartedAt:            started.UTC(),
+		EndedAt:              params.EndedAt,
+		RemoteAddress:        params.RemoteAddress,
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO command_audit_logs (
 			id, user_id, target_id, organization_id, session_id, command, request_type,
-			policy_decision, policy_reason, exit_code, started_at, ended_at, remote_address
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			policy_decision, policy_reason, public_key_fingerprint, exit_code, started_at, ended_at, remote_address
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, log.ID, log.UserID, log.TargetID, nullableString(log.OrganizationID), log.SessionID, log.Command, log.RequestType,
-		log.PolicyDecision, log.PolicyReason, nullableInt(log.ExitCode), formatTime(log.StartedAt), nullableTime(log.EndedAt), log.RemoteAddress)
+		log.PolicyDecision, log.PolicyReason, log.PublicKeyFingerprint, nullableInt(log.ExitCode), formatTime(log.StartedAt), nullableTime(log.EndedAt), log.RemoteAddress)
 	if err != nil {
 		return CommandAuditLog{}, err
 	}
@@ -1638,20 +1667,27 @@ func (r *Repository) CreateCommandAuditLog(ctx context.Context, params CreateCom
 
 func (r *Repository) ListCommandAuditLogs(ctx context.Context, filter AuditLogFilter) ([]CommandAuditLog, error) {
 	query := `
-		SELECT id, user_id, target_id, COALESCE(organization_id, ''), session_id, command, request_type,
-			policy_decision, policy_reason, exit_code, started_at, ended_at, remote_address
-		FROM command_audit_logs
+		SELECT log.id, log.user_id, COALESCE(u.email, ''), COALESCE(u.display_name, ''),
+			log.target_id, COALESCE(target.name, ''), COALESCE(target.alias, ''), COALESCE(target.host, ''),
+			COALESCE(target.port, 0), COALESCE(target.remote_username, ''),
+			COALESCE(log.organization_id, ''), log.session_id, log.command, log.request_type,
+			log.policy_decision, log.policy_reason, COALESCE(log.public_key_fingerprint, ''),
+			COALESCE(key.name, ''), log.exit_code, log.started_at, log.ended_at, log.remote_address
+		FROM command_audit_logs log
+		LEFT JOIN users u ON u.id = log.user_id
+		LEFT JOIN ssh_targets target ON target.id = log.target_id
+		LEFT JOIN user_public_keys key ON key.fingerprint = log.public_key_fingerprint
 		WHERE 1 = 1`
 	args := []any{}
 	if filter.UserID != "" {
-		query += ` AND user_id = ?`
+		query += ` AND log.user_id = ?`
 		args = append(args, filter.UserID)
 	}
 	if filter.TargetID != "" {
-		query += ` AND target_id = ?`
+		query += ` AND log.target_id = ?`
 		args = append(args, filter.TargetID)
 	}
-	query += ` ORDER BY started_at DESC`
+	query += ` ORDER BY log.started_at DESC`
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1665,8 +1701,10 @@ func (r *Repository) ListCommandAuditLogs(ctx context.Context, filter AuditLogFi
 		var exit sql.NullInt64
 		var started string
 		var ended sql.NullString
-		if err := rows.Scan(&log.ID, &log.UserID, &log.TargetID, &log.OrganizationID, &log.SessionID, &log.Command,
-			&log.RequestType, &log.PolicyDecision, &log.PolicyReason, &exit, &started, &ended, &log.RemoteAddress); err != nil {
+		if err := rows.Scan(&log.ID, &log.UserID, &log.UserEmail, &log.UserDisplayName,
+			&log.TargetID, &log.TargetName, &log.TargetAlias, &log.TargetHost, &log.TargetPort, &log.TargetUsername,
+			&log.OrganizationID, &log.SessionID, &log.Command, &log.RequestType, &log.PolicyDecision,
+			&log.PolicyReason, &log.PublicKeyFingerprint, &log.PublicKeyName, &exit, &started, &ended, &log.RemoteAddress); err != nil {
 			return nil, err
 		}
 		if exit.Valid {

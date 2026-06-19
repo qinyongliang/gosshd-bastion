@@ -24,6 +24,8 @@ type LLMReviewInput struct {
 	Prompt   string `json:"-"`
 }
 
+const llmOutputContract = "Return JSON only. Do not output chain-of-thought, analysis, reasoning steps, markdown, or prose. Use {\"allow\":true} when the command is safe and no explanation is needed. Use {\"allow\":false,\"reason\":\"short reason\"} when denying."
+
 func NewLLMClient() *LLMClient {
 	return &LLMClient{httpClient: http.DefaultClient}
 }
@@ -43,7 +45,9 @@ func (c *LLMClient) ReviewCommand(ctx context.Context, cfg store.LLMPolicyConfig
 			{"role": "system", "content": reviewSystemPrompt(input.Prompt)},
 			{"role": "user", "content": reviewPrompt(input)},
 		},
-		"temperature": 0,
+		"temperature":     0,
+		"response_format": map[string]string{"type": "json_object"},
+		"enable_thinking": false,
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -93,7 +97,11 @@ func (c *LLMClient) ReviewCommand(ctx context.Context, cfg store.LLMPolicyConfig
 	}
 	reason := strings.TrimSpace(review.Reason)
 	if reason == "" {
-		reason = "llm review"
+		if review.Allow {
+			reason = "allow"
+		} else {
+			reason = "deny"
+		}
 	}
 	if review.Allow {
 		return Decision{Action: store.DecisionAllow, Reason: reason}, nil
@@ -104,9 +112,9 @@ func (c *LLMClient) ReviewCommand(ctx context.Context, cfg store.LLMPolicyConfig
 func reviewSystemPrompt(prompt string) string {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
-		return store.DefaultLLMPromptContent
+		prompt = store.DefaultLLMPromptContent
 	}
-	return prompt
+	return prompt + "\n\n" + llmOutputContract
 }
 
 func reviewPrompt(input LLMReviewInput) string {

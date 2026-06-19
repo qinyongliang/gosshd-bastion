@@ -7,7 +7,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -154,6 +156,52 @@ func hostFromListenAddress(listen string) string {
 		return net.JoinHostPort(host, port)
 	}
 	return host + ":" + port
+}
+
+func (a *App) runtimeInfo(r *http.Request) apiRuntime {
+	return apiRuntime{
+		SSHHost: publicSSHHost(a.cfg.PublicHost, r.Host),
+		SSHPort: publicSSHPort(a.cfg.SSHListen),
+	}
+}
+
+func publicSSHHost(configuredHost, requestHost string) string {
+	host := strings.TrimSpace(configuredHost)
+	if host == "" {
+		host = strings.TrimSpace(requestHost)
+	}
+	if host == "" {
+		return "public-ip"
+	}
+	if parsed, err := url.Parse(host); err == nil && parsed.Host != "" {
+		host = parsed.Host
+	}
+	host = strings.Trim(host, "/")
+	if before, _, ok := strings.Cut(host, "/"); ok {
+		host = before
+	}
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil && parsedHost != "" {
+		host = parsedHost
+	}
+	return strings.Trim(host, "[]")
+}
+
+func publicSSHPort(listen string) int {
+	listen = strings.TrimSpace(listen)
+	if listen == "" {
+		return 22
+	}
+	if _, port, err := net.SplitHostPort(listen); err == nil {
+		if parsed, err := strconv.Atoi(port); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	if strings.HasPrefix(listen, ":") {
+		if parsed, err := strconv.Atoi(strings.TrimPrefix(listen, ":")); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return 22
 }
 
 func (a *App) RunListeners(ctx context.Context, httpLn net.Listener, sshLn net.Listener) error {

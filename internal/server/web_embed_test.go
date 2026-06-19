@@ -22,6 +22,7 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		"/theme.js",
 		"/state.js",
 		"/router.js",
+		"/tag-colors.js",
 		"/components/layout.js",
 		"/components/management.js",
 		"/views/auth.js",
@@ -56,6 +57,9 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		}
 		if path == "/theme.js" && (!strings.Contains(body, "gosshd_theme") || !strings.Contains(body, "light") || !strings.Contains(body, "dark")) {
 			t.Fatalf("theme module did not include theme persistence")
+		}
+		if path == "/tag-colors.js" && (!strings.Contains(body, "TAG_COLORS") || !strings.Contains(body, "purple") || !strings.Contains(body, "tagColorClass")) {
+			t.Fatalf("tag color module did not include fixed palette")
 		}
 		if path == "/views/auth.js" && !strings.Contains(body, "auth.dingTalk") {
 			t.Fatalf("auth view did not include DingTalk login action")

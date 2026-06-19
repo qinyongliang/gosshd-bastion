@@ -131,7 +131,7 @@
           <h2>LLM 审核</h2>
           <p>
             LLM 配置使用 OpenAI 兼容的 chat completions 协议，包含 base URL、API key、模型、超时和提示词资源。
-            模型响应必须是带 <code>allow</code> 和 <code>reason</code> 字段的 JSON。无效 JSON 和请求错误都会默认拒绝。
+            模型响应必须是带 <code>allow</code> 的 JSON；通过时可以省略 <code>reason</code>，拒绝时应包含简短原因。无效 JSON 和请求错误都会默认拒绝。
           </p>
         </section>
 
@@ -148,7 +148,7 @@
           <p>
             当前版本发布跨平台 server 压缩包和独立 agent 二进制。本版本暂不发布 full 包。
           </p>
-          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.20-bastion">打开 v0.1.20-bastion</a>
+          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion">打开 v0.1.21-bastion</a>
         </section>
       </article>
     </main>

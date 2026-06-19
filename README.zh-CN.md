@@ -4,7 +4,7 @@
 
 `gosshd-bastion` 是一个面向 AI 服务、自动化 Agent 和运维人员的 SSH 堡垒机。它以单个 Go 服务运行，内置 Web 控制台、SQLite 存储、SSH 网关、Agent 注册、命令安全组、LLM 实时审核钩子和 MCP 控制面。
 
-当前公开版本是 [`v0.1.19-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.19-bastion)。最新版本入口在 [GitHub Releases](https://github.com/qinyongliang/gosshd-bastion/releases/latest)。
+当前公开版本是 [`v0.1.21-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion)。最新版本入口在 [GitHub Releases](https://github.com/qinyongliang/gosshd-bastion/releases/latest)。
 
 ## 当前已实现
 
@@ -43,7 +43,7 @@
 Linux 从 GitHub Releases 安装示例：
 
 ```sh
-version=v0.1.19-bastion
+version=v0.1.21-bastion
 platform=linux-amd64
 
 curl -fL -o "gosshd-${version}-${platform}.tar.gz" \
@@ -129,7 +129,7 @@ $s='http://bastion.example.com:18080/install/<token>.ps1'; irm $s -OutFile $env:
 - 安全组可以绑定组织用户组。如果没有绑定用户组，则对所有能访问该目标的用户生效。
 - 黑名单命令会立即拒绝。
 - 白名单命令会允许执行。
-- 如果没有命中黑白名单，并且安全组配置了 LLM，则命令会交给对应模型和提示词审核。模型需要返回 JSON：`{"allow": true|false, "reason": "short reason"}`。
+- 如果没有命中黑白名单，并且安全组配置了 LLM，则命令会交给对应模型和提示词审核。模型需要返回 JSON：`{"allow": true|false, "reason": "short reason"}`。通过时可以省略 `reason`；拒绝时应返回简短原因。
 - 如果没有命中规则，也没有 LLM，则使用安全组默认动作。
 
 ## 系统管理

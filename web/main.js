@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { formData } from "./components/forms.js";
 import { renderShell } from "./components/layout.js";
+import { selectedTags, tagInputChip } from "./components/tag-input.js";
 import { applyDocumentLocale, setLocale, t } from "./i18n.js";
 import { applyDocumentTheme, setTheme } from "./theme.js";
 import { routeFromLocation, bindRouter, navigate } from "./router.js";
@@ -41,6 +42,7 @@ function bindEvents() {
     event.preventDefault();
     const form = event.target;
     const action = form.dataset.action;
+    commitTagInputs(form);
     const data = formData(form);
     await run(async () => {
       if (action === "set-target-filter") {
@@ -99,6 +101,7 @@ function bindEvents() {
         state.enrollment = await api.enrollAgent({ ...ownerPayload(data), default_host: "127.0.0.1", default_port: 22 });
         state.ui.targetCreateDraft = {};
         state.ui.modal = "";
+        state.ui.modalLayer = "";
         state.ui.drawer = "agent-enrollment";
       }
       if (action === "create-llm") await api.createLLMConfig({ ...ownerPayload(data), timeout_seconds: Number(data.timeout_seconds || 10) });
@@ -116,6 +119,10 @@ function bindEvents() {
       if (action === "admin-save-ldap") await api.updateLDAPSettings(adminLDAPPayload(data));
       if (action === "admin-update-user") await api.updateAdminUser(form.dataset.userId, { is_system_admin: data.is_system_admin === "true" });
       if (action === "admin-reset-password") await api.resetAdminUserPassword(form.dataset.userId, { password: data.password });
+      if (action === "change-own-password") {
+        if (data.new_password !== data.confirm_password) throw new Error(t("profile.passwordMismatch"));
+        await api.changeOwnPassword(data);
+      }
       if (action === "admin-select-org") {
         state.selectedAdminOrgID = data.org_id;
         state.ui.adminOrgID = data.org_id;
@@ -129,6 +136,10 @@ function bindEvents() {
         form.reset();
       }
       if (form.dataset.closeOverlay === "modal") state.ui.modal = "";
+      if (form.dataset.closeOverlay === "modal-layer") {
+        state.ui.modalLayer = "";
+        state.ui.adminPasswordUserID = "";
+      }
       if (form.dataset.closeOverlay === "drawer") state.ui.drawer = "";
       state.notice = t("status.saved");
       await refreshData();
@@ -137,7 +148,41 @@ function bindEvents() {
   });
 
   app.addEventListener("input", (event) => {
+    const tagText = event.target.closest?.("[data-tag-input-text]");
+    if (tagText) {
+      if (tagText.value.includes(",")) {
+        addTagInputValues(tagText.closest("[data-tag-input]"), tagText.value.split(","));
+        tagText.value = "";
+      }
+      refreshTagInputMenu(tagText.closest("[data-tag-input]"));
+    }
     persistTargetCreateDraft(event.target);
+  });
+
+  app.addEventListener("focusin", (event) => {
+    const tagText = event.target.closest?.("[data-tag-input-text]");
+    if (tagText) refreshTagInputMenu(tagText.closest("[data-tag-input]"));
+  });
+
+  app.addEventListener("keydown", (event) => {
+    const tagText = event.target.closest?.("[data-tag-input-text]");
+    if (!tagText) return;
+    if (event.key === "Enter" || event.key === "," || event.key === "Tab") {
+      const value = tagText.value.trim();
+      if (!value && event.key === "Tab") return;
+      event.preventDefault();
+      addTagInputValues(tagText.closest("[data-tag-input]"), [value]);
+      tagText.value = "";
+      return;
+    }
+    if (event.key === "Backspace" && !tagText.value) {
+      const root = tagText.closest("[data-tag-input]");
+      const values = readTagInputValues(root);
+      if (values.length) {
+        values.pop();
+        writeTagInputValues(root, values);
+      }
+    }
   });
 
   app.addEventListener("change", (event) => {
@@ -152,6 +197,7 @@ function bindEvents() {
     await run(async () => {
       if (action === "navigate") {
         state.ui.modal = "";
+        state.ui.modalLayer = "";
         state.ui.drawer = "";
         state.ui.sidebarOpen = false;
         navigate(button.dataset.route);
@@ -164,6 +210,7 @@ function bindEvents() {
       }
       if (action === "open-modal") {
         state.ui.modal = button.dataset.modal || "";
+        state.ui.modalLayer = "";
         state.ui.drawer = "";
         if (state.ui.modal === "create-target") {
           resetTargetCreate("direct");
@@ -172,31 +219,41 @@ function bindEvents() {
       if (action === "open-private-node-create") {
         resetTargetCreate("private");
         state.ui.modal = "create-target";
+        state.ui.modalLayer = "";
         state.ui.drawer = "";
         navigate("targets");
       }
       if (action === "close-overlays") {
         state.ui.modal = "";
+        state.ui.modalLayer = "";
         state.ui.drawer = "";
+      }
+      if (action === "close-modal-layer") {
+        state.ui.modalLayer = "";
+        state.ui.adminPasswordUserID = "";
       }
       if (action === "open-target-detail") {
         state.ui.targetID = button.dataset.targetId || "";
         state.ui.drawer = "target-detail";
         state.ui.modal = "";
+        state.ui.modalLayer = "";
       }
       if (action === "open-policy-detail") {
         state.ui.policyID = button.dataset.policyId || "";
         state.ui.drawer = "policy-detail";
         state.ui.modal = "";
+        state.ui.modalLayer = "";
       }
       if (action === "open-member-role") {
         state.ui.memberUserID = button.dataset.userId || "";
         state.ui.modal = "member-role";
+        state.ui.modalLayer = "";
         state.ui.drawer = "";
       }
       if (action === "open-transfer-owner") {
         state.ui.memberTransferUserID = button.dataset.userId || "";
         state.ui.modal = "transfer-owner";
+        state.ui.modalLayer = "";
         state.ui.drawer = "";
       }
       if (action === "open-admin-org") {
@@ -204,12 +261,12 @@ function bindEvents() {
         state.ui.adminOrgID = state.selectedAdminOrgID;
         state.ui.drawer = "admin-org";
         state.ui.modal = "";
+        state.ui.modalLayer = "";
         await refreshAdminMembers();
       }
       if (action === "open-admin-password-reset") {
         state.ui.adminPasswordUserID = button.dataset.userId || "";
-        state.ui.modal = "admin-reset-password";
-        state.ui.drawer = "";
+        state.ui.modalLayer = "admin-reset-password";
       }
       if (action === "set-agent-platform") {
         state.ui.agentPlatform = button.dataset.value || "linux";
@@ -220,6 +277,7 @@ function bindEvents() {
       if (action === "target-create-step") {
         const form = button.closest('form[data-action="create-target"]');
         const nextStep = Number(button.dataset.step || 0);
+        if (form) commitTagInputs(form);
         if (form && nextStep > Number(state.ui.targetCreateStep || 0) && !form.reportValidity()) return;
         persistTargetCreateDraft(button);
         state.ui.targetCreateStep = nextStep;
@@ -241,11 +299,12 @@ function bindEvents() {
       }
       if (action === "logout") {
         await api.logout();
-        Object.assign(state, { user: null, orgs: [], activeOrgID: "", members: [], selectedAdminOrgID: "", adminMembers: [], ui: { ...state.ui, modal: "", drawer: "", sidebarOpen: false } });
+        Object.assign(state, { user: null, orgs: [], activeOrgID: "", members: [], selectedAdminOrgID: "", adminMembers: [], ui: { ...state.ui, modal: "", modalLayer: "", drawer: "", sidebarOpen: false } });
       }
       if (action === "switch-org") {
         state.activeOrgID = button.dataset.id;
         state.ui.modal = "";
+        state.ui.modalLayer = "";
         state.ui.drawer = "";
         state.ui.sidebarOpen = false;
         await refreshData();
@@ -277,13 +336,34 @@ function bindEvents() {
       }
       if (action === "copy") {
         await copyText(button.dataset.value || "");
-        state.notice = t("status.copied");
+        showCopyTip(button);
+        return;
+      }
+      if (action === "tag-input-select") {
+        addTagInputValues(button.closest("[data-tag-input]"), [button.dataset.tag || ""]);
+        return;
+      }
+      if (action === "tag-input-create") {
+        addTagInputValues(button.closest("[data-tag-input]"), [button.dataset.value || ""]);
+        const input = button.closest("[data-tag-input]")?.querySelector("[data-tag-input-text]");
+        if (input) input.value = "";
+        return;
+      }
+      if (action === "tag-input-remove") {
+        const root = button.closest("[data-tag-input]");
+        writeTagInputValues(root, readTagInputValues(root).filter((tag) => tag !== button.dataset.tag));
+        return;
       }
       if (action === "toggle-target-tag") {
         const tag = button.dataset.tag || "";
         state.targetTagFilters = state.targetTagFilters.includes(tag)
           ? state.targetTagFilters.filter((item) => item !== tag)
           : [...state.targetTagFilters, tag];
+      }
+      if (action === "set-target-tag-color") {
+        await api.updateTargetTagColor({ ...owner(), name: button.dataset.tag || "", color: button.dataset.color || "" });
+        state.notice = t("status.saved");
+        await refreshData();
       }
       if (action === "clear-target-filters") {
         state.targetQuery = "";
@@ -316,6 +396,7 @@ async function refresh() {
     const me = await api.me();
     state.user = me.user;
     state.orgs = me.organizations || [];
+    state.runtime = me.runtime || { ssh_host: "", ssh_port: 22 };
     if (!state.activeOrgID && state.orgs.length) state.activeOrgID = state.orgs[0].id;
     await refreshData();
   } catch {
@@ -380,9 +461,14 @@ async function run(fn) {
   try {
     await fn();
   } catch (error) {
-    state.error = error.message;
+    state.error = localizeError(error);
     render();
   }
+}
+
+function localizeError(error) {
+  if (error?.message === "invalid credentials") return t("errors.invalidCredentials");
+  return error?.message || t("errors.unknown");
 }
 
 function render() {
@@ -422,6 +508,12 @@ async function renameTarget(id, data) {
   await api.updateTarget(id, {
     name: data.name,
     alias: data.alias,
+    host: data.host,
+    port: Number(data.port || 22),
+    remote_username: data.remote_username,
+    auth_type: data.auth_type,
+    secret: data.secret || "",
+    proxy_target_id: data.proxy_target_id || "",
     tags: splitTags(data.tags),
   });
 }
@@ -437,6 +529,65 @@ function persistTargetCreateDraft(node) {
   const form = node?.closest?.('form[data-action="create-target"]');
   if (!form) return;
   state.ui.targetCreateDraft = { ...state.ui.targetCreateDraft, ...formData(form) };
+}
+
+function commitTagInputs(scope) {
+  scope?.querySelectorAll?.("[data-tag-input]").forEach((root) => {
+    const input = root.querySelector("[data-tag-input-text]");
+    const value = input?.value?.trim();
+    if (!value) return;
+    addTagInputValues(root, [value]);
+    input.value = "";
+  });
+}
+
+function readTagInputValues(root) {
+  return selectedTags(root?.querySelector("[data-tag-hidden]")?.value || "");
+}
+
+function addTagInputValues(root, values) {
+  if (!root) return;
+  const next = selectedTags([...readTagInputValues(root), ...values]);
+  writeTagInputValues(root, next);
+}
+
+function writeTagInputValues(root, values) {
+  if (!root) return;
+  const tags = selectedTags(values);
+  const hidden = root.querySelector("[data-tag-hidden]");
+  const valuesNode = root.querySelector("[data-tag-values]");
+  if (!hidden || !valuesNode) return;
+  hidden.value = tags.join(", ");
+  valuesNode.innerHTML = tags.map((tag) => tagInputChip(tag)).join("");
+  hidden.dispatchEvent(new Event("input", { bubbles: true }));
+  refreshTagInputMenu(root);
+}
+
+function refreshTagInputMenu(root) {
+  if (!root) return;
+  const query = root.querySelector("[data-tag-input-text]")?.value?.trim() || "";
+  const queryLower = query.toLowerCase();
+  const selected = new Set(readTagInputValues(root));
+  const options = [...root.querySelectorAll("[data-click='tag-input-select']")];
+  let exactMatch = false;
+  let visibleCount = 0;
+  for (const option of options) {
+    const tag = option.dataset.tag || "";
+    const matches = !queryLower || tag.toLowerCase().includes(queryLower);
+    const hidden = selected.has(tag) || !matches;
+    option.hidden = hidden;
+    if (!hidden) visibleCount += 1;
+    if (tag.toLowerCase() === queryLower) exactMatch = true;
+  }
+  const createOption = root.querySelector("[data-tag-create-option]");
+  if (createOption) {
+    const canCreate = Boolean(query) && !selected.has(query) && !exactMatch;
+    createOption.hidden = !canCreate;
+    createOption.dataset.value = query;
+    const label = createOption.querySelector("[data-tag-create-label]");
+    if (label) label.textContent = query;
+  }
+  root.dataset.empty = visibleCount === 0 && !query ? "true" : "false";
 }
 
 function adminDingTalkPayload(data) {
@@ -490,4 +641,21 @@ async function copyText(value) {
   } finally {
     textarea.remove();
   }
+}
+
+let copyTipTimer = 0;
+
+function showCopyTip(button) {
+  document.querySelectorAll(".copy-tip").forEach((tip) => tip.remove());
+  window.clearTimeout(copyTipTimer);
+  const tip = document.createElement("span");
+  tip.className = "copy-tip";
+  tip.setAttribute("role", "status");
+  tip.textContent = t("status.copied");
+  button.appendChild(tip);
+  button.classList.add("copied");
+  copyTipTimer = window.setTimeout(() => {
+    tip.remove();
+    button.classList.remove("copied");
+  }, 1600);
 }

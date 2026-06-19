@@ -3,7 +3,10 @@ package bastion
 import (
 	"bytes"
 	"context"
+	"math"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
@@ -72,12 +75,14 @@ func (s *Service) EvaluateCommand(ctx context.Context, userID, targetID, command
 			} else if prompts, err := s.repo.ListLLMPromptResources(ctx, policy.OwnerType, policy.OwnerID); err == nil && len(prompts) > 0 {
 				prompt = prompts[0]
 			}
+			llmStarted := time.Now()
 			policyDecision, err = s.llmClient.ReviewCommand(ctx, cfg, LLMReviewInput{
 				UserID:   userID,
 				TargetID: targetID,
 				Command:  trimmed,
 				Prompt:   prompt.Content,
 			})
+			policyDecision.Reason = appendLLMDuration(policyDecision.Reason, time.Since(llmStarted))
 			if err != nil {
 				return policyDecision, nil
 			}
@@ -89,6 +94,18 @@ func (s *Service) EvaluateCommand(ctx context.Context, userID, targetID, command
 		result = policyDecision
 	}
 	return result, nil
+}
+
+func appendLLMDuration(reason string, elapsed time.Duration) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "llm review"
+	}
+	seconds := int(math.Ceil(elapsed.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	}
+	return reason + " (" + strconv.Itoa(seconds) + "s)"
 }
 
 func (s *Service) policyAppliesToUser(ctx context.Context, policy store.CommandPolicy, userID string) (bool, error) {

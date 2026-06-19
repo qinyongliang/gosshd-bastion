@@ -71,7 +71,7 @@ function memberTable(members) {
   return cloudTable(
     [t("members.tableUser"), t("members.tableRole"), t("members.tableJoined"), t("management.operations")],
     members.map((member) => [
-      `<strong>${escapeHTML(member.display_name || member.email)}</strong><small>${escapeHTML(member.email)}</small><small>${escapeHTML(member.user_id)}</small>`,
+      `<strong>${escapeHTML(member.display_name || member.email)}</strong><small>${escapeHTML(member.email)}</small>`,
       escapeHTML(optionText("roles", member.role)),
       escapeHTML(formatDate(member.created_at)),
       memberActions(member),

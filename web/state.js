@@ -1,4 +1,5 @@
 import { getLocale } from "./i18n.js";
+import { fallbackTagColor, normalizeTagColor } from "./tag-colors.js";
 import { getTheme } from "./theme.js";
 
 export const state = {
@@ -19,6 +20,7 @@ export const state = {
   adminUsers: [],
   adminOrgs: [],
   adminMembers: [],
+  runtime: { ssh_host: "", ssh_port: 22 },
   selectedAdminOrgID: "",
   targetTagFilters: [],
   targetQuery: "",
@@ -28,6 +30,7 @@ export const state = {
   adminUserQuery: "",
   ui: {
     modal: "",
+    modalLayer: "",
     drawer: "",
     targetID: "",
     policyID: "",
@@ -90,6 +93,26 @@ export function splitTags(raw) {
 
 export function allTargetTags() {
   return [...new Set(state.targets.flatMap((target) => target.tags || []))].sort((a, b) => a.localeCompare(b));
+}
+
+export function allTargetTagDetails() {
+  const tags = new Map();
+  for (const target of state.targets) {
+    for (const tag of target.tags || []) {
+      if (!tags.has(tag)) tags.set(tag, tagColorForName(tag));
+    }
+  }
+  return [...tags.entries()]
+    .map(([name, color]) => ({ name, color }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function tagColorForName(name) {
+  for (const target of state.targets) {
+    const color = normalizeTagColor(target.tag_colors?.[name]);
+    if (color) return color;
+  }
+  return fallbackTagColor(name);
 }
 
 export function filteredTargets() {

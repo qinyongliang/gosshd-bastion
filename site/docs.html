@@ -136,8 +136,8 @@
           <h2>LLM review</h2>
           <p>
             LLM configs use an OpenAI-compatible chat completions contract with base URL, API key, model, timeout,
-            and prompt resource. The model response must be JSON with <code>allow</code> and <code>reason</code>.
-            Invalid JSON and request errors fail closed.
+            and prompt resource. The model response must be JSON with <code>allow</code>; <code>reason</code>
+            may be omitted for allowed commands and should be included for denied commands. Invalid JSON and request errors fail closed.
           </p>
         </section>
 
@@ -156,7 +156,7 @@
             The current release publishes cross-platform server archives and standalone agent binaries. This version
             intentionally does not publish full packages.
           </p>
-          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.20-bastion">Open v0.1.20-bastion</a>
+          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion">Open v0.1.21-bastion</a>
         </section>
       </article>
     </main>

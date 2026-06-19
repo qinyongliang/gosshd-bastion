@@ -159,15 +159,15 @@ $ErrorActionPreference = "Stop"
 $isInstall = $Install
 $tmp = Join-Path $env:TEMP "gosshd-agent.exe"
 $url = "%s/download/agent/windows/amd64"
+$server = "%s"
+$enrollmentToken = "%s"
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp
 $targetDir = Join-Path $env:ProgramData "gosshd"
 $target = Join-Path $targetDir "gosshd-agent.exe"
 if ($isInstall) {
   New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
   Copy-Item -Force $tmp $target
-  $quote = [char]34
-  $args = "--server $quote%s$quote --enrollment-token $quote%s$quote"
-  $binPath = "$quote$target$quote $args"
+  $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '"'
   $existing = Get-Service -Name "gosshd-agent" -ErrorAction SilentlyContinue
   if ($existing) {
     sc.exe stop gosshd-agent | Out-Null
@@ -180,6 +180,6 @@ if ($isInstall) {
   Get-Service gosshd-agent
   exit 0
 }
-& $tmp --server "%s" --enrollment-token %q
-`, base, base, token, base, token)
+& $tmp --server $server --enrollment-token $enrollmentToken
+`, base, base, token)
 }

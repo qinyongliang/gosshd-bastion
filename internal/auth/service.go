@@ -74,6 +74,13 @@ func (s *Service) ResetPassword(ctx context.Context, userID, password string) er
 	return s.repo.UpdateUserPasswordHash(ctx, userID, hash)
 }
 
+func (s *Service) ChangePassword(ctx context.Context, user store.User, currentPassword, newPassword string) error {
+	if err := bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(currentPassword)); err != nil {
+		return ErrInvalidCredentials
+	}
+	return s.ResetPassword(ctx, user.ID, newPassword)
+}
+
 func (s *Service) UserForSession(ctx context.Context, token string) (store.User, error) {
 	session, err := s.repo.GetSessionByTokenHash(ctx, tokenHash(token))
 	if err != nil {

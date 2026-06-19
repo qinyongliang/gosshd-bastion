@@ -16,7 +16,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-func (a *App) handleBastionSSHConn(conn *gossh.ServerConn, chans <-chan gossh.NewChannel, reqs <-chan *gossh.Request, userID string) {
+func (a *App) handleBastionSSHConn(conn *gossh.ServerConn, chans <-chan gossh.NewChannel, reqs <-chan *gossh.Request, userID, publicKeyFingerprint string) {
 	go gossh.DiscardRequests(reqs)
 	alias := conn.User()
 	target, err := a.resolveBastionTarget(context.Background(), userID, alias)
@@ -31,7 +31,7 @@ func (a *App) handleBastionSSHConn(conn *gossh.ServerConn, chans <-chan gossh.Ne
 			_ = ch.Reject(gossh.UnknownChannelType, "unsupported channel type")
 			continue
 		}
-		go a.handleBastionSession(userID, target, ch)
+		go a.handleBastionSession(userID, publicKeyFingerprint, target, ch)
 	}
 }
 
@@ -82,7 +82,7 @@ func (a *App) resolveBastionTarget(ctx context.Context, userID, alias string) (s
 	return matches[0], nil
 }
 
-func (a *App) handleBastionSession(userID string, target store.SSHTarget, newCh gossh.NewChannel) {
+func (a *App) handleBastionSession(userID, publicKeyFingerprint string, target store.SSHTarget, newCh gossh.NewChannel) {
 	ch, reqs, err := newCh.Accept()
 	if err != nil {
 		return
@@ -103,7 +103,7 @@ func (a *App) handleBastionSession(userID string, target store.SSHTarget, newCh 
 			}
 			started = true
 			req.Reply(true, nil)
-			a.handleBastionExec(userID, target, ch, payload.Command)
+			a.handleBastionExec(userID, publicKeyFingerprint, target, ch, payload.Command)
 			return
 		default:
 			req.Reply(false, nil)
@@ -111,7 +111,7 @@ func (a *App) handleBastionSession(userID string, target store.SSHTarget, newCh 
 	}
 }
 
-func (a *App) handleBastionExec(userID string, target store.SSHTarget, ch gossh.Channel, command string) {
+func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target store.SSHTarget, ch gossh.Channel, command string) {
 	ctx := context.Background()
 	decision, err := a.bastion.EvaluateCommand(ctx, userID, target.ID, command)
 	if err != nil {
@@ -123,32 +123,34 @@ func (a *App) handleBastionExec(userID string, target store.SSHTarget, ch gossh.
 		_, _ = ch.Stderr().Write([]byte("command denied: " + decision.Reason + "\n"))
 		code := 126
 		_, _ = a.store.Repository().CreateCommandAuditLog(ctx, store.CreateCommandAuditLogParams{
-			UserID:         userID,
-			TargetID:       target.ID,
-			OrganizationID: organizationIDForTarget(target),
-			SessionID:      newAuditSessionID(),
-			Command:        command,
-			RequestType:    store.RequestExec,
-			PolicyDecision: store.DecisionDeny,
-			PolicyReason:   decision.Reason,
-			ExitCode:       &code,
-			RemoteAddress:  "",
+			UserID:               userID,
+			TargetID:             target.ID,
+			OrganizationID:       organizationIDForTarget(target),
+			PublicKeyFingerprint: publicKeyFingerprint,
+			SessionID:            newAuditSessionID(),
+			Command:              command,
+			RequestType:          store.RequestExec,
+			PolicyDecision:       store.DecisionDeny,
+			PolicyReason:         decision.Reason,
+			ExitCode:             &code,
+			RemoteAddress:        "",
 		})
 		sendExit(ch, code)
 		return
 	}
 	exitCode := a.execOnTarget(ctx, target, ch, command)
 	_, _ = a.store.Repository().CreateCommandAuditLog(ctx, store.CreateCommandAuditLogParams{
-		UserID:         userID,
-		TargetID:       target.ID,
-		OrganizationID: organizationIDForTarget(target),
-		SessionID:      newAuditSessionID(),
-		Command:        command,
-		RequestType:    store.RequestExec,
-		PolicyDecision: decision.Action,
-		PolicyReason:   decision.Reason,
-		ExitCode:       &exitCode,
-		RemoteAddress:  "",
+		UserID:               userID,
+		TargetID:             target.ID,
+		OrganizationID:       organizationIDForTarget(target),
+		PublicKeyFingerprint: publicKeyFingerprint,
+		SessionID:            newAuditSessionID(),
+		Command:              command,
+		RequestType:          store.RequestExec,
+		PolicyDecision:       decision.Action,
+		PolicyReason:         decision.Reason,
+		ExitCode:             &exitCode,
+		RemoteAddress:        "",
 	})
 	sendExit(ch, exitCode)
 }

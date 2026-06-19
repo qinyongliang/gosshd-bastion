@@ -1,11 +1,13 @@
-import { allTargetTags, filteredTargets, state } from "../state.js";
+import { allTargetTagDetails, filteredTargets, state, tagColorForName } from "../state.js";
 import { emptyState, escapeHTML, icon, raw } from "../components/html.js";
 import { cloudTable, detailList, drawer, modal, resourceHeader, resourceToolbar, rowButton, sectionBlock, selectionSummary, stepper, tabs } from "../components/management.js";
+import { tagInput } from "../components/tag-input.js";
 import { optionText, t } from "../i18n.js";
+import { TAG_COLORS, tagChip, tagColorClass, tagFilterButton } from "../tag-colors.js";
 import { enrollmentDrawer } from "./agents.js";
 
 export function renderTargets() {
-  const tags = allTargetTags();
+  const tags = allTargetTagDetails();
   const targets = filteredTargets();
   return raw(`
     ${resourceHeader({
@@ -23,9 +25,7 @@ export function renderTargets() {
       searchAction: "set-target-filter",
       query: state.targetQuery,
       searchPlaceholder: t("targets.searchPlaceholder"),
-      chips: tags.map((tag) => `
-        <button type="button" data-click="toggle-target-tag" data-tag="${escapeHTML(tag)}" class="${state.targetTagFilters.includes(tag) ? "active" : ""}">${escapeHTML(tag)}</button>
-      `).join(""),
+      chips: tags.map((tag) => tagFilterButton(tag.name, tag.color, state.targetTagFilters.includes(tag.name))).join(""),
       actions: `
         ${selectionSummary(0)}
         <button type="button" data-click="clear-target-filters">${escapeHTML(t("targets.clearFilters"))}</button>
@@ -54,10 +54,25 @@ function targetTable(targets) {
     `<span>${escapeHTML(`${target.remote_username}@${target.host}:${target.port}`)}</span>`,
     `<span>${escapeHTML(optionText("authTypes", target.auth_type))}</span>`,
     targetTags(target),
-    `<div class="row-actions">${rowButton(t("targets.openDetails"), "open-target-detail", { "target-id": target.id })}</div>`,
+    `<div class="row-actions">
+      ${copySSHCommandButton(target)}
+      ${rowButton(t("targets.openDetails"), "open-target-detail", { "target-id": target.id })}
+    </div>`,
   ]), {
     empty: emptyState(t("targets.emptyTitle"), t("targets.emptyBody")).__raw,
   });
+}
+
+function copySSHCommandButton(target) {
+  const command = sshCommand(target);
+  return `<button type="button" class="small" data-click="copy" data-value="${escapeHTML(command)}" aria-label="${escapeHTML(t("targets.copySSHCommand"))}">${icon("copy").__raw}${escapeHTML(t("targets.copySSHCommand"))}</button>`;
+}
+
+function sshCommand(target) {
+  const host = state.runtime?.ssh_host || window.location.hostname || "public-ip";
+  const port = Number(state.runtime?.ssh_port || 22);
+  const portArg = port && port !== 22 ? ` -p ${port}` : "";
+  return `ssh${portArg} ${target.alias}@${host}`;
 }
 
 function createTargetModal() {
@@ -132,7 +147,7 @@ function identityStep(draft) {
       <div class="form-grid">
         <label class="field"><span>${escapeHTML(t("targets.serviceName"))}</span><input name="name" value="${escapeHTML(draft.name)}" autocomplete="off" placeholder="${escapeHTML(t("targets.serviceNamePlaceholder"))}" required /></label>
         <label class="field"><span>${escapeHTML(t("targets.alias"))}</span><input name="alias" value="${escapeHTML(draft.alias)}" autocomplete="off" placeholder="${escapeHTML(t("targets.aliasPlaceholder"))}" required /></label>
-        <label class="field span-two"><span>${escapeHTML(t("targets.tags"))}</span><input name="tags" value="${escapeHTML(draft.tags)}" autocomplete="off" placeholder="${escapeHTML(t("targets.tagsPlaceholder"))}" /></label>
+        ${tagInput({ label: t("targets.tags"), value: draft.tags, placeholder: t("targets.tagsPlaceholder"), className: "span-two" }).__raw}
       </div>
     </section>
   `;
@@ -215,9 +230,10 @@ function authOptions(selected) {
   return ["password", "private_key"].map((value) => `<option value="${escapeHTML(value)}" ${selected === value ? "selected" : ""}>${escapeHTML(optionText("authTypes", value))}</option>`).join("");
 }
 
-function proxyOptions(selected) {
+function proxyOptions(selected, excludeID = "") {
   const options = [`<option value="">${escapeHTML(t("targets.noProxy"))}</option>`];
   for (const target of state.targets) {
+    if (target.id === excludeID) continue;
     options.push(`<option value="${escapeHTML(target.id)}" ${selected === target.id ? "selected" : ""}>${escapeHTML(target.name || target.alias)} (${escapeHTML(target.alias)})</option>`);
   }
   return options.join("");
@@ -251,14 +267,29 @@ function targetDrawer() {
         [t("targets.tableAuth"), escapeHTML(optionText("authTypes", target.auth_type))],
         [t("targets.agentID"), escapeHTML(target.agent_id || "-")],
       ]).__raw).__raw}
-      ${sectionBlock(t("targets.editTitle"), t("targets.detailSub"), `
+      ${sectionBlock(t("targets.editTitle"), t("targets.editSub"), `
         <form data-action="rename-target" data-target-id="${escapeHTML(target.id)}" class="stack">
-          <label class="field"><span>${escapeHTML(t("targets.name"))}</span><input name="name" value="${escapeHTML(target.name || "")}" placeholder="${escapeHTML(t("targets.namePlaceholder"))}" /></label>
-          <label class="field"><span>${escapeHTML(t("targets.aliasShort"))}</span><input name="alias" value="${escapeHTML(target.alias)}" placeholder="${escapeHTML(t("targets.aliasShortPlaceholder"))}" /></label>
-          <label class="field"><span>${escapeHTML(t("targets.tagsShort"))}</span><input name="tags" value="${escapeHTML((target.tags || []).join(", "))}" placeholder="${escapeHTML(t("targets.tagsShortPlaceholder"))}" /></label>
+          <div class="form-grid">
+            <label class="field"><span>${escapeHTML(t("targets.name"))}</span><input name="name" value="${escapeHTML(target.name || "")}" placeholder="${escapeHTML(t("targets.namePlaceholder"))}" /></label>
+            <label class="field"><span>${escapeHTML(t("targets.aliasShort"))}</span><input name="alias" value="${escapeHTML(target.alias)}" placeholder="${escapeHTML(t("targets.aliasShortPlaceholder"))}" /></label>
+            ${tagInput({ label: t("targets.tagsShort"), value: target.tags || [], placeholder: t("targets.tagsShortPlaceholder"), className: "span-two" }).__raw}
+          </div>
+          <div class="form-grid">
+            <label class="field span-two"><span>${escapeHTML(t("targets.host"))}</span><input name="host" value="${escapeHTML(target.host)}" autocomplete="off" placeholder="${escapeHTML(t("targets.hostPlaceholder"))}" required /></label>
+            <label class="field"><span>${escapeHTML(t("targets.port"))}</span><input name="port" type="number" min="1" max="65535" value="${escapeHTML(target.port)}" required /></label>
+            <label class="field"><span>${escapeHTML(t("targets.remoteUsername"))}</span><input name="remote_username" value="${escapeHTML(target.remote_username)}" autocomplete="off" placeholder="${escapeHTML(t("targets.remoteUsernamePlaceholder"))}" required /></label>
+            <label class="field"><span>${escapeHTML(t("targets.authType"))}</span><select name="auth_type">${authOptions(target.auth_type)}</select></label>
+            <label class="field span-two"><span>${escapeHTML(t("targets.secret"))}</span><input name="secret" autocomplete="off" placeholder="${escapeHTML(t("targets.secretKeepPlaceholder"))}" /></label>
+          </div>
+          <details class="advanced-panel">
+            <summary>${escapeHTML(t("targets.advancedProxy"))}</summary>
+            <p>${escapeHTML(t("targets.advancedProxySub"))}</p>
+            <label class="field"><span>${escapeHTML(t("targets.proxyTarget"))}</span><select name="proxy_target_id">${proxyOptions(target.proxy_target_id, target.id)}</select></label>
+          </details>
           <button type="submit" class="primary">${escapeHTML(t("common.save"))}</button>
         </form>
       `).__raw}
+      ${sectionBlock(t("targets.tagColorTitle"), t("targets.tagColorSub"), targetTagColorEditor(target)).__raw}
     `,
   });
 }
@@ -266,5 +297,28 @@ function targetDrawer() {
 function targetTags(target) {
   const tags = target.tags || [];
   if (!tags.length) return `<span class="muted">-</span>`;
-  return `<div class="tag-row">${tags.map((tag) => `<span>${escapeHTML(tag)}</span>`).join("")}</div>`;
+  return `<div class="tag-row">${tags.map((tag) => tagChip(tag, targetTagColor(target, tag))).join("")}</div>`;
+}
+
+function targetTagColorEditor(target) {
+  const tags = target.tags || [];
+  if (!tags.length) return `<p class="muted">${escapeHTML(t("targets.noTagsForColor"))}</p>`;
+  return `<div class="tag-color-editor">${tags.map((tag) => {
+    const current = targetTagColor(target, tag);
+    return `
+      <section class="tag-color-row">
+        ${tagChip(tag, current)}
+        <div class="tag-color-swatches">${TAG_COLORS.map((color) => tagColorSwatch(tag, color, current)).join("")}</div>
+      </section>
+    `;
+  }).join("")}</div>`;
+}
+
+function tagColorSwatch(tag, color, current) {
+  const label = `${t("targets.setTagColor")} ${tag} ${optionText("tagColors", color)}`;
+  return `<button type="button" class="tag-swatch ${tagColorClass(color, tag)} ${current === color ? "active" : ""}" data-click="set-target-tag-color" data-tag="${escapeHTML(tag)}" data-color="${escapeHTML(color)}" aria-label="${escapeHTML(label)}" title="${escapeHTML(label)}"><i></i></button>`;
+}
+
+function targetTagColor(target, tag) {
+  return target.tag_colors?.[tag] || tagColorForName(tag);
 }
