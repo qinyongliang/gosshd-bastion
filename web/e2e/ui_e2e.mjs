@@ -42,8 +42,23 @@ try {
   await assertStatus(page, "/unknown-route", 404);
 
   await page.goto(`${baseURL}/`, { waitUntil: "networkidle" });
-  await page.evaluate(() => localStorage.setItem("gosshd_locale", "en"));
+  await page.getByRole("tab", { name: "登录" }).waitFor();
+  if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== "light") {
+    throw new Error("default theme should be light");
+  }
+  await page.getByRole("button", { name: "黑" }).click();
+  if ((await page.evaluate(() => localStorage.getItem("gosshd_theme"))) !== "dark") {
+    throw new Error("theme was not persisted after switching to dark");
+  }
   await page.reload({ waitUntil: "networkidle" });
+  if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== "dark") {
+    throw new Error("dark theme was not restored after reload");
+  }
+  await page.getByRole("button", { name: "白" }).click();
+  if ((await page.evaluate(() => localStorage.getItem("gosshd_theme"))) !== "light") {
+    throw new Error("theme was not persisted after switching back to light");
+  }
+  await page.getByRole("button", { name: "EN" }).click();
   await expectFormCount(page, "login", 1);
   await expectFormCount(page, "register", 0);
   await page.getByRole("tab", { name: "Register" }).click();

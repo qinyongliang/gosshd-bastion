@@ -1,6 +1,6 @@
 import { activeOrg, state } from "../state.js";
 import { optionText, t, tf } from "../i18n.js";
-import { badge, escapeHTML, hudLine, icon, languageSwitch, raw, statusLine } from "./html.js";
+import { badge, escapeHTML, hudLine, icon, languageSwitch, raw, statusLine, themeSwitch } from "./html.js";
 
 const navItems = [
   ["dashboard", "nav.dashboard", "dashboard"],
@@ -45,6 +45,7 @@ export function renderShell(content) {
             <span class="context-line">${escapeHTML(org?.name || t("shell.noOrganization"))}</span>
           </div>
           <div class="top-actions">
+            ${themeSwitch(state.theme).__raw}
             ${languageSwitch(state.locale).__raw}
             ${org?.is_personal ? badge(t("common.personal"), "info").__raw : badge(tf("shell.shared", { role: optionText("roles", org?.role || "member") }), "success").__raw}
             ${!org?.is_personal ? `<button data-click="invite">${escapeHTML(t("shell.invite"))}</button><button data-click="leave-org" class="danger">${escapeHTML(t("shell.leave"))}</button>` : ""}

@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { formData } from "./components/forms.js";
 import { renderShell } from "./components/layout.js";
 import { applyDocumentLocale, setLocale, t } from "./i18n.js";
+import { applyDocumentTheme, setTheme } from "./theme.js";
 import { routeFromLocation, bindRouter, navigate } from "./router.js";
 import {
   activeOrg,
@@ -29,6 +30,7 @@ boot();
 
 async function boot() {
   applyDocumentLocale();
+  applyDocumentTheme();
   setRoute(routeFromLocation());
   bindRouter(render);
   bindEvents();
@@ -169,6 +171,11 @@ function bindEvents() {
       }
       if (action === "set-locale") {
         state.locale = setLocale(button.dataset.locale);
+        state.notice = "";
+        state.error = "";
+      }
+      if (action === "set-theme") {
+        state.theme = setTheme(button.dataset.theme);
         state.notice = "";
         state.error = "";
       }
