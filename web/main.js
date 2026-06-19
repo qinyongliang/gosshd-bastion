@@ -107,6 +107,11 @@ function bindEvents() {
       if (action === "navigate") {
         navigate(button.dataset.route);
       }
+      if (action === "auth-mode") {
+        state.authMode = button.dataset.mode === "register" ? "register" : "login";
+        state.error = "";
+        state.notice = "";
+      }
       if (action === "logout") {
         await api.logout();
         Object.assign(state, { user: null, orgs: [], activeOrgID: "", members: [], selectedAdminOrgID: "", adminMembers: [] });

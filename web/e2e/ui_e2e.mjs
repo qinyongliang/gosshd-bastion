@@ -29,6 +29,14 @@ try {
   await assertStatus(page, "/unknown-route", 404);
 
   await page.goto(`${baseURL}/`, { waitUntil: "networkidle" });
+  await expectFormCount(page, "login", 1);
+  await expectFormCount(page, "register", 0);
+  await page.getByRole("tab", { name: "Register" }).click();
+  await expectFormCount(page, "register", 1);
+  await expectFormCount(page, "login", 0);
+  await page.getByRole("tab", { name: "Login" }).click();
+  await expectFormCount(page, "login", 1);
+  await expectFormCount(page, "register", 0);
   const loginForm = page.locator('form[data-action="login"]');
   await loginForm.locator('input[name="email"]').fill("admin");
   await loginForm.locator('input[name="password"]').fill("admin-pass");
@@ -97,6 +105,11 @@ async function assertStatus(page, route, expected) {
 
 async function expectText(page, text) {
   await page.getByText(text, { exact: false }).first().waitFor();
+}
+
+async function expectFormCount(page, action, expected) {
+  const count = await page.locator(`form[data-action="${action}"]`).count();
+  if (count !== expected) throw new Error(`${action} form count mismatch: got ${count} want ${expected}`);
 }
 
 async function waitForHeading(page, name) {

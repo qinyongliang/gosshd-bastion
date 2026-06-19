@@ -204,12 +204,24 @@ code {
   display: flex;
   gap: 8px;
   margin-bottom: 18px;
-  color: var(--muted);
-  font-weight: 700;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.58);
 }
 
-.tabs span:first-child {
-  color: var(--ink);
+.tabs button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 760;
+}
+
+.tabs button.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 10px 24px rgba(23, 107, 135, 0.16);
 }
 
 .sso-zone {
@@ -230,12 +242,6 @@ code {
 .stack {
   display: grid;
   gap: 12px;
-}
-
-.stack.compact {
-  margin-top: 22px;
-  padding-top: 22px;
-  border-top: 1px solid var(--line);
 }
 
 .console {

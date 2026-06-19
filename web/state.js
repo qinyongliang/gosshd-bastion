@@ -18,6 +18,7 @@ export const state = {
   adminMembers: [],
   selectedAdminOrgID: "",
   targetTagFilters: [],
+  authMode: "login",
   notice: "",
   error: "",
   enrollment: null,

@@ -3,6 +3,8 @@ import { html, icon, raw, statusLine } from "../components/html.js";
 
 export function renderAuth(state) {
   const dingTalkEnabled = Boolean(state.providers?.dingtalk?.enabled);
+  const mode = state.authMode === "register" ? "register" : "login";
+  const isRegister = mode === "register";
   return html`
     <section class="auth-screen">
       <div class="brand-panel">
@@ -11,18 +13,24 @@ export function renderAuth(state) {
         <p>Organizations, user groups, SSH aliases, agent enrollment, command security groups, audit, and MCP automation live together.</p>
       </div>
       <div class="auth-card">
-        <div class="tabs"><span>Register</span><span>Login</span></div>
-        <form data-action="register" class="stack">
-          ${field("Email", "email", { type: "email", required: true, autocomplete: "email" })}
-          ${field("Display name", "display_name", { required: true })}
-          ${field("Password", "password", { type: "password", required: true, autocomplete: "new-password" })}
-          <button class="primary" type="submit">${icon("spark")}Create account</button>
-        </form>
-        <form data-action="login" class="stack compact">
-          ${field("Email", "email", { type: "text", required: true, autocomplete: "username" })}
-          ${field("Password", "password", { type: "password", required: true, autocomplete: "current-password" })}
-          <button type="submit">${icon("key")}Sign in</button>
-        </form>
+        <div class="tabs" role="tablist" aria-label="Authentication mode">
+          <button type="button" role="tab" aria-selected="${isRegister}" class="${isRegister ? "active" : ""}" data-click="auth-mode" data-mode="register">Register</button>
+          <button type="button" role="tab" aria-selected="${!isRegister}" class="${!isRegister ? "active" : ""}" data-click="auth-mode" data-mode="login">Login</button>
+        </div>
+        ${
+          isRegister
+            ? raw(`<form data-action="register" class="stack">
+                ${field("Email", "email", { type: "email", required: true, autocomplete: "email" }).__raw}
+                ${field("Display name", "display_name", { required: true }).__raw}
+                ${field("Password", "password", { type: "password", required: true, autocomplete: "new-password" }).__raw}
+                <button class="primary" type="submit">${icon("spark").__raw}Create account</button>
+              </form>`)
+            : raw(`<form data-action="login" class="stack">
+                ${field("Email", "email", { type: "text", required: true, autocomplete: "username" }).__raw}
+                ${field("Password", "password", { type: "password", required: true, autocomplete: "current-password" }).__raw}
+                <button class="primary" type="submit">${icon("key").__raw}Sign in</button>
+              </form>`)
+        }
         <div class="sso-zone">
           <span>DingTalk login</span>
           ${
