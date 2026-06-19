@@ -22,6 +22,7 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		"/state.js",
 		"/router.js",
 		"/components/layout.js",
+		"/components/management.js",
 		"/views/auth.js",
 		"/views/agents.js",
 		"/views/system-admin.js",
@@ -55,7 +56,7 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		if path == "/views/auth.js" && !strings.Contains(body, "auth.dingTalk") {
 			t.Fatalf("auth view did not include DingTalk login action")
 		}
-		if path == "/views/system-admin.js" && (!strings.Contains(body, "admin.globalTitle") || !strings.Contains(body, "admin.accountTitle") || !strings.Contains(body, "admin.orgTitle")) {
+		if path == "/views/system-admin.js" && (!strings.Contains(body, "admin.identityTitle") || !strings.Contains(body, "admin.accountTitle") || !strings.Contains(body, "admin.orgTitle")) {
 			t.Fatalf("system admin view did not include settings/users/org management")
 		}
 		if path == "/views/agents.js" && (!strings.Contains(body, "agents.linuxService") || !strings.Contains(body, "agents.windowsService")) {

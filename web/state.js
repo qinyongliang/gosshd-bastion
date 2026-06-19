@@ -20,6 +20,17 @@ export const state = {
   adminMembers: [],
   selectedAdminOrgID: "",
   targetTagFilters: [],
+  targetQuery: "",
+  policyQuery: "",
+  adminUserQuery: "",
+  ui: {
+    modal: "",
+    drawer: "",
+    targetID: "",
+    policyID: "",
+    adminOrgID: "",
+    agentPlatform: "linux",
+  },
   locale: getLocale(),
   authMode: "login",
   notice: "",
@@ -71,6 +82,38 @@ export function allTargetTags() {
 }
 
 export function filteredTargets() {
-  if (!state.targetTagFilters.length) return state.targets;
-  return state.targets.filter((target) => state.targetTagFilters.every((tag) => (target.tags || []).includes(tag)));
+  const query = state.targetQuery.trim().toLowerCase();
+  return state.targets.filter((target) => {
+    const tags = target.tags || [];
+    const matchesTags = !state.targetTagFilters.length || state.targetTagFilters.every((tag) => tags.includes(tag));
+    const haystack = [target.name, target.alias, target.host, target.remote_username, target.target_type, target.auth_type, tags.join(" ")]
+      .join(" ")
+      .toLowerCase();
+    return matchesTags && (!query || haystack.includes(query));
+  });
+}
+
+export function filteredPolicies() {
+  const query = state.policyQuery.trim().toLowerCase();
+  if (!query) return state.policies;
+  return state.policies.filter((policy) => {
+    const haystack = [
+      policy.name,
+      policy.default_action,
+      (policy.target_tags || []).join(" "),
+      (policy.rules || []).map((rule) => `${rule.rule_type} ${rule.pattern_type} ${rule.pattern}`).join(" "),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+export function filteredAdminUsers() {
+  const query = state.adminUserQuery.trim().toLowerCase();
+  if (!query) return state.adminUsers;
+  return state.adminUsers.filter((user) => [user.email, user.display_name, user.auth_provider]
+    .join(" ")
+    .toLowerCase()
+    .includes(query));
 }
