@@ -75,36 +75,47 @@ try {
   await page.getByRole("button", { name: "UI Ops" }).click();
 
   await page.getByRole("button", { name: "SSH services" }).click();
-  await page.getByLabel("Service name").fill("UI Service");
-  await page.getByLabel("Target alias").fill("ui-test2");
-  await page.getByLabel("Target tags").fill("测试环境, ui");
-  await page.getByLabel("Target host").fill("127.0.0.1");
-  await page.getByLabel("Target port").fill("22");
-  await page.getByLabel("Remote username").fill("root");
-  await page.getByRole("button", { name: "Add service" }).click();
+  await page.getByRole("button", { name: "Add service" }).first().click();
+  const targetForm = page.locator('form[data-action="create-target"]');
+  await targetForm.getByLabel("Service name").fill("UI Service");
+  await targetForm.getByLabel("Target alias").fill("ui-test2");
+  await targetForm.getByLabel("Target tags").fill("测试环境, ui");
+  await targetForm.getByLabel("Target host").fill("127.0.0.1");
+  await targetForm.getByLabel("Target port").fill("22");
+  await targetForm.getByLabel("Remote username").fill("root");
+  await targetForm.getByRole("button", { name: "Add service" }).click();
   await expectText(page, "ui-test2");
   await expectText(page, "测试环境");
+  await page.getByRole("button", { name: "View details" }).click();
+  await expectText(page, "Route preview");
+  await closeDrawer(page);
 
   await page.getByRole("button", { name: "Agent SSH" }).click();
-  await page.getByLabel("Agent service alias").fill("ui-agent");
-  await page.getByLabel("Agent default host").fill("127.0.0.1");
-  await page.getByLabel("Agent default SSH port").fill("22");
-  await page.getByRole("button", { name: "Create enrollment" }).click();
+  await page.getByRole("button", { name: "New enrollment" }).click();
+  const agentForm = page.locator('form[data-action="create-agent"]');
+  await agentForm.getByLabel("Agent service alias").fill("ui-agent");
+  await agentForm.getByLabel("Agent default host").fill("127.0.0.1");
+  await agentForm.getByLabel("Agent default SSH port").fill("22");
+  await agentForm.getByRole("button", { name: "Create enrollment" }).click();
   await expectText(page, "systemctl");
+  await page.getByRole("button", { name: "Windows" }).click();
   await expectText(page, "sc.exe");
+  await closeDrawer(page);
 
   await page.getByRole("button", { name: "System admin" }).click();
   await page.getByRole("heading", { name: "System administration" }).waitFor();
-  await expectText(page, "Global settings");
+  await expectText(page, "Identity providers");
   await expectText(page, "Account management");
   await expectText(page, "Organization management");
-  await page.locator('form[data-action="admin-save-ldap"] input[name="server_url"]').fill("ldap://ui.example");
-  await page.locator('form[data-action="admin-save-ldap"] input[name="bind_dn"]').fill("cn=reader,dc=ui,dc=example");
-  await page.locator('form[data-action="admin-save-ldap"] input[name="base_dn"]').fill("dc=ui,dc=example");
-  await page.locator('form[data-action="admin-save-ldap"] input[name="user_filter"]').fill("(uid={username})");
-  await page.locator('form[data-action="admin-save-ldap"] input[name="email_attr"]').fill("mail");
-  await page.locator('form[data-action="admin-save-ldap"] input[name="name_attr"]').fill("cn");
-  await page.locator('form[data-action="admin-save-ldap"]').getByRole("button", { name: "Save LDAP settings" }).click();
+  await page.getByRole("button", { name: "Configure LDAP" }).first().click();
+  const ldapForm = page.locator('form[data-action="admin-save-ldap"]');
+  await ldapForm.locator('input[name="server_url"]').fill("ldap://ui.example");
+  await ldapForm.locator('input[name="bind_dn"]').fill("cn=reader,dc=ui,dc=example");
+  await ldapForm.locator('input[name="base_dn"]').fill("dc=ui,dc=example");
+  await ldapForm.locator('input[name="user_filter"]').fill("(uid={username})");
+  await ldapForm.locator('input[name="email_attr"]').fill("mail");
+  await ldapForm.locator('input[name="name_attr"]').fill("cn");
+  await ldapForm.getByRole("button", { name: "Save LDAP settings" }).click();
   await expectText(page, "Saved");
 
   await page.getByRole("button", { name: "Members", exact: true }).click();
@@ -149,4 +160,8 @@ async function waitForHeading(page, name) {
     console.error(await page.locator("body").innerText().catch(() => "<body unavailable>"));
     throw error;
   }
+}
+
+async function closeDrawer(page) {
+  await page.locator(".drawer .icon-button").click();
 }

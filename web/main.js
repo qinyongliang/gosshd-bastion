@@ -42,6 +42,21 @@ function bindEvents() {
     const action = form.dataset.action;
     const data = formData(form);
     await run(async () => {
+      if (action === "set-target-filter") {
+        state.targetQuery = data.query || "";
+        render();
+        return;
+      }
+      if (action === "set-policy-filter") {
+        state.policyQuery = data.query || "";
+        render();
+        return;
+      }
+      if (action === "set-admin-user-filter") {
+        state.adminUserQuery = data.query || "";
+        render();
+        return;
+      }
       if (action === "register") await api.register(data);
       if (action === "login") await api.login(data);
       if (action === "register" || action === "login") {
@@ -70,7 +85,11 @@ function bindEvents() {
       if (action === "transfer-org-owner") await api.transferOrgOwner(activeOrg().id, data.user_id);
       if (action === "create-target") await createTarget(data);
       if (action === "rename-target") await renameTarget(form.dataset.targetId, data);
-      if (action === "create-agent") state.enrollment = await api.enrollAgent({ ...ownerPayload(data), default_port: Number(data.default_port || 22) });
+      if (action === "create-agent") {
+        state.enrollment = await api.enrollAgent({ ...ownerPayload(data), default_port: Number(data.default_port || 22) });
+        state.ui.modal = "";
+        state.ui.drawer = "agent-enrollment";
+      }
       if (action === "create-llm") await api.createLLMConfig({ ...ownerPayload(data), timeout_seconds: Number(data.timeout_seconds || 10) });
       if (action === "create-prompt") await api.createPrompt(ownerPayload(data));
       if (action === "create-policy") await api.createPolicy(ownerPayload(data));
@@ -87,6 +106,8 @@ function bindEvents() {
       if (action === "admin-update-user") await api.updateAdminUser(form.dataset.userId, { is_system_admin: data.is_system_admin === "true" });
       if (action === "admin-select-org") {
         state.selectedAdminOrgID = data.org_id;
+        state.ui.adminOrgID = data.org_id;
+        state.ui.drawer = "admin-org";
         await refreshAdminMembers();
         render();
         return;
@@ -95,6 +116,8 @@ function bindEvents() {
       if (!["login", "register", "admin-select-org"].includes(action)) {
         form.reset();
       }
+      if (form.dataset.closeOverlay === "modal") state.ui.modal = "";
+      if (form.dataset.closeOverlay === "drawer") state.ui.drawer = "";
       state.notice = t("status.saved");
       await refreshData();
       render();
@@ -107,7 +130,37 @@ function bindEvents() {
     const action = button.dataset.click;
     await run(async () => {
       if (action === "navigate") {
+        state.ui.modal = "";
+        state.ui.drawer = "";
         navigate(button.dataset.route);
+      }
+      if (action === "open-modal") {
+        state.ui.modal = button.dataset.modal || "";
+        state.ui.drawer = "";
+      }
+      if (action === "close-overlays") {
+        state.ui.modal = "";
+        state.ui.drawer = "";
+      }
+      if (action === "open-target-detail") {
+        state.ui.targetID = button.dataset.targetId || "";
+        state.ui.drawer = "target-detail";
+        state.ui.modal = "";
+      }
+      if (action === "open-policy-detail") {
+        state.ui.policyID = button.dataset.policyId || "";
+        state.ui.drawer = "policy-detail";
+        state.ui.modal = "";
+      }
+      if (action === "open-admin-org") {
+        state.selectedAdminOrgID = button.dataset.orgId || "";
+        state.ui.adminOrgID = state.selectedAdminOrgID;
+        state.ui.drawer = "admin-org";
+        state.ui.modal = "";
+        await refreshAdminMembers();
+      }
+      if (action === "set-agent-platform") {
+        state.ui.agentPlatform = button.dataset.value || "linux";
       }
       if (action === "auth-mode") {
         state.authMode = button.dataset.mode === "register" ? "register" : "login";
@@ -121,10 +174,12 @@ function bindEvents() {
       }
       if (action === "logout") {
         await api.logout();
-        Object.assign(state, { user: null, orgs: [], activeOrgID: "", members: [], selectedAdminOrgID: "", adminMembers: [] });
+        Object.assign(state, { user: null, orgs: [], activeOrgID: "", members: [], selectedAdminOrgID: "", adminMembers: [], ui: { ...state.ui, modal: "", drawer: "" } });
       }
       if (action === "switch-org") {
         state.activeOrgID = button.dataset.id;
+        state.ui.modal = "";
+        state.ui.drawer = "";
         await refreshData();
       }
       if (action === "leave-org") {
@@ -161,6 +216,16 @@ function bindEvents() {
         state.targetTagFilters = state.targetTagFilters.includes(tag)
           ? state.targetTagFilters.filter((item) => item !== tag)
           : [...state.targetTagFilters, tag];
+      }
+      if (action === "clear-target-filters") {
+        state.targetQuery = "";
+        state.targetTagFilters = [];
+      }
+      if (action === "clear-policy-filter") {
+        state.policyQuery = "";
+      }
+      if (action === "clear-admin-user-filter") {
+        state.adminUserQuery = "";
       }
       render();
     });
