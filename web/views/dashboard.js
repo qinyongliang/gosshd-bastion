@@ -1,13 +1,13 @@
 import { activeOrg, state } from "../state.js";
 import { optionText, t } from "../i18n.js";
-import { badge, emptyState, escapeHTML, metric, orbitMap, panel, raw, streamList, table } from "../components/html.js";
+import { accessFlowMap, badge, emptyState, escapeHTML, metric, panel, raw, streamList, table } from "../components/html.js";
 
 export function renderDashboard() {
   const org = activeOrg();
   const latestAudit = state.audit.slice(0, 5);
   return raw(`
     <div class="signal-panel">
-      ${panel(t("dashboard.topologyTitle"), t("dashboard.topologySub"), orbitMap().__raw).__raw}
+      ${panel(t("dashboard.topologyTitle"), t("dashboard.topologySub"), accessFlowMap().__raw).__raw}
       ${panel(t("dashboard.streamTitle"), t("dashboard.streamSub"), streamList().__raw).__raw}
     </div>
     <div class="metrics">
