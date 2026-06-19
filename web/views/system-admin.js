@@ -21,7 +21,7 @@ export function renderSystemAdmin() {
     ${sectionBlock(t("admin.identityTitle"), t("admin.identitySub"), identityCards()).__raw}
     <div class="grid two">
       ${sectionBlock(t("admin.accountTitle"), t("admin.accountSub"), accountCard()).__raw}
-      ${sectionBlock(t("admin.orgTitle"), t("admin.orgSub"), orgTable()).__raw}
+      ${sectionBlock(t("admin.orgTitle"), t("admin.orgSub"), orgCard()).__raw}
     </div>
     ${adminModals()}
     ${orgDrawer().__raw || ""}
@@ -41,6 +41,21 @@ function accountCard() {
         <b>${escapeHTML(state.adminUsers.length)}</b>${escapeHTML(t("admin.usersTotal"))}
         <b>${escapeHTML(adminCount)}</b>${escapeHTML(t("admin.adminsTotal"))}
         <b>${escapeHTML(visibleCount)}</b>${escapeHTML(t("admin.visibleUsers"))}
+      </span>
+    </button>
+  `;
+}
+
+function orgCard() {
+  return `
+    <button type="button" class="admin-list-card" data-click="open-modal" data-modal="admin-orgs">
+      <span>
+        <strong>${escapeHTML(t("admin.openOrgList"))}</strong>
+        <small>${escapeHTML(t("admin.orgCardSub"))}</small>
+      </span>
+      <span class="admin-card-stats">
+        <b>${escapeHTML(state.adminOrgs.length)}</b>${escapeHTML(t("admin.orgsTotal"))}
+        <b>${escapeHTML(state.adminOrgs.filter((org) => org.slug).length)}</b>${escapeHTML(t("admin.sluggedOrgs"))}
       </span>
     </button>
   `;
@@ -83,7 +98,7 @@ function orgTable() {
 }
 
 function adminModals() {
-  return `${usersModal().__raw || ""}${dingtalkModal().__raw || ""}${ldapModal().__raw || ""}`;
+  return `${usersModal().__raw || ""}${orgsModal().__raw || ""}${dingtalkModal().__raw || ""}${ldapModal().__raw || ""}`;
 }
 
 function usersModal() {
@@ -100,6 +115,15 @@ function usersModal() {
       }).__raw}
       ${userTable()}
     `,
+  });
+}
+
+function orgsModal() {
+  return modal(state, "admin-orgs", {
+    title: t("admin.orgTitle"),
+    subtitle: t("admin.orgModalSub"),
+    size: "wide",
+    body: orgTable(),
   });
 }
 
