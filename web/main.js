@@ -106,6 +106,7 @@ function bindEvents() {
       if (action === "admin-save-dingtalk") await api.updateDingTalkSettings(adminDingTalkPayload(data));
       if (action === "admin-save-ldap") await api.updateLDAPSettings(adminLDAPPayload(data));
       if (action === "admin-update-user") await api.updateAdminUser(form.dataset.userId, { is_system_admin: data.is_system_admin === "true" });
+      if (action === "admin-reset-password") await api.resetAdminUserPassword(form.dataset.userId, { password: data.password });
       if (action === "admin-select-org") {
         state.selectedAdminOrgID = data.org_id;
         state.ui.adminOrgID = data.org_id;
@@ -161,6 +162,11 @@ function bindEvents() {
         state.ui.drawer = "admin-org";
         state.ui.modal = "";
         await refreshAdminMembers();
+      }
+      if (action === "open-admin-password-reset") {
+        state.ui.adminPasswordUserID = button.dataset.userId || "";
+        state.ui.modal = "admin-reset-password";
+        state.ui.drawer = "";
       }
       if (action === "set-agent-platform") {
         state.ui.agentPlatform = button.dataset.value || "linux";

@@ -66,6 +66,14 @@ func (s *Service) Login(ctx context.Context, email, password string) (store.User
 	return user, token, nil
 }
 
+func (s *Service) ResetPassword(ctx context.Context, userID, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdateUserPasswordHash(ctx, userID, hash)
+}
+
 func (s *Service) UserForSession(ctx context.Context, token string) (store.User, error) {
 	session, err := s.repo.GetSessionByTokenHash(ctx, tokenHash(token))
 	if err != nil {

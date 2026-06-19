@@ -81,10 +81,13 @@ function identityCards() {
 function userTable() {
   const users = filteredAdminUsers();
   if (!users.length) return emptyState(t("admin.noUsers"), t("admin.noUsersBody")).__raw;
-  return cloudTable([t("admin.email"), t("admin.provider"), t("admin.systemAdmin")], users.map((user) => [
+  return cloudTable([t("admin.email"), t("admin.provider"), t("admin.systemAdmin"), t("management.operations")], users.map((user) => [
     `<strong>${escapeHTML(user.display_name || user.email)}</strong><small>${escapeHTML(user.email)}</small>`,
     escapeHTML(optionText("providers", user.auth_provider || "local")),
     `<form data-action="admin-update-user" data-user-id="${escapeHTML(user.id)}" class="row-form"><select name="is_system_admin" aria-label="${escapeHTML(t("admin.systemAdmin"))}"><option value="false" ${!user.is_system_admin ? "selected" : ""}>${escapeHTML(t("common.user"))}</option><option value="true" ${user.is_system_admin ? "selected" : ""}>${escapeHTML(t("common.admin"))}</option></select><button type="submit">${escapeHTML(t("common.save"))}</button></form>`,
+    user.auth_provider === "local"
+      ? rowButton(t("admin.resetPassword"), "open-admin-password-reset", { "user-id": user.id })
+      : `<span class="muted">${escapeHTML(t("admin.resetPasswordUnavailable"))}</span>`,
   ])).__raw;
 }
 
@@ -98,7 +101,7 @@ function orgTable() {
 }
 
 function adminModals() {
-  return `${usersModal().__raw || ""}${orgsModal().__raw || ""}${dingtalkModal().__raw || ""}${ldapModal().__raw || ""}`;
+  return `${usersModal().__raw || ""}${orgsModal().__raw || ""}${resetPasswordModal().__raw || ""}${dingtalkModal().__raw || ""}${ldapModal().__raw || ""}`;
 }
 
 function usersModal() {
@@ -124,6 +127,21 @@ function orgsModal() {
     subtitle: t("admin.orgModalSub"),
     size: "wide",
     body: orgTable(),
+  });
+}
+
+function resetPasswordModal() {
+  const user = state.adminUsers.find((item) => item.id === state.ui.adminPasswordUserID);
+  if (!user) return "";
+  return modal(state, "admin-reset-password", {
+    title: t("admin.resetPasswordModalTitle"),
+    subtitle: `${user.display_name || user.email} · ${user.email}`,
+    body: `
+      <form data-action="admin-reset-password" data-user-id="${escapeHTML(user.id)}" data-close-overlay="modal" class="modal-form">
+        <label class="field"><span>${escapeHTML(t("admin.newPassword"))}</span><input name="password" type="password" autocomplete="new-password" required placeholder="${escapeHTML(t("admin.newPasswordPlaceholder"))}" /></label>
+        <footer class="modal-actions"><button type="button" data-click="close-overlays">${escapeHTML(t("common.cancel"))}</button><button type="submit" class="primary">${escapeHTML(t("admin.saveNewPassword"))}</button></footer>
+      </form>
+    `,
   });
 }
 

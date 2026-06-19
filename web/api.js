@@ -51,6 +51,7 @@ export const api = {
   updateLDAPSettings: (body) => request("/api/admin/settings/ldap", put(body)),
   adminUsers: () => request("/api/admin/users"),
   updateAdminUser: (id, body) => request(`/api/admin/users/${id}`, patch(body)),
+  resetAdminUserPassword: (id, body) => request(`/api/admin/users/${id}/password`, put(body)),
   adminOrgs: () => request("/api/admin/orgs"),
   adminOrgMembers: (orgID) => request(`/api/admin/orgs/${orgID}/members`),
   adminUpdateOrgMember: (orgID, userID, body) => request(`/api/admin/orgs/${orgID}/members/${userID}`, patch(body)),

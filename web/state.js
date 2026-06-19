@@ -30,6 +30,7 @@ export const state = {
     targetID: "",
     policyID: "",
     adminOrgID: "",
+    adminPasswordUserID: "",
     agentPlatform: "linux",
   },
   locale: getLocale(),
