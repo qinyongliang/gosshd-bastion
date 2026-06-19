@@ -113,6 +113,11 @@ try {
   await agentForm.getByLabel("Agent default SSH port").fill("22");
   await agentForm.getByRole("button", { name: "Create enrollment" }).click();
   await expectText(page, "systemctl");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+  });
+  await page.locator(".command-box").first().getByRole("button", { name: /Copy/ }).click();
+  await expectText(page, "Copied");
   await page.getByRole("button", { name: "Windows" }).click();
   await expectText(page, "sc.exe");
   await closeDrawer(page);

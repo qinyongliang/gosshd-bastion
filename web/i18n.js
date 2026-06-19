@@ -63,6 +63,7 @@ const messages = {
     },
     status: {
       copied: "Copied",
+      copyUnavailable: "Copy is unavailable in this browser",
       saved: "Saved",
       signedIn: "Signed in",
     },
@@ -532,6 +533,7 @@ const messages = {
     },
     status: {
       copied: "已复制",
+      copyUnavailable: "当前浏览器不支持复制",
       saved: "已保存",
       signedIn: "已登录",
     },
