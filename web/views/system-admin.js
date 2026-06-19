@@ -1,7 +1,7 @@
 import { filteredAdminUsers, state } from "../state.js";
 import { emptyState, escapeHTML, raw } from "../components/html.js";
 import { selectOptions } from "../components/forms.js";
-import { cloudTable, drawer, modal, resourceHeader, resourceToolbar, rowButton, sectionBlock, selectionSummary } from "../components/management.js";
+import { cloudTable, drawer, modal, resourceHeader, resourceToolbar, rowButton, sectionBlock } from "../components/management.js";
 import { optionText, t } from "../i18n.js";
 
 export function renderSystemAdmin() {
@@ -19,19 +19,31 @@ export function renderSystemAdmin() {
       ],
     }).__raw}
     ${sectionBlock(t("admin.identityTitle"), t("admin.identitySub"), identityCards()).__raw}
-    ${resourceToolbar({
-      searchAction: "set-admin-user-filter",
-      query: state.adminUserQuery,
-      searchPlaceholder: t("admin.accountSearch"),
-      actions: `${selectionSummary(0)}<button type="button" data-click="clear-admin-user-filter">${escapeHTML(t("targets.clearFilters"))}</button>`,
-    }).__raw}
     <div class="grid two">
-      ${sectionBlock(t("admin.accountTitle"), t("admin.accountSub"), userTable()).__raw}
+      ${sectionBlock(t("admin.accountTitle"), t("admin.accountSub"), accountCard()).__raw}
       ${sectionBlock(t("admin.orgTitle"), t("admin.orgSub"), orgTable()).__raw}
     </div>
     ${adminModals()}
     ${orgDrawer().__raw || ""}
   `);
+}
+
+function accountCard() {
+  const adminCount = state.adminUsers.filter((user) => user.is_system_admin).length;
+  const visibleCount = filteredAdminUsers().length;
+  return `
+    <button type="button" class="admin-list-card" data-click="open-modal" data-modal="admin-users">
+      <span>
+        <strong>${escapeHTML(t("admin.openAccountList"))}</strong>
+        <small>${escapeHTML(t("admin.accountCardSub"))}</small>
+      </span>
+      <span class="admin-card-stats">
+        <b>${escapeHTML(state.adminUsers.length)}</b>${escapeHTML(t("admin.usersTotal"))}
+        <b>${escapeHTML(adminCount)}</b>${escapeHTML(t("admin.adminsTotal"))}
+        <b>${escapeHTML(visibleCount)}</b>${escapeHTML(t("admin.visibleUsers"))}
+      </span>
+    </button>
+  `;
 }
 
 function identityCards() {
@@ -71,7 +83,24 @@ function orgTable() {
 }
 
 function adminModals() {
-  return `${dingtalkModal().__raw || ""}${ldapModal().__raw || ""}`;
+  return `${usersModal().__raw || ""}${dingtalkModal().__raw || ""}${ldapModal().__raw || ""}`;
+}
+
+function usersModal() {
+  return modal(state, "admin-users", {
+    title: t("admin.accountTitle"),
+    subtitle: t("admin.accountModalSub"),
+    size: "wide",
+    body: `
+      ${resourceToolbar({
+        searchAction: "set-admin-user-filter",
+        query: state.adminUserQuery,
+        searchPlaceholder: t("admin.accountSearch"),
+        actions: `<button type="button" data-click="clear-admin-user-filter">${escapeHTML(t("targets.clearFilters"))}</button>`,
+      }).__raw}
+      ${userTable()}
+    `,
+  });
 }
 
 function dingtalkModal() {

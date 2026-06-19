@@ -1157,6 +1157,48 @@ tr:last-child td {
   color: var(--ink);
 }
 
+.admin-list-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 116px;
+  width: 100%;
+  padding: 16px;
+  text-align: left;
+  background:
+    linear-gradient(135deg, rgba(103, 232, 249, 0.14), rgba(114, 242, 166, 0.08)),
+    rgba(2, 6, 12, 0.42);
+}
+
+.admin-list-card > span:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-list-card strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.admin-list-card small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.admin-card-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  min-width: 150px;
+  color: var(--muted);
+}
+
+.admin-card-stats b {
+  color: var(--accent-2);
+  font-size: 18px;
+}
+
 .resource-guide,
 .section-block {
   display: grid;
@@ -1445,6 +1487,7 @@ html[data-theme="light"] .stat-pill,
 html[data-theme="light"] .identity-grid button,
 html[data-theme="light"] .guide-grid span,
 html[data-theme="light"] .ops-grid button,
+html[data-theme="light"] .admin-list-card,
 html[data-theme="light"] .toolbar-chips button,
 html[data-theme="light"] .toolbar-chips span,
 html[data-theme="light"] .selection-summary,
@@ -1579,6 +1622,12 @@ td small {
   .row-form,
   .action-grid {
     grid-template-columns: 1fr;
+    min-width: 0;
+  }
+  .admin-list-card {
+    grid-template-columns: 1fr;
+  }
+  .admin-card-stats {
     min-width: 0;
   }
 }
