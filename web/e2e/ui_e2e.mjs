@@ -83,6 +83,15 @@ try {
   await waitForHeading(page, "Control plane");
   await expectText(page, "System admin");
 
+  await page.getByRole("button", { name: "Public keys" }).click();
+  await page.getByRole("button", { name: "Add key" }).click();
+  await addPublicKey(page, "UI laptop", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDUTThKwa4NlLwH7sntZnYosUoFkNceEce0kEwbE9nNm ui-key-1");
+  await page.getByRole("button", { name: "Add key" }).click();
+  await addPublicKey(page, "UI workstation", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID+3+em5yQ+epdGqgc0iFaY0LT4d+6m3pqUva06UKvlw ui-key-2");
+  await expectText(page, "UI laptop");
+  await expectText(page, "UI workstation");
+  await expectText(page, "2");
+
   await page.getByRole("button", { name: "Organizations" }).click();
   await page.getByLabel("Organization name").fill("UI Ops");
   await page.getByLabel("Organization slug").fill(`ui-ops-${Date.now()}`);
@@ -134,6 +143,10 @@ try {
   await expectModalCount(page, 1);
   await page.locator(".modal .icon-button").click();
   await expectModalCount(page, 0);
+
+  await page.getByRole("button", { name: "Audit" }).click();
+  await expectText(page, "No audit rows");
+  await expectStaticEmptyState(page);
 
   await page.getByRole("button", { name: "System admin" }).click();
   await page.getByRole("heading", { name: "System administration" }).waitFor();
@@ -226,4 +239,45 @@ async function closeDrawer(page) {
 async function expectModalCount(page, expected) {
   const count = await page.locator(".modal").count();
   if (count !== expected) throw new Error(`modal count mismatch: got ${count} want ${expected}`);
+}
+
+async function addPublicKey(page, name, publicKey) {
+  const form = page.locator('form[data-action="create-key"]');
+  await form.getByLabel("Public key name").fill(name);
+  await form.getByLabel("Authorized public key").fill(publicKey);
+  const validity = await form.evaluate((element) => ({
+    valid: element.checkValidity(),
+    name: element.elements.name?.value || "",
+    keyLength: element.elements.authorized_key?.value.length || 0,
+  }));
+  if (!validity.valid) {
+    throw new Error(`public key form is invalid before submit: ${JSON.stringify(validity)}`);
+  }
+  await form.evaluate((element) => element.requestSubmit());
+  try {
+    await page.locator(".modal").waitFor({ state: "detached" });
+  } catch (error) {
+    console.error(await page.locator("body").innerText().catch(() => "<body unavailable>"));
+    throw error;
+  }
+}
+
+async function expectStaticEmptyState(page) {
+  const emptyState = page.locator(".empty-state").first();
+  const orbit = emptyState.locator(".empty-orbit");
+  await orbit.waitFor();
+  const styles = await orbit.evaluate((element) => {
+    const orbitStyle = getComputedStyle(element);
+    const emptyStyle = getComputedStyle(element.closest(".empty-state"));
+    return {
+      animationName: orbitStyle.animationName,
+      backgroundImage: emptyStyle.backgroundImage,
+    };
+  });
+  if (styles.animationName !== "none") {
+    throw new Error(`empty state should be static, got animation ${styles.animationName}`);
+  }
+  if (!styles.backgroundImage.includes("255, 255, 255")) {
+    throw new Error(`light empty state should use a light background, got ${styles.backgroundImage}`);
+  }
 }
