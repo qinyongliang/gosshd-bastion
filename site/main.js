@@ -1,6 +1,10 @@
+const localeStorageKey = "gosshd_locale";
 const canvas = document.querySelector("#spaceCanvas");
 const ctx = canvas?.getContext("2d");
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+applyLocaleRouting();
+bindLanguageLinks();
 
 let width = 0;
 let height = 0;
@@ -134,3 +138,60 @@ document.querySelectorAll('a[href^="#"]').forEach((link) => {
     target.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
   });
 });
+
+function applyLocaleRouting() {
+  const page = document.body?.dataset.page;
+  if (!page || !["home", "docs"].includes(page)) return;
+  const desired = storedLocale() || browserLocale();
+  const current = document.documentElement.lang === "zh-CN" ? "zh-CN" : "en";
+  if (desired === current) return;
+  const target = localizedPath(page, desired);
+  if (!target) return;
+  window.location.replace(`${target}${window.location.hash || ""}`);
+}
+
+function bindLanguageLinks() {
+  document.querySelectorAll("[data-locale]").forEach((link) => {
+    link.addEventListener("click", () => {
+      const locale = normalizeLocale(link.getAttribute("data-locale"));
+      if (locale) writeLocale(locale);
+      const href = link.getAttribute("href") || "";
+      if (window.location.hash && !href.includes("#")) {
+        link.setAttribute("href", `${href}${window.location.hash}`);
+      }
+    });
+  });
+}
+
+function localizedPath(page, locale) {
+  if (page === "docs") return locale === "zh-CN" ? "./docs.zh-CN.html" : "./docs.html";
+  return locale === "zh-CN" ? "./index.zh-CN.html" : "./index.html";
+}
+
+function browserLocale() {
+  const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+  return languages.some((language) => normalizeLocale(language) === "zh-CN") ? "zh-CN" : "en";
+}
+
+function storedLocale() {
+  try {
+    return normalizeLocale(window.localStorage.getItem(localeStorageKey));
+  } catch {
+    return "";
+  }
+}
+
+function writeLocale(locale) {
+  try {
+    window.localStorage.setItem(localeStorageKey, locale);
+  } catch {
+    // Language navigation still works when storage is unavailable.
+  }
+}
+
+function normalizeLocale(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "zh-cn" || text.startsWith("zh")) return "zh-CN";
+  if (text === "en" || text.startsWith("en-")) return "en";
+  return "";
+}

@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { formData } from "./components/forms.js";
 import { renderShell } from "./components/layout.js";
+import { applyDocumentLocale, setLocale, t } from "./i18n.js";
 import { routeFromLocation, bindRouter, navigate } from "./router.js";
 import {
   activeOrg,
@@ -27,6 +28,7 @@ const app = document.querySelector("#app");
 boot();
 
 async function boot() {
+  applyDocumentLocale();
   setRoute(routeFromLocation());
   bindRouter(render);
   bindEvents();
@@ -43,21 +45,21 @@ function bindEvents() {
       if (action === "register") await api.register(data);
       if (action === "login") await api.login(data);
       if (action === "register" || action === "login") {
-        state.notice = "Signed in";
+        state.notice = t("status.signedIn");
         await refresh();
         return;
       }
       if (action === "create-org") {
         const out = await api.createOrg(data);
         state.activeOrgID = out.organization?.id || "";
-        state.notice = "Saved";
+        state.notice = t("status.saved");
         await refresh();
         return;
       }
       if (action === "join-org") {
         const out = await api.joinOrg(data.code);
         state.activeOrgID = out.organization?.id || "";
-        state.notice = "Saved";
+        state.notice = t("status.saved");
         await refresh();
         return;
       }
@@ -93,7 +95,7 @@ function bindEvents() {
       if (!["login", "register", "admin-select-org"].includes(action)) {
         form.reset();
       }
-      state.notice = "Saved";
+      state.notice = t("status.saved");
       await refreshData();
       render();
     });
@@ -111,6 +113,11 @@ function bindEvents() {
         state.authMode = button.dataset.mode === "register" ? "register" : "login";
         state.error = "";
         state.notice = "";
+      }
+      if (action === "set-locale") {
+        state.locale = setLocale(button.dataset.locale);
+        state.notice = "";
+        state.error = "";
       }
       if (action === "logout") {
         await api.logout();
@@ -131,23 +138,23 @@ function bindEvents() {
         state.invite = out.code;
       }
       if (action === "delete-key") {
-        if (!window.confirm("Remove this public key?")) return;
+        if (!window.confirm(t("confirm.removeKey"))) return;
         await api.deleteKey(button.dataset.id);
         await refreshData();
       }
       if (action === "remove-org-member") {
-        if (!window.confirm("Remove this organization member?")) return;
+        if (!window.confirm(t("confirm.removeMember"))) return;
         await api.removeOrgMember(activeOrg().id, button.dataset.userId);
         await refreshData();
       }
       if (action === "admin-transfer-org-owner") {
-        if (!window.confirm("Transfer this organization owner?")) return;
+        if (!window.confirm(t("confirm.transferOwner"))) return;
         await api.adminTransferOrgOwner(state.selectedAdminOrgID, button.dataset.userId);
         await refreshAdminMembers();
       }
       if (action === "copy") {
         await navigator.clipboard.writeText(button.dataset.value || "");
-        state.notice = "Copied";
+        state.notice = t("status.copied");
       }
       if (action === "toggle-target-tag") {
         const tag = button.dataset.tag || "";
