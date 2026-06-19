@@ -90,6 +90,14 @@ export function languageSwitch(locale) {
   </div>`);
 }
 
+export function themeSwitch(theme) {
+  const current = theme || "dark";
+  return raw(`<div class="theme-switch" role="group" aria-label="${escapeHTML(t("theme.aria"))}">
+    <button type="button" data-click="set-theme" data-theme="dark" class="${current === "dark" ? "active" : ""}">${escapeHTML(t("theme.dark"))}</button>
+    <button type="button" data-click="set-theme" data-theme="light" class="${current === "light" ? "active" : ""}">${escapeHTML(t("theme.light"))}</button>
+  </div>`);
+}
+
 export function hudLine() {
   return raw(`<div class="hud-line">
     <span class="hud-pill"><i class="hud-dot"></i>SSH ingress online</span>

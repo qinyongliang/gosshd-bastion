@@ -1,4 +1,21 @@
 :root {
+  color-scheme: light;
+  --ink: #101827;
+  --muted: #5d6b7f;
+  --line: rgba(22, 96, 122, 0.22);
+  --line-soft: rgba(61, 82, 108, 0.18);
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-strong: rgba(255, 255, 255, 0.96);
+  --bg: #eef5f8;
+  --accent: #0ea5b7;
+  --accent-2: #24d18f;
+  --warning: #b87900;
+  --danger: #c0265d;
+  --shadow: 0 24px 76px rgba(30, 56, 86, 0.18);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+html[data-theme="dark"] {
   color-scheme: dark;
   --ink: #f5fbff;
   --muted: #8ea1b8;
@@ -12,7 +29,6 @@
   --warning: #ffd166;
   --danger: #ff6b9a;
   --shadow: 0 28px 90px rgba(0, 0, 0, 0.42);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -22,12 +38,20 @@ body {
   min-height: 100vh;
   color: var(--ink);
   background:
+    radial-gradient(circle at 84% 18%, rgba(14, 165, 183, 0.16), transparent 24%),
+    radial-gradient(circle at 26% 74%, rgba(36, 209, 143, 0.12), transparent 30%),
+    linear-gradient(120deg, rgba(247, 252, 255, 0.95), rgba(235, 244, 248, 0.96) 52%, rgba(246, 250, 252, 0.94)),
+    var(--bg);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(103, 232, 249, 0.18);
+}
+
+html[data-theme="dark"] body {
+  background:
     radial-gradient(circle at 84% 18%, rgba(103, 232, 249, 0.18), transparent 24%),
     radial-gradient(circle at 26% 74%, rgba(155, 140, 255, 0.14), transparent 30%),
     linear-gradient(120deg, rgba(10, 24, 42, 0.84), rgba(3, 6, 12, 0.96) 52%, rgba(8, 15, 27, 0.92)),
     var(--bg);
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: rgba(103, 232, 249, 0.18);
 }
 
 body::before {
@@ -36,9 +60,9 @@ body::before {
   z-index: -2;
   content: "";
   background:
-    linear-gradient(rgba(103, 232, 249, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(103, 232, 249, 0.08) 1px, transparent 1px),
-    linear-gradient(112deg, transparent 0 48%, rgba(103, 232, 249, 0.12) 48.1% 48.35%, transparent 48.5%);
+    linear-gradient(rgba(14, 116, 144, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14, 116, 144, 0.07) 1px, transparent 1px),
+    linear-gradient(112deg, transparent 0 48%, rgba(14, 165, 183, 0.1) 48.1% 48.35%, transparent 48.5%);
   background-size: 42px 42px, 42px 42px, 100% 100%;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.96), rgba(0, 0, 0, 0.24));
 }
@@ -51,6 +75,11 @@ body::after {
   content: "";
   background: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 6px);
   mix-blend-mode: screen;
+}
+
+html[data-theme="light"] body::after {
+  background: repeating-linear-gradient(180deg, rgba(14, 116, 144, 0.035) 0 1px, transparent 1px 7px);
+  mix-blend-mode: multiply;
 }
 
 button, input, textarea, select {
@@ -67,7 +96,7 @@ button {
   border-radius: 8px;
   padding: 0 14px;
   color: var(--ink);
-  background: rgba(8, 17, 30, 0.72);
+  background: rgba(255, 255, 255, 0.78);
   cursor: pointer;
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
@@ -134,6 +163,16 @@ input, textarea, select {
   border-radius: 8px;
   padding: 9px 11px;
   color: var(--ink);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+html[data-theme="dark"] button {
+  background: rgba(8, 17, 30, 0.72);
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select {
   background: rgba(3, 8, 16, 0.72);
 }
 
@@ -234,17 +273,19 @@ code {
   margin-bottom: 18px;
 }
 
-.language-switch {
+.language-switch,
+.theme-switch {
   display: inline-flex;
   gap: 4px;
   min-height: 38px;
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(8, 17, 30, 0.72);
+  background: rgba(255, 255, 255, 0.72);
 }
 
-.language-switch button {
+.language-switch button,
+.theme-switch button {
   min-width: 44px;
   min-height: 30px;
   border: 0;
@@ -256,10 +297,16 @@ code {
   font-weight: 850;
 }
 
-.language-switch button.active {
+.language-switch button.active,
+.theme-switch button.active {
   color: #031017;
   background: var(--accent);
   box-shadow: 0 0 24px rgba(103, 232, 249, 0.34);
+}
+
+html[data-theme="dark"] .language-switch,
+html[data-theme="dark"] .theme-switch {
+  background: rgba(8, 17, 30, 0.72);
 }
 
 .tabs {
@@ -1368,6 +1415,81 @@ tr:last-child td {
 .mode-tabs button.active {
   color: #031017;
   background: var(--accent);
+}
+
+html[data-theme="light"] .auth-card,
+html[data-theme="light"] .panel,
+html[data-theme="light"] .metric,
+html[data-theme="light"] .notice-card,
+html[data-theme="light"] .resource-head,
+html[data-theme="light"] .resource-toolbar,
+html[data-theme="light"] .resource-guide,
+html[data-theme="light"] .section-block,
+html[data-theme="light"] .cloud-table,
+html[data-theme="light"] .modal,
+html[data-theme="light"] .drawer {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 252, 255, 0.82));
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+html[data-theme="light"] .sidebar {
+  background: rgba(246, 250, 253, 0.86);
+}
+
+html[data-theme="light"] .tabs,
+html[data-theme="light"] .mini,
+html[data-theme="light"] .summary-list span,
+html[data-theme="light"] .command-box,
+html[data-theme="light"] .form-section,
+html[data-theme="light"] .stat-pill,
+html[data-theme="light"] .identity-grid button,
+html[data-theme="light"] .guide-grid span,
+html[data-theme="light"] .ops-grid button,
+html[data-theme="light"] .toolbar-chips button,
+html[data-theme="light"] .toolbar-chips span,
+html[data-theme="light"] .selection-summary,
+html[data-theme="light"] .stepper li,
+html[data-theme="light"] .detail-list div,
+html[data-theme="light"] .rule-list span,
+html[data-theme="light"] .mode-tabs,
+html[data-theme="light"] .route-preview {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="light"] .side-nav button,
+html[data-theme="light"] .org-list button {
+  background: rgba(255, 255, 255, 0.58);
+}
+
+html[data-theme="light"] .side-nav button.active,
+html[data-theme="light"] .org-list button.active,
+html[data-theme="light"] .tabs button.active,
+html[data-theme="light"] .mode-tabs button.active,
+html[data-theme="light"] .toolbar-chips button.active {
+  color: #042026;
+  background: linear-gradient(135deg, rgba(103, 232, 249, 0.85), rgba(114, 242, 166, 0.85));
+}
+
+html[data-theme="light"] .cloud-table th {
+  background: rgba(229, 243, 249, 0.98);
+}
+
+html[data-theme="light"] .cloud-table td {
+  color: #1e293b;
+}
+
+html[data-theme="light"] .surface-head,
+html[data-theme="light"] .modal-actions {
+  background: rgba(248, 252, 255, 0.96);
+}
+
+html[data-theme="light"] .drawer-scrim,
+html[data-theme="light"] .overlay {
+  background: rgba(18, 32, 52, 0.22);
+}
+
+html[data-theme="light"] .command-box {
+  color: #102033;
 }
 
 td small {

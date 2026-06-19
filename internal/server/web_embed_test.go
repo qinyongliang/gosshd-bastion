@@ -19,6 +19,7 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		"/",
 		"/main.js",
 		"/i18n.js",
+		"/theme.js",
 		"/state.js",
 		"/router.js",
 		"/components/layout.js",
@@ -52,6 +53,9 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		}
 		if path == "/i18n.js" && (!strings.Contains(body, "gosshd_locale") || !strings.Contains(body, "zh-CN") || !strings.Contains(body, "systemctl") || !strings.Contains(body, "sc.exe")) {
 			t.Fatalf("i18n module did not include locale persistence")
+		}
+		if path == "/theme.js" && (!strings.Contains(body, "gosshd_theme") || !strings.Contains(body, "light") || !strings.Contains(body, "dark")) {
+			t.Fatalf("theme module did not include theme persistence")
 		}
 		if path == "/views/auth.js" && !strings.Contains(body, "auth.dingTalk") {
 			t.Fatalf("auth view did not include DingTalk login action")

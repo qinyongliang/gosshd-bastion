@@ -1,6 +1,7 @@
 const STORAGE_KEY = "gosshd_locale";
-const DEFAULT_LOCALE = "en";
 const ZH_LOCALE = "zh-CN";
+const EN_LOCALE = "en";
+const DEFAULT_LOCALE = ZH_LOCALE;
 
 const messages = {
   en: {
@@ -13,6 +14,11 @@ const messages = {
       english: "EN",
       chinese: "中文",
       auto: "Auto from system",
+    },
+    theme: {
+      aria: "Theme",
+      dark: "Black",
+      light: "White",
     },
     common: {
       add: "Add",
@@ -477,6 +483,11 @@ const messages = {
       english: "EN",
       chinese: "中文",
       auto: "跟随系统语言",
+    },
+    theme: {
+      aria: "主题",
+      dark: "黑",
+      light: "白",
     },
     common: {
       add: "添加",
@@ -946,8 +957,7 @@ export function getLocaleStorageKey() {
 export function resolveLocale() {
   const stored = normalizeLocale(readStoredLocale());
   if (stored) return stored;
-  const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
-  return languages.some((language) => normalizeLocale(language) === ZH_LOCALE) ? ZH_LOCALE : DEFAULT_LOCALE;
+  return DEFAULT_LOCALE;
 }
 
 export function setLocale(locale, options = {}) {
@@ -982,7 +992,7 @@ export function normalizeLocale(value) {
   if (!value) return "";
   const text = String(value).trim().toLowerCase();
   if (text === "zh-cn" || text === "zh_hans" || text.startsWith("zh")) return ZH_LOCALE;
-  if (text === "en" || text.startsWith("en-")) return DEFAULT_LOCALE;
+  if (text === "en" || text.startsWith("en-")) return EN_LOCALE;
   return "";
 }
 

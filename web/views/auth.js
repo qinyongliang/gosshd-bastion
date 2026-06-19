@@ -1,5 +1,5 @@
 import { field } from "../components/forms.js";
-import { html, icon, languageSwitch, raw, statusLine } from "../components/html.js";
+import { html, icon, languageSwitch, raw, statusLine, themeSwitch } from "../components/html.js";
 import { t } from "../i18n.js";
 
 export function renderAuth(state) {
@@ -15,6 +15,7 @@ export function renderAuth(state) {
       </div>
       <div class="auth-card">
         <div class="auth-card-head">
+          ${themeSwitch(state.theme)}
           ${languageSwitch(state.locale)}
           <span class="badge info">${t("language.auto")}</span>
         </div>

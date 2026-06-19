@@ -1,4 +1,5 @@
 import { getLocale } from "./i18n.js";
+import { getTheme } from "./theme.js";
 
 export const state = {
   user: null,
@@ -32,6 +33,7 @@ export const state = {
     agentPlatform: "linux",
   },
   locale: getLocale(),
+  theme: getTheme(),
   authMode: "login",
   notice: "",
   error: "",
