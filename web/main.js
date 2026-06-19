@@ -215,7 +215,7 @@ function bindEvents() {
         await refreshAdminMembers();
       }
       if (action === "copy") {
-        await navigator.clipboard.writeText(button.dataset.value || "");
+        await copyText(button.dataset.value || "");
         state.notice = t("status.copied");
       }
       if (action === "toggle-target-tag") {
@@ -383,4 +383,30 @@ function adminLDAPPayload(data) {
     email_attr: data.email_attr || "",
     name_attr: data.name_attr || "",
   };
+}
+
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // HTTP deployments can expose navigator.clipboard but still reject writes; fall back below.
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    const ok = document.execCommand?.("copy");
+    if (!ok) throw new Error(t("status.copyUnavailable"));
+  } finally {
+    textarea.remove();
+  }
 }
