@@ -49,7 +49,7 @@ export function modal(state, name, { title, subtitle = "", body, size = "" }) {
   if (state.ui.modal !== name) return "";
   return raw(`
     <div class="overlay" data-click="close-overlays">
-      <section class="modal ${escapeHTML(size)}" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}" onclick="event.stopPropagation()">
+      <section class="modal ${escapeHTML(size)}" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
         <header class="surface-head">
           <div>
             <h2>${escapeHTML(title)}</h2>

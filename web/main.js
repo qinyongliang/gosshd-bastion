@@ -129,6 +129,7 @@ function bindEvents() {
   app.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-click]");
     if (!button) return;
+    if (button.classList.contains("overlay") && event.target !== button) return;
     const action = button.dataset.click;
     await run(async () => {
       if (action === "navigate") {

@@ -122,6 +122,14 @@ try {
   await expectText(page, "sc.exe");
   await closeDrawer(page);
 
+  await page.getByRole("button", { name: "Command policy" }).click();
+  await page.getByRole("button", { name: "Configure LLM" }).click();
+  await expectModalCount(page, 1);
+  await page.getByLabel("LLM config name").click();
+  await expectModalCount(page, 1);
+  await page.locator(".modal .icon-button").click();
+  await expectModalCount(page, 0);
+
   await page.getByRole("button", { name: "System admin" }).click();
   await page.getByRole("heading", { name: "System administration" }).waitFor();
   await expectText(page, "Identity providers");
@@ -184,4 +192,9 @@ async function waitForHeading(page, name) {
 
 async function closeDrawer(page) {
   await page.locator(".drawer .icon-button").click();
+}
+
+async function expectModalCount(page, expected) {
+  const count = await page.locator(".modal").count();
+  if (count !== expected) throw new Error(`modal count mismatch: got ${count} want ${expected}`);
 }
