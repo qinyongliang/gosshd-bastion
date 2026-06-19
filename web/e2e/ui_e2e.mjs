@@ -144,6 +144,13 @@ try {
   await expectModalCount(page, 1);
   await page.locator(".modal .icon-button").click();
   await expectModalCount(page, 0);
+  const orgBlock = page.locator(".section-block").filter({ hasText: "Organization management" }).first();
+  await expectCount(orgBlock.locator(".cloud-table"), 0);
+  await orgBlock.getByRole("button", { name: /Open organization list/ }).click();
+  await page.locator(".modal .cloud-table").waitFor();
+  await expectModalCount(page, 1);
+  await page.locator(".modal .icon-button").click();
+  await expectModalCount(page, 0);
   await page.locator('.identity-grid [data-modal="admin-ldap"]').click();
   const ldapForm = page.locator('form[data-action="admin-save-ldap"]');
   await ldapForm.locator('input[name="server_url"]').fill("ldap://ui.example");
