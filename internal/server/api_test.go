@@ -249,6 +249,9 @@ func TestAPIOrganizationMemberRoleAndOwnerTransfer(t *testing.T) {
 	if !hasMemberRole(members.Members, bobUser.User.ID, store.RoleMember) {
 		t.Fatalf("bob member missing: %+v", members)
 	}
+	if !hasMemberCreatedAt(members.Members, bobUser.User.ID) {
+		t.Fatalf("bob member missing created_at: %+v", members)
+	}
 	patchJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members/"+bobUser.User.ID, map[string]string{
 		"role": "admin",
 	}, http.StatusOK, nil)
@@ -864,6 +867,15 @@ func hasPersonalOrganization(orgs []apiOrganization) bool {
 func hasMemberRole(members []apiOrganizationMember, userID, role string) bool {
 	for _, member := range members {
 		if member.UserID == userID && member.Role == role {
+			return true
+		}
+	}
+	return false
+}
+
+func hasMemberCreatedAt(members []apiOrganizationMember, userID string) bool {
+	for _, member := range members {
+		if member.UserID == userID && member.CreatedAt != "" {
 			return true
 		}
 	}

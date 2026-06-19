@@ -23,6 +23,8 @@ export const state = {
   targetTagFilters: [],
   targetQuery: "",
   policyQuery: "",
+  memberQuery: "",
+  memberSort: "role",
   adminUserQuery: "",
   ui: {
     modal: "",
@@ -31,6 +33,9 @@ export const state = {
     policyID: "",
     adminOrgID: "",
     adminPasswordUserID: "",
+    memberUserID: "",
+    memberTransferUserID: "",
+    sidebarOpen: false,
     agentPlatform: "linux",
     targetCreateMode: "direct",
     targetCreateStep: 0,
@@ -115,6 +120,23 @@ export function filteredPolicies() {
   });
 }
 
+export function filteredMembers() {
+  const query = state.memberQuery.trim().toLowerCase();
+  const rows = state.members.filter((member) => {
+    if (!query) return true;
+    return [
+      member.email,
+      member.display_name,
+      member.role,
+      member.user_id,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+  return [...rows].sort((a, b) => compareMembers(a, b, state.memberSort));
+}
+
 export function filteredAdminUsers() {
   const query = state.adminUserQuery.trim().toLowerCase();
   if (!query) return state.adminUsers;
@@ -122,4 +144,26 @@ export function filteredAdminUsers() {
     .join(" ")
     .toLowerCase()
     .includes(query));
+}
+
+function compareMembers(a, b, sort) {
+  if (sort === "name") return memberName(a).localeCompare(memberName(b));
+  if (sort === "joined_desc") return dateValue(b.created_at) - dateValue(a.created_at);
+  if (sort === "joined_asc") return dateValue(a.created_at) - dateValue(b.created_at);
+  const roleDelta = roleRank(a.role) - roleRank(b.role);
+  if (roleDelta) return roleDelta;
+  return memberName(a).localeCompare(memberName(b));
+}
+
+function memberName(member) {
+  return String(member.display_name || member.email || member.user_id || "");
+}
+
+function roleRank(role) {
+  return { owner: 0, admin: 1, member: 2 }[role] ?? 3;
+}
+
+function dateValue(value) {
+  const time = new Date(value || 0).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }

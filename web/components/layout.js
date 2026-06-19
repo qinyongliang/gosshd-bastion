@@ -15,9 +15,9 @@ const navItems = [
 export function renderShell(content) {
   const org = activeOrg();
   return raw(`
-    <section class="console">
+    <section class="console ${state.ui.sidebarOpen ? "sidebar-open" : ""}">
       <aside class="sidebar">
-        <div class="brand-row"><div class="mark">g</div><span>gosshd</span></div>
+        <div class="brand-row"><div class="mark">g</div><span>gosshd</span><button type="button" class="mobile-sidebar-close icon-button" data-click="close-sidebar" aria-label="${escapeHTML(t("common.close"))}">${icon("close").__raw}</button></div>
         <div class="user-block">
           <strong>${escapeHTML(state.user.display_name || state.user.email)}</strong>
           <span>${escapeHTML(state.user.email)}</span>
@@ -36,6 +36,7 @@ export function renderShell(content) {
         </div>
         <button data-click="logout" class="ghost">${icon("logout").__raw}${escapeHTML(t("shell.signOut"))}</button>
       </aside>
+      <button type="button" class="sidebar-scrim" data-click="close-sidebar" aria-label="${escapeHTML(t("common.close"))}"></button>
       <section class="workspace">
         <header class="topbar">
           <div>
@@ -43,6 +44,7 @@ export function renderShell(content) {
             <h1>${escapeHTML(pageTitle())}</h1>
             <span class="context-line">${escapeHTML(org?.name || t("shell.noOrganization"))}</span>
           </div>
+          <button type="button" class="mobile-menu-button icon-button" data-click="open-sidebar" aria-label="${escapeHTML(t("common.menu"))}">${icon("menu").__raw}</button>
           <div class="top-actions">
             ${themeSwitch(state.theme).__raw}
             ${languageSwitch(state.locale).__raw}

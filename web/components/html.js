@@ -48,6 +48,7 @@ export function icon(name) {
     dashboard: "M3 13h8V3H3v10Zm10 8h8V3h-8v18ZM3 21h8v-6H3v6Z",
     key: "M21 2l-2 2m-7.5 7.5a5 5 0 1 1-7.07 7.07 5 5 0 0 1 7.07-7.07Zm0 0L15 8m0 0 2 2 4-4-2-2-4 4Z",
     logout: "M10 17l5-5-5-5M15 12H3M21 3v18",
+    menu: "M4 6h16M4 12h16M4 18h16",
     org: "M16 11c1.66 0 3-1.57 3-3.5S17.66 4 16 4s-3 1.57-3 3.5S14.34 11 16 11ZM8 11c1.66 0 3-1.57 3-3.5S9.66 4 8 4 5 5.57 5 7.5 6.34 11 8 11Zm0 2c-2.67 0-5 1.34-5 3v2h10v-2c0-1.66-2.33-3-5-3Zm8 0c-.7 0-1.36.09-1.96.25 1.18.84 1.96 1.93 1.96 3.25V18h5v-2c0-1.66-2.33-3-5-3Z",
     plus: "M12 5v14M5 12h14",
     policies: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
@@ -106,15 +107,39 @@ export function hudLine() {
   </div>`);
 }
 
-export function orbitMap() {
-  return raw(`<div class="orbit-map">
-    <div class="orbit-ring"></div><div class="orbit-ring"></div><div class="orbit-ring"></div>
-    <div class="orbit-path p1"></div><div class="orbit-path p2"></div><div class="orbit-path p3"></div>
-    <div class="orbit-node n1">${escapeHTML(t("dashboard.orbitAgent"))}</div>
-    <div class="orbit-node n2">${escapeHTML(t("dashboard.orbitKey"))}</div>
-    <div class="orbit-node n3">${escapeHTML(t("dashboard.orbitTarget"))}</div>
-    <div class="orbit-node n4">${escapeHTML(t("dashboard.orbitAudit"))}</div>
-    <div class="orbit-core">${escapeHTML(t("dashboard.orbitCore"))}</div>
+export function accessFlowMap() {
+  return raw(`<div class="access-flow-map" aria-label="${escapeHTML(t("dashboard.topologyTitle"))}">
+    <section class="flow-zone ingress">
+      <span>01</span>
+      <strong>${escapeHTML(t("dashboard.flowPublicKey"))}</strong>
+      <small>${escapeHTML(t("dashboard.flowSSHLogin"))}</small>
+    </section>
+    <section class="flow-zone core">
+      <strong>${escapeHTML(t("dashboard.flowBastion"))}</strong>
+      <ol>
+        <li>${escapeHTML(t("dashboard.flowIdentity"))}</li>
+        <li>${escapeHTML(t("dashboard.flowAlias"))}</li>
+        <li>${escapeHTML(t("dashboard.flowPolicy"))}</li>
+      </ol>
+    </section>
+    <section class="flow-zone egress">
+      <span>03</span>
+      <strong>${escapeHTML(t("dashboard.flowSSHService"))}</strong>
+      <small>${escapeHTML(t("dashboard.flowEgress"))}</small>
+    </section>
+    <div class="flow-route direct">
+      <b>${escapeHTML(t("dashboard.flowDirect"))}</b>
+      <small>${escapeHTML(t("dashboard.flowDirectSub"))}</small>
+    </div>
+    <div class="flow-route private">
+      <b>${escapeHTML(t("dashboard.flowPrivate"))}</b>
+      <small>${escapeHTML(t("dashboard.flowPrivateSub"))}</small>
+    </div>
+    <section class="flow-audit">
+      <span>04</span>
+      <strong>${escapeHTML(t("dashboard.flowAudit"))}</strong>
+      <small>${escapeHTML(t("dashboard.flowAuditSub"))}</small>
+    </section>
   </div>`);
 }
 

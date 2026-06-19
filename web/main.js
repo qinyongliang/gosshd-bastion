@@ -53,6 +53,11 @@ function bindEvents() {
         render();
         return;
       }
+      if (action === "set-member-filter") {
+        state.memberQuery = data.query || "";
+        render();
+        return;
+      }
       if (action === "set-admin-user-filter") {
         state.adminUserQuery = data.query || "";
         render();
@@ -68,6 +73,8 @@ function bindEvents() {
       if (action === "create-org") {
         const out = await api.createOrg(data);
         state.activeOrgID = out.organization?.id || "";
+        state.ui.modal = "";
+        state.ui.drawer = "";
         state.notice = t("status.saved");
         await refresh();
         return;
@@ -75,6 +82,8 @@ function bindEvents() {
       if (action === "join-org") {
         const out = await api.joinOrg(data.code);
         state.activeOrgID = out.organization?.id || "";
+        state.ui.modal = "";
+        state.ui.drawer = "";
         state.notice = t("status.saved");
         await refresh();
         return;
@@ -144,7 +153,14 @@ function bindEvents() {
       if (action === "navigate") {
         state.ui.modal = "";
         state.ui.drawer = "";
+        state.ui.sidebarOpen = false;
         navigate(button.dataset.route);
+      }
+      if (action === "open-sidebar") {
+        state.ui.sidebarOpen = true;
+      }
+      if (action === "close-sidebar") {
+        state.ui.sidebarOpen = false;
       }
       if (action === "open-modal") {
         state.ui.modal = button.dataset.modal || "";
@@ -172,6 +188,16 @@ function bindEvents() {
         state.ui.policyID = button.dataset.policyId || "";
         state.ui.drawer = "policy-detail";
         state.ui.modal = "";
+      }
+      if (action === "open-member-role") {
+        state.ui.memberUserID = button.dataset.userId || "";
+        state.ui.modal = "member-role";
+        state.ui.drawer = "";
+      }
+      if (action === "open-transfer-owner") {
+        state.ui.memberTransferUserID = button.dataset.userId || "";
+        state.ui.modal = "transfer-owner";
+        state.ui.drawer = "";
       }
       if (action === "open-admin-org") {
         state.selectedAdminOrgID = button.dataset.orgId || "";
@@ -215,12 +241,13 @@ function bindEvents() {
       }
       if (action === "logout") {
         await api.logout();
-        Object.assign(state, { user: null, orgs: [], activeOrgID: "", members: [], selectedAdminOrgID: "", adminMembers: [], ui: { ...state.ui, modal: "", drawer: "" } });
+        Object.assign(state, { user: null, orgs: [], activeOrgID: "", members: [], selectedAdminOrgID: "", adminMembers: [], ui: { ...state.ui, modal: "", drawer: "", sidebarOpen: false } });
       }
       if (action === "switch-org") {
         state.activeOrgID = button.dataset.id;
         state.ui.modal = "";
         state.ui.drawer = "";
+        state.ui.sidebarOpen = false;
         await refreshData();
       }
       if (action === "leave-org") {
@@ -264,6 +291,12 @@ function bindEvents() {
       }
       if (action === "clear-policy-filter") {
         state.policyQuery = "";
+      }
+      if (action === "set-member-sort") {
+        state.memberSort = button.dataset.value || "role";
+      }
+      if (action === "clear-member-filter") {
+        state.memberQuery = "";
       }
       if (action === "clear-admin-user-filter") {
         state.adminUserQuery = "";

@@ -82,6 +82,13 @@ try {
   await loginForm.getByRole("button", { name: "Sign in" }).click();
   await waitForHeading(page, "Control plane");
   await expectText(page, "System admin");
+  await expectText(page, "Public-key user");
+  await expectText(page, "Bastion decision path");
+  await expectText(page, "Direct server");
+  await expectText(page, "Private node");
+  await expectCount(page.locator(".access-flow-map").getByText(/AI Agent|AI agent/), 0);
+  await expectMobileSidebar(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   await page.getByRole("button", { name: "Public keys" }).click();
   await page.getByRole("button", { name: "Add key" }).click();
@@ -93,9 +100,14 @@ try {
   await expectText(page, "2");
 
   await page.getByRole("button", { name: "Organizations" }).click();
+  await expectFormCount(page, "create-org", 0);
+  await expectFormCount(page, "join-org", 0);
+  await expectText(page, "Type");
+  await expectCount(page.locator(".cloud-table th").filter({ hasText: "Slug" }), 0);
+  await page.getByRole("button", { name: "Create organization" }).click();
   await page.getByLabel("Organization name").fill("UI Ops");
   await page.getByLabel("Organization slug").fill(`ui-ops-${Date.now()}`);
-  await page.getByRole("button", { name: "Create organization" }).click();
+  await page.locator('form[data-action="create-org"]').getByRole("button", { name: "Create organization" }).click();
   await page.getByRole("button", { name: "UI Ops" }).click();
 
   await page.getByRole("button", { name: "SSH services" }).click();
@@ -186,6 +198,26 @@ try {
   await page.getByRole("button", { name: "Members", exact: true }).click();
   await page.getByRole("heading", { name: "Organization members" }).waitFor();
   await expectText(page, "All Members");
+  await expectText(page, "Joined");
+  await expectFormCount(page, "add-org-member", 0);
+  await expectFormCount(page, "create-group", 0);
+  await page.locator('form[data-action="set-member-filter"] input[name="query"]').fill("admin");
+  await page.locator('form[data-action="set-member-filter"]').getByRole("button", { name: "Search" }).click();
+  await expectText(page, "Administrator");
+  await page.getByRole("button", { name: "Newest" }).click();
+  await page.getByRole("button", { name: "Add member" }).click();
+  await expectModalCount(page, 1);
+  await page.locator('form[data-action="add-org-member"]').waitFor();
+  await page.locator(".modal .icon-button").click();
+  await expectModalCount(page, 0);
+  await page.getByRole("button", { name: "User groups" }).click();
+  await expectModalCount(page, 1);
+  await page.locator('form[data-action="create-group"]').waitFor();
+  await page.locator(".modal .icon-button").click();
+  await expectModalCount(page, 0);
+  await page.getByRole("button", { name: "Transfer owner" }).click();
+  await expectModalCount(page, 1);
+  await expectText(page, "No transfer candidate");
 } finally {
   await enContext?.close().catch(() => {});
   await browser.close();
@@ -280,4 +312,29 @@ async function expectStaticEmptyState(page) {
   if (!styles.backgroundImage.includes("255, 255, 255")) {
     throw new Error(`light empty state should use a light background, got ${styles.backgroundImage}`);
   }
+}
+
+async function expectMobileSidebar(page) {
+  await page.setViewportSize({ width: 533, height: 900 });
+  await page.waitForFunction(() => {
+    const sidebar = document.querySelector(".sidebar");
+    const menuButton = document.querySelector(".mobile-menu-button");
+    if (!sidebar || !menuButton) return false;
+    const rect = sidebar.getBoundingClientRect();
+    return rect.right < 8 && getComputedStyle(menuButton).display !== "none";
+  });
+  await page.getByRole("button", { name: "Menu" }).click();
+  await page.waitForFunction(() => {
+    const sidebar = document.querySelector(".sidebar");
+    const scrim = document.querySelector(".sidebar-scrim");
+    if (!sidebar || !scrim) return false;
+    const rect = sidebar.getBoundingClientRect();
+    return rect.left > -2 && Number(getComputedStyle(scrim).opacity) > 0.8;
+  });
+  await page.locator(".sidebar").getByRole("button", { name: "Dashboard" }).click();
+  await page.waitForFunction(() => {
+    const sidebar = document.querySelector(".sidebar");
+    if (!sidebar) return false;
+    return sidebar.getBoundingClientRect().right < 8;
+  });
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
@@ -14,6 +15,7 @@ type apiOrganizationMember struct {
 	Email          string `json:"email"`
 	DisplayName    string `json:"display_name"`
 	Role           string `json:"role"`
+	CreatedAt      string `json:"created_at"`
 }
 
 type apiOrganizationMembersResponse struct {
@@ -184,5 +186,6 @@ func apiOrganizationMemberFromStore(member store.OrganizationMemberWithUser) api
 		Email:          member.Email,
 		DisplayName:    member.DisplayName,
 		Role:           member.Role,
+		CreatedAt:      member.CreatedAt.Format(time.RFC3339),
 	}
 }
