@@ -4,7 +4,7 @@
 
 `gosshd-bastion` 是一个面向 AI 服务、自动化 Agent 和运维人员的 SSH 堡垒机。它以单个 Go 服务运行，内置 Web 控制台、SQLite 存储、SSH 网关、Agent 注册、命令安全组、LLM 实时审核钩子和 MCP 控制面。
 
-当前公开版本是 [`v0.1.10-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.10-bastion)。最新版本入口在 [GitHub Releases](https://github.com/qinyongliang/gosshd-bastion/releases/latest)。
+当前公开版本是 [`v0.1.11-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.11-bastion)。最新版本入口在 [GitHub Releases](https://github.com/qinyongliang/gosshd-bastion/releases/latest)。
 
 ## 当前已实现
 
@@ -42,7 +42,7 @@
 Linux 从 GitHub Releases 安装示例：
 
 ```sh
-version=v0.1.10-bastion
+version=v0.1.11-bastion
 platform=linux-amd64
 
 curl -fL -o "gosshd-${version}-${platform}.tar.gz" \

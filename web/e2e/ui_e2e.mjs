@@ -135,7 +135,9 @@ try {
   await expectText(page, "Identity providers");
   await expectText(page, "Account management");
   await expectText(page, "Organization management");
-  await page.getByRole("button", { name: "Configure LDAP" }).first().click();
+  await expectCount(page.getByRole("button", { name: "Configure DingTalk" }), 0);
+  await expectCount(page.getByRole("button", { name: "Configure LDAP" }), 0);
+  await page.locator('.identity-grid [data-modal="admin-ldap"]').click();
   const ldapForm = page.locator('form[data-action="admin-save-ldap"]');
   await ldapForm.locator('input[name="server_url"]').fill("ldap://ui.example");
   await ldapForm.locator('input[name="bind_dn"]').fill("cn=reader,dc=ui,dc=example");
@@ -179,6 +181,11 @@ async function expectText(page, text) {
 async function expectFormCount(page, action, expected) {
   const count = await page.locator(`form[data-action="${action}"]`).count();
   if (count !== expected) throw new Error(`${action} form count mismatch: got ${count} want ${expected}`);
+}
+
+async function expectCount(locator, expected) {
+  const count = await locator.count();
+  if (count !== expected) throw new Error(`locator count mismatch: got ${count} want ${expected}`);
 }
 
 async function waitForHeading(page, name) {
