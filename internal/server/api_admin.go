@@ -141,6 +141,9 @@ func (a *App) handleAdminListOrganizations(w http.ResponseWriter, r *http.Reques
 		Organizations []apiOrganization `json:"organizations"`
 	}{}
 	for _, org := range orgs {
+		if org.IsPersonal {
+			continue
+		}
 		out.Organizations = append(out.Organizations, apiOrganizationFromStore(org))
 	}
 	writeJSON(w, http.StatusOK, out)

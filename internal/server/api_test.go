@@ -98,6 +98,35 @@ func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 	getJSON(t, regular, srv.URL+"/api/admin/settings", http.StatusForbidden, nil)
 }
 
+func TestAPIAdminOrganizationsExcludePersonal(t *testing.T) {
+	srv, adminClient, _ := newAPITestServer(t)
+	defer srv.Close()
+	postJSON(t, adminClient, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "admin",
+		"password": "admin-pass",
+	}, http.StatusOK, nil)
+
+	regular := apiClient(t)
+	registerForAPI(t, regular, srv.URL, "personal-owner@example.com")
+
+	var org apiOrganizationResponse
+	postJSON(t, adminClient, srv.URL+"/api/orgs", map[string]string{
+		"name": "Shared Ops",
+		"slug": "shared-ops",
+	}, http.StatusCreated, &org)
+
+	var out struct {
+		Organizations []apiOrganization `json:"organizations"`
+	}
+	getJSON(t, adminClient, srv.URL+"/api/admin/orgs", http.StatusOK, &out)
+	if !hasOrganization(out.Organizations, org.Organization.ID) {
+		t.Fatalf("admin org list missing shared organization: %+v", out.Organizations)
+	}
+	if hasPersonalOrganization(out.Organizations) {
+		t.Fatalf("admin org list should hide personal organizations: %+v", out.Organizations)
+	}
+}
+
 func TestAPIAdminResetUserPassword(t *testing.T) {
 	srv, adminClient, app := newAPITestServer(t)
 	defer srv.Close()
