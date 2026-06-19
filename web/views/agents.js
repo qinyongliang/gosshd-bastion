@@ -50,7 +50,7 @@ function createAgentModal() {
   });
 }
 
-function enrollmentDrawer() {
+export function enrollmentDrawer() {
   if (!state.enrollment) return "";
   const isWindows = state.ui.agentPlatform === "windows";
   return drawer(state, "agent-enrollment", {

@@ -870,6 +870,7 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 		AuthType:        params.AuthType,
 		EncryptedSecret: append([]byte(nil), params.EncryptedSecret...),
 		AgentID:         params.AgentID,
+		ProxyTargetID:   strings.TrimSpace(params.ProxyTargetID),
 		Tags:            normalizeTags(params.Tags),
 		CreatedBy:       params.CreatedBy,
 		CreatedAt:       now,
@@ -883,12 +884,12 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ssh_targets (
 			id, owner_type, owner_id, name, alias, target_type, host, port,
-			remote_username, auth_type, encrypted_secret, agent_id,
+			remote_username, auth_type, encrypted_secret, agent_id, proxy_target_id,
 			created_by, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, target.ID, target.OwnerType, target.OwnerID, target.Name, target.Alias, target.TargetType, target.Host, target.Port,
 		target.RemoteUsername, target.AuthType, nullableBytes(target.EncryptedSecret), nullableString(target.AgentID),
-		target.CreatedBy, formatTime(target.CreatedAt), formatTime(target.UpdatedAt)); err != nil {
+		nullableString(target.ProxyTargetID), target.CreatedBy, formatTime(target.CreatedAt), formatTime(target.UpdatedAt)); err != nil {
 		return SSHTarget{}, err
 	}
 	if err := r.replaceTargetTagsTx(ctx, tx, target, now); err != nil {
@@ -907,7 +908,7 @@ func (r *Repository) ListSSHTargets(ctx context.Context, ownerType, ownerID stri
 func (r *Repository) ListSSHTargetsFiltered(ctx context.Context, filter SSHTargetFilter) ([]SSHTarget, error) {
 	query := `
 		SELECT id, owner_type, owner_id, COALESCE(name, ''), alias, target_type, host, port, remote_username,
-			auth_type, encrypted_secret, COALESCE(agent_id, ''), created_by, created_at, updated_at
+			auth_type, encrypted_secret, COALESCE(agent_id, ''), COALESCE(proxy_target_id, ''), created_by, created_at, updated_at
 		FROM ssh_targets t
 		WHERE 1 = 1`
 	args := []any{}
@@ -953,7 +954,7 @@ func (r *Repository) ListSSHTargetsFiltered(ctx context.Context, filter SSHTarge
 func (r *Repository) GetSSHTarget(ctx context.Context, targetID string) (SSHTarget, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, owner_type, owner_id, COALESCE(name, ''), alias, target_type, host, port, remote_username,
-			auth_type, encrypted_secret, COALESCE(agent_id, ''), created_by, created_at, updated_at
+			auth_type, encrypted_secret, COALESCE(agent_id, ''), COALESCE(proxy_target_id, ''), created_by, created_at, updated_at
 		FROM ssh_targets
 		WHERE id = ?
 	`, targetID)
@@ -1000,6 +1001,9 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 	if params.AgentID != "" {
 		current.AgentID = params.AgentID
 	}
+	if params.ProxyTargetID != "" {
+		current.ProxyTargetID = strings.TrimSpace(params.ProxyTargetID)
+	}
 	if params.ReplaceTags {
 		current.Tags = normalizeTags(params.Tags)
 	}
@@ -1012,10 +1016,10 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 	if _, err = tx.ExecContext(ctx, `
 		UPDATE ssh_targets
 		SET name = ?, alias = ?, host = ?, port = ?, remote_username = ?, auth_type = ?,
-			encrypted_secret = ?, agent_id = ?, updated_at = ?
+			encrypted_secret = ?, agent_id = ?, proxy_target_id = ?, updated_at = ?
 		WHERE id = ?
 	`, current.Name, current.Alias, current.Host, current.Port, current.RemoteUsername, current.AuthType,
-		nullableBytes(current.EncryptedSecret), nullableString(current.AgentID), formatTime(current.UpdatedAt), current.ID); err != nil {
+		nullableBytes(current.EncryptedSecret), nullableString(current.AgentID), nullableString(current.ProxyTargetID), formatTime(current.UpdatedAt), current.ID); err != nil {
 		return SSHTarget{}, err
 	}
 	if params.ReplaceTags {
@@ -1727,7 +1731,7 @@ func scanTarget(row *sql.Row) (SSHTarget, error) {
 	var created, updated string
 	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Name, &target.Alias, &target.TargetType,
 		&target.Host, &target.Port, &target.RemoteUsername, &target.AuthType, &target.EncryptedSecret,
-		&target.AgentID, &target.CreatedBy, &created, &updated)
+		&target.AgentID, &target.ProxyTargetID, &target.CreatedBy, &created, &updated)
 	if err != nil {
 		return SSHTarget{}, wrapScanErr(err)
 	}
@@ -1748,7 +1752,7 @@ func scanTargetRows(row targetScanner) (SSHTarget, error) {
 	var created, updated string
 	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Name, &target.Alias, &target.TargetType,
 		&target.Host, &target.Port, &target.RemoteUsername, &target.AuthType, &target.EncryptedSecret,
-		&target.AgentID, &target.CreatedBy, &created, &updated)
+		&target.AgentID, &target.ProxyTargetID, &target.CreatedBy, &created, &updated)
 	if err != nil {
 		return SSHTarget{}, wrapScanErr(err)
 	}

@@ -202,6 +202,13 @@ func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 }
 
 func (a *App) openTargetSSHClient(ctx context.Context, target store.SSHTarget) (*gossh.Client, error) {
+	return a.openTargetSSHClientWithDepth(ctx, target, 0)
+}
+
+func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSHTarget, depth int) (*gossh.Client, error) {
+	if depth > 3 {
+		return nil, errors.New("ssh proxy chain is too deep")
+	}
 	auth, err := targetAuthMethod(target)
 	if err != nil {
 		return nil, err
@@ -214,6 +221,31 @@ func (a *App) openTargetSSHClient(ctx context.Context, target store.SSHTarget) (
 	}
 	addr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
 	if target.TargetType == store.TargetDirect {
+		if strings.TrimSpace(target.ProxyTargetID) != "" {
+			if target.ProxyTargetID == target.ID {
+				return nil, errors.New("target cannot use itself as proxy")
+			}
+			proxyTarget, err := a.store.Repository().GetSSHTarget(ctx, target.ProxyTargetID)
+			if err != nil {
+				return nil, fmt.Errorf("load proxy target: %w", err)
+			}
+			proxyClient, err := a.openTargetSSHClientWithDepth(ctx, proxyTarget, depth+1)
+			if err != nil {
+				return nil, fmt.Errorf("connect proxy target: %w", err)
+			}
+			conn, err := proxyClient.Dial("tcp", addr)
+			if err != nil {
+				_ = proxyClient.Close()
+				return nil, fmt.Errorf("dial target through proxy: %w", err)
+			}
+			chained := closeChainConn{Conn: conn, closer: proxyClient}
+			clientConn, chans, reqs, err := gossh.NewClientConn(chained, addr, cfg)
+			if err != nil {
+				_ = chained.Close()
+				return nil, err
+			}
+			return gossh.NewClient(clientConn, chans, reqs), nil
+		}
 		return gossh.Dial("tcp", addr, cfg)
 	}
 	if target.TargetType == store.TargetAgent {
@@ -247,6 +279,21 @@ func (a *App) openTargetSSHClient(ctx context.Context, target store.SSHTarget) (
 		return gossh.NewClient(conn, chans, reqs), nil
 	}
 	return nil, fmt.Errorf("unsupported target type %q", target.TargetType)
+}
+
+type closeChainConn struct {
+	net.Conn
+	closer io.Closer
+}
+
+func (c closeChainConn) Close() error {
+	err := c.Conn.Close()
+	if c.closer != nil {
+		if closeErr := c.closer.Close(); err == nil {
+			err = closeErr
+		}
+	}
+	return err
 }
 
 func targetAuthMethod(target store.SSHTarget) (gossh.AuthMethod, error) {

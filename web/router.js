@@ -1,10 +1,11 @@
 import { setRoute, state } from "./state.js";
 
-export const userRoutes = ["dashboard", "orgs", "org-admin", "keys", "targets", "agents", "policies", "audit"];
+export const userRoutes = ["dashboard", "orgs", "org-admin", "keys", "targets", "policies", "audit"];
 export const adminRoutes = ["system-admin"];
 
 export function routeFromLocation() {
   const route = window.location.pathname.replace(/^\/+/, "").split("/")[0] || "dashboard";
+  if (route === "agents") return "targets";
   return [...userRoutes, ...adminRoutes].includes(route) ? route : "dashboard";
 }
 

@@ -13,7 +13,6 @@ import {
   splitTags,
   state,
 } from "./state.js";
-import { renderAgents } from "./views/agents.js";
 import { renderAudit } from "./views/audit.js";
 import { renderAuth } from "./views/auth.js";
 import { renderDashboard } from "./views/dashboard.js";
@@ -89,6 +88,7 @@ function bindEvents() {
       if (action === "rename-target") await renameTarget(form.dataset.targetId, data);
       if (action === "create-agent") {
         state.enrollment = await api.enrollAgent({ ...ownerPayload(data), default_host: "127.0.0.1", default_port: 22 });
+        state.ui.targetCreateDraft = {};
         state.ui.modal = "";
         state.ui.drawer = "agent-enrollment";
       }
@@ -127,6 +127,14 @@ function bindEvents() {
     });
   });
 
+  app.addEventListener("input", (event) => {
+    persistTargetCreateDraft(event.target);
+  });
+
+  app.addEventListener("change", (event) => {
+    persistTargetCreateDraft(event.target);
+  });
+
   app.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-click]");
     if (!button) return;
@@ -141,6 +149,15 @@ function bindEvents() {
       if (action === "open-modal") {
         state.ui.modal = button.dataset.modal || "";
         state.ui.drawer = "";
+        if (state.ui.modal === "create-target") {
+          resetTargetCreate("direct");
+        }
+      }
+      if (action === "open-private-node-create") {
+        resetTargetCreate("private");
+        state.ui.modal = "create-target";
+        state.ui.drawer = "";
+        navigate("targets");
       }
       if (action === "close-overlays") {
         state.ui.modal = "";
@@ -170,6 +187,16 @@ function bindEvents() {
       }
       if (action === "set-agent-platform") {
         state.ui.agentPlatform = button.dataset.value || "linux";
+      }
+      if (action === "set-target-create-mode") {
+        resetTargetCreate(button.dataset.value === "private" ? "private" : "direct");
+      }
+      if (action === "target-create-step") {
+        const form = button.closest('form[data-action="create-target"]');
+        const nextStep = Number(button.dataset.step || 0);
+        if (form && nextStep > Number(state.ui.targetCreateStep || 0) && !form.reportValidity()) return;
+        persistTargetCreateDraft(button);
+        state.ui.targetCreateStep = nextStep;
       }
       if (action === "auth-mode") {
         state.authMode = button.dataset.mode === "register" ? "register" : "login";
@@ -341,7 +368,6 @@ function renderRoute() {
     "org-admin": renderOrgAdmin,
     keys: renderKeys,
     targets: renderTargets,
-    agents: renderAgents,
     policies: renderPolicies,
     audit: renderAudit,
     "system-admin": renderSystemAdmin,
@@ -355,6 +381,8 @@ async function createTarget(data) {
     port: Number(data.port || 22),
     tags: splitTags(data.tags),
   });
+  state.ui.targetCreateDraft = {};
+  state.ui.targetCreateStep = 0;
 }
 
 async function renameTarget(id, data) {
@@ -363,6 +391,19 @@ async function renameTarget(id, data) {
     alias: data.alias,
     tags: splitTags(data.tags),
   });
+}
+
+function resetTargetCreate(mode) {
+  state.ui.targetCreateMode = mode;
+  state.ui.targetCreateStep = 0;
+  state.ui.targetCreateDraft = {};
+  state.enrollment = null;
+}
+
+function persistTargetCreateDraft(node) {
+  const form = node?.closest?.('form[data-action="create-target"]');
+  if (!form) return;
+  state.ui.targetCreateDraft = { ...state.ui.targetCreateDraft, ...formData(form) };
 }
 
 function adminDingTalkPayload(data) {

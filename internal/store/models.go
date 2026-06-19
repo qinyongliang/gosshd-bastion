@@ -125,6 +125,7 @@ type SSHTarget struct {
 	AuthType        string
 	EncryptedSecret []byte
 	AgentID         string
+	ProxyTargetID   string
 	Tags            []string
 	CreatedBy       string
 	CreatedAt       time.Time
@@ -330,6 +331,7 @@ type CreateSSHTargetParams struct {
 	AuthType        string
 	EncryptedSecret []byte
 	AgentID         string
+	ProxyTargetID   string
 	Tags            []string
 	CreatedBy       string
 }
@@ -343,6 +345,7 @@ type UpdateSSHTargetParams struct {
 	AuthType        string
 	EncryptedSecret []byte
 	AgentID         string
+	ProxyTargetID   string
 	Tags            []string
 	ReplaceTags     bool
 }

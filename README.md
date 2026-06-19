@@ -4,7 +4,7 @@
 
 `gosshd-bastion` is an SSH bastion built for AI services, automation agents, and operators that need audited access to private machines. It runs as a single Go server with an embedded web console, SQLite storage, an SSH gateway, agent enrollment, command safety policies, LLM review hooks, and an MCP control plane.
 
-The current public release is [`v0.1.16-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.16-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
+The current public release is [`v0.1.17-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.17-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
 
 ## What Works Now
 
@@ -15,7 +15,8 @@ The current public release is [`v0.1.16-bastion`](https://github.com/qinyonglian
 - SSH public-key login to the bastion. The SSH username is the target alias, for example `test2`.
 - SSH services with a display name, alias, host, port, remote username, auth type, and multiple tags. Tags are stored as first-class records and can be used for filtering and policy binding.
 - Direct SSH services using password or private-key authentication.
-- Agent-backed SSH services. Agent enrollment returns tokenized Linux/macOS and Windows commands, including startup-service install commands. Once an agent registers, it becomes a normal SSH service and can be renamed, retagged, filtered, and bound to policies.
+- Private-node SSH services. The SSH services page can generate tokenized Linux/macOS and Windows install commands, including startup-service install commands. Once a private node registers, it becomes a normal SSH service and can be renamed, retagged, filtered, and bound to policies.
+- Advanced SSH server routing can use an existing SSH service as a jump host/proxy for private subnets.
 - Command safety groups with whitelist and blacklist rules, exact/prefix/contains matching, target binding, target-tag binding, user-group binding, default allow/deny, and optional LLM review when no rule matches.
 - Command audit logs for SSH `exec` requests, including command, target, policy decision, reason, and exit code.
 - DingTalk OAuth login. New DingTalk users can be auto-created and placed into a default organization and role.
@@ -42,7 +43,7 @@ Each release publishes:
 Example Linux install from GitHub Releases:
 
 ```sh
-version=v0.1.16-bastion
+version=v0.1.17-bastion
 platform=linux-amd64
 
 curl -fL -o "gosshd-${version}-${platform}.tar.gz" \
@@ -89,9 +90,9 @@ ssh -p 22022 test2@bastion.example.com hostname
 
 The bastion authenticates your public key, resolves alias `test2` first in your personal organization and then in shared organizations. If a shared alias appears in more than one organization, the request is rejected as ambiguous.
 
-## Agent Enrollment
+## Private Node Enrollment
 
-Create an agent enrollment in the **Agent SSH** page. The response contains the tokenized commands for the selected owner scope.
+Open **SSH services**, choose **Add service**, then select the **Private node** tab. Enter the service alias and create an install token. The response contains tokenized commands for the selected owner scope.
 
 Linux/macOS run once:
 
@@ -117,7 +118,7 @@ Windows startup service with `sc.exe`:
 $s='http://bastion.example.com:18080/install/<token>.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install
 ```
 
-The server serves agent binaries from local `--agent-path` when present, otherwise it downloads the matching release asset into `--agent-cache-path` and serves it to the private host.
+The server serves private-node binaries from local `--agent-path` when present, otherwise it downloads the matching release asset into `--agent-cache-path` and serves it to the private host.
 
 ## Command Policies
 

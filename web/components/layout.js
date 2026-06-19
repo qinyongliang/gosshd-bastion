@@ -8,7 +8,6 @@ const navItems = [
   ["org-admin", "nav.members", "org"],
   ["keys", "nav.keys", "key"],
   ["targets", "nav.targets", "targets"],
-  ["agents", "nav.agents", "agents"],
   ["policies", "nav.policies", "policies"],
   ["audit", "nav.audit", "audit"],
 ];
@@ -71,7 +70,6 @@ function pageTitle() {
     "org-admin": "page.org-admin",
     keys: "page.keys",
     targets: "page.targets",
-    agents: "page.agents",
     policies: "page.policies",
     audit: "page.audit",
     "system-admin": "page.system-admin",
