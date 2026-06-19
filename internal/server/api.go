@@ -75,6 +75,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/admin/settings/ldap", a.requireSystemAdmin(a.handleUpdateLDAPSettings))
 	mux.HandleFunc("GET /api/admin/users", a.requireSystemAdmin(a.handleAdminListUsers))
 	mux.HandleFunc("PATCH /api/admin/users/{id}", a.requireSystemAdmin(a.handleAdminUpdateUser))
+	mux.HandleFunc("PUT /api/admin/users/{id}/password", a.requireSystemAdmin(a.handleAdminResetUserPassword))
 	mux.HandleFunc("GET /api/admin/orgs", a.requireSystemAdmin(a.handleAdminListOrganizations))
 	mux.HandleFunc("GET /api/admin/orgs/{id}/members", a.requireSystemAdmin(a.handleAdminListOrganizationMembers))
 	mux.HandleFunc("PATCH /api/admin/orgs/{id}/members/{user_id}", a.requireSystemAdmin(a.handleAdminUpdateOrganizationMember))

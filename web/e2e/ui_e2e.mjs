@@ -142,7 +142,10 @@ try {
   await accountBlock.getByRole("button", { name: /Open account list/ }).click();
   await page.locator('form[data-action="admin-update-user"]').first().waitFor();
   await expectModalCount(page, 1);
-  await page.locator(".modal .icon-button").click();
+  await page.locator(".modal").getByRole("button", { name: "Reset password" }).first().click();
+  await page.locator('form[data-action="admin-reset-password"] input[name="password"]').fill("new-admin-pass");
+  await page.locator('form[data-action="admin-reset-password"]').getByRole("button", { name: "Save new password" }).click();
+  await expectText(page, "Saved");
   await expectModalCount(page, 0);
   const orgBlock = page.locator(".section-block").filter({ hasText: "Organization management" }).first();
   await expectCount(orgBlock.locator(".cloud-table"), 0);

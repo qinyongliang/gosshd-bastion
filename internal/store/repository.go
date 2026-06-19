@@ -109,6 +109,16 @@ func (r *Repository) UpdateUserSystemAdmin(ctx context.Context, userID string, i
 	return requireRowsAffected(res)
 }
 
+func (r *Repository) UpdateUserPasswordHash(ctx context.Context, userID string, passwordHash []byte) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE users SET password_hash = ? WHERE id = ?
+	`, append([]byte(nil), passwordHash...), userID)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
 func (r *Repository) EnsureBootstrapAdmin(ctx context.Context, password string) (User, string, error) {
 	if existing, err := r.GetUserByEmail(ctx, "admin"); err == nil {
 		if !existing.IsSystemAdmin {

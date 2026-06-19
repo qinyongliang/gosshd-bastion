@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
@@ -95,6 +96,50 @@ func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 	regular := apiClient(t)
 	registerForAPI(t, regular, srv.URL, "regular@example.com")
 	getJSON(t, regular, srv.URL+"/api/admin/settings", http.StatusForbidden, nil)
+}
+
+func TestAPIAdminResetUserPassword(t *testing.T) {
+	srv, adminClient, app := newAPITestServer(t)
+	defer srv.Close()
+	postJSON(t, adminClient, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "admin",
+		"password": "admin-pass",
+	}, http.StatusOK, nil)
+
+	regular := apiClient(t)
+	regularUser := registerForAPI(t, regular, srv.URL, "reset-me@example.com")
+	putJSON(t, adminClient, srv.URL+"/api/admin/users/"+regularUser.User.ID+"/password", map[string]string{
+		"password": "new-secret-pass",
+	}, http.StatusOK, nil)
+
+	postJSON(t, regular, srv.URL+"/api/auth/logout", nil, http.StatusOK, nil)
+	postJSON(t, regular, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "reset-me@example.com",
+		"password": "secret-pass",
+	}, http.StatusUnauthorized, nil)
+	postJSON(t, regular, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "reset-me@example.com",
+		"password": "new-secret-pass",
+	}, http.StatusOK, nil)
+
+	outsider := apiClient(t)
+	registerForAPI(t, outsider, srv.URL, "outsider@example.com")
+	putJSON(t, outsider, srv.URL+"/api/admin/users/"+regularUser.User.ID+"/password", map[string]string{
+		"password": "blocked-pass",
+	}, http.StatusForbidden, nil)
+
+	external, err := app.store.Repository().CreateUser(context.Background(), store.CreateUserParams{
+		Email:        "external@example.com",
+		DisplayName:  "External",
+		PasswordHash: []byte("hash"),
+		AuthProvider: "dingtalk",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	putJSON(t, adminClient, srv.URL+"/api/admin/users/"+external.ID+"/password", map[string]string{
+		"password": "should-not-apply",
+	}, http.StatusBadRequest, nil)
 }
 
 func TestAPIDingTalkMockLoginCreatesAndAssignsUser(t *testing.T) {

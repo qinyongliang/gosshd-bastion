@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
@@ -97,6 +98,35 @@ func (a *App) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request, user
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (a *App) handleAdminResetUserPassword(w http.ResponseWriter, r *http.Request, user store.User) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	password := strings.TrimSpace(req.Password)
+	if len(password) < 8 {
+		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+	target, err := a.store.Repository().GetUser(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if target.AuthProvider != "local" {
+		writeError(w, http.StatusBadRequest, "password reset is only available for local users")
+		return
+	}
+	if err := a.auth.ResetPassword(r.Context(), target.ID, password); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
