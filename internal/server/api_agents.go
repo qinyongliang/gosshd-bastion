@@ -18,6 +18,11 @@ type apiAgentEnrollmentResponse struct {
 	ServicePS1 string `json:"service_ps1"`
 }
 
+const (
+	defaultAgentTargetHost = "127.0.0.1"
+	defaultAgentTargetPort = 22
+)
+
 func (a *App) handleCreateAgentEnrollment(w http.ResponseWriter, r *http.Request, user store.User) {
 	var req struct {
 		OwnerType   string `json:"owner_type"`
@@ -35,6 +40,7 @@ func (a *App) handleCreateAgentEnrollment(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	defaultHost, defaultPort := agentEnrollmentDefaults(req.DefaultHost, req.DefaultPort)
 	token, hash, err := randomCode()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -45,8 +51,8 @@ func (a *App) handleCreateAgentEnrollment(w http.ResponseWriter, r *http.Request
 		OwnerID:     ownerID,
 		TokenHash:   hash,
 		Label:       req.Label,
-		DefaultHost: req.DefaultHost,
-		DefaultPort: req.DefaultPort,
+		DefaultHost: defaultHost,
+		DefaultPort: defaultPort,
 		CreatedBy:   user.ID,
 		ExpiresAt:   time.Now().UTC().Add(30 * 24 * time.Hour),
 	})
@@ -56,6 +62,17 @@ func (a *App) handleCreateAgentEnrollment(w http.ResponseWriter, r *http.Request
 	}
 	base := publicBaseURL(r, a.cfg.publicHost())
 	writeJSON(w, http.StatusCreated, agentEnrollmentResponse(enrollment.ID, token, base))
+}
+
+func agentEnrollmentDefaults(host string, port int) (string, int) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = defaultAgentTargetHost
+	}
+	if port == 0 {
+		port = defaultAgentTargetPort
+	}
+	return host, port
 }
 
 func agentEnrollmentResponse(id, token, base string) apiAgentEnrollmentResponse {

@@ -108,9 +108,9 @@ try {
   await page.getByRole("button", { name: "Agent SSH" }).click();
   await page.getByRole("button", { name: "New enrollment" }).click();
   const agentForm = page.locator('form[data-action="create-agent"]');
+  await expectCount(agentForm.getByLabel("Agent default host"), 0);
+  await expectCount(agentForm.getByLabel("Agent default SSH port"), 0);
   await agentForm.getByLabel("Agent service alias").fill("ui-agent");
-  await agentForm.getByLabel("Agent default host").fill("127.0.0.1");
-  await agentForm.getByLabel("Agent default SSH port").fill("22");
   await agentForm.getByRole("button", { name: "Create enrollment" }).click();
   await expectText(page, "systemctl");
   await page.evaluate(() => {

@@ -4,7 +4,7 @@
 
 `gosshd-bastion` is an SSH bastion built for AI services, automation agents, and operators that need audited access to private machines. It runs as a single Go server with an embedded web console, SQLite storage, an SSH gateway, agent enrollment, command safety policies, LLM review hooks, and an MCP control plane.
 
-The current public release is [`v0.1.15-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.15-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
+The current public release is [`v0.1.16-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.16-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
 
 ## What Works Now
 
@@ -42,7 +42,7 @@ Each release publishes:
 Example Linux install from GitHub Releases:
 
 ```sh
-version=v0.1.15-bastion
+version=v0.1.16-bastion
 platform=linux-amd64
 
 curl -fL -o "gosshd-${version}-${platform}.tar.gz" \

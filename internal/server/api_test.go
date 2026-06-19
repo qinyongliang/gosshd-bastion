@@ -579,7 +579,7 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 }
 
 func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
-	srv, client, _ := newAPITestServer(t)
+	srv, client, app := newAPITestServer(t)
 	defer srv.Close()
 	user := registerForAPI(t, client, srv.URL, "alice@example.com")
 	var me apiMeResponse
@@ -636,9 +636,27 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	}
 
 	postJSON(t, client, srv.URL+"/api/agent-enrollments", map[string]any{
-		"label":        "missing-owner",
-		"default_host": "127.0.0.1",
-		"default_port": 22,
+		"owner_type": "organization",
+		"owner_id":   me.Organizations[0].ID,
+		"label":      "minimal-agent",
+	}, http.StatusCreated, &apiAgentEnrollmentResponse{})
+	enrollments, err := app.store.Repository().ListAgentEnrollments(context.Background(), store.OwnerOrganization, me.Organizations[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundDefault bool
+	for _, item := range enrollments {
+		if item.Label == "minimal-agent" {
+			foundDefault = item.DefaultHost == "127.0.0.1" && item.DefaultPort == 22
+			break
+		}
+	}
+	if !foundDefault {
+		t.Fatalf("minimal agent enrollment did not receive defaults: %+v", enrollments)
+	}
+
+	postJSON(t, client, srv.URL+"/api/agent-enrollments", map[string]any{
+		"label": "missing-owner",
 	}, http.StatusBadRequest, nil)
 	_ = user
 }
