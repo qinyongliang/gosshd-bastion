@@ -45,19 +45,21 @@ export function cloudTable(headers, rows, options = {}) {
   `);
 }
 
-export function modal(state, name, { title, subtitle = "", body, size = "" }) {
-  if (state.ui.modal !== name) return "";
+export function modal(state, name, { title, subtitle = "", body, size = "", bodyClass = "", slot = "modal" }) {
+  if (state.ui[slot] !== name) return "";
+  const layered = slot === "modalLayer";
+  const closeAction = layered ? "close-modal-layer" : "close-overlays";
   return raw(`
-    <div class="overlay" data-click="close-overlays">
+    <div class="overlay ${layered ? "stacked" : ""}" data-click="${closeAction}">
       <section class="modal ${escapeHTML(size)}" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
         <header class="surface-head">
           <div>
             <h2>${escapeHTML(title)}</h2>
             ${subtitle ? `<p>${escapeHTML(subtitle)}</p>` : ""}
           </div>
-          <button type="button" class="icon-button" data-click="close-overlays" aria-label="${escapeHTML(t("common.close"))}">${icon("close").__raw}</button>
+          <button type="button" class="icon-button" data-click="${closeAction}" aria-label="${escapeHTML(t("common.close"))}">${icon("close").__raw}</button>
         </header>
-        <div class="surface-body">${body}</div>
+        <div class="surface-body ${escapeHTML(bodyClass)}">${body}</div>
       </section>
     </div>
   `);

@@ -4,7 +4,7 @@
 
 `gosshd-bastion` is an SSH bastion built for AI services, automation agents, and operators that need audited access to private machines. It runs as a single Go server with an embedded web console, SQLite storage, an SSH gateway, agent enrollment, command safety policies, LLM review hooks, and an MCP control plane.
 
-The current public release is [`v0.1.20-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.20-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
+The current public release is [`v0.1.21-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
 
 ## What Works Now
 
@@ -43,7 +43,7 @@ Each release publishes:
 Example Linux install from GitHub Releases:
 
 ```sh
-version=v0.1.20-bastion
+version=v0.1.21-bastion
 platform=linux-amd64
 
 curl -fL -o "gosshd-${version}-${platform}.tar.gz" \
@@ -129,7 +129,7 @@ Command safety groups are evaluated per target:
 - Policies can bind to organization user groups. If no user group is bound, the policy applies to all users who can reach the target.
 - Blacklist rules deny immediately.
 - Whitelist rules allow matching commands.
-- If no rule matches and an LLM config is attached, the command is sent to the configured model with the selected prompt. The model must return JSON: `{"allow": true|false, "reason": "short reason"}`.
+- If no rule matches and an LLM config is attached, the command is sent to the configured model with the selected prompt. The model must return JSON: `{"allow": true|false, "reason": "short reason"}`. `reason` may be omitted for allowed commands; denied commands should include a short reason.
 - If no rule and no LLM applies, the policy's default action is used.
 
 ## System Administration

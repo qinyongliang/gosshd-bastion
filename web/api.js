@@ -13,6 +13,7 @@ export async function request(path, options = {}) {
 
 export const api = {
   me: () => request("/api/me"),
+  changeOwnPassword: (body) => request("/api/me/password", put(body)),
   authProviders: () => request("/api/auth/providers"),
   register: (body) => request("/api/auth/register", post(body)),
   login: (body) => request("/api/auth/login", post(body)),
@@ -34,6 +35,7 @@ export const api = {
   targets: (owner) => request(`/api/targets?${ownerQuery(owner)}`),
   createTarget: (body) => request("/api/targets", post(body)),
   updateTarget: (id, body) => request(`/api/targets/${id}`, patch(body)),
+  updateTargetTagColor: (body) => request("/api/target-tags", patch(body)),
   enrollAgent: (body) => request("/api/agent-enrollments", post(body)),
   llmConfigs: (owner) => request(`/api/llm-configs?${ownerQuery(owner)}`),
   createLLMConfig: (body) => request("/api/llm-configs", post(body)),

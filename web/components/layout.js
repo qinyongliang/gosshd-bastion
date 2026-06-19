@@ -1,6 +1,7 @@
 import { activeOrg, state } from "../state.js";
 import { optionText, t, tf } from "../i18n.js";
 import { badge, escapeHTML, hudLine, icon, languageSwitch, raw, statusLine, themeSwitch } from "./html.js";
+import { modal } from "./management.js";
 
 const navItems = [
   ["dashboard", "nav.dashboard", "dashboard"],
@@ -48,6 +49,7 @@ export function renderShell(content) {
           <div class="top-actions">
             ${themeSwitch(state.theme).__raw}
             ${languageSwitch(state.locale).__raw}
+            <button type="button" data-click="open-modal" data-modal="personal-settings">${icon("settings").__raw}${escapeHTML(t("shell.personalSettings"))}</button>
             ${org?.is_personal ? badge(t("common.personal"), "info").__raw : badge(tf("shell.shared", { role: optionText("roles", org?.role || "member") }), "success").__raw}
             ${!org?.is_personal ? `<button data-click="invite">${escapeHTML(t("shell.invite"))}</button><button data-click="leave-org" class="danger">${escapeHTML(t("shell.leave"))}</button>` : ""}
           </div>
@@ -56,6 +58,7 @@ export function renderShell(content) {
         ${statusLine(state).__raw || ""}
         ${state.invite ? invitePanel() : ""}
         ${content.__raw || content}
+        ${personalModals()}
       </section>
     </section>
   `);
@@ -81,4 +84,52 @@ function pageTitle() {
 
 function invitePanel() {
   return `<div class="notice-card"><strong>${escapeHTML(t("shell.inviteCode"))}</strong><code>${escapeHTML(state.invite)}</code><button data-click="copy" aria-label="${escapeHTML(t("common.copy"))}" data-value="${escapeHTML(state.invite)}">${icon("copy").__raw}</button></div>`;
+}
+
+function personalModals() {
+  return `${personalSettingsModal().__raw || ""}${changePasswordModal().__raw || ""}`;
+}
+
+function personalSettingsModal() {
+  const isLocal = state.user.auth_provider === "local";
+  return modal(state, "personal-settings", {
+    title: t("profile.title"),
+    subtitle: t("profile.subtitle"),
+    body: `
+      <div class="profile-summary">
+        <span><strong>${escapeHTML(state.user.display_name || state.user.email)}</strong><small>${escapeHTML(state.user.email)}</small></span>
+        <span><b>${escapeHTML(t("profile.loginSource"))}</b>${escapeHTML(optionText("providers", state.user.auth_provider || "local"))}</span>
+      </div>
+      <section class="section-block embedded">
+        <header>
+          <div>
+            <h3>${escapeHTML(t("profile.securityTitle"))}</h3>
+            <p>${escapeHTML(t("profile.securitySub"))}</p>
+          </div>
+        </header>
+        ${isLocal
+          ? `<button type="button" class="primary" data-click="open-modal" data-modal="change-password">${icon("key").__raw}${escapeHTML(t("profile.changePassword"))}</button>`
+          : `<div class="notice-card compact"><strong>${escapeHTML(t("profile.externalPasswordTitle"))}</strong><span>${escapeHTML(t("profile.externalPasswordBody"))}</span></div>`}
+      </section>
+    `,
+  });
+}
+
+function changePasswordModal() {
+  if (state.user.auth_provider !== "local") return "";
+  return modal(state, "change-password", {
+    title: t("profile.changePassword"),
+    subtitle: t("profile.changePasswordSub"),
+    body: `
+      <form data-action="change-own-password" data-close-overlay="modal" class="modal-form">
+        <label class="field"><span>${escapeHTML(t("profile.currentPassword"))}</span><input name="current_password" type="password" autocomplete="current-password" required /></label>
+        <label class="field"><span>${escapeHTML(t("profile.newPassword"))}</span><input name="new_password" type="password" autocomplete="new-password" required minlength="8" placeholder="${escapeHTML(t("profile.newPasswordPlaceholder"))}" /></label>
+        <label class="field"><span>${escapeHTML(t("profile.confirmPassword"))}</span><input name="confirm_password" type="password" autocomplete="new-password" required minlength="8" /></label>
+        <footer class="modal-actions">
+          <button type="button" data-click="close-overlays">${escapeHTML(t("common.cancel"))}</button>
+          <button type="submit" class="primary">${icon("key").__raw}${escapeHTML(t("profile.savePassword"))}</button>
+        </footer>
+      </form>
+    `,
+  });
 }

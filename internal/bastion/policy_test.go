@@ -3,6 +3,7 @@ package bastion
 import (
 	"context"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
@@ -143,7 +144,7 @@ func TestPolicyEvaluationUsesLLMWhenNoRuleMatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Action != store.DecisionDeny || decision.Reason != "llm: needs approval" {
+	if decision.Action != store.DecisionDeny || !regexp.MustCompile(`^llm: needs approval \([0-9]+s\)$`).MatchString(decision.Reason) {
 		t.Fatalf("llm decision mismatch: %+v", decision)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"net/http/cookiejar"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
@@ -48,6 +50,9 @@ func TestAPIRegisterLoginMeAndLogout(t *testing.T) {
 	getJSON(t, client, srv.URL+"/api/me", http.StatusOK, &me)
 	if me.User.ID != reg.User.ID {
 		t.Fatalf("me user mismatch: %+v", me)
+	}
+	if me.Runtime.SSHHost == "" || me.Runtime.SSHPort != 22 {
+		t.Fatalf("me runtime mismatch: %+v", me.Runtime)
 	}
 }
 
@@ -168,6 +173,55 @@ func TestAPIAdminResetUserPassword(t *testing.T) {
 	}
 	putJSON(t, adminClient, srv.URL+"/api/admin/users/"+external.ID+"/password", map[string]string{
 		"password": "should-not-apply",
+	}, http.StatusBadRequest, nil)
+}
+
+func TestAPIChangeOwnPassword(t *testing.T) {
+	srv, client, app := newAPITestServer(t)
+	defer srv.Close()
+	registerForAPI(t, client, srv.URL, "self-password@example.com")
+
+	putJSON(t, client, srv.URL+"/api/me/password", map[string]string{
+		"current_password": "wrong-pass",
+		"new_password":     "new-secret-pass",
+		"confirm_password": "new-secret-pass",
+	}, http.StatusUnauthorized, nil)
+	putJSON(t, client, srv.URL+"/api/me/password", map[string]string{
+		"current_password": "secret-pass",
+		"new_password":     "new-secret-pass",
+		"confirm_password": "different-pass",
+	}, http.StatusBadRequest, nil)
+	putJSON(t, client, srv.URL+"/api/me/password", map[string]string{
+		"current_password": "secret-pass",
+		"new_password":     "new-secret-pass",
+		"confirm_password": "new-secret-pass",
+	}, http.StatusOK, nil)
+
+	postJSON(t, client, srv.URL+"/api/auth/logout", nil, http.StatusOK, nil)
+	postJSON(t, client, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "self-password@example.com",
+		"password": "secret-pass",
+	}, http.StatusUnauthorized, nil)
+	postJSON(t, client, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "self-password@example.com",
+		"password": "new-secret-pass",
+	}, http.StatusOK, nil)
+
+	external, err := app.store.Repository().CreateUser(context.Background(), store.CreateUserParams{
+		Email:        "external-self@example.com",
+		DisplayName:  "External Self",
+		PasswordHash: []byte("hash"),
+		AuthProvider: "ldap",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	externalClient := apiClient(t)
+	attachTestSession(t, externalClient, srv.URL, app, external.ID)
+	putJSON(t, externalClient, srv.URL+"/api/me/password", map[string]string{
+		"current_password": "whatever",
+		"new_password":     "new-secret-pass",
+		"confirm_password": "new-secret-pass",
 	}, http.StatusBadRequest, nil)
 }
 
@@ -507,6 +561,9 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if target.Target.ID == "" || target.Target.Alias != "test2" || target.Target.Name != "Test service" || len(target.Target.Tags) != 2 {
 		t.Fatalf("target response mismatch: %+v", target)
 	}
+	if len(target.Target.TagColors) != 2 || target.Target.TagColors["测试环境"] == "" {
+		t.Fatalf("target tag colors missing: %+v", target.Target.TagColors)
+	}
 	var proxied apiTargetResponse
 	postJSON(t, client, srv.URL+"/api/targets", map[string]any{
 		"owner_type":       "organization",
@@ -526,6 +583,28 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if proxied.Target.ProxyTargetID != target.Target.ID {
 		t.Fatalf("proxied target response mismatch: %+v", proxied)
 	}
+	var edited apiTargetResponse
+	patchJSON(t, client, srv.URL+"/api/targets/"+proxied.Target.ID, map[string]any{
+		"name":            "Edited private subnet",
+		"alias":           "edited-private",
+		"host":            "10.0.0.9",
+		"port":            2222,
+		"remote_username": "ubuntu",
+		"auth_type":       "private_key",
+		"secret":          "updated-secret",
+		"proxy_target_id": "",
+		"tags":            []string{"private", "edited"},
+	}, http.StatusOK, &edited)
+	if edited.Target.Name != "Edited private subnet" ||
+		edited.Target.Alias != "edited-private" ||
+		edited.Target.Host != "10.0.0.9" ||
+		edited.Target.Port != 2222 ||
+		edited.Target.RemoteUsername != "ubuntu" ||
+		edited.Target.AuthType != "private_key" ||
+		edited.Target.ProxyTargetID != "" ||
+		len(edited.Target.Tags) != 2 {
+		t.Fatalf("target connection edit mismatch: %+v", edited.Target)
+	}
 	var filtered apiTargetsResponse
 	getJSON(t, client, srv.URL+"/api/targets?owner_type=organization&owner_id="+org.Organization.ID+"&tags=%E6%B5%8B%E8%AF%95%E7%8E%AF%E5%A2%83", http.StatusOK, &filtered)
 	if len(filtered.Targets) != 1 || filtered.Targets[0].ID != target.Target.ID {
@@ -539,6 +618,17 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	}, http.StatusOK, &renamed)
 	if renamed.Target.Alias != "renamed" || renamed.Target.Name != "Renamed service" || len(renamed.Target.Tags) != 1 || renamed.Target.Tags[0] != "prod" {
 		t.Fatalf("target rename mismatch: %+v", renamed)
+	}
+	patchJSON(t, client, srv.URL+"/api/target-tags", map[string]string{
+		"owner_type": "organization",
+		"owner_id":   org.Organization.ID,
+		"name":       "prod",
+		"color":      "green",
+	}, http.StatusOK, nil)
+	var colored apiTargetsResponse
+	getJSON(t, client, srv.URL+"/api/targets?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &colored)
+	if len(colored.Targets) < 1 || colored.Targets[0].TagColors["prod"] != "green" {
+		t.Fatalf("target tag color update mismatch: %+v", colored)
 	}
 	target.Target = renamed.Target
 
@@ -579,16 +669,17 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	}
 
 	audit, err := app.store.Repository().CreateCommandAuditLog(contextBackground(), store.CreateCommandAuditLogParams{
-		UserID:         user.User.ID,
-		TargetID:       target.Target.ID,
-		OrganizationID: org.Organization.ID,
-		SessionID:      "session-1",
-		Command:        "whoami",
-		RequestType:    store.RequestExec,
-		PolicyDecision: store.DecisionAllow,
-		PolicyReason:   "whitelist",
-		ExitCode:       intPtr(0),
-		RemoteAddress:  "127.0.0.1:12345",
+		UserID:               user.User.ID,
+		TargetID:             target.Target.ID,
+		OrganizationID:       org.Organization.ID,
+		PublicKeyFingerprint: "SHA256:audit-key",
+		SessionID:            "session-1",
+		Command:              "whoami",
+		RequestType:          store.RequestExec,
+		PolicyDecision:       store.DecisionAllow,
+		PolicyReason:         "whitelist",
+		ExitCode:             intPtr(0),
+		RemoteAddress:        "127.0.0.1:12345",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -597,6 +688,14 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	getJSON(t, client, srv.URL+"/api/audit", http.StatusOK, &logs)
 	if len(logs.Logs) != 1 || logs.Logs[0].ID != audit.ID || logs.Logs[0].Command != "whoami" {
 		t.Fatalf("audit logs mismatch: %+v", logs)
+	}
+	if logs.Logs[0].UserEmail != user.User.Email ||
+		logs.Logs[0].UserDisplayName != user.User.DisplayName ||
+		logs.Logs[0].PublicKeyFingerprint != "SHA256:audit-key" ||
+		logs.Logs[0].TargetName != target.Target.Name ||
+		logs.Logs[0].TargetAlias != target.Target.Alias ||
+		logs.Logs[0].TargetEndpoint != "root@127.0.0.1:22" {
+		t.Fatalf("audit log enriched fields mismatch: %+v", logs.Logs[0])
 	}
 }
 
@@ -652,6 +751,12 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	resp.Body.Close()
 	if !strings.Contains(psBody, "sc.exe create gosshd-agent") || !strings.Contains(psBody, "sc.exe start gosshd-agent") {
 		t.Fatalf("powershell install script missing service install flow:\n%s", psBody)
+	}
+	if strings.Contains(psBody, "$quote") || strings.Contains(psBody, "$quotehttp") {
+		t.Fatalf("powershell install script should not concatenate quote variables with URLs:\n%s", psBody)
+	}
+	if !strings.Contains(psBody, `$server = "`) || !strings.Contains(psBody, `& $tmp --server $server --enrollment-token $enrollmentToken`) {
+		t.Fatalf("powershell install script missing safe server/token variables:\n%s", psBody)
 	}
 	if strings.Contains(shBody, "installl") || strings.Contains(psBody, "installl") {
 		t.Fatalf("install scripts should not accept misspelled install mode")
@@ -728,6 +833,20 @@ func registerForAPI(t *testing.T, client *http.Client, baseURL, email string) ap
 		"password":     "secret-pass",
 	}, http.StatusCreated, &out)
 	return out
+}
+
+func attachTestSession(t *testing.T, client *http.Client, baseURL string, app *App, userID string) {
+	t.Helper()
+	token := "test-session-" + userID
+	sum := sha256.Sum256([]byte(token))
+	if _, err := app.store.Repository().CreateSession(context.Background(), userID, sum[:], time.Now().UTC().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Jar.SetCookies(parsed, []*http.Cookie{{Name: app.sessionCookieName(), Value: token}})
 }
 
 func postJSON(t *testing.T, client *http.Client, url string, body any, wantStatus int, out any) {

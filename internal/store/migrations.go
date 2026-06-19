@@ -96,9 +96,11 @@ var migrations = []string{
 		owner_type TEXT NOT NULL,
 		owner_id TEXT NOT NULL,
 		name TEXT NOT NULL,
+		color TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL,
 		UNIQUE (owner_type, owner_id, name)
 	)`,
+	`ALTER TABLE target_tags ADD COLUMN color TEXT NOT NULL DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS target_tag_bindings (
 		target_id TEXT NOT NULL REFERENCES ssh_targets(id) ON DELETE CASCADE,
 		tag_id TEXT NOT NULL REFERENCES target_tags(id) ON DELETE CASCADE,
@@ -193,11 +195,13 @@ var migrations = []string{
 		request_type TEXT NOT NULL,
 		policy_decision TEXT NOT NULL,
 		policy_reason TEXT NOT NULL,
+		public_key_fingerprint TEXT NOT NULL DEFAULT '',
 		exit_code INTEGER,
 		started_at TEXT NOT NULL,
 		ended_at TEXT,
 		remote_address TEXT NOT NULL
 	)`,
+	`ALTER TABLE command_audit_logs ADD COLUMN public_key_fingerprint TEXT NOT NULL DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS external_identities (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -1,8 +1,9 @@
-import { allTargetTags, filteredPolicies, state } from "../state.js";
+import { allTargetTagDetails, filteredPolicies, state, tagColorForName } from "../state.js";
 import { badge, emptyState, escapeHTML, icon, raw } from "../components/html.js";
 import { selectOptions } from "../components/forms.js";
 import { cloudTable, detailList, drawer, modal, resourceHeader, resourceToolbar, rowButton, sectionBlock, selectionSummary } from "../components/management.js";
 import { t } from "../i18n.js";
+import { tagChip } from "../tag-colors.js";
 
 export function renderPolicies() {
   const policies = filteredPolicies();
@@ -26,7 +27,7 @@ export function renderPolicies() {
       searchAction: "set-policy-filter",
       query: state.policyQuery,
       searchPlaceholder: t("policies.searchPlaceholder"),
-      chips: allTargetTags().map((tag) => `<span>${escapeHTML(tag)}</span>`).join(""),
+      chips: allTargetTagDetails().map((tag) => tagChip(tag.name, tag.color)).join(""),
       actions: `${selectionSummary(0)}<button type="button" data-click="clear-policy-filter">${escapeHTML(t("targets.clearFilters"))}</button>`,
     }).__raw}
     ${policyTable(policies).__raw}
@@ -64,7 +65,7 @@ function policyTable(policies) {
 }
 
 function policyModals() {
-  const tagChoices = allTargetTags().map((tag) => ({ id: tag, name: tag }));
+  const tagChoices = allTargetTagDetails().map((tag) => ({ id: tag.name, name: tag.name }));
   return [
     modal(state, "create-policy", {
       title: t("policies.createModalTitle"),
@@ -167,5 +168,5 @@ function policyDrawer() {
 function targetPolicyTags(policy) {
   const tags = policy.target_tags || [];
   if (!tags.length) return `<span class="muted">-</span>`;
-  return `<div class="tag-row">${tags.map((tag) => `<span>${escapeHTML(tag)}</span>`).join("")}</div>`;
+  return `<div class="tag-row">${tags.map((tag) => tagChip(tag, tagColorForName(tag))).join("")}</div>`;
 }

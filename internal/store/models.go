@@ -30,7 +30,7 @@ const (
 	RequestSFTP  = "sftp"
 
 	DefaultLLMPromptTitle   = "Default SSH Command Review"
-	DefaultLLMPromptContent = "You are reviewing an SSH command for a bastion host. Respond with JSON only: {\"allow\":true|false,\"reason\":\"short reason\"}. Deny destructive, privilege-escalation, persistence, credential-exfiltration, and unclear high-risk commands unless there is an explicit safe operational reason."
+	DefaultLLMPromptContent = "You are reviewing an SSH command for a bastion host. Respond with JSON only: {\"allow\":true|false,\"reason\":\"short reason\"}. When allow is true, reason may be omitted or empty. When allow is false, include a short reason. Do not output chain-of-thought, analysis, or reasoning steps. Deny destructive, privilege-escalation, persistence, credential-exfiltration, and unclear high-risk commands unless there is an explicit safe operational reason."
 )
 
 type User struct {
@@ -127,6 +127,7 @@ type SSHTarget struct {
 	AgentID         string
 	ProxyTargetID   string
 	Tags            []string
+	TagColors       map[string]string
 	CreatedBy       string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -137,6 +138,7 @@ type TargetTag struct {
 	OwnerType string
 	OwnerID   string
 	Name      string
+	Color     string
 	CreatedAt time.Time
 }
 
@@ -258,19 +260,28 @@ type CreateLLMPromptResourceParams struct {
 }
 
 type CommandAuditLog struct {
-	ID             string
-	UserID         string
-	TargetID       string
-	OrganizationID string
-	SessionID      string
-	Command        string
-	RequestType    string
-	PolicyDecision string
-	PolicyReason   string
-	ExitCode       *int
-	StartedAt      time.Time
-	EndedAt        *time.Time
-	RemoteAddress  string
+	ID                   string
+	UserID               string
+	UserEmail            string
+	UserDisplayName      string
+	TargetID             string
+	TargetName           string
+	TargetAlias          string
+	TargetHost           string
+	TargetPort           int
+	TargetUsername       string
+	OrganizationID       string
+	SessionID            string
+	Command              string
+	RequestType          string
+	PolicyDecision       string
+	PolicyReason         string
+	PublicKeyFingerprint string
+	PublicKeyName        string
+	ExitCode             *int
+	StartedAt            time.Time
+	EndedAt              *time.Time
+	RemoteAddress        string
 }
 
 type CreateUserParams struct {
@@ -346,6 +357,7 @@ type UpdateSSHTargetParams struct {
 	EncryptedSecret []byte
 	AgentID         string
 	ProxyTargetID   string
+	ReplaceProxy    bool
 	Tags            []string
 	ReplaceTags     bool
 }
@@ -392,18 +404,19 @@ type CreatePolicyRuleParams struct {
 }
 
 type CreateCommandAuditLogParams struct {
-	UserID         string
-	TargetID       string
-	OrganizationID string
-	SessionID      string
-	Command        string
-	RequestType    string
-	PolicyDecision string
-	PolicyReason   string
-	ExitCode       *int
-	StartedAt      time.Time
-	EndedAt        *time.Time
-	RemoteAddress  string
+	UserID               string
+	TargetID             string
+	OrganizationID       string
+	PublicKeyFingerprint string
+	SessionID            string
+	Command              string
+	RequestType          string
+	PolicyDecision       string
+	PolicyReason         string
+	ExitCode             *int
+	StartedAt            time.Time
+	EndedAt              *time.Time
+	RemoteAddress        string
 }
 
 type AuditLogFilter struct {

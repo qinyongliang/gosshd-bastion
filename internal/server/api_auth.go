@@ -136,7 +136,7 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request, user store.User) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := apiMeResponse{User: apiUserFromStore(user)}
+	out := apiMeResponse{User: apiUserFromStore(user), Runtime: a.runtimeInfo(r)}
 	for _, org := range orgs {
 		apiOrg := apiOrganizationFromStore(org)
 		if member, err := a.store.Repository().GetOrganizationMember(r.Context(), org.ID, user.ID); err == nil {
@@ -145,6 +145,40 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request, user store.User) 
 		out.Organizations = append(out.Organizations, apiOrg)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) handleChangeOwnPassword(w http.ResponseWriter, r *http.Request, user store.User) {
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+		ConfirmPassword string `json:"confirm_password"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if user.AuthProvider != "local" {
+		writeError(w, http.StatusBadRequest, "password changes are only available for local users")
+		return
+	}
+	newPassword := strings.TrimSpace(req.NewPassword)
+	if len(newPassword) < 8 {
+		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+	if newPassword != strings.TrimSpace(req.ConfirmPassword) {
+		writeError(w, http.StatusBadRequest, "password confirmation does not match")
+		return
+	}
+	if err := a.auth.ChangePassword(r.Context(), user, req.CurrentPassword, newPassword); err != nil {
+		if err == auth.ErrInvalidCredentials {
+			writeError(w, http.StatusUnauthorized, "current password is incorrect")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (a *App) dingTalkConfig(r *http.Request) (auth.DingTalkConfig, error) {

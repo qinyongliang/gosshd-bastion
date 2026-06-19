@@ -44,6 +44,12 @@ type apiUserResponse struct {
 type apiMeResponse struct {
 	User          apiUser           `json:"user"`
 	Organizations []apiOrganization `json:"organizations"`
+	Runtime       apiRuntime        `json:"runtime"`
+}
+
+type apiRuntime struct {
+	SSHHost string `json:"ssh_host"`
+	SSHPort int    `json:"ssh_port"`
 }
 
 type apiOrganizationResponse struct {
@@ -70,6 +76,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/dingtalk/start", a.handleDingTalkStart)
 	mux.HandleFunc("GET /api/auth/dingtalk/callback", a.handleDingTalkCallback)
 	mux.HandleFunc("GET /api/me", a.requireUser(a.handleMe))
+	mux.HandleFunc("PUT /api/me/password", a.requireUser(a.handleChangeOwnPassword))
 	mux.HandleFunc("GET /api/admin/settings", a.requireSystemAdmin(a.handleAdminSettings))
 	mux.HandleFunc("PUT /api/admin/settings/dingtalk", a.requireSystemAdmin(a.handleUpdateDingTalkSettings))
 	mux.HandleFunc("PUT /api/admin/settings/ldap", a.requireSystemAdmin(a.handleUpdateLDAPSettings))
@@ -100,6 +107,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/targets", a.requireUser(a.handleListTargets))
 	mux.HandleFunc("POST /api/targets", a.requireUser(a.handleCreateTarget))
 	mux.HandleFunc("PATCH /api/targets/{id}", a.requireUser(a.handleUpdateTarget))
+	mux.HandleFunc("PATCH /api/target-tags", a.requireUser(a.handleUpdateTargetTagColor))
 	mux.HandleFunc("POST /api/agent-enrollments", a.requireUser(a.handleCreateAgentEnrollment))
 	mux.HandleFunc("GET /api/llm-configs", a.requireUser(a.handleListLLMConfigs))
 	mux.HandleFunc("POST /api/llm-configs", a.requireUser(a.handleCreateLLMConfig))

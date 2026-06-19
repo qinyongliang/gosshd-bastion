@@ -177,6 +177,9 @@ func TestSSHDeniesBlacklistedExecAndAudits(t *testing.T) {
 	if len(logs) != 1 || logs[0].PolicyDecision != store.DecisionDeny || logs[0].Command != "rm -rf /tmp/example" {
 		t.Fatalf("deny audit mismatch: %+v", logs)
 	}
+	if logs[0].PublicKeyFingerprint != gossh.FingerprintSHA256(userSigner.PublicKey()) {
+		t.Fatalf("deny audit public key mismatch: %+v", logs[0])
+	}
 }
 
 func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
