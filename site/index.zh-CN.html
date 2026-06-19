@@ -43,7 +43,7 @@
           </p>
           <div class="hero-actions" aria-label="主要操作">
             <a class="button primary" href="./docs.zh-CN.html">阅读文档</a>
-            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.0-bastion">下载版本</a>
+            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.8-bastion">下载版本</a>
           </div>
           <dl class="signal-row" aria-label="产品亮点">
             <div>
@@ -151,10 +151,11 @@
           <h2>启动堡垒机。</h2>
         </div>
         <pre><code>gosshd-server \
-  --http-listen :80 \
-  --ssh-listen :22 \
-  --database-path gosshd.db \
-  --host-key-path gosshd_host_key</code></pre>
+  --http-listen :18080 \
+  --ssh-listen :22022 \
+  --database-path ./data/gosshd.db \
+  --host-key-path ./data/gosshd_host_key \
+  --public-host bastion.example.com:18080</code></pre>
         <a class="button primary" href="./docs.zh-CN.html#quickstart">打开快速开始</a>
       </section>
     </main>
