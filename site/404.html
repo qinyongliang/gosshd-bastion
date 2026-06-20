@@ -1,21 +1,57 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Not found | GOSSHD Bastion</title>
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <main class="docs-layout">
-      <article class="docs-content">
-        <section class="docs-hero">
-          <p class="eyebrow">404</p>
-          <h1>Signal lost.</h1>
-          <p>The requested route is outside the SSH control plane perimeter.</p>
-          <a class="button primary" href="./index.html">Return home</a>
-        </section>
-      </article>
-    </main>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Page not found — GOSSHD Bastion</title>
+  <meta name="description" content="GOSSHD Bastion — command-level SSH safety for AI agents." />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .err-page {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 40px;
+    }
+    .err-code {
+      font-family: var(--font-mono);
+      font-size: 96px;
+      font-weight: 700;
+      color: var(--accent);
+      text-shadow: 0 0 40px rgba(0,229,176,0.25);
+      line-height: 1;
+    }
+    .err-title {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 20px 0 12px;
+    }
+    .err-desc {
+      color: var(--text-secondary);
+      max-width: 420px;
+      margin: 0 auto 28px;
+    }
+    .err-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <div class="ambient-grid" aria-hidden="true"></div>
+  <div class="ambient-orb" aria-hidden="true"></div>
+  <main class="err-page">
+    <div>
+      <div class="err-code">404</div>
+      <h1 class="err-title">Session not found</h1>
+      <p class="err-desc">The page you requested is not in our audit log. It may have expired or never existed.</p>
+      <div class="err-actions">
+        <a class="btn btn-primary" href="index.html">Return home</a>
+        <a class="btn btn-secondary" href="index.zh-CN.html">中文首页</a>
+      </div>
+    </div>
+  </main>
+</body>
 </html>

@@ -1,231 +1,372 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      name="description"
-      content="GOSSHD Bastion is an AI-native SSH access control plane for agents, MCP tools, and automation jobs, with LLM command review, private nodes, and terminal replay."
-    />
-    <title>GOSSHD Bastion | AI-native SSH Access Control Plane</title>
-    <link rel="alternate" hreflang="en" href="./index.html" />
-    <link rel="alternate" hreflang="zh-CN" href="./index.zh-CN.html" />
-    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="preload" as="image" href="./assets/hero-ai-bastion.png" />
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body data-page="home">
-    <a class="skip-link" href="#main">Skip to content</a>
-    <canvas class="space-canvas" id="spaceCanvas" aria-hidden="true"></canvas>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GOSSHD Bastion — Command-Level SSH Safety for AI Agents</title>
+  <meta name="description" content="GOSSHD Bastion is an AI-native SSH access control plane. SSH usernames are target aliases, commands are judged before forwarding, and denied commands return a real exit code." />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;750;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="ambient-grid" aria-hidden="true"></div>
+  <div class="ambient-orb" aria-hidden="true"></div>
 
-    <header class="site-header">
-      <a class="brand" href="./index.html" aria-label="GOSSHD Bastion home">
-        <span class="brand-mark">GB</span>
-        <span>GOSSHD Bastion</span>
-      </a>
-      <nav class="site-nav" aria-label="Primary navigation">
-        <a href="#replay">Scenarios</a>
-        <a href="#llm-review">Safety</a>
-        <a href="#console">Product</a>
-        <a href="./docs.html">Docs</a>
-        <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
-        <span class="language-switch" role="group" aria-label="Language">
-          <a class="is-active" href="./index.html" lang="en" data-locale="en" aria-current="page">EN</a>
-          <a href="./index.zh-CN.html" lang="zh-CN" data-locale="zh-CN">中文</a>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#top" aria-label="GOSSHD Bastion home">
+        <span class="brand-mark">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
         </span>
+        GOSSHD Bastion
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#workflow">Workflow</a>
+        <a href="#review">AI Review</a>
+        <a href="#replay">Audit</a>
+        <a href="#features">Features</a>
+        <a href="#audience">Audience</a>
+        <a class="lang-switch" href="index.zh-CN.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          中文
+        </a>
+        <a class="btn btn-primary nav-cta" href="#start">Get Started</a>
       </nav>
-    </header>
+      <button class="mobile-menu-btn" aria-label="Toggle menu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </header>
 
-    <main id="main">
-      <section class="hero hero-marketing" aria-labelledby="hero-title">
-        <img class="hero-image" src="./assets/hero-ai-bastion.png" alt="" />
-        <div class="hero-shade" aria-hidden="true"></div>
-        <div class="hero-copy reveal">
-          <p class="eyebrow">AI-native SSH access control plane</p>
-          <h1 id="hero-title">GOSSHD Bastion</h1>
-          <p class="hero-lede">
-            A command-level SSH safety gateway for AI services and automation jobs. Let agents work inside your
-            servers while your team keeps permission boundaries, risk gates, and replayable audit evidence.
+  <main id="top">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-content reveal">
+          <div class="hero-badge">
+            <span class="pulse"></span>
+            AI-Native SSH Access Control Plane
+          </div>
+          <h1 class="hero-title">
+            Let AI operate servers.<br />
+            <span class="highlight">Without giving it the keys.</span>
+          </h1>
+          <p class="hero-desc">
+            GOSSHD Bastion uses the SSH username slot as the target service alias: <code>ssh provider-region-service@gosshd.site "command"</code>. The public key identifies the operator, the alias resolves the target, and the command is judged before it reaches the host.
           </p>
-          <div class="hero-actions" aria-label="Primary actions">
-            <a class="button primary" href="./docs.html#quickstart">Start in minutes</a>
-            <a class="button secondary" href="#replay">Watch the flow</a>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#start">Start in minutes</a>
+            <a class="btn btn-secondary" href="#review">See AI review</a>
+          </div>
+          <div class="hero-meta">
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Label + group policies</span>
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Private node registration</span>
+            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Full replay audit</span>
           </div>
         </div>
-        <div class="hero-telemetry" aria-label="Live access signals">
-          <span><i></i> AI remote access online</span>
-          <span>risky commands pass a gate</span>
-          <span>sessions can be replayed</span>
-        </div>
-      </section>
 
-      <section class="proof-strip" aria-label="Product proof points">
-        <div class="proof-item reveal">
-          <strong>01</strong>
-          <span>No raw SSH keys handed to agents</span>
-        </div>
-        <div class="proof-item reveal">
-          <strong>02</strong>
-          <span>One entrance for private servers</span>
-        </div>
-        <div class="proof-item reveal">
-          <strong>03</strong>
-          <span>Risky commands are checked first</span>
-        </div>
-        <div class="proof-item reveal">
-          <strong>04</strong>
-          <span>Remote work becomes replayable</span>
-        </div>
-      </section>
-
-      <section class="story-section split-section" id="replay">
-        <div class="section-copy reveal">
-          <p class="eyebrow">See what AI actually did</p>
-          <h2>Remote execution should not disappear into a black terminal.</h2>
-          <p>
-            When an agent inspects logs, checks containers, or troubleshoots a host, the team gets a replayable record
-            instead of a vague command line and a nervous guess.
-          </p>
-          <dl class="mini-metrics">
-            <div>
-              <dt>Incident review</dt>
-              <dd>Replay remote work by timeline</dd>
+        <div class="hero-visual reveal">
+          <div class="hero-glow"></div>
+          <div class="hero-card">
+            <div class="terminal" id="hero-terminal">
+              <div class="terminal-header">
+                <span class="terminal-dot r"></span>
+                <span class="terminal-dot y"></span>
+                <span class="terminal-dot g"></span>
+                <span class="terminal-title">gosshd-bastion — alias exec</span>
+              </div>
+              <div class="terminal-body"></div>
             </div>
-            <div>
-              <dt>Team trust</dt>
-              <dd>Evidence security and business can read</dd>
+            <div class="route-stack" id="hero-route" aria-label="SSH execution path">
+              <div class="route-step active">
+                <span>Key identity</span>
+                <strong>operator qyl@example.com</strong>
+              </div>
+              <div class="route-step">
+                <span>Alias route</span>
+                <strong>aws-ap-sg-billing-db</strong>
+              </div>
+              <div class="route-step">
+                <span>Forward exec</span>
+                <strong>billing-db.internal:22</strong>
+              </div>
+              <div class="route-step route-deny">
+                <span>Deny exit</span>
+                <strong>exit status 126</strong>
+              </div>
             </div>
-          </dl>
-        </div>
-        <div class="xterm-stage reveal" aria-label="xterm.js style SSH replay demo">
-          <div class="window-bar">
-            <span></span><span></span><span></span>
-            <strong>xterm.js replay</strong>
-          </div>
-          <div class="terminal-cast" data-terminal-replay aria-live="polite"></div>
-          <div class="replay-timeline" aria-hidden="true">
-            <i></i><i></i><i></i><i></i><i></i>
           </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section class="visual-section" id="llm-review">
-        <div class="section-heading reveal">
-          <p class="eyebrow">Give AI power, with brakes</p>
-          <h2>Risky actions are visible before they run.</h2>
-          <p>
-            Routine inspection can move quickly. Sensitive actions can be blocked, reviewed, or judged by your own
-            model prompt before they touch production.
-          </p>
+    <!-- Workflow -->
+    <section class="section section-alt" id="workflow">
+      <div class="container">
+        <div class="section-header reveal">
+          <div class="section-eyebrow">How it works</div>
+          <h2 class="section-title">SSH that understands intent, not just identity</h2>
+          <p class="section-desc">Replace raw key access with a control plane. Agents only know the target service alias; GOSSHD resolves it to the actual SSH service in a personal or organization scope.</p>
         </div>
-        <div class="decision-grid">
-          <figure class="promo-frame reveal">
-            <img src="./assets/llm-review-panel.png" alt="A sci-fi interface showing terminal replay and LLM review panels" />
-          </figure>
-          <div class="decision-flow reveal" aria-label="Command review flow">
-            <article>
-              <span>Request</span>
-              <strong>Agent checks production containers</strong>
+        <div class="workflow-grid">
+          <article class="workflow-card reveal">
+            <span class="workflow-step">01</span>
+            <div class="workflow-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <h3 class="workflow-title">Register private nodes</h3>
+            <p class="workflow-text">Connect on-prem, VPC, and edge machines without exposing ports. Once a private node registers, it is just another SSH service and can be renamed to a business alias.</p>
+          </article>
+          <article class="workflow-card reveal">
+            <span class="workflow-step">02</span>
+            <div class="workflow-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <h3 class="workflow-title">Bind labels & groups</h3>
+            <p class="workflow-text">Map users, service accounts, and agents to labels. Grant least-privilege access by environment, role, or task.</p>
+          </article>
+          <article class="workflow-card reveal">
+            <span class="workflow-step">03</span>
+            <div class="workflow-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <h3 class="workflow-title">Review every command</h3>
+            <p class="workflow-text">Rules and LLM review run before forwarding. Allowed commands continue to the target; high-risk commands are rejected and return SSH exit code 126.</p>
+          </article>
+          <article class="workflow-card reveal">
+            <span class="workflow-step">04</span>
+            <div class="workflow-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <h3 class="workflow-title">Replay & audit</h3>
+            <p class="workflow-text">Recorded sessions include timestamps, keystrokes, and decisions. Ship evidence to compliance and incident review.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI Review Scenario -->
+    <section class="section" id="review">
+      <div class="container">
+        <div class="section-header reveal">
+          <div class="section-eyebrow">AI Command Review</div>
+          <h2 class="section-title">One target alias. Different commands. Different outcomes.</h2>
+          <p class="section-desc">The caller uses standard SSH exec. Safe commands are forwarded to the target host; high-risk commands never enter the target shell and return a denial plus exit code.</p>
+        </div>
+        <div class="review-scenario">
+          <div class="review-terminal-wrap reveal">
+            <div class="terminal" id="review-terminal">
+              <div class="terminal-header">
+                <span class="terminal-dot r"></span>
+                <span class="terminal-dot y"></span>
+                <span class="terminal-dot g"></span>
+                <span class="terminal-title">aws-ap-sg-billing-db@gosshd.site</span>
+              </div>
+              <div class="terminal-body"></div>
+            </div>
+          </div>
+          <div class="review-judgment reveal">
+            <article class="judgment-card active">
+              <div class="judgment-header">
+                <span class="judgment-status allow">Allowed</span>
+                <span class="judgment-time">09:14:02.104</span>
+              </div>
+              <div class="judgment-cmd">aws-ap-sg-billing-db</div>
+              <p class="judgment-reason">The public key identifies the operator, then the alias resolves to the billing database service. REINDEX is treated as maintenance and audited with exit_code=0.</p>
             </article>
-            <article>
-              <span>Boundary</span>
-              <strong>Read-only inspection window</strong>
+            <article class="judgment-card">
+              <div class="judgment-header">
+                <span class="judgment-status deny">Blocked</span>
+                <span class="judgment-time">09:14:08.831</span>
+              </div>
+              <div class="judgment-cmd">DROP TABLE customers;</div>
+              <p class="judgment-reason">Destructive schema change detected. The command is not forwarded to the target host; SSH exec returns exit_code=126.</p>
             </article>
-            <article>
-              <span>Risk</span>
-              <strong>No service state change</strong>
-            </article>
-            <article class="verdict allow">
-              <span>Outcome</span>
-              <strong>Allowed</strong>
+            <article class="judgment-card">
+              <div class="judgment-header">
+                <span class="judgment-status review">Audited</span>
+                <span class="judgment-time">09:14:08.833</span>
+              </div>
+              <div class="judgment-cmd">Audit #A-2938</div>
+              <p class="judgment-reason">The audit database stores operator, public key, target alias, resolved target, command, decision, reason, and exit code for human review.</p>
             </article>
           </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section class="story-section console-section" id="console">
-        <div class="section-copy reveal">
-          <p class="eyebrow">A console built for AI remote work</p>
-          <h2>Servers, guardrails, and evidence in one clear place.</h2>
-          <p>
-            Operations, security, and automation teams share one view of who can reach what, which actions are safe,
-            and what happened after a task ran.
-          </p>
+    <!-- Replay / Audit -->
+    <section class="section section-alt" id="replay">
+      <div class="container">
+        <div class="section-header reveal">
+          <div class="section-eyebrow">Session Replay</div>
+          <h2 class="section-title">Replay the business alias and the resolved target</h2>
+          <p class="section-desc">Replay shows the exact <code>ssh target-alias@gosshd.site "command"</code>, the resolved SSH service, command output, policy decision, and exit code.</p>
         </div>
-        <div class="product-preview reveal" aria-label="GOSSHD Bastion product preview">
-          <div class="preview-topline">
-            <span>GOSSHD Control</span>
-            <strong>AI Remote Access Center</strong>
+        <div class="replay-stage reveal">
+          <div class="terminal" id="replay-terminal">
+            <div class="terminal-header">
+              <span class="terminal-dot r"></span>
+              <span class="terminal-dot y"></span>
+              <span class="terminal-dot g"></span>
+              <span class="terminal-title">session-replay — aliyun-hz-order-api@gosshd.site</span>
+            </div>
+            <div class="terminal-body"></div>
           </div>
-          <div class="preview-grid">
-            <article>
-              <span>Assets</span>
-              <strong>Private service catalog</strong>
-              <small>Test, production, and GPU hosts grouped cleanly</small>
-            </article>
-            <article>
-              <span>Safety</span>
-              <strong>Command gate</strong>
-              <small>Allowlists, risk blocks, and model review</small>
-            </article>
-            <article>
-              <span>Audit</span>
-              <strong>Session replay</strong>
-              <small>Review agent activity on a timeline</small>
-            </article>
-          </div>
-          <div class="preview-rail">
-            <span><i></i> Inspection task allowed</span>
-            <span><i></i> Sensitive command blocked</span>
-            <span><i></i> Replay archived</span>
+          <div class="replay-panel">
+            <div class="replay-controls">
+              <button class="replay-btn replay-play" aria-label="Play replay">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
+              </button>
+              <button class="replay-btn replay-pause" aria-label="Pause replay" style="display:none">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              </button>
+              <div class="replay-progress"><div class="replay-progress-bar"></div></div>
+              <div class="replay-time">00:00 / 00:10</div>
+            </div>
+            <div class="route-mini">
+              <span>SSH user field</span>
+              <strong>aliyun-hz-order-api</strong>
+              <em>resolved as the target alias, not the platform account</em>
+            </div>
+            <div class="replay-meta-row"><strong>Session ID</strong><span>sess_8f2a9c4e</span></div>
+            <div class="replay-meta-row"><strong>Target alias</strong><span>aliyun-hz-order-api</span></div>
+            <div class="replay-meta-row"><strong>Resolved target</strong><span>order-api.internal:22</span></div>
+            <div class="replay-meta-row"><strong>Operator</strong><span>qyl@example.com</span></div>
+            <div class="replay-meta-row"><strong>Policy label</strong><span>k8s-readonly</span></div>
+            <div class="replay-meta-row"><strong>Reviewed by</strong><span>LLM + rule engine</span></div>
+            <div class="replay-meta-row"><strong>Retention</strong><span>180 days</span></div>
           </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section class="capability-grid" aria-label="Core capabilities">
-        <article class="feature-card reveal">
-          <span class="card-code">SSH</span>
-          <h3>AI operations entrance</h3>
-          <p>Agents can do remote work without owning the server keys directly.</p>
-        </article>
-        <article class="feature-card reveal">
-          <span class="card-code">NODE</span>
-          <h3>Private network reach</h3>
-          <p>Bring test boxes, GPU nodes, and customer-side machines behind a single governed entry point.</p>
-        </article>
-        <article class="feature-card reveal">
-          <span class="card-code">SAFE</span>
-          <h3>Command safety gate</h3>
-          <p>Routine inspection moves fast. Risky operations are stopped or reviewed before execution.</p>
-        </article>
-        <article class="feature-card reveal">
-          <span class="card-code">MCP</span>
-          <h3>Audit evidence trail</h3>
-          <p>Every remote operation can be searched, explained, and replayed when the team needs answers.</p>
-        </article>
-      </section>
-
-      <section class="quickstart-band reveal">
-        <div>
-          <p class="eyebrow">First launch</p>
-          <h2>Bring the SSH control plane online.</h2>
+    <!-- Private Node Story / Features -->
+    <section class="section" id="features">
+      <div class="container">
+        <div class="section-header reveal">
+          <div class="section-eyebrow">Capabilities</div>
+          <h2 class="section-title">Built for machines that need to touch infrastructure</h2>
+          <p class="section-desc">GOSSHD Bastion turns agent-to-server access into a governed, observable workflow. No open ports. No shared keys. No blind trust.</p>
         </div>
-        <pre><code>gosshd-server \
-  --http-listen :18080 \
-  --ssh-listen :22022 \
-  --database-path ./data/gosshd.db \
-  --host-key-path ./data/gosshd_host_key \
-  --public-host bastion.example.com:18080</code></pre>
-        <a class="button primary" href="./docs.html#quickstart">Open quickstart</a>
-      </section>
-    </main>
+        <div class="features-grid">
+          <article class="feature-card reveal">
+            <div class="feature-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <h3 class="feature-title">Private node registration</h3>
+            <p class="feature-text">Nodes connect outbound to the bastion. Keep servers dark to the public internet while agents reach them on demand.</p>
+          </article>
+          <article class="feature-card reveal">
+            <div class="feature-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+            </div>
+            <h3 class="feature-title">SSH access control</h3>
+            <p class="feature-text">Enforce who and what can reach each node. Tie permissions to labels, groups, and service identity instead of scattered authorized_keys.</p>
+          </article>
+          <article class="feature-card reveal">
+            <div class="feature-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            </div>
+            <h3 class="feature-title">Label & user-group policy</h3>
+            <p class="feature-text">Compose rules from simple labels. Allow the backup agent to touch storage nodes, the deploy agent to touch compute, and nothing else.</p>
+          </article>
+          <article class="feature-card reveal">
+            <div class="feature-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            </div>
+            <h3 class="feature-title">LLM real-time command review</h3>
+            <p class="feature-text">The model reads intent before a command is forwarded. Combine it with deterministic rules: allowed commands run, denied commands return 126.</p>
+          </article>
+          <article class="feature-card reveal">
+            <div class="feature-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <h3 class="feature-title">Terminal recording & replay</h3>
+            <p class="feature-text">Capture target alias, resolved target, command output, and exit code on a precise timeline. Rebuild incidents without grepping through text.</p>
+          </article>
+          <article class="feature-card reveal">
+            <div class="feature-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4"/></svg>
+            </div>
+            <h3 class="feature-title">Human audit evidence</h3>
+            <p class="feature-text">Export decision logs, replay files, and policy traces. Make security reviews a conversation with proof, not a scavenger hunt.</p>
+          </article>
+        </div>
+      </div>
+    </section>
 
-    <footer class="site-footer">
-      <span>GOSSHD Bastion</span>
-      <a href="./docs.html">Documentation</a>
-      <a href="https://github.com/qinyongliang/gosshd-bastion/releases/latest">Releases</a>
-      <a href="https://github.com/qinyongliang/gosshd-bastion">Source</a>
-    </footer>
-    <script src="./main.js"></script>
-  </body>
+    <!-- Audience -->
+    <section class="section section-alt" id="audience">
+      <div class="container">
+        <div class="section-header reveal">
+          <div class="section-eyebrow">Built for</div>
+          <h2 class="section-title">Teams shipping AI automation at scale</h2>
+          <p class="section-desc">Whether you run agent fleets or review them, GOSSHD Bastion gives you control without slowing you down.</p>
+        </div>
+        <div class="audience-grid">
+          <article class="audience-card reveal">
+            <h3>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              Platform Engineers
+            </h3>
+            <p>Stop duct-taping SSH access for every new agent. One gateway, one policy model, one audit trail for your entire fleet.</p>
+          </article>
+          <article class="audience-card reveal">
+            <h3>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              AI Automation Teams
+            </h3>
+            <p>Give agents the access they need with guardrails they cannot bypass. Move fast on infrastructure without giving up the safety story.</p>
+          </article>
+          <article class="audience-card reveal">
+            <h3>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              SRE / DevOps
+            </h3>
+            <p>Replay exactly what happened during an incident. Know which business alias was used, which real host it resolved to, which command ran, and which policy applied.</p>
+          </article>
+          <article class="audience-card reveal">
+            <h3>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
+              Security Reviewers
+            </h3>
+            <p>Review decisions, not just logs. Get LLM reasoning, policy hits, and session replay bundled into a single evidence package.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="section" id="start">
+      <div class="container reveal">
+        <div class="cta-wrap">
+          <h2 class="cta-title">Stop handing SSH keys to software.</h2>
+          <p class="cta-desc">Deploy GOSSHD Bastion in minutes and put command-level safety between your agents and your infrastructure.</p>
+          <div class="cta-actions">
+            <a class="btn btn-primary" href="#">Download for Linux</a>
+            <a class="btn btn-secondary" href="#">Read the Quick Start</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-grid">
+      <p class="footer-copy">© 2026 GOSSHD Bastion. Built for AI-native infrastructure access.</p>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="#workflow">Workflow</a>
+        <a href="#review">AI Review</a>
+        <a href="#replay">Replay</a>
+        <a href="#features">Features</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
 </html>
