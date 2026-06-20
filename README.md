@@ -2,13 +2,13 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`gosshd-bastion` is an SSH bastion built for AI services, automation agents, and operators that need audited access to private machines. It runs as a single Go server with an embedded web console, SQLite storage, an SSH gateway, agent enrollment, command safety policies, LLM review hooks, and an MCP control plane.
+`gosshd-bastion` is an SSH bastion built for AI services, automation, and operators that need audited access to private machines. It runs as a single Go server with an embedded web console, SQLite storage, an SSH gateway, private-node enrollment, command safety policies, LLM review hooks, and an MCP control plane.
 
-The current public release is [`v0.1.21-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
+The current public release is [`v0.1.22-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.22-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
 
 ## What Works Now
 
-- SQLite-backed users, sessions, organizations, organization members, user groups, SSH public keys, SSH services, target tags, agent enrollments, command policies, LLM configs, prompt resources, and audit logs.
+- SQLite-backed users, sessions, organizations, organization members, user groups, SSH public keys, SSH services, target tags, private-node enrollments, command policies, LLM configs, and prompt resources. Audit logs are stored in a separate SQLite database.
 - A first-run `admin` account. System admins keep normal user menus and also get system settings, account management, and organization repair tools.
 - Personal and shared organizations. Every user gets a personal organization. Shared organizations support `owner`, `admin`, and `member` roles.
 - Organization user groups. Every organization has a default all-members group, and command policies can bind to one or more user groups.
@@ -17,8 +17,8 @@ The current public release is [`v0.1.21-bastion`](https://github.com/qinyonglian
 - Direct SSH services using password or private-key authentication.
 - Private-node SSH services. The SSH services page can generate tokenized Linux/macOS and Windows install commands, including startup-service install commands. Once a private node registers, it becomes a normal SSH service and can be renamed, retagged, filtered, and bound to policies.
 - Advanced SSH server routing can use an existing SSH service as a jump host/proxy for private subnets.
-- Command safety groups with whitelist and blacklist rules, exact/prefix/contains matching, target binding, target-tag binding, user-group binding, default allow/deny, and optional LLM review when no rule matches.
-- Command audit logs for SSH `exec` requests, including command, target, policy decision, reason, and exit code.
+- Command safety groups with whitelist and blacklist rules, exact/prefix/contains matching, source IP allowlists or ranges, target binding, target-tag binding, user-group binding, default allow/deny, optional LLM review when no rule matches, and switches for interactive shell, port forwarding, upload, and download.
+- Command audit logs for SSH `exec`, interactive shell, SFTP, and port-forward decisions, including user, public key, target, request type, policy decision, reason, LLM timing, exit code, and terminal recording metadata.
 - DingTalk OAuth login. New DingTalk users can be auto-created and placed into a default organization and role.
 - LDAP settings in the admin console. LDAP login is not active in this release.
 - Embedded web UI with Simplified Chinese as the default locale, English switching, persisted language preference, white default theme, dark theme switching, resource tables, tag filters, modals, and detail drawers.
@@ -26,10 +26,10 @@ The current public release is [`v0.1.21-bastion`](https://github.com/qinyonglian
 
 ## Current Boundaries
 
-- The SSH gateway currently supports command execution requests such as `ssh test2@bastion.example.com hostname`. Interactive shell and SFTP are not exposed in this slice.
+- Interactive terminal sessions can be recorded as compressed replay files and replayed in the web console. SFTP and port forwarding are policy-gated capabilities.
 - Target passwords/private keys and LLM API keys are stored in the SQLite database as provided by the API in this release. Restrict database access and use host/disk protection until credential encryption is completed.
 - GitHub Pages source lives under `site/` and the workflow is present, but Pages publishing depends on the repository/account Pages availability.
-- This release publishes cross-platform server packages and standalone agent binaries. It does not publish a `full` package.
+- This release publishes cross-platform server packages and standalone private-node binaries. It does not publish a `full` package.
 
 ## Release Assets
 
@@ -37,13 +37,13 @@ Each release publishes:
 
 - `gosshd-<version>-linux-amd64.tar.gz`, `gosshd-<version>-darwin-arm64.tar.gz`, and other server packages.
 - `gosshd-<version>-windows-amd64.zip` and other Windows server packages.
-- `gosshd-agent-<version>-<goos>-<goarch>` standalone agent binaries.
+- `gosshd-agent-<version>-<goos>-<goarch>` standalone private-node binaries.
 - `checksums.txt`.
 
 Example Linux install from GitHub Releases:
 
 ```sh
-version=v0.1.21-bastion
+version=v0.1.22-bastion
 platform=linux-amd64
 
 curl -fL -o "gosshd-${version}-${platform}.tar.gz" \
@@ -151,7 +151,7 @@ The MCP endpoint is:
 http://bastion.example.com:18080/mcp
 ```
 
-It exposes tools for registration, organizations, public keys, targets, target tags, agent enrollments, LLM configs, prompt resources, command policies, policy bindings, and audit logs.
+It exposes tools for registration, organizations, public keys, targets, target tags, private-node enrollments, LLM configs, prompt resources, command policies, policy bindings, and audit logs.
 
 ## Development
 

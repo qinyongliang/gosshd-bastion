@@ -212,3 +212,81 @@ func TestPolicyEvaluationAppliesByTargetTag(t *testing.T) {
 		t.Fatalf("tag removal should detach policy dynamically: %+v", decision)
 	}
 }
+
+func TestPolicyAccessCapabilitiesAndSourceIPAllowlist(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+	user, err := repo.CreateUser(ctx, store.CreateUserParams{Email: "ops@example.com", DisplayName: "Ops", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := repo.CreateOrganization(ctx, store.CreateOrganizationParams{Name: "Ops Access", Slug: "ops-access", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := repo.CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Alias: "test2",
+		TargetType: store.TargetDirect, Host: "10.0.0.8", Port: 22,
+		RemoteUsername: "root", AuthType: store.AuthPassword, CreatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := repo.CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
+		OwnerType:        store.OwnerOrganization,
+		OwnerID:          org.ID,
+		Name:             "private-readonly",
+		DefaultAction:    store.DecisionAllow,
+		IPAllowlist:      "10.0.0.0/8, 192.168.1.10-192.168.1.20",
+		AllowInteractive: true,
+		AllowUpload:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(repo)
+	decision, err := svc.EvaluateAccess(ctx, user.ID, target.ID, store.RequestShell, "10.1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionAllow {
+		t.Fatalf("interactive shell should be allowed from private source: %+v", decision)
+	}
+	decision, err = svc.EvaluateAccess(ctx, user.ID, target.ID, store.RequestShell, "8.8.8.8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionDeny {
+		t.Fatalf("shell should be denied outside allowlist: %+v", decision)
+	}
+	decision, err = svc.EvaluateAccess(ctx, user.ID, target.ID, store.RequestForward, "10.1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionDeny {
+		t.Fatalf("port forwarding should be denied when capability is off: %+v", decision)
+	}
+	decision, allowUpload, allowDownload, err := svc.EvaluateSFTPAccess(ctx, user.ID, target.ID, "192.168.1.15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionAllow || !allowUpload || allowDownload {
+		t.Fatalf("sftp capability mismatch: decision=%+v upload=%v download=%v", decision, allowUpload, allowDownload)
+	}
+	decision, allowUpload, allowDownload, err = svc.EvaluateSFTPAccess(ctx, user.ID, target.ID, "192.168.2.15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionDeny || allowUpload || allowDownload {
+		t.Fatalf("sftp should be denied outside allowlist: decision=%+v upload=%v download=%v", decision, allowUpload, allowDownload)
+	}
+}

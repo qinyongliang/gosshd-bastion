@@ -35,18 +35,61 @@ type apiTargetsResponse struct {
 }
 
 func (a *App) handleListTargets(w http.ResponseWriter, r *http.Request, user store.User) {
-	targets, err := a.store.Repository().ListSSHTargetsFiltered(r.Context(), store.SSHTargetFilter{
-		OwnerType: r.URL.Query().Get("owner_type"),
-		OwnerID:   r.URL.Query().Get("owner_id"),
-		Tags:      parseTargetTags(r.URL.Query().Get("tags")),
-	})
+	out := apiTargetsResponse{}
+	tags := parseTargetTags(r.URL.Query().Get("tags"))
+	ownerType := strings.TrimSpace(r.URL.Query().Get("owner_type"))
+	ownerID := strings.TrimSpace(r.URL.Query().Get("owner_id"))
+	if ownerType != "" || ownerID != "" {
+		resolvedType, resolvedID, err := a.resolveOwner(r.Context(), ownerType, ownerID, user.ID)
+		if err != nil {
+			writeOwnerError(w, err)
+			return
+		}
+		targets, err := a.store.Repository().ListSSHTargetsFiltered(r.Context(), store.SSHTargetFilter{
+			OwnerType: resolvedType,
+			OwnerID:   resolvedID,
+			Tags:      tags,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, target := range targets {
+			out.Targets = append(out.Targets, apiTargetFromStore(target))
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	if user.IsSystemAdmin {
+		targets, err := a.store.Repository().ListSSHTargetsFiltered(r.Context(), store.SSHTargetFilter{Tags: tags})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, target := range targets {
+			out.Targets = append(out.Targets, apiTargetFromStore(target))
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	orgs, err := a.store.Repository().ListOrganizationsForUser(r.Context(), user.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := apiTargetsResponse{}
-	for _, target := range targets {
-		out.Targets = append(out.Targets, apiTargetFromStore(target))
+	for _, org := range orgs {
+		targets, err := a.store.Repository().ListSSHTargetsFiltered(r.Context(), store.SSHTargetFilter{
+			OwnerType: store.OwnerOrganization,
+			OwnerID:   org.ID,
+			Tags:      tags,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, target := range targets {
+			out.Targets = append(out.Targets, apiTargetFromStore(target))
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -73,7 +116,7 @@ func (a *App) handleCreateTarget(w http.ResponseWriter, r *http.Request, user st
 	}
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOwnerError(w, err)
 		return
 	}
 	if err := a.validateProxyTarget(r.Context(), ownerType, ownerID, req.ProxyTargetID); err != nil {
@@ -125,6 +168,10 @@ func (a *App) handleUpdateTarget(w http.ResponseWriter, r *http.Request, user st
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+	if _, _, err := a.resolveOwner(r.Context(), current.OwnerType, current.OwnerID, user.ID); err != nil {
+		writeOwnerError(w, err)
+		return
+	}
 	proxyTargetID := ""
 	replaceProxy := req.ProxyTargetID != nil
 	if replaceProxy {
@@ -172,7 +219,7 @@ func (a *App) handleUpdateTargetTagColor(w http.ResponseWriter, r *http.Request,
 	}
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOwnerError(w, err)
 		return
 	}
 	if err := a.store.Repository().UpdateTargetTagColor(r.Context(), ownerType, ownerID, req.Name, req.Color); err != nil {
@@ -247,5 +294,32 @@ func (a *App) resolveOwner(ctx context.Context, ownerType, ownerID, userID strin
 	if ownerType != store.OwnerOrganization {
 		return "", "", errors.New("owner_type must be organization")
 	}
+	if _, err := a.store.Repository().GetOrganization(ctx, ownerID); err != nil {
+		return "", "", err
+	}
+	user, err := a.store.Repository().GetUser(ctx, userID)
+	if err != nil {
+		return "", "", errOwnerAccess
+	}
+	if user.IsSystemAdmin {
+		return ownerType, ownerID, nil
+	}
+	if _, err := a.store.Repository().GetOrganizationMember(ctx, ownerID, userID); err != nil {
+		return "", "", errOwnerAccess
+	}
 	return ownerType, ownerID, nil
+}
+
+var errOwnerAccess = errors.New("organization access required")
+
+func writeOwnerError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errOwnerAccess) {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if isNotFound(err) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeError(w, http.StatusBadRequest, err.Error())
 }

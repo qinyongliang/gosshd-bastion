@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="GOSSHD Bastion 是为 AI 服务设计的 SSH 堡垒机，为 Agent、自动化工具和运维人员提供别名访问、策略审核和完整命令审计。"
+      content="GOSSHD Bastion 是为 AI 服务设计的 SSH 堡垒机，为自动化工具和运维人员提供别名访问、策略审核和完整命令审计。"
     />
     <title>GOSSHD Bastion | 为 AI 服务的堡垒机</title>
     <link rel="alternate" hreflang="en" href="./index.html" />
@@ -39,11 +39,11 @@
           <p class="eyebrow">为 AI 服务的堡垒机</p>
           <h1>GOSSHD Bastion</h1>
           <p class="hero-lede">
-            面向 AI Agent、自动化工具和运维人员的 SSH 访问平面，通过别名、策略审核和完整命令审计连接私有服务。
+            面向 AI 自动化工具和运维人员的 SSH 访问平面，通过别名、策略审核和完整命令审计连接私有服务。
           </p>
           <div class="hero-actions" aria-label="主要操作">
             <a class="button primary" href="./docs.zh-CN.html">阅读文档</a>
-            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion">下载版本</a>
+            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.22-bastion">下载版本</a>
           </div>
           <dl class="signal-row" aria-label="产品亮点">
             <div>
@@ -91,7 +91,7 @@
           </article>
           <article class="feature-card">
             <span class="card-code">02</span>
-            <h3>Agent 服务</h3>
+            <h3>私有节点服务</h3>
             <p>私有主机通过安装脚本注册，之后就是普通、可重命名的 SSH 目标。</p>
           </article>
           <article class="feature-card">
@@ -109,7 +109,7 @@
 
       <section class="diagram-band">
         <div class="diagram-shell" aria-label="AI 堡垒机请求流程">
-          <div class="diagram-node source">AI Agent</div>
+          <div class="diagram-node source">AI 任务</div>
           <div class="diagram-link"></div>
           <div class="diagram-node core">GOSSHD Bastion</div>
           <div class="diagram-link"></div>
@@ -119,7 +119,7 @@
           <p class="eyebrow">别名路由</p>
           <h2><code>ssh inference-gpu@public-ip</code></h2>
           <p>
-            提交的公钥找到用户，SSH 用户名找到个人或组织下的目标别名。策略决定命令是否直连执行、经 Agent 执行，或在抵达生产环境前被拒绝。
+            提交的公钥找到用户，SSH 用户名找到个人或组织下的目标别名。策略决定命令是否直连执行、经私有节点执行，或在抵达生产环境前被拒绝。
           </p>
         </div>
       </section>
@@ -139,8 +139,8 @@
             <p>OpenAI 兼容的审核可以处理未命中的命令。无效响应会被拒绝。</p>
           </article>
           <article>
-            <h3>开机启动 Agent</h3>
-            <p>Linux Agent 通过 systemd 安装。Windows Agent 通过 sc.exe 安装。</p>
+            <h3>开机启动私有节点</h3>
+            <p>Linux 私有节点通过 systemd 安装。Windows 私有节点通过 sc.exe 安装。</p>
           </article>
         </div>
       </section>

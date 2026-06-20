@@ -25,9 +25,10 @@ const (
 	PatternPrefix   = "prefix"
 	PatternContains = "contains"
 
-	RequestExec  = "exec"
-	RequestShell = "shell"
-	RequestSFTP  = "sftp"
+	RequestExec    = "exec"
+	RequestShell   = "shell"
+	RequestSFTP    = "sftp"
+	RequestForward = "forward"
 
 	DefaultLLMPromptTitle   = "Default SSH Command Review"
 	DefaultLLMPromptContent = "You are reviewing an SSH command for a bastion host. Respond with JSON only: {\"allow\":true|false,\"reason\":\"short reason\"}. When allow is true, reason may be omitted or empty. When allow is false, include a short reason. Do not output chain-of-thought, analysis, or reasoning steps. Deny destructive, privilege-escalation, persistence, credential-exfiltration, and unclear high-risk commands unless there is an explicit safe operational reason."
@@ -168,17 +169,22 @@ type Agent struct {
 }
 
 type CommandPolicy struct {
-	ID            string
-	OwnerType     string
-	OwnerID       string
-	Name          string
-	DefaultAction string
-	LLMConfigID   string
-	LLMPromptID   string
-	CreatedAt     time.Time
-	Rules         []PolicyRule
-	UserGroupIDs  []string
-	TargetTags    []string
+	ID               string
+	OwnerType        string
+	OwnerID          string
+	Name             string
+	DefaultAction    string
+	LLMConfigID      string
+	LLMPromptID      string
+	IPAllowlist      string
+	AllowPortForward bool
+	AllowUpload      bool
+	AllowDownload    bool
+	AllowInteractive bool
+	CreatedAt        time.Time
+	Rules            []PolicyRule
+	UserGroupIDs     []string
+	TargetTags       []string
 }
 
 type PolicyRule struct {
@@ -282,6 +288,12 @@ type CommandAuditLog struct {
 	StartedAt            time.Time
 	EndedAt              *time.Time
 	RemoteAddress        string
+	RecordingPath        string
+	RecordingSize        int64
+	RecordingSHA256      string
+	RecordingDurationMS  int64
+	RecordingWidth       int
+	RecordingHeight      int
 }
 
 type CreateUserParams struct {
@@ -388,12 +400,29 @@ type UpsertAgentParams struct {
 }
 
 type CreateCommandPolicyParams struct {
-	OwnerType     string
-	OwnerID       string
-	Name          string
-	DefaultAction string
-	LLMConfigID   string
-	LLMPromptID   string
+	OwnerType        string
+	OwnerID          string
+	Name             string
+	DefaultAction    string
+	LLMConfigID      string
+	LLMPromptID      string
+	IPAllowlist      string
+	AllowPortForward bool
+	AllowUpload      bool
+	AllowDownload    bool
+	AllowInteractive bool
+}
+
+type UpdateCommandPolicyParams struct {
+	Name             string
+	DefaultAction    string
+	LLMConfigID      string
+	LLMPromptID      string
+	IPAllowlist      string
+	AllowPortForward bool
+	AllowUpload      bool
+	AllowDownload    bool
+	AllowInteractive bool
 }
 
 type CreatePolicyRuleParams struct {
@@ -405,9 +434,17 @@ type CreatePolicyRuleParams struct {
 
 type CreateCommandAuditLogParams struct {
 	UserID               string
+	UserEmail            string
+	UserDisplayName      string
 	TargetID             string
+	TargetName           string
+	TargetAlias          string
+	TargetHost           string
+	TargetPort           int
+	TargetUsername       string
 	OrganizationID       string
 	PublicKeyFingerprint string
+	PublicKeyName        string
 	SessionID            string
 	Command              string
 	RequestType          string
@@ -417,9 +454,25 @@ type CreateCommandAuditLogParams struct {
 	StartedAt            time.Time
 	EndedAt              *time.Time
 	RemoteAddress        string
+	RecordingPath        string
+	RecordingSize        int64
+	RecordingSHA256      string
+	RecordingDurationMS  int64
+	RecordingWidth       int
+	RecordingHeight      int
 }
 
 type AuditLogFilter struct {
-	UserID   string
-	TargetID string
+	UserID      string
+	TargetID    string
+	Query       string
+	StartedFrom time.Time
+	StartedTo   time.Time
+	Limit       int
+	Offset      int
+}
+
+type AuditLogPage struct {
+	Logs  []CommandAuditLog
+	Total int
 }

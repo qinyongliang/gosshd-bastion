@@ -4,6 +4,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
+if (-not $pnpm) {
+  throw 'pnpm is required to build the React console assets.'
+}
+
+& $pnpm.Source install --frozen-lockfile
+& $pnpm.Source run build
+
 $serverPlatforms = @(
   @{ GOOS='linux'; GOARCH='amd64'; GOARM=''; Platform='linux-amd64'; AgentArch='amd64'; Ext='' },
   @{ GOOS='linux'; GOARCH='arm64'; GOARM=''; Platform='linux-arm64'; AgentArch='arm64'; Ext='' },

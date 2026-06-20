@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Documentation for GOSSHD Bastion, an AI service bastion with SSH aliases, agent enrollment, policies, LLM review, and audit logs."
+      content="Documentation for GOSSHD Bastion, an AI service bastion with SSH aliases, private-node enrollment, policies, LLM review, and audit logs."
     />
     <title>Documentation | GOSSHD Bastion</title>
     <link rel="alternate" hreflang="en" href="./docs.html" />
@@ -24,7 +24,7 @@
       <nav class="site-nav" aria-label="Primary navigation">
         <a href="./index.html">Home</a>
         <a href="#quickstart">Quickstart</a>
-        <a href="#agents">Agents</a>
+        <a href="#agents">Private nodes</a>
         <a href="#policies">Policies</a>
         <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
         <span class="language-switch" role="group" aria-label="Language">
@@ -40,7 +40,7 @@
         <a href="#quickstart">Quickstart</a>
         <a href="#identity">Identity</a>
         <a href="#targets">SSH targets</a>
-        <a href="#agents">Agent install</a>
+        <a href="#agents">Private-node install</a>
         <a href="#policies">Command policies</a>
         <a href="#llm">LLM review</a>
         <a href="#audit">Audit</a>
@@ -53,7 +53,7 @@
           <h1>Operate SSH access for AI services without giving automation a blind shell.</h1>
           <p>
             GOSSHD Bastion is a single Go server with SQLite storage, an embedded console, and an SSH endpoint.
-            It turns users, organizations, public keys, direct targets, agent targets, command safety groups,
+            It turns users, organizations, public keys, direct services, private-node services, command safety groups,
             LLM review, and audit logs into one deployable control plane.
           </p>
         </section>
@@ -64,7 +64,7 @@
             <li>Download a server archive from the release page.</li>
             <li>Start the server with HTTP, SSH, database, and host-key paths.</li>
             <li>Open the console, register a user, and add your SSH public key.</li>
-            <li>Add a direct target or enroll an agent target.</li>
+            <li>Add a direct SSH service or enroll a private-node service.</li>
             <li>Run SSH commands with the target alias as the SSH username.</li>
           </ol>
           <pre><code>gosshd-server \
@@ -97,19 +97,19 @@
               <p>The bastion connects directly to a host and port using password or private-key authentication.</p>
             </article>
             <article>
-              <h3>Agent target</h3>
-              <p>The bastion opens a TCP stream through an enrolled agent, then performs the SSH handshake over it.</p>
+              <h3>Private-node service</h3>
+              <p>The bastion opens a TCP stream through an enrolled private node, then performs the SSH handshake over it.</p>
             </article>
           </div>
           <p>
-            Agent-enrolled hosts are normal SSH targets. They can be renamed, bound to policies, and filtered in audit
+            Private-node hosts are normal SSH targets. They can be renamed, bound to policies, and filtered in audit
             views just like manually added targets.
           </p>
         </section>
 
         <section class="doc-section" id="agents">
-          <h2>Agent install</h2>
-          <p>Create an enrollment in the console. The default command runs the agent in the current shell.</p>
+          <h2>Private-node install</h2>
+          <p>Create an enrollment in the SSH services page. The default command runs the private node in the current shell.</p>
           <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sh</code></pre>
           <pre><code>irm http://bastion.example.com:18080/install/&lt;token&gt;.ps1 | iex</code></pre>
           <p>Use install mode when the agent should survive restarts.</p>
@@ -153,10 +153,10 @@
         <section class="doc-section" id="release">
           <h2>Release packages</h2>
           <p>
-            The current release publishes cross-platform server archives and standalone agent binaries. This version
+            The current release publishes cross-platform server archives and standalone private-node binaries. This version
             intentionally does not publish full packages.
           </p>
-          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion">Open v0.1.21-bastion</a>
+          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.22-bastion">Open v0.1.22-bastion</a>
         </section>
       </article>
     </main>

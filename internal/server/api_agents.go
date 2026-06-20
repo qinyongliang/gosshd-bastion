@@ -37,7 +37,7 @@ func (a *App) handleCreateAgentEnrollment(w http.ResponseWriter, r *http.Request
 	}
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOwnerError(w, err)
 		return
 	}
 	defaultHost, defaultPort := agentEnrollmentDefaults(req.DefaultHost, req.DefaultPort)

@@ -1,21 +1,27 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
 type apiPolicy struct {
-	ID            string   `json:"id"`
-	OwnerType     string   `json:"owner_type"`
-	OwnerID       string   `json:"owner_id"`
-	Name          string   `json:"name"`
-	DefaultAction string   `json:"default_action"`
-	LLMConfigID   string   `json:"llm_config_id,omitempty"`
-	LLMPromptID   string   `json:"llm_prompt_id,omitempty"`
-	UserGroupIDs  []string `json:"user_group_ids"`
-	TargetTags    []string `json:"target_tags"`
+	ID               string   `json:"id"`
+	OwnerType        string   `json:"owner_type"`
+	OwnerID          string   `json:"owner_id"`
+	Name             string   `json:"name"`
+	DefaultAction    string   `json:"default_action"`
+	LLMConfigID      string   `json:"llm_config_id,omitempty"`
+	LLMPromptID      string   `json:"llm_prompt_id,omitempty"`
+	IPAllowlist      string   `json:"ip_allowlist"`
+	AllowPortForward bool     `json:"allow_port_forward"`
+	AllowUpload      bool     `json:"allow_upload"`
+	AllowDownload    bool     `json:"allow_download"`
+	AllowInteractive bool     `json:"allow_interactive"`
+	UserGroupIDs     []string `json:"user_group_ids"`
+	TargetTags       []string `json:"target_tags"`
 }
 
 type apiPolicyResponse struct {
@@ -61,7 +67,7 @@ type apiLLMPromptsResponse struct {
 func (a *App) handleListLLMConfigs(w http.ResponseWriter, r *http.Request, user store.User) {
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), r.URL.Query().Get("owner_type"), r.URL.Query().Get("owner_id"), user.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOwnerError(w, err)
 		return
 	}
 	configs, err := a.store.Repository().ListLLMPolicyConfigs(r.Context(), ownerType, ownerID)
@@ -92,7 +98,11 @@ func (a *App) handleCreateLLMConfig(w http.ResponseWriter, r *http.Request, user
 	}
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOwnerError(w, err)
+		return
+	}
+	if err := a.requireOrganizationAdmin(r.Context(), ownerID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	cfg, err := a.store.Repository().CreateLLMPolicyConfig(r.Context(), store.CreateLLMPolicyConfigParams{
@@ -114,7 +124,7 @@ func (a *App) handleCreateLLMConfig(w http.ResponseWriter, r *http.Request, user
 func (a *App) handleListLLMPrompts(w http.ResponseWriter, r *http.Request, user store.User) {
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), r.URL.Query().Get("owner_type"), r.URL.Query().Get("owner_id"), user.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOwnerError(w, err)
 		return
 	}
 	prompts, err := a.store.Repository().ListLLMPromptResources(r.Context(), ownerType, ownerID)
@@ -142,7 +152,11 @@ func (a *App) handleCreateLLMPrompt(w http.ResponseWriter, r *http.Request, user
 	}
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOwnerError(w, err)
+		return
+	}
+	if err := a.requireOrganizationAdmin(r.Context(), ownerID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	prompt, err := a.store.Repository().CreateLLMPromptResource(r.Context(), store.CreateLLMPromptResourceParams{
@@ -159,7 +173,12 @@ func (a *App) handleCreateLLMPrompt(w http.ResponseWriter, r *http.Request, user
 }
 
 func (a *App) handleListPolicies(w http.ResponseWriter, r *http.Request, user store.User) {
-	policies, err := a.store.Repository().ListCommandPolicies(r.Context(), r.URL.Query().Get("owner_type"), r.URL.Query().Get("owner_id"))
+	ownerType, ownerID, err := a.resolveOwner(r.Context(), r.URL.Query().Get("owner_type"), r.URL.Query().Get("owner_id"), user.ID)
+	if err != nil {
+		writeOwnerError(w, err)
+		return
+	}
+	policies, err := a.store.Repository().ListCommandPolicies(r.Context(), ownerType, ownerID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -175,14 +194,19 @@ func (a *App) handleListPolicies(w http.ResponseWriter, r *http.Request, user st
 
 func (a *App) handleCreatePolicy(w http.ResponseWriter, r *http.Request, user store.User) {
 	var req struct {
-		OwnerType     string `json:"owner_type"`
-		OwnerID       string `json:"owner_id"`
-		Name          string `json:"name"`
-		DefaultAction string `json:"default_action"`
-		LLMConfigID   string `json:"llm_config_id"`
-		LLMPromptID   string `json:"llm_prompt_id"`
-		PromptTitle   string `json:"prompt_title"`
-		PromptContent string `json:"prompt_content"`
+		OwnerType        string `json:"owner_type"`
+		OwnerID          string `json:"owner_id"`
+		Name             string `json:"name"`
+		DefaultAction    string `json:"default_action"`
+		LLMConfigID      string `json:"llm_config_id"`
+		LLMPromptID      string `json:"llm_prompt_id"`
+		IPAllowlist      string `json:"ip_allowlist"`
+		AllowPortForward bool   `json:"allow_port_forward"`
+		AllowUpload      bool   `json:"allow_upload"`
+		AllowDownload    bool   `json:"allow_download"`
+		AllowInteractive bool   `json:"allow_interactive"`
+		PromptTitle      string `json:"prompt_title"`
+		PromptContent    string `json:"prompt_content"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -190,7 +214,11 @@ func (a *App) handleCreatePolicy(w http.ResponseWriter, r *http.Request, user st
 	}
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOwnerError(w, err)
+		return
+	}
+	if err := a.requireOrganizationAdmin(r.Context(), ownerID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	llmPromptID := req.LLMPromptID
@@ -208,12 +236,17 @@ func (a *App) handleCreatePolicy(w http.ResponseWriter, r *http.Request, user st
 		llmPromptID = prompt.ID
 	}
 	policy, err := a.store.Repository().CreateCommandPolicy(r.Context(), store.CreateCommandPolicyParams{
-		OwnerType:     ownerType,
-		OwnerID:       ownerID,
-		Name:          req.Name,
-		DefaultAction: req.DefaultAction,
-		LLMConfigID:   req.LLMConfigID,
-		LLMPromptID:   llmPromptID,
+		OwnerType:        ownerType,
+		OwnerID:          ownerID,
+		Name:             req.Name,
+		DefaultAction:    req.DefaultAction,
+		LLMConfigID:      req.LLMConfigID,
+		LLMPromptID:      llmPromptID,
+		IPAllowlist:      req.IPAllowlist,
+		AllowPortForward: req.AllowPortForward,
+		AllowUpload:      req.AllowUpload,
+		AllowDownload:    req.AllowDownload,
+		AllowInteractive: req.AllowInteractive,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -222,7 +255,86 @@ func (a *App) handleCreatePolicy(w http.ResponseWriter, r *http.Request, user st
 	writeJSON(w, http.StatusCreated, apiPolicyResponse{Policy: apiPolicyFromStore(policy)})
 }
 
+func (a *App) handleUpdatePolicy(w http.ResponseWriter, r *http.Request, user store.User) {
+	policy, err := a.policyForWrite(r.Context(), r.PathValue("id"), user)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	var req struct {
+		Name             string `json:"name"`
+		DefaultAction    string `json:"default_action"`
+		LLMConfigID      string `json:"llm_config_id"`
+		LLMPromptID      string `json:"llm_prompt_id"`
+		IPAllowlist      string `json:"ip_allowlist"`
+		AllowPortForward bool   `json:"allow_port_forward"`
+		AllowUpload      bool   `json:"allow_upload"`
+		AllowDownload    bool   `json:"allow_download"`
+		AllowInteractive bool   `json:"allow_interactive"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.Name == "" {
+		req.Name = policy.Name
+	}
+	updated, err := a.store.Repository().UpdateCommandPolicy(r.Context(), policy.ID, store.UpdateCommandPolicyParams{
+		Name:             req.Name,
+		DefaultAction:    req.DefaultAction,
+		LLMConfigID:      req.LLMConfigID,
+		LLMPromptID:      req.LLMPromptID,
+		IPAllowlist:      req.IPAllowlist,
+		AllowPortForward: req.AllowPortForward,
+		AllowUpload:      req.AllowUpload,
+		AllowDownload:    req.AllowDownload,
+		AllowInteractive: req.AllowInteractive,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiPolicyResponse{Policy: apiPolicyFromStore(updated)})
+}
+
+func (a *App) handleDeletePolicy(w http.ResponseWriter, r *http.Request, user store.User) {
+	if _, err := a.policyForWrite(r.Context(), r.PathValue("id"), user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if err := a.store.Repository().DeleteCommandPolicy(r.Context(), r.PathValue("id")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (a *App) handleCopyPolicy(w http.ResponseWriter, r *http.Request, user store.User) {
+	policy, err := a.policyForWrite(r.Context(), r.PathValue("id"), user)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	copied, err := a.store.Repository().CopyCommandPolicy(r.Context(), policy.ID, req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, apiPolicyResponse{Policy: apiPolicyFromStore(copied)})
+}
+
 func (a *App) handleCreatePolicyRule(w http.ResponseWriter, r *http.Request, user store.User) {
+	if _, err := a.policyForWrite(r.Context(), r.PathValue("id"), user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	var req struct {
 		RuleType    string `json:"rule_type"`
 		PatternType string `json:"pattern_type"`
@@ -244,12 +356,39 @@ func (a *App) handleCreatePolicyRule(w http.ResponseWriter, r *http.Request, use
 	writeJSON(w, http.StatusCreated, map[string]bool{"ok": true})
 }
 
+func (a *App) policyForWrite(ctx context.Context, id string, user store.User) (store.CommandPolicy, error) {
+	policy, err := a.store.Repository().GetCommandPolicy(ctx, id)
+	if err != nil {
+		return store.CommandPolicy{}, err
+	}
+	if policy.OwnerType == store.OwnerOrganization {
+		if err := a.requireOrganizationAdmin(ctx, policy.OwnerID, user); err != nil {
+			return store.CommandPolicy{}, err
+		}
+	}
+	return policy, nil
+}
+
 func (a *App) handleAttachPolicyTarget(w http.ResponseWriter, r *http.Request, user store.User) {
+	policy, err := a.policyForWrite(r.Context(), r.PathValue("id"), user)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	var req struct {
 		TargetID string `json:"target_id"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	target, err := a.store.Repository().GetSSHTarget(r.Context(), req.TargetID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if target.OwnerType != policy.OwnerType || target.OwnerID != policy.OwnerID {
+		writeError(w, http.StatusBadRequest, "policy target must belong to the same owner")
 		return
 	}
 	if err := a.store.Repository().AttachPolicyToTarget(r.Context(), r.PathValue("id"), req.TargetID); err != nil {
@@ -260,6 +399,11 @@ func (a *App) handleAttachPolicyTarget(w http.ResponseWriter, r *http.Request, u
 }
 
 func (a *App) handleAttachPolicyTargetTag(w http.ResponseWriter, r *http.Request, user store.User) {
+	policy, err := a.policyForWrite(r.Context(), r.PathValue("id"), user)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	var req struct {
 		OwnerType string `json:"owner_type"`
 		OwnerID   string `json:"owner_id"`
@@ -271,7 +415,11 @@ func (a *App) handleAttachPolicyTargetTag(w http.ResponseWriter, r *http.Request
 	}
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeOwnerError(w, err)
+		return
+	}
+	if ownerType != policy.OwnerType || ownerID != policy.OwnerID {
+		writeError(w, http.StatusBadRequest, "policy tag must belong to the same owner")
 		return
 	}
 	if err := a.store.Repository().AttachPolicyToTargetTag(r.Context(), r.PathValue("id"), ownerType, ownerID, req.Tag); err != nil {
@@ -282,11 +430,25 @@ func (a *App) handleAttachPolicyTargetTag(w http.ResponseWriter, r *http.Request
 }
 
 func (a *App) handleAttachPolicyUserGroup(w http.ResponseWriter, r *http.Request, user store.User) {
+	policy, err := a.policyForWrite(r.Context(), r.PathValue("id"), user)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	var req struct {
 		GroupID string `json:"group_id"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	group, err := a.store.Repository().GetOrganizationUserGroup(r.Context(), req.GroupID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if policy.OwnerType != store.OwnerOrganization || group.OrganizationID != policy.OwnerID {
+		writeError(w, http.StatusBadRequest, "policy user group must belong to the same organization")
 		return
 	}
 	if err := a.store.Repository().AttachPolicyToUserGroup(r.Context(), r.PathValue("id"), req.GroupID); err != nil {
@@ -298,15 +460,20 @@ func (a *App) handleAttachPolicyUserGroup(w http.ResponseWriter, r *http.Request
 
 func apiPolicyFromStore(policy store.CommandPolicy) apiPolicy {
 	return apiPolicy{
-		ID:            policy.ID,
-		OwnerType:     policy.OwnerType,
-		OwnerID:       policy.OwnerID,
-		Name:          policy.Name,
-		DefaultAction: policy.DefaultAction,
-		LLMConfigID:   policy.LLMConfigID,
-		LLMPromptID:   policy.LLMPromptID,
-		UserGroupIDs:  policy.UserGroupIDs,
-		TargetTags:    policy.TargetTags,
+		ID:               policy.ID,
+		OwnerType:        policy.OwnerType,
+		OwnerID:          policy.OwnerID,
+		Name:             policy.Name,
+		DefaultAction:    policy.DefaultAction,
+		LLMConfigID:      policy.LLMConfigID,
+		LLMPromptID:      policy.LLMPromptID,
+		IPAllowlist:      policy.IPAllowlist,
+		AllowPortForward: policy.AllowPortForward,
+		AllowUpload:      policy.AllowUpload,
+		AllowDownload:    policy.AllowDownload,
+		AllowInteractive: policy.AllowInteractive,
+		UserGroupIDs:     policy.UserGroupIDs,
+		TargetTags:       policy.TargetTags,
 	}
 }
 

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="GOSSHD Bastion 文档：为 AI 服务设计的 SSH 堡垒机，支持别名、Agent 注册、命令安全组、LLM 审核和审计日志。"
+      content="GOSSHD Bastion 文档：为 AI 服务设计的 SSH 堡垒机，支持别名、私有节点注册、命令安全组、LLM 审核和审计日志。"
     />
     <title>文档 | GOSSHD Bastion</title>
     <link rel="alternate" hreflang="en" href="./docs.html" />
@@ -24,7 +24,7 @@
       <nav class="site-nav" aria-label="主导航">
         <a href="./index.zh-CN.html">首页</a>
         <a href="#quickstart">快速开始</a>
-        <a href="#agents">Agent</a>
+        <a href="#agents">私有节点</a>
         <a href="#policies">策略</a>
         <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
         <span class="language-switch" role="group" aria-label="语言">
@@ -40,7 +40,7 @@
         <a href="#quickstart">快速开始</a>
         <a href="#identity">身份模型</a>
         <a href="#targets">SSH 目标</a>
-        <a href="#agents">Agent 安装</a>
+        <a href="#agents">私有节点安装</a>
         <a href="#policies">命令策略</a>
         <a href="#llm">LLM 审核</a>
         <a href="#audit">审计</a>
@@ -53,7 +53,7 @@
           <h1>让 AI 服务使用 SSH，但不给自动化一条无审计的盲 shell。</h1>
           <p>
             GOSSHD Bastion 是一个带 SQLite 存储、内置控制台和 SSH 入口的 Go 服务。
-            它把用户、组织、公钥、直连目标、Agent 目标、命令安全组、LLM 审核和审计日志放入同一个可部署控制平面。
+            它把用户、组织、公钥、直连服务、私有节点服务、命令安全组、LLM 审核和审计日志放入同一个可部署控制平面。
           </p>
         </section>
 
@@ -63,7 +63,7 @@
             <li>从发布页下载 server 压缩包。</li>
             <li>使用 HTTP、SSH、数据库和 host key 路径启动服务。</li>
             <li>打开控制台，注册用户，并添加自己的 SSH 公钥。</li>
-            <li>添加直连目标，或注册 Agent 目标。</li>
+            <li>添加直连 SSH 服务，或注册私有节点服务。</li>
             <li>把目标别名作为 SSH 用户名执行 SSH 命令。</li>
           </ol>
           <pre><code>gosshd-server \
@@ -94,18 +94,18 @@
               <p>堡垒机使用账号密码或私钥认证，直接连接到指定主机和端口。</p>
             </article>
             <article>
-              <h3>Agent 目标</h3>
-              <p>堡垒机通过已注册的 Agent 打开 TCP 流，然后在这条流上完成 SSH 握手。</p>
+              <h3>私有节点服务</h3>
+              <p>堡垒机通过已注册的私有节点打开 TCP 流，然后在这条流上完成 SSH 握手。</p>
             </article>
           </div>
           <p>
-            通过 Agent 注册上来的主机也是普通 SSH 目标。它们可以重命名、绑定策略，也可以像手动添加的目标一样在审计视图里过滤。
+            通过私有节点注册上来的主机也是普通 SSH 目标。它们可以重命名、绑定策略，也可以像手动添加的目标一样在审计视图里过滤。
           </p>
         </section>
 
         <section class="doc-section" id="agents">
-          <h2>Agent 安装</h2>
-          <p>在控制台的新建 SSH 目标页面进入 SSH Agent 标签页，创建注册令牌并复制引导命令。默认命令会在当前 shell 中运行 Agent。</p>
+          <h2>私有节点安装</h2>
+          <p>在控制台的 SSH 服务页面进入私有节点标签页，创建注册令牌并复制引导命令。默认命令会在当前 shell 中运行私有节点。</p>
           <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sh</code></pre>
           <pre><code>irm http://bastion.example.com:18080/install/&lt;token&gt;.ps1 | iex</code></pre>
           <p>需要开机启动时使用 install 模式。</p>
@@ -146,9 +146,9 @@
         <section class="doc-section" id="release">
           <h2>发布包</h2>
           <p>
-            当前版本发布跨平台 server 压缩包和独立 agent 二进制。本版本暂不发布 full 包。
+            当前版本发布跨平台 server 压缩包和独立私有节点二进制。本版本暂不发布 full 包。
           </p>
-          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion">打开 v0.1.21-bastion</a>
+          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.22-bastion">打开 v0.1.22-bastion</a>
         </section>
       </article>
     </main>

@@ -44,7 +44,7 @@
           </p>
           <div class="hero-actions" aria-label="Primary actions">
             <a class="button primary" href="./docs.html">Read the docs</a>
-            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion">Download release</a>
+            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.22-bastion">Download release</a>
           </div>
           <dl class="signal-row" aria-label="Product highlights">
             <div>
@@ -93,8 +93,8 @@
           </article>
           <article class="feature-card">
             <span class="card-code">02</span>
-            <h3>Agent-backed services</h3>
-            <p>Private hosts enroll through install scripts and become normal renameable SSH targets.</p>
+            <h3>Private-node services</h3>
+            <p>Private hosts enroll through install scripts and become normal renameable SSH services.</p>
           </article>
           <article class="feature-card">
             <span class="card-code">03</span>
@@ -111,7 +111,7 @@
 
       <section class="diagram-band">
         <div class="diagram-shell" aria-label="AI bastion request flow">
-          <div class="diagram-node source">AI agent</div>
+          <div class="diagram-node source">AI task</div>
           <div class="diagram-link"></div>
           <div class="diagram-node core">GOSSHD Bastion</div>
           <div class="diagram-link"></div>
@@ -122,7 +122,7 @@
           <h2><code>ssh inference-gpu@public-ip</code></h2>
           <p>
             The presented key finds the user. The alias finds a personal or organization target. A policy decides
-            whether the command runs locally, through an agent, or gets denied before it reaches production.
+            whether the command runs directly, through a private node, or gets denied before it reaches production.
           </p>
         </div>
       </section>
@@ -142,8 +142,8 @@
             <p>OpenAI-compatible review can decide unmatched commands. Invalid responses are denied.</p>
           </article>
           <article>
-            <h3>Startup agents</h3>
-            <p>Linux agents install with systemd. Windows agents install with sc.exe for boot-time availability.</p>
+            <h3>Startup private nodes</h3>
+            <p>Linux private nodes install with systemd. Windows private nodes install with sc.exe for boot-time availability.</p>
           </article>
         </div>
       </section>

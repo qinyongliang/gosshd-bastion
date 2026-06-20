@@ -22,7 +22,7 @@ var spaRoutes = map[string]bool{
 }
 
 func (a *App) serveWeb(w http.ResponseWriter, r *http.Request) {
-	assets, err := fs.Sub(webassets.FS, ".")
+	assets, err := fs.Sub(webassets.FS, "dist")
 	if err != nil {
 		http.Error(w, "web assets unavailable", http.StatusInternalServerError)
 		return

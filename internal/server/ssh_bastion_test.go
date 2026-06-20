@@ -170,10 +170,11 @@ func TestSSHDeniesBlacklistedExecAndAudits(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected denied command to fail")
 	}
-	logs, err := app.store.Repository().ListCommandAuditLogs(ctx, store.AuditLogFilter{UserID: user.ID})
+	page, err := app.audit.Repository().ListCommandAuditLogs(ctx, store.AuditLogFilter{UserID: user.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
+	logs := page.Logs
 	if len(logs) != 1 || logs[0].PolicyDecision != store.DecisionDeny || logs[0].Command != "rm -rf /tmp/example" {
 		t.Fatalf("deny audit mismatch: %+v", logs)
 	}
@@ -288,7 +289,7 @@ func startBastionTestApp(t *testing.T) (*App, string, string, func()) {
 	}()
 	stop := func() {
 		cancel()
-		_ = app.store.Close()
+		_ = app.Close()
 	}
 	return app, httpLn.Addr().String(), sshLn.Addr().String(), stop
 }

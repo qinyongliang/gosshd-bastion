@@ -31,6 +31,22 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        shell: bash
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Build frontend assets
+        shell: bash
+        run: pnpm run build
+
       - name: Build binaries and packages
         shell: bash
         run: |

@@ -29,7 +29,7 @@ func TestUIE2EWithBrowser(t *testing.T) {
 	defer srv.Close()
 	t.Cleanup(func() {
 		if app.store != nil {
-			_ = app.store.Close()
+			_ = app.Close()
 		}
 	})
 

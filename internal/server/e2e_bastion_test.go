@@ -41,7 +41,7 @@ func TestBastionE2E(t *testing.T) {
 	t.Cleanup(func() {
 		cancel()
 		if app.store != nil {
-			_ = app.store.Close()
+			_ = app.Close()
 		}
 	})
 
@@ -305,7 +305,7 @@ func TestDingTalkAdminOrganizationE2E(t *testing.T) {
 		t.Fatalf("system admin transfer did not repair owner: %+v", members.Members)
 	}
 
-	for _, path := range []string{"/", "/main.js", "/views/auth.js", "/views/system-admin.js", "/components/layout.js"} {
+	for _, path := range []string{"/", "/targets", "/system-admin"} {
 		resp, err := adminClient.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -315,8 +315,8 @@ func TestDingTalkAdminOrganizationE2E(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("%s status mismatch: %d", path, resp.StatusCode)
 		}
-		if path == "/" && !strings.Contains(body, "main.js") {
-			t.Fatalf("frontend index did not load modular frontend")
+		if !strings.Contains(body, "gosshd Bastion") || !strings.Contains(body, `id="root"`) || !strings.Contains(body, `type="module"`) {
+			t.Fatalf("%s did not load React frontend", path)
 		}
 	}
 }

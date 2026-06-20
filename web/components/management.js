@@ -15,10 +15,10 @@ export function resourceHeader({ title, subtitle, stats = [], actions = "" }) {
   `);
 }
 
-export function resourceToolbar({ searchAction, query = "", searchPlaceholder = "", chips = "", actions = "" }) {
+export function resourceToolbar({ searchAction, query = "", searchPlaceholder = "", chips = "", actions = "", formID = "" }) {
   return raw(`
     <section class="resource-toolbar" aria-label="${escapeHTML(t("management.toolbar"))}">
-      <form data-action="${escapeHTML(searchAction)}" class="search-box">
+      <form data-action="${escapeHTML(searchAction)}" ${formID ? `id="${escapeHTML(formID)}"` : ""} class="search-box">
         ${icon("search").__raw}
         <input name="query" value="${escapeHTML(query)}" autocomplete="off" placeholder="${escapeHTML(searchPlaceholder || t("management.search"))}" />
         <button type="submit">${escapeHTML(t("common.search"))}</button>

@@ -97,9 +97,7 @@ func (c *LLMClient) ReviewCommand(ctx context.Context, cfg store.LLMPolicyConfig
 	}
 	reason := strings.TrimSpace(review.Reason)
 	if reason == "" {
-		if review.Allow {
-			reason = "allow"
-		} else {
+		if !review.Allow {
 			reason = "deny"
 		}
 	}

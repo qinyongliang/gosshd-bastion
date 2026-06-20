@@ -19,6 +19,8 @@ func main() {
 	flag.StringVar(&cfg.SSHListen, "ssh-listen", ":22", "SSH listen address")
 	flag.StringVar(&cfg.HostKeyPath, "host-key-path", "gosshd_host_key", "SSH host private key path; generated if missing")
 	flag.StringVar(&cfg.DatabasePath, "database-path", "gosshd.db", "SQLite database path")
+	flag.StringVar(&cfg.AuditDatabasePath, "audit-database-path", "", "SQLite audit database path; defaults to gosshd-audit.db next to the main database")
+	flag.StringVar(&cfg.AuditRecordingPath, "audit-recording-path", "", "directory for compressed terminal recordings; defaults to audit-recordings next to the main database")
 	flag.StringVar(&cfg.SecretKey, "secret-key", "", "secret key material used to encrypt stored credentials")
 	flag.StringVar(&cfg.SecretKeyPath, "secret-key-path", "", "path to secret key material used to encrypt stored credentials")
 	flag.StringVar(&cfg.BootstrapAdminPassword, "bootstrap-admin-password", "", "password for first-run admin account; falls back to GOSSHD_BOOTSTRAP_ADMIN_PASSWORD or generated")

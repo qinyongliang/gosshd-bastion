@@ -2,6 +2,8 @@ bin/
 build/
 dist/
 package/
+node_modules/
+*.tsbuildinfo
 *.exe
 *.log
 *.tmp

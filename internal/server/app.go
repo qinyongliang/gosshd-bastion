@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,14 +20,16 @@ import (
 )
 
 type App struct {
-	cfg      Config
-	registry *AgentRegistry
-	store    *store.Store
-	auth     *auth.Service
-	bastion  *bastion.Service
-	initMu   sync.Mutex
-	httpSrv  *http.Server
-	sshLn    net.Listener
+	cfg                 Config
+	registry            *AgentRegistry
+	store               *store.Store
+	audit               *store.AuditStore
+	auth                *auth.Service
+	bastion             *bastion.Service
+	auditRecordingsPath string
+	initMu              sync.Mutex
+	httpSrv             *http.Server
+	sshLn               net.Listener
 }
 
 func NewApp(cfg Config) *App {
@@ -40,6 +43,25 @@ func (a *App) Registry() *AgentRegistry {
 	return a.registry
 }
 
+func (a *App) Close() error {
+	a.initMu.Lock()
+	defer a.initMu.Unlock()
+	var err error
+	if a.audit != nil {
+		err = a.audit.Close()
+		a.audit = nil
+	}
+	if a.store != nil {
+		if closeErr := a.store.Close(); err == nil {
+			err = closeErr
+		}
+		a.store = nil
+	}
+	a.auth = nil
+	a.bastion = nil
+	return err
+}
+
 func (a *App) ensureServices(ctx context.Context) error {
 	a.initMu.Lock()
 	defer a.initMu.Unlock()
@@ -50,7 +72,15 @@ func (a *App) ensureServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	auditPath := a.auditDatabasePath()
+	audit, err := store.OpenAudit(ctx, auditPath)
+	if err != nil {
+		_ = st.Close()
+		return err
+	}
 	a.store = st
+	a.audit = audit
+	a.auditRecordingsPath = a.auditRecordingPath()
 	a.auth = auth.NewService(st.Repository())
 	a.bastion = bastion.NewService(st.Repository())
 	password := strings.TrimSpace(a.cfg.BootstrapAdminPassword)
@@ -63,6 +93,36 @@ func (a *App) ensureServices(ctx context.Context) error {
 		log.Printf("bootstrap admin account ready: email=%s password=%s", admin.Email, createdPassword)
 	}
 	return nil
+}
+
+func (a *App) auditDatabasePath() string {
+	if strings.TrimSpace(a.cfg.AuditDatabasePath) != "" {
+		return a.cfg.AuditDatabasePath
+	}
+	base := strings.TrimSpace(a.cfg.DatabasePath)
+	if base == "" {
+		return "gosshd-audit.db"
+	}
+	dir := filepath.Dir(base)
+	if dir == "." || dir == "" {
+		return "gosshd-audit.db"
+	}
+	return filepath.Join(dir, "gosshd-audit.db")
+}
+
+func (a *App) auditRecordingPath() string {
+	if strings.TrimSpace(a.cfg.AuditRecordingPath) != "" {
+		return a.cfg.AuditRecordingPath
+	}
+	base := strings.TrimSpace(a.cfg.DatabasePath)
+	if base == "" {
+		return filepath.Join(".", "audit-recordings")
+	}
+	dir := filepath.Dir(base)
+	if dir == "." || dir == "" {
+		return filepath.Join(".", "audit-recordings")
+	}
+	return filepath.Join(dir, "audit-recordings")
 }
 
 func (a *App) sessionCookieName() string {
