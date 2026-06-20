@@ -7,7 +7,7 @@ applyLocaleRouting();
 bindLanguageLinks();
 bindSmoothAnchors();
 activateReveal();
-playTerminalCast();
+playTerminalReplays();
 
 let width = 0;
 let height = 0;
@@ -155,19 +155,140 @@ function activateReveal() {
   items.forEach((item) => observer.observe(item));
 }
 
-function playTerminalCast() {
-  const terminals = Array.from(document.querySelectorAll("[data-terminal]"));
+function playTerminalReplays() {
+  const terminals = Array.from(document.querySelectorAll("[data-terminal-replay]"));
   terminals.forEach((terminal) => {
-    const lines = Array.from(terminal.querySelectorAll("p"));
-    const reveal = () => {
-      lines.forEach((line) => line.classList.remove("is-visible"));
-      lines.forEach((line, index) => {
-        window.setTimeout(() => line.classList.add("is-visible"), prefersReducedMotion ? 0 : 420 * index);
-      });
-    };
-    reveal();
-    if (!prefersReducedMotion) window.setInterval(reveal, 7000);
+    const player = createTerminalReplay(terminal);
+    if (prefersReducedMotion || !("IntersectionObserver" in window)) {
+      player.renderFinalState();
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        player.start();
+        observer.disconnect();
+      },
+      { threshold: 0.32 }
+    );
+    observer.observe(terminal);
   });
+}
+
+function createTerminalReplay(root) {
+  const prompt = "mia@bastion:~$";
+  const events = [
+    { at: "00:00.000", type: "type", prompt, text: "ssh -p 22022 inference-gpu@bastion.example.com", speed: 28 },
+    { at: "00:00.924", type: "output", label: "gosshd", text: "public key accepted for mia@ops" },
+    { at: "00:01.188", type: "output", label: "route", text: "alias inference-gpu -> private node / ai-rack-07" },
+    { at: "00:01.612", type: "output", label: "policy", text: "readonly-production matched by user group" },
+    { at: "00:02.304", type: "type", prompt, text: "docker ps --format '{{.Names}} {{.Status}}' | head", speed: 34 },
+    { at: "00:03.741", type: "output", label: "llm", text: "allow, read-only container inspection (1.4s)" },
+    { at: "00:04.118", type: "output", label: "docker", text: "redis-vector     Up 18 hours" },
+    { at: "00:04.286", type: "output", label: "docker", text: "model-gateway    Up 18 hours (healthy)" },
+    { at: "00:04.554", type: "output", label: "audit", text: "session sealed, replay frames compressed" },
+  ];
+  const timeline = root.closest(".xterm-stage")?.querySelectorAll(".replay-timeline i") || [];
+  const timers = [];
+  let running = false;
+
+  function clearTimers() {
+    while (timers.length) window.clearTimeout(timers.pop());
+  }
+
+  function reset() {
+    clearTimers();
+    root.replaceChildren();
+    timeline.forEach((item) => {
+      item.classList.remove("is-done", "is-active");
+      item.style.removeProperty("--terminal-progress-delay");
+    });
+  }
+
+  function appendLine(event, options = {}) {
+    const line = document.createElement("div");
+    line.className = `terminal-line ${event.type === "type" ? "is-command" : "is-output"}`;
+    const time = document.createElement("span");
+    time.className = "terminal-time";
+    time.textContent = event.at;
+    const label = document.createElement("span");
+    label.className = "terminal-label";
+    label.textContent = event.type === "type" ? event.prompt : event.label;
+    const text = document.createElement("span");
+    text.className = "terminal-text";
+    const cursor = document.createElement("span");
+    cursor.className = "terminal-cursor";
+    line.append(time, label, text);
+    if (options.cursor) line.append(cursor);
+    root.append(line);
+    window.requestAnimationFrame(() => line.classList.add("is-visible"));
+    root.scrollTop = root.scrollHeight;
+    return { line, text, cursor };
+  }
+
+  function typeText(target, text, speed, done) {
+    let index = 0;
+    const writeNext = () => {
+      target.textContent = text.slice(0, index);
+      index += 1;
+      if (index <= text.length) {
+        timers.push(window.setTimeout(writeNext, speed));
+        return;
+      }
+      done?.();
+    };
+    writeNext();
+  }
+
+  function markTimeline(index, state) {
+    const segment = timeline[Math.min(index, timeline.length - 1)];
+    if (!segment) return;
+    segment.classList.toggle("is-active", state === "active");
+    segment.classList.toggle("is-done", state === "done");
+  }
+
+  function renderFinalState() {
+    reset();
+    events.forEach((event, index) => {
+      const { text } = appendLine(event);
+      text.textContent = event.text;
+      markTimeline(index, "done");
+    });
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    runOnce();
+  }
+
+  function runOnce() {
+    reset();
+    let delay = 240;
+    events.forEach((event, index) => {
+      timers.push(
+        window.setTimeout(() => {
+          markTimeline(index, "active");
+          if (event.type === "type") {
+            const { text, cursor } = appendLine(event, { cursor: true });
+            typeText(text, event.text, event.speed, () => {
+              cursor.remove();
+              markTimeline(index, "done");
+            });
+            return;
+          }
+          const { line, text } = appendLine(event);
+          text.textContent = event.text;
+          markTimeline(index, "done");
+        }, delay)
+      );
+      delay += event.type === "type" ? event.text.length * event.speed + 420 : 520;
+    });
+    timers.push(window.setTimeout(runOnce, delay + 2200));
+  }
+
+  return { renderFinalState, start };
 }
 
 function applyLocaleRouting() {

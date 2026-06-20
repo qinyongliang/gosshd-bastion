@@ -101,15 +101,7 @@
             <span></span><span></span><span></span>
             <strong>xterm.js replay</strong>
           </div>
-          <div class="terminal-cast" data-terminal>
-            <p><span>$</span> ssh -p 22022 inference-gpu@bastion.example.com</p>
-            <p><span>gosshd</span> public key accepted for mia@ops</p>
-            <p><span>route</span> alias inference-gpu -> private node / ai-rack-07</p>
-            <p><span>policy</span> readonly-production matched by user group</p>
-            <p><span>$</span> docker ps --format '{{.Names}} {{.Status}}' | head</p>
-            <p><span>llm</span> allow, read-only container inspection (1.4s)</p>
-            <p><span>rec</span> terminal frame 00:00:07.284 sealed</p>
-          </div>
+          <div class="terminal-cast" data-terminal-replay aria-live="polite"></div>
           <div class="replay-timeline" aria-hidden="true">
             <i></i><i></i><i></i><i></i><i></i>
           </div>
