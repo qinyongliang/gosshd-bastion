@@ -138,3 +138,20 @@ export type AdminOrg = Organization & {
 export type Providers = {
   dingtalk?: { enabled: boolean };
 };
+
+export type ConsoleData = {
+  user: User;
+  orgs: Organization[];
+  activeOrg: Organization;
+  setActiveOrgID: (id: string) => void;
+  runtime: Runtime;
+  keys: PublicKey[];
+  members: Member[];
+  groups: UserGroup[];
+  targets: Target[];
+  policies: Policy[];
+  llms: LLMConfig[];
+  prompts: PromptResource[];
+  auditPage: { logs: AuditLog[]; total: number; page: number; page_size: number };
+  refetchAll: () => void;
+};

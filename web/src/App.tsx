@@ -1,47 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
-  Activity,
-  Copy,
-  KeyRound,
-  LayoutDashboard,
   ListChecks,
-  LockKeyhole,
-  Menu,
   Plus,
   Search,
   Server,
-  Settings,
   Shield,
   Users,
-  X,
 } from "lucide-react";
-import { ComponentType, ReactNode, useMemo, useState } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { ApiError, api, type Enrollment } from "./api";
-import { dateLocale, useI18n } from "./i18n";
-import { useTheme } from "./theme";
-import type { AdminOrg, AdminUser, AuditLog, LLMConfig, Member, Organization, Policy, PromptResource, PublicKey, Runtime, Target, User, UserGroup } from "./types";
-import { copyText, ownerFromOrg, splitTags, tagColor, targetEndpoint } from "./utils";
-
-type ConsoleData = {
-  user: User;
-  orgs: Organization[];
-  activeOrg: Organization;
-  setActiveOrgID: (id: string) => void;
-  runtime: Runtime;
-  keys: PublicKey[];
-  members: Member[];
-  groups: UserGroup[];
-  targets: Target[];
-  policies: Policy[];
-  llms: LLMConfig[];
-  prompts: PromptResource[];
-  auditPage: { logs: AuditLog[]; total: number; page: number; page_size: number };
-  refetchAll: () => void;
-};
-
-const activeOrgStorage = "gosshd_active_org";
+import { AuditTable, CommandBox, CopyButton, Drawer, Empty, Fatal, Field, Loading, Metric, Modal, ModalActions, Panel, Select, SelectButton, SimpleTable, SummaryCard, Tag, TagList, Toggle, Toolbar, UserCell } from "./components/ui";
+import { useConsoleData } from "./hooks/useConsoleData";
+import { Shell } from "./layout/Shell";
+import { formSubmit, formValues, formatDate, policyPayload, roleText, sortMembers } from "./lib/forms";
+import { AuthPage } from "./pages/AuthPage";
+import type { AdminOrg, AdminUser, ConsoleData, Member, Organization, Policy, Runtime, Target, User } from "./types";
+import { splitTags, tagColor, targetEndpoint } from "./utils";
 
 export function App() {
   const providers = useQuery({ queryKey: ["providers"], queryFn: api.authProviders });
@@ -56,155 +32,11 @@ export function App() {
   return <ConsoleApp user={me.data.user} orgs={me.data.organizations} runtime={me.data.runtime} />;
 }
 
-function AuthPage({ dingTalkEnabled }: { dingTalkEnabled: boolean }) {
-  const { t, locale, setLocale } = useI18n();
-  const { theme, setTheme } = useTheme();
-  const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [error, setError] = useState("");
-  const mutation = useMutation({
-    mutationFn: (data: Record<string, string>) => mode === "login" ? api.login(data) : api.register(data),
-    onSuccess: async () => {
-      setError("");
-      await queryClient.invalidateQueries();
-    },
-    onError: (err) => setError(localizeError(err, t)),
-  });
-
-  return (
-    <section className="auth-screen">
-      <div className="brand-panel">
-        <div className="brand-row"><div className="mark">g</div><span>gosshd</span></div>
-        <h1>AI 服务堡垒机</h1>
-        <p>为自动化任务和运维人员提供 SSH 别名访问、命令安全组和完整审计。</p>
-      </div>
-      <div className="auth-card">
-        <div className="auth-card-head">
-          <Segmented value={theme} items={[["dark", "黑", "Black"], ["light", "白", "White"]]} onChange={(value) => setTheme(value as "light" | "dark")} />
-          <Segmented value={locale} items={[["en", "EN", "EN"], ["zh-CN", "中文", "中文"]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
-          <span className="badge info">Auto</span>
-        </div>
-        <div className="tabs" role="tablist" aria-label="Auth mode">
-          <button type="button" role="tab" aria-selected={mode === "register"} className={clsx(mode === "register" && "active")} onClick={() => setMode("register")}>{t("register")}</button>
-          <button type="button" role="tab" aria-selected={mode === "login"} className={clsx(mode === "login" && "active")} onClick={() => setMode("login")}>{t("login")}</button>
-        </div>
-        <form className="stack" onSubmit={(event) => formSubmit(event, (data) => mutation.mutate(data))}>
-          <Field label="Email" name="email" type={mode === "login" ? "text" : "email"} required />
-          {mode === "register" && <Field label="Display name" name="display_name" required />}
-          <Field label="Password" name="password" type="password" required />
-          <button className="primary" type="submit" disabled={mutation.isPending}>
-            {mode === "login" ? <KeyRound /> : <Plus />}
-            {mode === "login" ? "Sign in" : "Create account"}
-          </button>
-        </form>
-        <div className="sso-zone">
-          <span>DingTalk</span>
-          {dingTalkEnabled ? <a className="button-link" href="/api/auth/dingtalk/start?redirect_after=/">Continue</a> : <button type="button" className="ghost" disabled>Disabled</button>}
-        </div>
-        {error && <div className="status error">{error}</div>}
-      </div>
-    </section>
-  );
-}
-
 function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[]; runtime: Runtime }) {
-  const [activeOrgID, setActiveOrgIDState] = useState(() => window.localStorage.getItem(activeOrgStorage) || "");
-  const activeOrg = orgs.find((org) => org.id === activeOrgID) || orgs[0];
-  const owner = ownerFromOrg(activeOrg);
-  const queryClient = useQueryClient();
-  const keys = useQuery({ queryKey: ["keys"], queryFn: api.keys });
-  const targets = useQuery({ queryKey: ["targets", owner], queryFn: () => api.targets(owner!), enabled: Boolean(owner) });
-  const members = useQuery({ queryKey: ["members", activeOrg?.id], queryFn: () => api.orgMembers(activeOrg.id), enabled: Boolean(activeOrg) });
-  const groups = useQuery({ queryKey: ["groups", activeOrg?.id], queryFn: () => api.groups(activeOrg.id), enabled: Boolean(activeOrg) });
-  const policies = useQuery({ queryKey: ["policies", owner], queryFn: () => api.policies(owner!), enabled: Boolean(owner) });
-  const llms = useQuery({ queryKey: ["llms", owner], queryFn: () => api.llmConfigs(owner!), enabled: Boolean(owner) });
-  const prompts = useQuery({ queryKey: ["prompts", owner], queryFn: () => api.prompts(owner!), enabled: Boolean(owner) });
-  const audit = useQuery({ queryKey: ["audit", activeOrg?.id], queryFn: () => api.audit({ page: 1, page_size: 20 }), enabled: Boolean(activeOrg) });
+  const data = useConsoleData({ user, orgs, runtime });
+  if (!data) return <Fatal error={new Error("No organization available")} />;
 
-  if (!activeOrg) return <Fatal error={new Error("No organization available")} />;
-
-  const data: ConsoleData = {
-    user,
-    orgs,
-    activeOrg,
-    setActiveOrgID(id) {
-      window.localStorage.setItem(activeOrgStorage, id);
-      setActiveOrgIDState(id);
-    },
-    runtime,
-    keys: keys.data?.keys || [],
-    members: members.data?.members || [],
-    groups: groups.data?.groups || [],
-    targets: targets.data?.targets || [],
-    policies: policies.data?.policies || [],
-    llms: llms.data?.configs || [],
-    prompts: prompts.data?.prompts || [],
-    auditPage: { total: audit.data?.total || 0, page: audit.data?.page || 1, page_size: audit.data?.page_size || 20, logs: audit.data?.logs || [] },
-    refetchAll: () => void queryClient.invalidateQueries(),
-  };
-
-  return <Shell data={data} />;
-}
-
-function Shell({ data }: { data: ConsoleData }) {
-  const { t, locale, setLocale } = useI18n();
-  const { theme, setTheme } = useTheme();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const logout = useMutation({
-    mutationFn: api.logout,
-    onSuccess: async () => {
-      await queryClient.clear();
-      navigate("/");
-      window.location.reload();
-    },
-  });
-  const nav: Array<[string, string, ComponentType<{ className?: string }>]> = [
-    ["/", t("dashboard"), LayoutDashboard],
-    ["/orgs", t("orgs"), Users],
-    ["/org-admin", t("members"), Users],
-    ["/keys", t("keys"), KeyRound],
-    ["/targets", t("services"), Server],
-    ["/policies", t("commandPolicy"), Shield],
-    ["/audit", t("audit"), ListChecks],
-  ];
-  if (data.user.is_system_admin) nav.push(["/system-admin", t("settings"), Settings]);
-
-  return (
-    <section className="console">
-      <aside className={clsx("sidebar", sidebarOpen && "open")}>
-        <div className="brand-row"><div className="mark">g</div><strong>gosshd</strong></div>
-        <div className="sidebar-user">
-          <strong>{data.user.display_name || data.user.email}</strong>
-          <span>{data.user.email}</span>
-          {data.user.is_system_admin && <span className="pill">{t("admin")}</span>}
-        </div>
-        <nav className="side-nav">
-          {nav.map(([to, label, Icon]) => <NavButton key={to} to={to} label={label} icon={<Icon />} onClick={() => setSidebarOpen(false)} />)}
-        </nav>
-        <OrgSwitcher data={data} />
-        <button type="button" onClick={() => logout.mutate()}><LockKeyhole />{t("logout")}</button>
-      </aside>
-      {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close menu" onClick={() => setSidebarOpen(false)} />}
-      <section className="workspace">
-        <header className="topbar">
-          <button className="mobile-menu" type="button" onClick={() => setSidebarOpen(true)}><Menu /></button>
-          <div>
-            <small>AI 服务堡垒机</small>
-            <h1>{pageTitle()}</h1>
-            <span>{data.activeOrg.name}</span>
-          </div>
-          <div className="topbar-actions">
-            <Segmented value={theme} items={[["dark", "黑", "Black"], ["light", "白", "White"]]} onChange={(value) => setTheme(value as "light" | "dark")} />
-            <Segmented value={locale} items={[["en", "EN", "EN"], ["zh-CN", "中文", "中文"]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
-          </div>
-        </header>
-        <div className="hud-line">
-          <span className="hud-pill"><i className="hud-dot" />SSH ingress online</span>
-          <span className="hud-pill">policy guard ready</span>
-          <span className="hud-pill">audit isolated</span>
-        </div>
+  return <Shell data={data}>
         <Routes>
           <Route path="/" element={<DashboardPage data={data} />} />
           <Route path="/orgs" element={<OrganizationsPage data={data} />} />
@@ -216,9 +48,7 @@ function Shell({ data }: { data: ConsoleData }) {
           <Route path="/audit" element={<AuditPage data={data} />} />
           <Route path="/system-admin" element={data.user.is_system_admin ? <SystemAdminPage data={data} /> : <Navigate to="/" replace />} />
         </Routes>
-      </section>
-    </section>
-  );
+      </Shell>;
 }
 
 function DashboardPage({ data }: { data: ConsoleData }) {
@@ -769,199 +599,4 @@ function ProviderModal({ title, action, onClose }: { title: string; action: (bod
       <ModalActions onCancel={onClose} submit="保存" />
     </form>
   </Modal>;
-}
-
-function OrgSwitcher({ data }: { data: ConsoleData }) {
-  return <select className="org-switcher" value={data.activeOrg.id} onChange={(event) => data.setActiveOrgID(event.target.value)}>
-    {data.orgs.map((org) => <option key={org.id} value={org.id}>{org.name} {org.is_personal ? "个人" : ""}</option>)}
-  </select>;
-}
-
-function AuditTable({ logs }: { logs: AuditLog[] }) {
-  return <SimpleTable headers={["用户", "公钥", "目标服务器", "命令", "类型", "决策", "原因", "退出", "开始时间"]} rows={logs.map((log) => [
-    <span><strong>{log.user_display_name || log.user_email || "-"}</strong><small>{log.user_email || ""}</small></span>,
-    <span><strong>{log.public_key_name || "-"}</strong><small>{log.public_key_fingerprint || ""}</small></span>,
-    <span><strong>{log.target_name || log.target_alias || "-"}</strong><small>{log.target_endpoint || ""}</small></span>,
-    <code>{log.command || "-"}</code>,
-    log.request_type,
-    <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? "允许" : "拒绝"}</span>,
-    log.policy_reason || "-",
-    String(log.exit_code ?? ""),
-    formatDate(log.started_at),
-  ])} />;
-}
-
-function NavButton({ to, label, icon, onClick }: { to: string; label: string; icon: ReactNode; onClick: () => void }) {
-  const location = useLocation();
-  const active = to === "/" ? location.pathname === "/" : location.pathname.startsWith(to);
-  return <Link className={clsx(active && "active")} to={to} onClick={onClick}>{icon}{label}</Link>;
-}
-
-function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
-  return <section className="panel"><div className="panel-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div></div>{children}</section>;
-}
-
-function SummaryCard({ index, title, body }: { index: string; title: string; body: string }) {
-  return <section className="access-summary-card"><span>{index}</span><strong>{title}</strong><small>{body}</small></section>;
-}
-
-function Metric({ label, value, icon }: { label: string; value: number; icon?: ReactNode }) {
-  return <div className="metric">{icon || <Activity />}<span>{label}</span><strong>{value}</strong></div>;
-}
-
-function Modal({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
-  return <div className="overlay"><section className={clsx("modal", wide && "wide")} role="dialog" aria-label={title}>
-    <header><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label="Close" onClick={onClose}><X /></button></header>
-    <div className="surface-body modal-body-list">{children}</div>
-  </section></div>;
-}
-
-function Drawer({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
-  return <div className="drawer-scrim"><aside className="drawer">
-    <header><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" type="button" aria-label="Close" onClick={onClose}><X /></button></header>
-    <div className="surface-body">{children}</div>
-  </aside></div>;
-}
-
-function Field({ label, name, type = "text", defaultValue = "", required = false, placeholder = "", disabled = false }: { label: string; name: string; type?: string; defaultValue?: string; required?: boolean; placeholder?: string; disabled?: boolean }) {
-  return <label className="field"><span>{label}</span><input name={name} type={type} defaultValue={defaultValue} required={required} placeholder={placeholder} disabled={disabled} /></label>;
-}
-
-function Select({ label, name, options, defaultValue = "" }: { label: string; name: string; options: (readonly [string, string])[]; defaultValue?: string }) {
-  return <label className="field"><span>{label}</span><select name={name} defaultValue={defaultValue}>{options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>;
-}
-
-function Toggle({ name, label, defaultChecked }: { name: string; label: string; defaultChecked?: boolean }) {
-  return <label className="toggle-row"><input type="checkbox" name={name} defaultChecked={defaultChecked} /><span>{label}</span></label>;
-}
-
-function ModalActions({ onCancel, submit }: { onCancel?: () => void; submit: string }) {
-  return <div className="form-actions span-two">{onCancel && <button type="button" onClick={onCancel}>取消</button>}<button type="submit" className="primary">{submit}</button></div>;
-}
-
-function Segmented({ value, items, onChange }: { value: string; items: (readonly [string, string, string])[]; onChange: (value: string) => void }) {
-  const { locale } = useI18n();
-  return <div className="theme-switch">{items.map(([id, zh, en]) => <button key={id} type="button" className={clsx(value === id && "active")} onClick={() => onChange(id)}>{locale === "en" ? en : zh}</button>)}</div>;
-}
-
-function Toolbar({ query, setQuery, children }: { query: string; setQuery: (value: string) => void; children?: ReactNode }) {
-  return <div className="toolbar"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索..." />{children}<button type="button" onClick={() => setQuery("")}>清空筛选</button></div>;
-}
-
-function SimpleTable({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
-  return <div className="table-wrap"><table><thead><tr>{headers.map((item) => <th key={item}>{item}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div>;
-}
-
-function Empty({ title, body }: { title: string; body: string }) {
-  return <div className="empty-state"><div className="empty-orbit" /><strong>{title}</strong><span>{body}</span></div>;
-}
-
-function UserCell({ member }: { member: Pick<Member, "display_name" | "email" | "user_id" | "role"> }) {
-  return <span><strong>{member.display_name || member.email}</strong><small>{member.email}</small></span>;
-}
-
-function TagList({ target }: { target: Target }) {
-  return <span className="tag-row">{(target.tags || []).map((tag) => <Tag key={tag} tag={tag} color={tagColor(tag, target.tag_colors)} />)}</span>;
-}
-
-function Tag({ tag, color }: { tag: string; color: string }) {
-  return <span className={`tag-chip tag-color-${color}`} data-tag={tag}>{tag}</span>;
-}
-
-function CopyButton({ value }: { value: string }) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  return <button type="button" className="copy-anchor" data-value={value} onClick={async () => { await copyText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1300); }}>
-    <Copy />复制连接命令{copied && <span className="copy-tip">{t("copied")}</span>}
-  </button>;
-}
-
-function CommandBox({ label, value }: { label: string; value: string }) {
-  return <div className="command-box"><span>{label}</span><code>{value}</code><CopyButton value={value} /></div>;
-}
-
-function SelectButton({ label, items, onSelect }: { label: string; items: (readonly [string, string])[]; onSelect: (value: string) => void }) {
-  return <label className="field"><span>{label}</span><select defaultValue="" onChange={(event) => { if (event.target.value) onSelect(event.target.value); event.target.value = ""; }}><option value="">选择...</option>{items.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>;
-}
-
-function Loading() {
-  return <section className="loading-view"><div className="mark">g</div><p>Loading bastion console...</p></section>;
-}
-
-function Fatal({ error }: { error: unknown }) {
-  return <section className="auth-screen"><div className="auth-card"><div className="status error">{error instanceof Error ? error.message : String(error)}</div></div></section>;
-}
-
-function formSubmit(event: React.FormEvent<HTMLFormElement>, next: (data: Record<string, string>) => void) {
-  event.preventDefault();
-  next(formValues(event.currentTarget));
-}
-
-function formValues(form: HTMLFormElement) {
-  const data: Record<string, string> = {};
-  for (const [key, value] of new FormData(form).entries()) data[key] = String(value);
-  for (const element of Array.from(form.elements)) {
-    if (element instanceof HTMLInputElement && element.type === "checkbox") data[element.name] = element.checked ? "on" : "";
-  }
-  return data;
-}
-
-function policyPayload(body: Record<string, string>): Record<string, unknown> {
-  return {
-    name: body.name,
-    default_action: body.default_action || "deny",
-    llm_config_id: body.llm_config_id || "",
-    llm_prompt_id: body.llm_prompt_id || "",
-    ip_allowlist: body.ip_allowlist || "",
-    allow_interactive: body.allow_interactive === "on",
-    allow_port_forward: body.allow_port_forward === "on",
-    allow_upload: body.allow_upload === "on",
-    allow_download: body.allow_download === "on",
-  };
-}
-
-function sortMembers(members: Member[], query: string, sort: "role" | "name" | "newest") {
-  const filtered = members.filter((item) => [item.display_name, item.email, item.role].join(" ").toLowerCase().includes(query.toLowerCase()));
-  return [...filtered].sort((a, b) => {
-    if (sort === "newest") return String(b.created_at || "").localeCompare(String(a.created_at || ""));
-    if (sort === "name") return (a.display_name || a.email).localeCompare(b.display_name || b.email);
-    const weight = { owner: 0, admin: 1, member: 2 };
-    return weight[a.role] - weight[b.role];
-  });
-}
-
-function roleText(role?: string) {
-  if (role === "owner") return "所有者";
-  if (role === "admin") return "管理员";
-  return "成员";
-}
-
-function formatDate(value?: string) {
-  if (!value) return "";
-  try {
-    return new Intl.DateTimeFormat(dateLocale(document.documentElement.lang === "en" ? "en" : "zh-CN"), { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-  } catch {
-    return value;
-  }
-}
-
-function pageTitle() {
-  const path = location.pathname.replace(/^\/+/, "") || "dashboard";
-  const titles: Record<string, string> = {
-    dashboard: "控制台",
-    orgs: "组织",
-    "org-admin": "组织成员",
-    keys: "公钥",
-    targets: "SSH 服务",
-    policies: "命令安全组",
-    audit: "命令审计",
-    "system-admin": "系统管理",
-  };
-  return titles[path] || "控制台";
-}
-
-function localizeError(error: unknown, t: (key: string) => string) {
-  const message = error instanceof Error ? error.message : String(error);
-  if (message === "invalid credentials") return t("invalidCredentials");
-  return message;
 }
