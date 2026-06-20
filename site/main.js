@@ -5,6 +5,9 @@ const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)
 
 applyLocaleRouting();
 bindLanguageLinks();
+bindSmoothAnchors();
+activateReveal();
+playTerminalCast();
 
 let width = 0;
 let height = 0;
@@ -27,23 +30,24 @@ function resizeCanvas() {
 }
 
 function seedNodes() {
-  const count = Math.max(26, Math.min(68, Math.floor((width * height) / 22000)));
+  const count = Math.max(28, Math.min(74, Math.floor((width * height) / 21000)));
   nodes = Array.from({ length: count }, (_, index) => ({
     x: ((index * 137.5) % 360) / 360 * width,
-    y: (0.14 + (((index * 91.7) % 260) / 260) * 0.78) * height,
-    r: 1.2 + (index % 5) * 0.36,
-    vx: ((index % 7) - 3) * 0.018,
-    vy: ((index % 5) - 2) * 0.014,
-    hue: index % 4,
+    y: (0.12 + (((index * 91.7) % 280) / 280) * 0.78) * height,
+    r: 1.1 + (index % 5) * 0.38,
+    vx: ((index % 7) - 3) * 0.022,
+    vy: ((index % 5) - 2) * 0.015,
+    hue: index % 5,
   }));
 }
 
 function nodeColor(node, alpha = 1) {
   const palette = [
     `rgba(103, 232, 249, ${alpha})`,
-    `rgba(114, 242, 166, ${alpha})`,
+    `rgba(118, 242, 174, ${alpha})`,
     `rgba(255, 209, 102, ${alpha})`,
     `rgba(255, 107, 154, ${alpha})`,
+    `rgba(185, 164, 255, ${alpha})`,
   ];
   return palette[node.hue];
 }
@@ -51,39 +55,22 @@ function nodeColor(node, alpha = 1) {
 function drawScene() {
   if (!ctx) return;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#04070c";
-  ctx.fillRect(0, 0, width, height);
-
-  const centerX = width * 0.62;
-  const centerY = height * 0.43;
-  const radius = Math.min(width, height) * 0.32;
-
-  ctx.save();
-  ctx.globalAlpha = 0.34;
-  ctx.strokeStyle = "rgba(103, 232, 249, 0.28)";
-  ctx.lineWidth = 1;
-  for (let ring = 1; ring <= 4; ring += 1) {
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, (radius * ring) / 4, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  ctx.restore();
 
   nodes.forEach((node, index) => {
     node.x += node.vx;
     node.y += node.vy;
-    if (node.x < -20) node.x = width + 20;
-    if (node.x > width + 20) node.x = -20;
-    if (node.y < -20) node.y = height + 20;
-    if (node.y > height + 20) node.y = -20;
+    if (node.x < -30) node.x = width + 30;
+    if (node.x > width + 30) node.x = -30;
+    if (node.y < -30) node.y = height + 30;
+    if (node.y > height + 30) node.y = -30;
 
     for (let next = index + 1; next < nodes.length; next += 1) {
       const other = nodes[next];
       const dx = node.x - other.x;
       const dy = node.y - other.y;
       const distance = Math.hypot(dx, dy);
-      if (distance < 156) {
-        ctx.strokeStyle = `rgba(142, 164, 197, ${0.2 - distance / 900})`;
+      if (distance < 150) {
+        ctx.strokeStyle = `rgba(142, 164, 197, ${0.2 - distance / 880})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(node.x, node.y);
@@ -92,33 +79,14 @@ function drawScene() {
       }
     }
 
-    const pulse = 0.6 + Math.sin(tick * 0.018 + index) * 0.4;
-    ctx.fillStyle = nodeColor(node, 0.7 + pulse * 0.3);
+    const pulse = 0.62 + Math.sin(tick * 0.019 + index) * 0.38;
+    ctx.fillStyle = nodeColor(node, 0.58 + pulse * 0.32);
     ctx.beginPath();
-    ctx.arc(node.x, node.y, node.r + pulse * 0.8, 0, Math.PI * 2);
+    ctx.arc(node.x, node.y, node.r + pulse * 0.78, 0, Math.PI * 2);
     ctx.fill();
   });
 
-  const lanes = [
-    { y: height * 0.35, color: "rgba(103, 232, 249, 0.68)" },
-    { y: height * 0.48, color: "rgba(114, 242, 166, 0.58)" },
-    { y: height * 0.61, color: "rgba(255, 209, 102, 0.52)" },
-  ];
-  lanes.forEach((lane, index) => {
-    const start = width * 0.1;
-    const end = width * 0.9;
-    const pulse = ((tick * (1.4 + index * 0.2)) % 1000) / 1000;
-    const x = start + (end - start) * pulse;
-    ctx.strokeStyle = "rgba(142, 164, 197, 0.18)";
-    ctx.beginPath();
-    ctx.moveTo(start, lane.y);
-    ctx.lineTo(end, lane.y + Math.sin(index + tick * 0.01) * 18);
-    ctx.stroke();
-    ctx.fillStyle = lane.color;
-    ctx.beginPath();
-    ctx.arc(x, lane.y + Math.sin(index + tick * 0.01) * 18, 3.6, 0, Math.PI * 2);
-    ctx.fill();
-  });
+  drawTrafficLanes();
 
   if (!prefersReducedMotion) {
     tick += 1;
@@ -126,18 +94,81 @@ function drawScene() {
   }
 }
 
+function drawTrafficLanes() {
+  const lanes = [
+    { y: height * 0.22, color: "rgba(103, 232, 249, 0.72)", speed: 1.25 },
+    { y: height * 0.58, color: "rgba(118, 242, 174, 0.62)", speed: 1.06 },
+    { y: height * 0.76, color: "rgba(255, 209, 102, 0.52)", speed: 0.82 },
+  ];
+
+  lanes.forEach((lane, index) => {
+    const start = -60;
+    const end = width + 60;
+    const pulse = ((tick * lane.speed + index * 180) % 1000) / 1000;
+    const x = start + (end - start) * pulse;
+    const wave = Math.sin(index + tick * 0.012) * 20;
+    ctx.strokeStyle = "rgba(142, 164, 197, 0.16)";
+    ctx.beginPath();
+    ctx.moveTo(start, lane.y);
+    ctx.bezierCurveTo(width * 0.28, lane.y + wave, width * 0.68, lane.y - wave, end, lane.y);
+    ctx.stroke();
+    ctx.fillStyle = lane.color;
+    ctx.beginPath();
+    ctx.arc(x, lane.y + Math.sin(pulse * Math.PI) * wave, 3.6, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
 
-document.querySelectorAll('a[href^="#"]').forEach((link) => {
-  link.addEventListener("click", (event) => {
-    const id = link.getAttribute("href");
-    const target = id ? document.querySelector(id) : null;
-    if (!target) return;
-    event.preventDefault();
-    target.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
+function bindSmoothAnchors() {
+  document.querySelectorAll('a[href^="#"]').forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const id = link.getAttribute("href");
+      const target = id ? document.querySelector(id) : null;
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
+    });
   });
-});
+}
+
+function activateReveal() {
+  const items = Array.from(document.querySelectorAll(".reveal"));
+  if (!items.length) return;
+  if (prefersReducedMotion || !("IntersectionObserver" in window)) {
+    items.forEach((item) => item.classList.add("is-visible"));
+    return;
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add("is-visible");
+        observer.unobserve(entry.target);
+      });
+    },
+    { threshold: 0.18 }
+  );
+  items.forEach((item) => observer.observe(item));
+}
+
+function playTerminalCast() {
+  const terminals = Array.from(document.querySelectorAll("[data-terminal]"));
+  terminals.forEach((terminal) => {
+    const lines = Array.from(terminal.querySelectorAll("p"));
+    const reveal = () => {
+      lines.forEach((line) => line.classList.remove("is-visible"));
+      lines.forEach((line, index) => {
+        window.setTimeout(() => line.classList.add("is-visible"), prefersReducedMotion ? 0 : 420 * index);
+      });
+    };
+    reveal();
+    if (!prefersReducedMotion) window.setInterval(reveal, 7000);
+  });
+}
 
 function applyLocaleRouting() {
   const page = document.body?.dataset.page;

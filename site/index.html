@@ -5,25 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="GOSSHD Bastion is an AI-native SSH access plane for agents, tools, and operators that need audited access to private services."
+      content="GOSSHD Bastion is an AI-native SSH bastion for agents, tools, and operators that need policy-reviewed, audited access to private services."
     />
     <title>GOSSHD Bastion | AI Service Bastion</title>
     <link rel="alternate" hreflang="en" href="./index.html" />
     <link rel="alternate" hreflang="zh-CN" href="./index.zh-CN.html" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preload" as="image" href="./assets/hero-ai-bastion.png" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body data-page="home">
     <a class="skip-link" href="#main">Skip to content</a>
     <canvas class="space-canvas" id="spaceCanvas" aria-hidden="true"></canvas>
+
     <header class="site-header">
       <a class="brand" href="./index.html" aria-label="GOSSHD Bastion home">
         <span class="brand-mark">GB</span>
         <span>GOSSHD Bastion</span>
       </a>
       <nav class="site-nav" aria-label="Primary navigation">
-        <a href="#architecture">Architecture</a>
-        <a href="#security">Security</a>
+        <a href="#replay">Replay</a>
+        <a href="#llm-review">LLM review</a>
+        <a href="#console">Console</a>
         <a href="./docs.html">Docs</a>
         <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
         <span class="language-switch" role="group" aria-label="Language">
@@ -34,121 +37,158 @@
     </header>
 
     <main id="main">
-      <section class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Bastion for AI services</p>
-          <h1>GOSSHD Bastion</h1>
+      <section class="hero hero-marketing" aria-labelledby="hero-title">
+        <img class="hero-image" src="./assets/hero-ai-bastion.png" alt="" />
+        <div class="hero-shade" aria-hidden="true"></div>
+        <div class="hero-copy reveal">
+          <p class="eyebrow">AI service bastion</p>
+          <h1 id="hero-title">GOSSHD Bastion</h1>
           <p class="hero-lede">
-            A sci-fi quiet access plane where AI agents, operators, and automation reach SSH services through aliases,
-            policy checks, and complete command audit trails.
+            Give AI agents and operators SSH access that feels native, routes by alias, passes through command policy,
+            and leaves an audit trail you can replay.
           </p>
           <div class="hero-actions" aria-label="Primary actions">
-            <a class="button primary" href="./docs.html">Read the docs</a>
-            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.23-bastion">Download release</a>
+            <a class="button primary" href="./docs.html#quickstart">Start in minutes</a>
+            <a class="button secondary" href="#replay">Watch the flow</a>
           </div>
-          <dl class="signal-row" aria-label="Product highlights">
+        </div>
+        <div class="hero-telemetry" aria-label="Live access signals">
+          <span><i></i> SSH ingress online</span>
+          <span>LLM guard armed</span>
+          <span>replay recorder active</span>
+        </div>
+      </section>
+
+      <section class="proof-strip" aria-label="Product proof points">
+        <div class="proof-item reveal">
+          <strong>01</strong>
+          <span>Public key identifies the user</span>
+        </div>
+        <div class="proof-item reveal">
+          <strong>02</strong>
+          <span>SSH username resolves the target alias</span>
+        </div>
+        <div class="proof-item reveal">
+          <strong>03</strong>
+          <span>Policy and LLM review decide the command</span>
+        </div>
+        <div class="proof-item reveal">
+          <strong>04</strong>
+          <span>Exec and terminal sessions are sealed for audit</span>
+        </div>
+      </section>
+
+      <section class="story-section split-section" id="replay">
+        <div class="section-copy reveal">
+          <p class="eyebrow">Remote access, recorded</p>
+          <h2>Run SSH the old way. Review it the new way.</h2>
+          <p>
+            Operators and AI tasks keep the simple command they already know. GOSSHD Bastion maps the key to a user,
+            resolves the alias, applies safety groups, and stores terminal timing data for playback.
+          </p>
+          <dl class="mini-metrics">
             <div>
-              <dt>AI ready</dt>
-              <dd>LLM command review</dd>
+              <dt>Alias route</dt>
+              <dd><code>ssh inference-gpu@bastion</code></dd>
             </div>
             <div>
-              <dt>SSH native</dt>
-              <dd><code>ssh test2@host</code></dd>
-            </div>
-            <div>
-              <dt>Audited</dt>
-              <dd>Every exec decision</dd>
+              <dt>Recorder</dt>
+              <dd>timestamped terminal frames</dd>
             </div>
           </dl>
         </div>
-        <aside class="mission-panel" aria-label="Live access trace preview">
-          <div class="panel-status">
-            <span class="status-dot"></span>
-            <span>policy stream active</span>
+        <div class="xterm-stage reveal" aria-label="xterm.js style SSH replay demo">
+          <div class="window-bar">
+            <span></span><span></span><span></span>
+            <strong>xterm.js replay</strong>
           </div>
-          <div class="trace-list">
-            <span>public key mapped to user: ai-runner</span>
-            <span>alias resolved: inference-gpu</span>
-            <span>group policy: production-ai</span>
-            <span>LLM verdict: allow with watch</span>
-            <span>audit row sealed: exit 0</span>
+          <div class="terminal-cast" data-terminal>
+            <p><span>$</span> ssh -p 22022 inference-gpu@bastion.example.com</p>
+            <p><span>gosshd</span> public key accepted for mia@ops</p>
+            <p><span>route</span> alias inference-gpu -> private node / ai-rack-07</p>
+            <p><span>policy</span> readonly-production matched by user group</p>
+            <p><span>$</span> docker ps --format '{{.Names}} {{.Status}}' | head</p>
+            <p><span>llm</span> allow, read-only container inspection (1.4s)</p>
+            <p><span>rec</span> terminal frame 00:00:07.284 sealed</p>
           </div>
-        </aside>
+          <div class="replay-timeline" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
       </section>
 
-      <section class="product-band" id="architecture">
-        <div class="section-heading">
-          <p class="eyebrow">Control plane</p>
-          <h2>One gateway for human operators and autonomous AI work.</h2>
+      <section class="visual-section" id="llm-review">
+        <div class="section-heading reveal">
+          <p class="eyebrow">LLM command review</p>
+          <h2>A command reaches production only after policy has a verdict.</h2>
           <p>
-            GOSSHD Bastion keeps the SSH interface familiar while moving identity, target routing, command policy,
-            and audit into a SQLite-backed control plane.
+            Blacklists and whitelists make deterministic decisions first. Unmatched commands can be sent to an
+            OpenAI-compatible model with your prompt, timeout, and fail-closed behavior.
           </p>
         </div>
-        <div class="feature-grid">
-          <article class="feature-card">
-            <span class="card-code">01</span>
-            <h3>Public-key identity</h3>
-            <p>SSH keys identify platform users. The SSH username becomes the target alias, so access stays simple.</p>
-          </article>
-          <article class="feature-card">
-            <span class="card-code">02</span>
-            <h3>Private-node services</h3>
-            <p>Private hosts enroll through install scripts and become normal renameable SSH services.</p>
-          </article>
-          <article class="feature-card">
-            <span class="card-code">03</span>
-            <h3>Command security groups</h3>
-            <p>Bind whitelist, blacklist, or LLM-backed review policies to targets and organization user groups.</p>
-          </article>
-          <article class="feature-card">
-            <span class="card-code">04</span>
-            <h3>Audit for automation</h3>
-            <p>Every exec attempt records user, target, decision, reason, timing, exit code, and remote address.</p>
-          </article>
+        <div class="decision-grid">
+          <figure class="promo-frame reveal">
+            <img src="./assets/llm-review-panel.png" alt="A sci-fi interface showing terminal replay and LLM review panels" />
+          </figure>
+          <div class="decision-flow reveal" aria-label="Command review flow">
+            <article>
+              <span>Identity</span>
+              <strong>public key -> mia@ops</strong>
+            </article>
+            <article>
+              <span>Scope</span>
+              <strong>production-ai / readonly group</strong>
+            </article>
+            <article>
+              <span>Command</span>
+              <strong>docker ps | head</strong>
+            </article>
+            <article class="verdict allow">
+              <span>Verdict</span>
+              <strong>allow (1.4s)</strong>
+            </article>
+          </div>
         </div>
       </section>
 
-      <section class="diagram-band">
-        <div class="diagram-shell" aria-label="AI bastion request flow">
-          <div class="diagram-node source">AI task</div>
-          <div class="diagram-link"></div>
-          <div class="diagram-node core">GOSSHD Bastion</div>
-          <div class="diagram-link"></div>
-          <div class="diagram-node target">SSH service</div>
-        </div>
-        <div class="diagram-copy">
-          <p class="eyebrow">Alias route</p>
-          <h2><code>ssh inference-gpu@public-ip</code></h2>
+      <section class="story-section console-section" id="console">
+        <div class="section-copy reveal">
+          <p class="eyebrow">Control console</p>
+          <h2>The control plane is built into the server.</h2>
           <p>
-            The presented key finds the user. The alias finds a personal or organization target. A policy decides
-            whether the command runs directly, through a private node, or gets denied before it reaches production.
+            Manage organizations, user groups, public keys, targets, colored tags, private nodes, policy bindings,
+            LLM configs, audit search, and terminal replay from the embedded web UI.
           </p>
         </div>
+        <figure class="console-shot reveal">
+          <img src="./assets/console-dashboard.png" alt="GOSSHD Bastion web console dashboard" />
+        </figure>
       </section>
 
-      <section class="product-band security-band" id="security">
-        <div class="section-heading">
-          <p class="eyebrow">AI safety posture</p>
-          <h2>Designed for tools that can act faster than humans can review.</h2>
-        </div>
-        <div class="security-grid">
-          <article>
-            <h3>Default group model</h3>
-            <p>Every organization has an all-members group, and policies can target one or more groups.</p>
-          </article>
-          <article>
-            <h3>Fail-closed LLM review</h3>
-            <p>OpenAI-compatible review can decide unmatched commands. Invalid responses are denied.</p>
-          </article>
-          <article>
-            <h3>Startup private nodes</h3>
-            <p>Linux private nodes install with systemd. Windows private nodes install with sc.exe for boot-time availability.</p>
-          </article>
-        </div>
+      <section class="capability-grid" aria-label="Core capabilities">
+        <article class="feature-card reveal">
+          <span class="card-code">SSH</span>
+          <h3>Alias-native access</h3>
+          <p>Users connect with <code>ssh alias@public-ip</code>. The alias can point to a direct host or a private node.</p>
+        </article>
+        <article class="feature-card reveal">
+          <span class="card-code">NODE</span>
+          <h3>Private service enrollment</h3>
+          <p>Tokenized install commands register hosts behind NAT and can install startup services on Linux and Windows.</p>
+        </article>
+        <article class="feature-card reveal">
+          <span class="card-code">SAFE</span>
+          <h3>Command safety groups</h3>
+          <p>Bind rules by targets, tags, user groups, source IP ranges, and capability switches like terminal or upload.</p>
+        </article>
+        <article class="feature-card reveal">
+          <span class="card-code">MCP</span>
+          <h3>Automation control plane</h3>
+          <p>Expose registration, targets, tags, policies, prompts, LLM configs, and audit queries through MCP.</p>
+        </article>
       </section>
 
-      <section class="quickstart-band">
+      <section class="quickstart-band reveal">
         <div>
           <p class="eyebrow">First launch</p>
           <h2>Bring the bastion online.</h2>
@@ -166,6 +206,7 @@
     <footer class="site-footer">
       <span>GOSSHD Bastion</span>
       <a href="./docs.html">Documentation</a>
+      <a href="https://github.com/qinyongliang/gosshd-bastion/releases/latest">Releases</a>
       <a href="https://github.com/qinyongliang/gosshd-bastion">Source</a>
     </footer>
     <script src="./main.js"></script>

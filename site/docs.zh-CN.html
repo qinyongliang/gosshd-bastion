@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="GOSSHD Bastion 文档：为 AI 服务设计的 SSH 堡垒机，支持别名、私有节点注册、命令安全组、LLM 审核和审计日志。"
+      content="GOSSHD Bastion 文档：部署为 AI 服务的 SSH 堡垒机，注册私有节点，通过别名连接，使用 LLM 审核命令，并回放审计。"
     />
     <title>文档 | GOSSHD Bastion</title>
     <link rel="alternate" hreflang="en" href="./docs.html" />
@@ -16,6 +16,7 @@
   <body data-page="docs">
     <a class="skip-link" href="#main">跳到正文</a>
     <canvas class="space-canvas" id="spaceCanvas" aria-hidden="true"></canvas>
+
     <header class="site-header">
       <a class="brand" href="./index.zh-CN.html" aria-label="GOSSHD Bastion 首页">
         <span class="brand-mark">GB</span>
@@ -23,9 +24,10 @@
       </a>
       <nav class="site-nav" aria-label="主导航">
         <a href="./index.zh-CN.html">首页</a>
-        <a href="#quickstart">快速开始</a>
-        <a href="#agents">私有节点</a>
-        <a href="#policies">策略</a>
+        <a href="#quickstart">部署</a>
+        <a href="#private-node">私有节点</a>
+        <a href="#review">LLM 审核</a>
+        <a href="#replay">回放</a>
         <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
         <span class="language-switch" role="group" aria-label="语言">
           <a href="./docs.html" lang="en" data-locale="en">EN</a>
@@ -37,118 +39,126 @@
     <main class="docs-layout" id="main">
       <aside class="docs-sidebar" aria-label="文档章节">
         <a href="#overview">概览</a>
-        <a href="#quickstart">快速开始</a>
-        <a href="#identity">身份模型</a>
-        <a href="#targets">SSH 目标</a>
-        <a href="#agents">私有节点安装</a>
-        <a href="#policies">命令策略</a>
-        <a href="#llm">LLM 审核</a>
-        <a href="#audit">审计</a>
-        <a href="#release">发布包</a>
+        <a href="#quickstart">部署</a>
+        <a href="#connect">连接</a>
+        <a href="#private-node">私有节点</a>
+        <a href="#review">LLM 审核</a>
+        <a href="#replay">审计回放</a>
+        <a href="#mcp">MCP</a>
       </aside>
 
       <article class="docs-content">
-        <section class="docs-hero" id="overview">
-          <p class="eyebrow">文档</p>
-          <h1>让 AI 服务使用 SSH，但不给自动化一条无审计的盲 shell。</h1>
+        <section class="docs-hero reveal" id="overview">
+          <p class="eyebrow">落地指南</p>
+          <h1>在 AI 服务前放置一个可审核的 SSH 控制平面。</h1>
           <p>
-            GOSSHD Bastion 是一个带 SQLite 存储、内置控制台和 SSH 入口的 Go 服务。
-            它把用户、组织、公钥、直连服务、私有节点服务、命令安全组、LLM 审核和审计日志放入同一个可部署控制平面。
+            GOSSHD Bastion 以单个 Go 服务交付，包含 SQLite 数据库、内置 Web 控制台、SSH 网关、
+            私有节点注册、命令安全组、LLM 审核和终端回放元数据。
           </p>
+          <div class="doc-hero-actions">
+            <a class="button primary" href="#quickstart">部署服务</a>
+            <a class="button secondary" href="./index.zh-CN.html#llm-review">查看审核链路</a>
+          </div>
         </section>
 
-        <section class="doc-section" id="quickstart">
-          <h2>快速开始</h2>
-          <ol class="steps">
-            <li>从发布页下载 server 压缩包。</li>
-            <li>使用 HTTP、SSH、数据库和 host key 路径启动服务。</li>
-            <li>打开控制台，注册用户，并添加自己的 SSH 公钥。</li>
-            <li>添加直连 SSH 服务，或注册私有节点服务。</li>
-            <li>把目标别名作为 SSH 用户名执行 SSH 命令。</li>
-          </ol>
+        <section class="doc-section reveal" id="quickstart">
+          <span class="doc-step">01</span>
+          <h2>部署堡垒机</h2>
+          <p>
+            从 GitHub Releases 下载 server 包，配置持久化路径，并设置私有节点安装命令会使用的 public host。
+          </p>
           <pre><code>gosshd-server \
   --http-listen :18080 \
   --ssh-listen :22022 \
   --database-path ./data/gosshd.db \
+  --audit-database-path ./data/gosshd-audit.db \
   --host-key-path ./data/gosshd_host_key \
-  --public-host bastion.example.com:18080</code></pre>
-          <pre><code>ssh -p 22022 test2@bastion.example.com hostname</code></pre>
-        </section>
-
-        <section class="doc-section" id="identity">
-          <h2>身份模型</h2>
+  --agent-cache-path ./agent-cache \
+  --public-host bastion.example.com:18080 \
+  --bootstrap-admin-password 'change-me'</code></pre>
           <p>
-            用户通过邮箱和密码登录 Web 控制台，通过自己配置的 SSH 公钥登录 SSH 入口。SSH 登录时，
-            提交的公钥映射到平台用户，SSH 用户名映射到目标别名。
-          </p>
-          <p>
-            每个注册用户都会获得个人组织。共享组织可以邀请用户，并且每个组织都包含默认全员用户组，用于绑定策略。
+            打开 <code>http://bastion.example.com:18080/</code>，用 <code>admin</code> 登录，添加自己的公钥，
+            然后创建组织或使用个人组织。
           </p>
         </section>
 
-        <section class="doc-section" id="targets">
-          <h2>SSH 目标</h2>
+        <section class="doc-section reveal" id="connect">
+          <span class="doc-step">02</span>
+          <h2>通过 SSH 别名连接</h2>
           <div class="doc-grid">
             <article>
-              <h3>直连目标</h3>
-              <p>堡垒机使用账号密码或私钥认证，直接连接到指定主机和端口。</p>
+              <h3>直连 SSH 服务器</h3>
+              <p>添加主机、端口、远程用户名、认证方式、展示名称、别名和彩色标签。</p>
             </article>
             <article>
-              <h3>私有节点服务</h3>
-              <p>堡垒机通过已注册的私有节点打开 TCP 流，然后在这条流上完成 SSH 握手。</p>
+              <h3>私有节点</h3>
+              <p>创建注册令牌，完成安装后，它也可以像普通 SSH 服务一样重命名和打标签。</p>
             </article>
           </div>
+          <pre><code>ssh -p 22022 inference-gpu@bastion.example.com hostname</code></pre>
           <p>
-            通过私有节点注册上来的主机也是普通 SSH 目标。它们可以重命名、绑定策略，也可以像手动添加的目标一样在审计视图里过滤。
+            SSH 公钥会映射到平台用户。SSH 用户名会在当前个人或组织范围中解析为目标别名。
           </p>
         </section>
 
-        <section class="doc-section" id="agents">
-          <h2>私有节点安装</h2>
-          <p>在控制台的 SSH 服务页面进入私有节点标签页，创建注册令牌并复制引导命令。默认命令会在当前 shell 中运行私有节点。</p>
-          <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sh</code></pre>
-          <pre><code>irm http://bastion.example.com:18080/install/&lt;token&gt;.ps1 | iex</code></pre>
-          <p>需要开机启动时使用 install 模式。</p>
-          <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sudo sh -s -- install</code></pre>
-          <pre><code>$s='http://bastion.example.com:18080/install/&lt;token&gt;.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install</code></pre>
-          <p>Linux 安装脚本通过 systemd 和 <code>systemctl</code> 配置服务。Windows 安装脚本通过 <code>sc.exe</code> 配置服务。</p>
+        <section class="doc-section reveal" id="private-node">
+          <span class="doc-step">03</span>
+          <h2>安装私有节点</h2>
+          <p>控制台生成的安装引导会包含当前令牌和平台对应命令。</p>
+          <div class="code-pair">
+            <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sh</code></pre>
+            <pre><code>irm http://bastion.example.com:18080/install/&lt;token&gt;.ps1 | iex</code></pre>
+          </div>
+          <p>长期运行的节点使用开机启动模式。</p>
+          <div class="code-pair">
+            <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sudo sh -s -- install</code></pre>
+            <pre><code>$s='http://bastion.example.com:18080/install/&lt;token&gt;.ps1'
+irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install</code></pre>
+          </div>
+          <p>Linux 通过 systemd 安装。Windows 通过 <code>sc.exe</code> 安装。</p>
         </section>
 
-        <section class="doc-section" id="policies">
-          <h2>命令安全组</h2>
+        <section class="doc-section reveal" id="review">
+          <span class="doc-step">04</span>
+          <h2>执行前审核命令</h2>
           <p>
-            策略可以绑定到单个或多个 SSH 目标，也可以绑定到一个或多个组织用户组。没有用户组绑定的策略会应用到所有可访问目标的用户。
+            命令安全组可以绑定到一个或多个目标、目标标签、组织用户组和来源 IP 范围。它们也能控制交互式终端、
+            上传、下载和端口转发能力。
           </p>
           <ol class="steps">
-            <li>白名单规则允许 exact、prefix 或 contains 匹配。</li>
             <li>黑名单规则拒绝 exact、prefix 或 contains 匹配。</li>
-            <li>未命中的命令可以发送给 LLM 实时审核。</li>
-            <li>如果没有配置 LLM，则使用策略默认动作。</li>
+            <li>白名单规则允许 exact、prefix 或 contains 匹配。</li>
+            <li>未命中的命令可以交给 OpenAI 兼容模型审核。</li>
+            <li>LLM 通过时可以省略原因；拒绝时应返回原因。</li>
           </ol>
         </section>
 
-        <section class="doc-section" id="llm">
-          <h2>LLM 审核</h2>
+        <section class="doc-section reveal" id="replay">
+          <span class="doc-step">05</span>
+          <h2>回放审计会话</h2>
           <p>
-            LLM 配置使用 OpenAI 兼容的 chat completions 协议，包含 base URL、API key、模型、超时和提示词资源。
-            模型响应必须是带 <code>allow</code> 的 JSON；通过时可以省略 <code>reason</code>，拒绝时应包含简短原因。无效 JSON 和请求错误都会默认拒绝。
+            Exec、Shell、SFTP 和端口转发决策会写入审计数据库。交互式终端录制会以压缩回放文件存储并带时间戳，
+            所以 Web 控制台能还原发生过程，而不只是展示一条命令。
           </p>
+          <div class="replay-card" aria-label="审计回放示例">
+            <span>00:00:00.000</span>
+            <code>ssh inference-gpu@bastion</code>
+            <span>00:00:07.284</span>
+            <code>docker ps --format '{{.Names}} {{.Status}}'</code>
+            <span>00:00:08.704</span>
+            <code>llm allow (1.4s)</code>
+          </div>
         </section>
 
-        <section class="doc-section" id="audit">
-          <h2>审计日志</h2>
+        <section class="doc-section reveal" id="mcp">
+          <span class="doc-step">06</span>
+          <h2>通过 MCP 自动化</h2>
           <p>
-            每次执行请求都会记录用户、目标、组织、会话、命令、请求类型、决策、原因、退出码、耗时和远端地址。
-            审计表面向 AI 运维场景设计，方便在事后追踪命令来源和策略判断。
+            <code>/mcp</code> 端点暴露注册、组织、公钥、SSH 服务、目标标签、私有节点注册、LLM 配置、
+            提示词资源、命令安全组、策略绑定和审计查询。
           </p>
-        </section>
-
-        <section class="doc-section" id="release">
-          <h2>发布包</h2>
-          <p>
-            当前版本发布跨平台 server 压缩包和独立私有节点二进制。本版本暂不发布 full 包。
-          </p>
-          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.23-bastion">打开 v0.1.23-bastion</a>
+          <pre><code>http://bastion.example.com:18080/mcp</code></pre>
         </section>
       </article>
     </main>
@@ -156,6 +166,7 @@
     <footer class="site-footer">
       <span>GOSSHD Bastion 文档</span>
       <a href="./index.zh-CN.html">首页</a>
+      <a href="https://github.com/qinyongliang/gosshd-bastion/releases/latest">发布包</a>
       <a href="https://github.com/qinyongliang/gosshd-bastion/issues">Issues</a>
     </footer>
     <script src="./main.js"></script>
