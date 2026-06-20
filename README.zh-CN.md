@@ -4,8 +4,6 @@
 
 **GOSSHD Bastion 是面向 AI Agent / MCP / 自动化任务的 SSH 控制平面：** 为 AI 服务和自动化任务提供命令级 SSH 安全网关，让智能体可以进入服务器完成巡检、排障和自动化任务，同时让团队保留权限边界、风险拦截和审计回放。
 
-![GOSSHD Bastion 宣传图](site/assets/hero-ai-bastion.png)
-
 ## 为什么需要它
 
 AI 工具能比人更快地读取日志、检查容器、排查服务、串联命令。直接给它一把 SSH 私钥太危险；把每条命令都交给人工审批又太慢。
@@ -17,9 +15,15 @@ GOSSHD Bastion 解决的是一个很直接的问题：AI 需要 SSH 去完成真
 - **对管理者：** 每次远程操作都能搜索、解释和回放，出了问题有证据。
 - **对交付团队：** 内网机器、客户现场机器、GPU 节点都能快速接入统一入口。
 
-## 产品预览
+## SSH 访问模型
 
-![LLM 审核概念图](site/assets/llm-review-panel.png)
+GOSSHD 使用 SSH 的用户名字段承载目标服务别名：
+
+```sh
+ssh 服务商-地区-业务名称@gosshd.site "要执行的命令"
+```
+
+公钥用于识别操作者。目标别名会解析到个人或组织下的 SSH 服务。允许的命令会转发到真实主机；被拒绝的命令会返回标准 SSH 失败结果，例如 `exit status 126`，并写入审计。
 
 ## 核心能力
 
@@ -65,7 +69,7 @@ password: change-me
 5. 通过 SSH 控制平面连接：
 
 ```sh
-ssh -p 22022 inference-gpu@bastion.example.com hostname
+ssh -p 22022 aws-ap-sg-billing-db@bastion.example.com "hostname"
 ```
 
 ## 私有节点安装
@@ -118,7 +122,7 @@ LLM 响应使用 JSON：
 
 ## 官网和文档
 
-GitHub Pages 源码位于 [`site/`](site/)。里面包含宣传首页、文档页、生成的宣传视觉资源，以及官网里的 xterm 风格终端回放演示。
+GitHub Pages 源码位于 [`site/`](site/)。里面包含中英文宣传首页，以及官网里的动态终端和回放演示。
 
 ## 开发
 

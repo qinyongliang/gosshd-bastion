@@ -4,8 +4,6 @@
 
 **GOSSHD Bastion is an AI-native SSH access control plane:** a command-level SSH safety gateway for AI agents, MCP tools, and automation jobs. It lets agents enter servers for inspection, troubleshooting, and automation while your team keeps control of permissions, risky commands, and replayable evidence.
 
-![GOSSHD Bastion hero](site/assets/hero-ai-bastion.png)
-
 ## Why It Exists
 
 AI tools can inspect machines, read logs, diagnose services, and chain commands faster than a human can watch a terminal. Giving those tools a raw SSH key is too much trust; putting every command behind a human approval queue is too slow.
@@ -17,9 +15,15 @@ GOSSHD Bastion solves a simple product problem: AI needs SSH to get real work do
 - **For leaders:** every remote action can be searched, explained, and replayed when evidence matters.
 - **For delivery teams:** private machines, customer-side boxes, and GPU nodes can join one governed entry point.
 
-## Product Preview
+## SSH Access Model
 
-![LLM review concept](site/assets/llm-review-panel.png)
+GOSSHD uses the SSH username field as the target alias:
+
+```sh
+ssh provider-region-service@gosshd.site "command"
+```
+
+Your public key identifies the operator. The target alias resolves to a personal or organization SSH service. Allowed commands are forwarded to the real host; denied commands return a standard SSH failure such as `exit status 126` and are written to audit.
 
 ## Core Capabilities
 
@@ -65,7 +69,7 @@ Then:
 5. Connect through the SSH control plane:
 
 ```sh
-ssh -p 22022 inference-gpu@bastion.example.com hostname
+ssh -p 22022 aws-ap-sg-billing-db@bastion.example.com "hostname"
 ```
 
 ## Private Node Install
@@ -118,7 +122,7 @@ LLM responses use JSON:
 
 ## Documentation And Website
 
-The GitHub Pages source lives in [`site/`](site/). It includes the promotional homepage, docs page, generated visual assets, and the xterm-style replay demo used on the public website.
+The GitHub Pages source lives in [`site/`](site/). It includes the bilingual promotional homepage and animated terminal/replay demos used on the public website.
 
 ## Development
 

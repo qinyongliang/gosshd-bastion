@@ -1,349 +1,306 @@
-const localeStorageKey = "gosshd_locale";
-const canvas = document.querySelector("#spaceCanvas");
-const ctx = canvas?.getContext("2d");
-const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+/* GOSSHD Bastion — Interactions
+ * Handles reveal-on-scroll, terminal typing, LLM review scenario,
+ * replay playback, mobile nav, and ambient motion.
+ */
 
-applyLocaleRouting();
-bindLanguageLinks();
-bindSmoothAnchors();
-activateReveal();
-playTerminalReplays();
+(function () {
+  'use strict';
 
-let width = 0;
-let height = 0;
-let dpr = 1;
-let nodes = [];
-let tick = 0;
+  /* ---------- Utilities ---------- */
+  const $ = (sel, ctx = document) => ctx.querySelector(sel);
+  const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function resizeCanvas() {
-  if (!canvas || !ctx) return;
-  dpr = Math.min(window.devicePixelRatio || 1, 2);
-  width = window.innerWidth;
-  height = window.innerHeight;
-  canvas.width = Math.floor(width * dpr);
-  canvas.height = Math.floor(height * dpr);
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  seedNodes();
-  drawScene();
-}
-
-function seedNodes() {
-  const count = Math.max(28, Math.min(74, Math.floor((width * height) / 21000)));
-  nodes = Array.from({ length: count }, (_, index) => ({
-    x: ((index * 137.5) % 360) / 360 * width,
-    y: (0.12 + (((index * 91.7) % 280) / 280) * 0.78) * height,
-    r: 1.1 + (index % 5) * 0.38,
-    vx: ((index % 7) - 3) * 0.022,
-    vy: ((index % 5) - 2) * 0.015,
-    hue: index % 5,
-  }));
-}
-
-function nodeColor(node, alpha = 1) {
-  const palette = [
-    `rgba(103, 232, 249, ${alpha})`,
-    `rgba(118, 242, 174, ${alpha})`,
-    `rgba(255, 209, 102, ${alpha})`,
-    `rgba(255, 107, 154, ${alpha})`,
-    `rgba(185, 164, 255, ${alpha})`,
-  ];
-  return palette[node.hue];
-}
-
-function drawScene() {
-  if (!ctx) return;
-  ctx.clearRect(0, 0, width, height);
-
-  nodes.forEach((node, index) => {
-    node.x += node.vx;
-    node.y += node.vy;
-    if (node.x < -30) node.x = width + 30;
-    if (node.x > width + 30) node.x = -30;
-    if (node.y < -30) node.y = height + 30;
-    if (node.y > height + 30) node.y = -30;
-
-    for (let next = index + 1; next < nodes.length; next += 1) {
-      const other = nodes[next];
-      const dx = node.x - other.x;
-      const dy = node.y - other.y;
-      const distance = Math.hypot(dx, dy);
-      if (distance < 150) {
-        ctx.strokeStyle = `rgba(142, 164, 197, ${0.2 - distance / 880})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(node.x, node.y);
-        ctx.lineTo(other.x, other.y);
-        ctx.stroke();
-      }
-    }
-
-    const pulse = 0.62 + Math.sin(tick * 0.019 + index) * 0.38;
-    ctx.fillStyle = nodeColor(node, 0.58 + pulse * 0.32);
-    ctx.beginPath();
-    ctx.arc(node.x, node.y, node.r + pulse * 0.78, 0, Math.PI * 2);
-    ctx.fill();
-  });
-
-  drawTrafficLanes();
-
-  if (!prefersReducedMotion) {
-    tick += 1;
-    window.requestAnimationFrame(drawScene);
+  /* ---------- Nav scroll state ---------- */
+  const nav = $('.nav');
+  function updateNav() {
+    if (!nav) return;
+    nav.classList.toggle('scrolled', window.scrollY > 20);
   }
-}
+  window.addEventListener('scroll', updateNav, { passive: true });
+  updateNav();
 
-function drawTrafficLanes() {
-  const lanes = [
-    { y: height * 0.22, color: "rgba(103, 232, 249, 0.72)", speed: 1.25 },
-    { y: height * 0.58, color: "rgba(118, 242, 174, 0.62)", speed: 1.06 },
-    { y: height * 0.76, color: "rgba(255, 209, 102, 0.52)", speed: 0.82 },
-  ];
-
-  lanes.forEach((lane, index) => {
-    const start = -60;
-    const end = width + 60;
-    const pulse = ((tick * lane.speed + index * 180) % 1000) / 1000;
-    const x = start + (end - start) * pulse;
-    const wave = Math.sin(index + tick * 0.012) * 20;
-    ctx.strokeStyle = "rgba(142, 164, 197, 0.16)";
-    ctx.beginPath();
-    ctx.moveTo(start, lane.y);
-    ctx.bezierCurveTo(width * 0.28, lane.y + wave, width * 0.68, lane.y - wave, end, lane.y);
-    ctx.stroke();
-    ctx.fillStyle = lane.color;
-    ctx.beginPath();
-    ctx.arc(x, lane.y + Math.sin(pulse * Math.PI) * wave, 3.6, 0, Math.PI * 2);
-    ctx.fill();
-  });
-}
-
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
-
-function bindSmoothAnchors() {
-  document.querySelectorAll('a[href^="#"]').forEach((link) => {
-    link.addEventListener("click", (event) => {
-      const id = link.getAttribute("href");
-      const target = id ? document.querySelector(id) : null;
-      if (!target) return;
-      event.preventDefault();
-      target.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
+  /* ---------- Mobile menu ---------- */
+  const mobileBtn = $('.mobile-menu-btn');
+  const mobileLinks = $('.mobile-links');
+  if (mobileBtn && mobileLinks) {
+    mobileBtn.addEventListener('click', () => {
+      const open = mobileLinks.style.display === 'flex';
+      mobileLinks.style.display = open ? 'none' : 'flex';
     });
-  });
-}
-
-function activateReveal() {
-  const items = Array.from(document.querySelectorAll(".reveal"));
-  if (!items.length) return;
-  if (prefersReducedMotion || !("IntersectionObserver" in window)) {
-    items.forEach((item) => item.classList.add("is-visible"));
-    return;
+    mobileLinks.querySelectorAll('a').forEach((a) =>
+      a.addEventListener('click', () => (mobileLinks.style.display = 'none'))
+    );
   }
 
-  const observer = new IntersectionObserver(
+  /* ---------- Reveal on scroll ---------- */
+  const revealObserver = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        entry.target.classList.add("is-visible");
-        observer.unobserve(entry.target);
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in-view');
+          revealObserver.unobserve(entry.target);
+        }
       });
     },
-    { threshold: 0.18 }
+    { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
   );
-  items.forEach((item) => observer.observe(item));
-}
+  $$('.reveal').forEach((el) => revealObserver.observe(el));
 
-function playTerminalReplays() {
-  const terminals = Array.from(document.querySelectorAll("[data-terminal-replay]"));
-  terminals.forEach((terminal) => {
-    const player = createTerminalReplay(terminal);
-    if (prefersReducedMotion || !("IntersectionObserver" in window)) {
-      player.renderFinalState();
-      return;
+  /* ---------- Typewriter terminal ---------- */
+  class Typewriter {
+    constructor(el, lines, options = {}) {
+      this.el = el;
+      this.lines = lines;
+      this.options = options;
+      this.speed = options.speed || 22;
+      this.delay = options.delay || 600;
+      this.loop = options.loop !== false;
+      this.running = false;
+      this.body = el.querySelector('.terminal-body') || el;
+      this.cursor = document.createElement('span');
+      this.cursor.className = 'term-cursor';
     }
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting) return;
-        player.start();
-        observer.disconnect();
-      },
-      { threshold: 0.32 }
-    );
-    observer.observe(terminal);
-  });
-}
-
-function createTerminalReplay(root) {
-  const prompt = "mia@bastion:~$";
-  const events = [
-    { at: "00:00.000", type: "type", prompt, text: "ssh -p 22022 inference-gpu@bastion.example.com", speed: 28 },
-    { at: "00:00.924", type: "output", label: "gosshd", text: "public key accepted for mia@ops" },
-    { at: "00:01.188", type: "output", label: "route", text: "alias inference-gpu -> private node / ai-rack-07" },
-    { at: "00:01.612", type: "output", label: "policy", text: "readonly-production matched by user group" },
-    { at: "00:02.304", type: "type", prompt, text: "docker ps --format '{{.Names}} {{.Status}}' | head", speed: 34 },
-    { at: "00:03.741", type: "output", label: "llm", text: "allow, read-only container inspection (1.4s)" },
-    { at: "00:04.118", type: "output", label: "docker", text: "redis-vector     Up 18 hours" },
-    { at: "00:04.286", type: "output", label: "docker", text: "model-gateway    Up 18 hours (healthy)" },
-    { at: "00:04.554", type: "output", label: "audit", text: "session sealed, replay frames compressed" },
-  ];
-  const timeline = root.closest(".xterm-stage")?.querySelectorAll(".replay-timeline i") || [];
-  const timers = [];
-  let running = false;
-
-  function clearTimers() {
-    while (timers.length) window.clearTimeout(timers.pop());
-  }
-
-  function reset() {
-    clearTimers();
-    root.replaceChildren();
-    timeline.forEach((item) => {
-      item.classList.remove("is-done", "is-active");
-      item.style.removeProperty("--terminal-progress-delay");
-    });
-  }
-
-  function appendLine(event, options = {}) {
-    const line = document.createElement("div");
-    line.className = `terminal-line ${event.type === "type" ? "is-command" : "is-output"}`;
-    const time = document.createElement("span");
-    time.className = "terminal-time";
-    time.textContent = event.at;
-    const label = document.createElement("span");
-    label.className = "terminal-label";
-    label.textContent = event.type === "type" ? event.prompt : event.label;
-    const text = document.createElement("span");
-    text.className = "terminal-text";
-    const cursor = document.createElement("span");
-    cursor.className = "terminal-cursor";
-    line.append(time, label, text);
-    if (options.cursor) line.append(cursor);
-    root.append(line);
-    window.requestAnimationFrame(() => line.classList.add("is-visible"));
-    root.scrollTop = root.scrollHeight;
-    return { line, text, cursor };
-  }
-
-  function typeText(target, text, speed, done) {
-    let index = 0;
-    const writeNext = () => {
-      target.textContent = text.slice(0, index);
-      index += 1;
-      if (index <= text.length) {
-        timers.push(window.setTimeout(writeNext, speed));
-        return;
+    async start() {
+      if (this.running) return;
+      this.running = true;
+      while (this.running) {
+        this.body.innerHTML = '';
+        if (typeof this.options.onReset === 'function') {
+          this.options.onReset();
+        }
+        for (const line of this.lines) {
+          if (!this.running) return;
+          await this.typeLine(line);
+          await sleep(this.delay * 0.6);
+        }
+        await sleep(this.delay * 3);
+        if (!this.loop) break;
       }
-      done?.();
+    }
+
+    async typeLine(line) {
+      const div = document.createElement('span');
+      div.className = 'terminal-line';
+      if (line.className) div.className += ' ' + line.className;
+      this.body.appendChild(div);
+      const text = line.text || line;
+      let i = 0;
+      div.appendChild(this.cursor);
+      while (i < text.length) {
+        if (!this.running) return;
+        const chunk = text.slice(0, i + 1);
+        div.innerHTML = chunk;
+        div.appendChild(this.cursor);
+        i++;
+        const isLong = text.length > 80;
+        await sleep(isLong ? this.speed * 0.35 : this.speed);
+      }
+      div.innerHTML = text;
+      if (typeof this.options.onLine === 'function') {
+        this.options.onLine(line, div);
+      }
+    }
+
+    stop() { this.running = false; }
+  }
+
+  /* ---------- Hero terminal ---------- */
+  const heroTerminal = $('#hero-terminal');
+  if (heroTerminal) {
+    const heroRouteSteps = $$('#hero-route .route-step');
+    const showRoute = (idx) => {
+      heroRouteSteps.forEach((step, stepIdx) => {
+        step.classList.toggle('active', stepIdx === idx);
+      });
     };
-    writeNext();
-  }
-
-  function markTimeline(index, state) {
-    const segment = timeline[Math.min(index, timeline.length - 1)];
-    if (!segment) return;
-    segment.classList.toggle("is-active", state === "active");
-    segment.classList.toggle("is-done", state === "done");
-  }
-
-  function renderFinalState() {
-    reset();
-    events.forEach((event, index) => {
-      const { text } = appendLine(event);
-      text.textContent = event.text;
-      markTimeline(index, "done");
+    const heroLines = [
+      { text: '$ ssh aws-ap-sg-billing-db@gosshd.site "psql -c \'select now();\'"', className: '', route: 1 },
+      { text: '              now', className: 'term-dim', route: 2 },
+      { text: '-------------------------------', className: 'term-dim', route: 2 },
+      { text: '2026-06-20 09:14:02.104+00', className: 'term-ok', route: 2 },
+      { text: 'exit status 0', className: 'term-ok', route: 2 },
+      { text: '$ ssh aws-ap-sg-billing-db@gosshd.site "sudo rm -rf /data"', className: 'term-warn', route: 1 },
+      { text: 'command denied: high-risk command blocked by policy', className: 'term-danger', route: 3 },
+      { text: 'exit status 126', className: 'term-danger', route: 3 },
+    ];
+    const tw = new Typewriter(heroTerminal, heroLines, {
+      speed: 28,
+      delay: 900,
+      onReset: () => showRoute(0),
+      onLine: (line) => {
+        if (typeof line.route === 'number') showRoute(line.route);
+      },
     });
+    tw.start();
   }
 
-  function start() {
-    if (running) return;
-    running = true;
-    runOnce();
-  }
+  /* ---------- Review scenario ---------- */
+  const reviewTerminal = $('#review-terminal');
+  const judgmentCards = $$('.judgment-card');
+  if (reviewTerminal && judgmentCards.length) {
+    const scenarioLines = [
+      { text: '$ ssh aws-ap-sg-billing-db@gosshd.site "psql -c \'REINDEX DATABASE production;\'"', className: '' },
+      { text: 'REINDEX', className: 'term-dim' },
+      { text: 'exit status 0', className: 'term-ok' },
+      { text: '$ ssh aws-ap-sg-billing-db@gosshd.site "psql -c \'DROP TABLE customers;\'"', className: 'term-warn' },
+      { text: 'command denied: destructive schema change requires approval', className: 'term-danger' },
+      { text: 'exit status 126', className: 'term-danger' },
+    ];
+    const reviewTw = new Typewriter(reviewTerminal, scenarioLines, { speed: 26, delay: 700, loop: false });
 
-  function runOnce() {
-    reset();
-    let delay = 240;
-    events.forEach((event, index) => {
-      timers.push(
-        window.setTimeout(() => {
-          markTimeline(index, "active");
-          if (event.type === "type") {
-            const { text, cursor } = appendLine(event, { cursor: true });
-            typeText(text, event.text, event.speed, () => {
-              cursor.remove();
-              markTimeline(index, "done");
-            });
-            return;
+    // Map scenario progress to judgment cards
+    const triggerIndex = [1, 3, 4];
+    const originalTypeLine = reviewTw.typeLine.bind(reviewTw);
+    let lineIndex = 0;
+    reviewTw.typeLine = async function (line) {
+      await originalTypeLine(line);
+      const idx = triggerIndex.indexOf(lineIndex);
+      if (idx !== -1) {
+        judgmentCards.forEach((c, i) => c.classList.toggle('active', i === idx));
+      }
+      lineIndex++;
+    };
+
+    const reviewObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            reviewTw.start();
+            reviewObserver.unobserve(entry.target);
           }
-          const { line, text } = appendLine(event);
-          text.textContent = event.text;
-          markTimeline(index, "done");
-        }, delay)
-      );
-      delay += event.type === "type" ? event.text.length * event.speed + 420 : 520;
-    });
-    timers.push(window.setTimeout(runOnce, delay + 2200));
+        });
+      },
+      { threshold: 0.35 }
+    );
+    reviewObserver.observe(reviewTerminal);
   }
 
-  return { renderFinalState, start };
-}
+  /* ---------- Replay terminal ---------- */
+  const replayTerminal = $('#replay-terminal');
+  const replayProgress = $('.replay-progress-bar');
+  const replayTime = $('.replay-time');
+  const replayPlay = $('.replay-play');
+  const replayPause = $('.replay-pause');
 
-function applyLocaleRouting() {
-  const page = document.body?.dataset.page;
-  if (!page || !["home", "docs"].includes(page)) return;
-  const desired = storedLocale() || browserLocale();
-  const current = document.documentElement.lang === "zh-CN" ? "zh-CN" : "en";
-  if (desired === current) return;
-  const target = localizedPath(page, desired);
-  if (!target) return;
-  window.location.replace(`${target}${window.location.hash || ""}`);
-}
+  if (replayTerminal) {
+    const sessionEvents = [
+      { t: 0, text: '$ ssh aliyun-hz-order-api@gosshd.site "kubectl get pods -n production"', className: '' },
+      { t: 900, text: 'NAME                        READY   STATUS', className: 'term-dim' },
+      { t: 1300, text: 'order-api-7d9f4b8c5-x2v9q   1/1     Running', className: 'term-dim' },
+      { t: 2000, text: 'exit status 0', className: 'term-ok' },
+      { t: 2800, text: '$ ssh aliyun-hz-order-api@gosshd.site "kubectl logs order-api-7d9f4b8c5-x2v9q -n production --tail=2"', className: 'term-cmd' },
+      { t: 4300, text: '2026/06/20 09:18:02 request_id=cf19 path=/health', className: 'term-dim' },
+      { t: 5400, text: '2026/06/20 09:18:05 request_id=cf20 status=200', className: 'term-dim' },
+      { t: 6500, text: 'exit status 0', className: 'term-ok' },
+      { t: 7400, text: '$ ssh aliyun-hz-order-api@gosshd.site "kubectl delete ns production"', className: 'term-warn' },
+      { t: 8500, text: 'command denied: destructive Kubernetes operation blocked', className: 'term-danger' },
+      { t: 9000, text: 'exit status 126', className: 'term-danger' },
+    ];
 
-function bindLanguageLinks() {
-  document.querySelectorAll("[data-locale]").forEach((link) => {
-    link.addEventListener("click", () => {
-      const locale = normalizeLocale(link.getAttribute("data-locale"));
-      if (locale) writeLocale(locale);
-      const href = link.getAttribute("href") || "";
-      if (window.location.hash && !href.includes("#")) {
-        link.setAttribute("href", `${href}${window.location.hash}`);
+    const body = replayTerminal.querySelector('.terminal-body') || replayTerminal;
+    const duration = sessionEvents[sessionEvents.length - 1].t + 1600;
+    let replayReq;
+    let startAt = 0;
+    let started = false;
+    let paused = true;
+
+    function resetReplay() {
+      body.innerHTML = '';
+      startAt = performance.now();
+      sessionEvents.forEach((ev) => (ev.fired = false));
+      if (replayProgress) replayProgress.style.width = '0%';
+      if (replayTime) replayTime.textContent = formatTime(0) + ' / ' + formatTime(duration);
+    }
+
+    function formatTime(ms) {
+      const s = Math.max(0, Math.floor(ms / 1000));
+      const m = Math.floor(s / 60);
+      const rs = s % 60;
+      return `${String(m).padStart(2, '0')}:${String(rs).padStart(2, '0')}`;
+    }
+
+    function renderEvent(ev) {
+      const line = document.createElement('span');
+      line.className = 'terminal-line';
+      if (ev.className) line.className += ' ' + ev.className;
+      line.textContent = ev.text;
+      body.appendChild(line);
+      body.scrollTop = body.scrollHeight;
+    }
+
+    function frame(now) {
+      const elapsed = now - startAt;
+      if (replayProgress) replayProgress.style.width = Math.min(100, (elapsed / duration) * 100) + '%';
+      if (replayTime) replayTime.textContent = `${formatTime(elapsed)} / ${formatTime(duration)}`;
+
+      sessionEvents.forEach((ev) => {
+        if (!ev.fired && elapsed >= ev.t) {
+          ev.fired = true;
+          renderEvent(ev);
+        }
+      });
+
+      if (elapsed < duration && !paused) {
+        replayReq = requestAnimationFrame(frame);
+      } else if (elapsed >= duration) {
+        paused = true;
+        updatePlayIcons();
+      }
+    }
+
+    function updatePlayIcons() {
+      if (replayPlay && replayPause) {
+        replayPlay.style.display = paused ? 'grid' : 'none';
+        replayPause.style.display = paused ? 'none' : 'grid';
+      }
+    }
+
+    function play() {
+      if (!started) resetReplay();
+      started = true;
+      paused = false;
+      // Adjust startAt to account for pause offset
+      startAt = performance.now() - (parseFloat(replayProgress?.style.width || 0) / 100) * duration;
+      replayReq = requestAnimationFrame(frame);
+      updatePlayIcons();
+    }
+
+    function pause() {
+      paused = true;
+      cancelAnimationFrame(replayReq);
+      updatePlayIcons();
+    }
+
+    if (replayPlay) replayPlay.addEventListener('click', play);
+    if (replayPause) replayPause.addEventListener('click', pause);
+
+    // Auto-start replay when in view
+    resetReplay();
+    const replayObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && paused && !started) {
+            play();
+          }
+        });
+      },
+      { threshold: 0.45 }
+    );
+    replayObserver.observe(replayTerminal);
+  }
+
+  /* ---------- Smooth anchor offset for fixed nav ---------- */
+  document.querySelectorAll('a[href^="#"]').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      const id = a.getAttribute('href').slice(1);
+      const target = document.getElementById(id);
+      if (target) {
+        e.preventDefault();
+        const top = target.getBoundingClientRect().top + window.scrollY - 80;
+        window.scrollTo({ top, behavior: 'smooth' });
       }
     });
   });
-}
-
-function localizedPath(page, locale) {
-  if (page === "docs") return locale === "zh-CN" ? "./docs.zh-CN.html" : "./docs.html";
-  return locale === "zh-CN" ? "./index.zh-CN.html" : "./index.html";
-}
-
-function browserLocale() {
-  const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
-  return languages.some((language) => normalizeLocale(language) === "zh-CN") ? "zh-CN" : "en";
-}
-
-function storedLocale() {
-  try {
-    return normalizeLocale(window.localStorage.getItem(localeStorageKey));
-  } catch {
-    return "";
-  }
-}
-
-function writeLocale(locale) {
-  try {
-    window.localStorage.setItem(localeStorageKey, locale);
-  } catch {
-    // Language navigation still works when storage is unavailable.
-  }
-}
-
-function normalizeLocale(value) {
-  const text = String(value || "").trim().toLowerCase();
-  if (text === "zh-cn" || text.startsWith("zh")) return "zh-CN";
-  if (text === "en" || text.startsWith("en-")) return "en";
-  return "";
-}
+})();
