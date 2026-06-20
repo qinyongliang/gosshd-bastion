@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Documentation for GOSSHD Bastion, an AI service bastion with SSH aliases, private-node enrollment, policies, LLM review, and audit logs."
+      content="GOSSHD Bastion docs: deploy an AI service bastion, enroll private nodes, connect by SSH alias, review commands with LLMs, and replay audits."
     />
-    <title>Documentation | GOSSHD Bastion</title>
+    <title>Docs | GOSSHD Bastion</title>
     <link rel="alternate" hreflang="en" href="./docs.html" />
     <link rel="alternate" hreflang="zh-CN" href="./docs.zh-CN.html" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
@@ -16,6 +16,7 @@
   <body data-page="docs">
     <a class="skip-link" href="#main">Skip to content</a>
     <canvas class="space-canvas" id="spaceCanvas" aria-hidden="true"></canvas>
+
     <header class="site-header">
       <a class="brand" href="./index.html" aria-label="GOSSHD Bastion home">
         <span class="brand-mark">GB</span>
@@ -24,8 +25,9 @@
       <nav class="site-nav" aria-label="Primary navigation">
         <a href="./index.html">Home</a>
         <a href="#quickstart">Quickstart</a>
-        <a href="#agents">Private nodes</a>
-        <a href="#policies">Policies</a>
+        <a href="#private-node">Private nodes</a>
+        <a href="#review">LLM review</a>
+        <a href="#replay">Replay</a>
         <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
         <span class="language-switch" role="group" aria-label="Language">
           <a class="is-active" href="./docs.html" lang="en" data-locale="en" aria-current="page">EN</a>
@@ -37,126 +39,129 @@
     <main class="docs-layout" id="main">
       <aside class="docs-sidebar" aria-label="Documentation sections">
         <a href="#overview">Overview</a>
-        <a href="#quickstart">Quickstart</a>
-        <a href="#identity">Identity</a>
-        <a href="#targets">SSH targets</a>
-        <a href="#agents">Private-node install</a>
-        <a href="#policies">Command policies</a>
-        <a href="#llm">LLM review</a>
-        <a href="#audit">Audit</a>
-        <a href="#release">Release packages</a>
+        <a href="#quickstart">Deploy</a>
+        <a href="#connect">Connect</a>
+        <a href="#private-node">Private nodes</a>
+        <a href="#review">LLM review</a>
+        <a href="#replay">Audit replay</a>
+        <a href="#mcp">MCP</a>
       </aside>
 
       <article class="docs-content">
-        <section class="docs-hero" id="overview">
-          <p class="eyebrow">Documentation</p>
-          <h1>Operate SSH access for AI services without giving automation a blind shell.</h1>
+        <section class="docs-hero reveal" id="overview">
+          <p class="eyebrow">Field guide</p>
+          <h1>Put an audited SSH control plane in front of AI services.</h1>
           <p>
-            GOSSHD Bastion is a single Go server with SQLite storage, an embedded console, and an SSH endpoint.
-            It turns users, organizations, public keys, direct services, private-node services, command safety groups,
-            LLM review, and audit logs into one deployable control plane.
+            GOSSHD Bastion ships as one Go server with SQLite databases, an embedded web console, an SSH gateway,
+            private-node enrollment, command safety groups, LLM review, and terminal replay metadata.
           </p>
+          <div class="doc-hero-actions">
+            <a class="button primary" href="#quickstart">Deploy the server</a>
+            <a class="button secondary" href="./index.html#llm-review">See the review flow</a>
+          </div>
         </section>
 
-        <section class="doc-section" id="quickstart">
-          <h2>Quickstart</h2>
-          <ol class="steps">
-            <li>Download a server archive from the release page.</li>
-            <li>Start the server with HTTP, SSH, database, and host-key paths.</li>
-            <li>Open the console, register a user, and add your SSH public key.</li>
-            <li>Add a direct SSH service or enroll a private-node service.</li>
-            <li>Run SSH commands with the target alias as the SSH username.</li>
-          </ol>
+        <section class="doc-section reveal" id="quickstart">
+          <span class="doc-step">01</span>
+          <h2>Deploy the bastion</h2>
+          <p>
+            Download the server package from GitHub Releases, give it persistent paths, and set the public host used
+            by private-node install commands.
+          </p>
           <pre><code>gosshd-server \
   --http-listen :18080 \
   --ssh-listen :22022 \
   --database-path ./data/gosshd.db \
+  --audit-database-path ./data/gosshd-audit.db \
   --host-key-path ./data/gosshd_host_key \
-  --public-host bastion.example.com:18080</code></pre>
-          <pre><code>ssh -p 22022 test2@bastion.example.com hostname</code></pre>
-        </section>
-
-        <section class="doc-section" id="identity">
-          <h2>Identity model</h2>
+  --agent-cache-path ./agent-cache \
+  --public-host bastion.example.com:18080 \
+  --bootstrap-admin-password 'change-me'</code></pre>
           <p>
-            Users authenticate to the web console with email and password. Users authenticate to SSH with their
-            configured public keys. During SSH login, the presented public key maps to a platform user, and the SSH
-            username maps to a target alias.
-          </p>
-          <p>
-            Every registered user receives a personal organization. Shared organizations can invite users, and every
-            organization includes a default all-members group for policy binding.
+            Open <code>http://bastion.example.com:18080/</code>, sign in as <code>admin</code>, add your public key,
+            and create an organization or use your personal organization.
           </p>
         </section>
 
-        <section class="doc-section" id="targets">
-          <h2>SSH targets</h2>
+        <section class="doc-section reveal" id="connect">
+          <span class="doc-step">02</span>
+          <h2>Connect by SSH alias</h2>
           <div class="doc-grid">
             <article>
-              <h3>Direct target</h3>
-              <p>The bastion connects directly to a host and port using password or private-key authentication.</p>
+              <h3>Direct SSH server</h3>
+              <p>Add a host, port, remote username, auth method, display name, alias, and colored tags.</p>
             </article>
             <article>
-              <h3>Private-node service</h3>
-              <p>The bastion opens a TCP stream through an enrolled private node, then performs the SSH handshake over it.</p>
+              <h3>Private node</h3>
+              <p>Create an enrollment token, install the node, then rename and tag it like any other SSH service.</p>
             </article>
           </div>
+          <pre><code>ssh -p 22022 inference-gpu@bastion.example.com hostname</code></pre>
           <p>
-            Private-node hosts are normal SSH targets. They can be renamed, bound to policies, and filtered in audit
-            views just like manually added targets.
+            The presented SSH public key maps to a platform user. The SSH username maps to a target alias in the
+            current personal or organization scope.
           </p>
         </section>
 
-        <section class="doc-section" id="agents">
-          <h2>Private-node install</h2>
-          <p>Create an enrollment in the SSH services page. The default command runs the private node in the current shell.</p>
-          <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sh</code></pre>
-          <pre><code>irm http://bastion.example.com:18080/install/&lt;token&gt;.ps1 | iex</code></pre>
-          <p>Use install mode when the agent should survive restarts.</p>
-          <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sudo sh -s -- install</code></pre>
-          <pre><code>$s='http://bastion.example.com:18080/install/&lt;token&gt;.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install</code></pre>
-          <p>Linux uses systemd through <code>systemctl</code>. Windows uses <code>sc.exe</code>.</p>
+        <section class="doc-section reveal" id="private-node">
+          <span class="doc-step">03</span>
+          <h2>Install private nodes</h2>
+          <p>The install guide generated by the console includes tokenized commands for each platform.</p>
+          <div class="code-pair">
+            <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sh</code></pre>
+            <pre><code>irm http://bastion.example.com:18080/install/&lt;token&gt;.ps1 | iex</code></pre>
+          </div>
+          <p>Use startup-service mode for long-lived nodes.</p>
+          <div class="code-pair">
+            <pre><code>curl -fsSL http://bastion.example.com:18080/install/&lt;token&gt;.sh | sudo sh -s -- install</code></pre>
+            <pre><code>$s='http://bastion.example.com:18080/install/&lt;token&gt;.ps1'
+irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install</code></pre>
+          </div>
+          <p>Linux installs through systemd. Windows installs through <code>sc.exe</code>.</p>
         </section>
 
-        <section class="doc-section" id="policies">
-          <h2>Command safety groups</h2>
+        <section class="doc-section reveal" id="review">
+          <span class="doc-step">04</span>
+          <h2>Review commands before execution</h2>
           <p>
-            Policies bind to targets and optionally to organization user groups. A policy with no user-group binding
-            applies to all users who can access the target.
+            Command safety groups can bind to one or many targets, target tags, organization user groups, and source
+            IP ranges. They can also enable or block interactive terminal, upload, download, and port forwarding.
           </p>
           <ol class="steps">
-            <li>Whitelist rules allow exact, prefix, or contains matches.</li>
             <li>Blacklist rules deny exact, prefix, or contains matches.</li>
-            <li>Unmatched commands can be sent to LLM review.</li>
-            <li>If no LLM is configured, the policy default action is used.</li>
+            <li>Whitelist rules allow exact, prefix, or contains matches.</li>
+            <li>Unmatched commands can be sent to an OpenAI-compatible model.</li>
+            <li>Allowed LLM responses can omit a reason; denied responses should explain why.</li>
           </ol>
         </section>
 
-        <section class="doc-section" id="llm">
-          <h2>LLM review</h2>
+        <section class="doc-section reveal" id="replay">
+          <span class="doc-step">05</span>
+          <h2>Replay audit sessions</h2>
           <p>
-            LLM configs use an OpenAI-compatible chat completions contract with base URL, API key, model, timeout,
-            and prompt resource. The model response must be JSON with <code>allow</code>; <code>reason</code>
-            may be omitted for allowed commands and should be included for denied commands. Invalid JSON and request errors fail closed.
+            Exec, shell, SFTP, and port-forward decisions are written to the audit database. Interactive terminal
+            recordings are stored as compressed replay files with timestamps, so the web console can reconstruct what
+            happened instead of showing only a command line.
           </p>
+          <div class="replay-card" aria-label="Audit replay example">
+            <span>00:00:00.000</span>
+            <code>ssh inference-gpu@bastion</code>
+            <span>00:00:07.284</span>
+            <code>docker ps --format '{{.Names}} {{.Status}}'</code>
+            <span>00:00:08.704</span>
+            <code>llm allow (1.4s)</code>
+          </div>
         </section>
 
-        <section class="doc-section" id="audit">
-          <h2>Audit logs</h2>
+        <section class="doc-section reveal" id="mcp">
+          <span class="doc-step">06</span>
+          <h2>Automate through MCP</h2>
           <p>
-            Exec attempts record user, target, organization, session, command, request type, decision, reason,
-            exit code, timing, and remote address. The audit table is built for AI operations where command provenance
-            matters after the fact.
+            The <code>/mcp</code> endpoint exposes registration, organizations, public keys, SSH services, target tags,
+            enrollments, LLM configs, prompt resources, command policies, policy bindings, and audit queries to tools.
           </p>
-        </section>
-
-        <section class="doc-section" id="release">
-          <h2>Release packages</h2>
-          <p>
-            The current release publishes cross-platform server archives and standalone private-node binaries. This version
-            intentionally does not publish full packages.
-          </p>
-          <a class="button primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.23-bastion">Open v0.1.23-bastion</a>
+          <pre><code>http://bastion.example.com:18080/mcp</code></pre>
         </section>
       </article>
     </main>
@@ -164,6 +169,7 @@
     <footer class="site-footer">
       <span>GOSSHD Bastion docs</span>
       <a href="./index.html">Home</a>
+      <a href="https://github.com/qinyongliang/gosshd-bastion/releases/latest">Releases</a>
       <a href="https://github.com/qinyongliang/gosshd-bastion/issues">Issues</a>
     </footer>
     <script src="./main.js"></script>

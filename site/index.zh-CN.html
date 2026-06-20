@@ -5,25 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="GOSSHD Bastion 是为 AI 服务设计的 SSH 堡垒机，为自动化工具和运维人员提供别名访问、策略审核和完整命令审计。"
+      content="GOSSHD Bastion 是为 AI 服务设计的 SSH 堡垒机，为智能体、自动化工具和运维人员提供策略审核、审计回放的私有服务访问入口。"
     />
     <title>GOSSHD Bastion | 为 AI 服务的堡垒机</title>
     <link rel="alternate" hreflang="en" href="./index.html" />
     <link rel="alternate" hreflang="zh-CN" href="./index.zh-CN.html" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preload" as="image" href="./assets/hero-ai-bastion.png" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body data-page="home">
     <a class="skip-link" href="#main">跳到正文</a>
     <canvas class="space-canvas" id="spaceCanvas" aria-hidden="true"></canvas>
+
     <header class="site-header">
       <a class="brand" href="./index.zh-CN.html" aria-label="GOSSHD Bastion 首页">
         <span class="brand-mark">GB</span>
         <span>GOSSHD Bastion</span>
       </a>
       <nav class="site-nav" aria-label="主导航">
-        <a href="#architecture">架构</a>
-        <a href="#security">安全</a>
+        <a href="#replay">回放</a>
+        <a href="#llm-review">LLM 审核</a>
+        <a href="#console">控制台</a>
         <a href="./docs.zh-CN.html">文档</a>
         <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
         <span class="language-switch" role="group" aria-label="语言">
@@ -34,118 +37,156 @@
     </header>
 
     <main id="main">
-      <section class="hero">
-        <div class="hero-copy">
+      <section class="hero hero-marketing" aria-labelledby="hero-title">
+        <img class="hero-image" src="./assets/hero-ai-bastion.png" alt="" />
+        <div class="hero-shade" aria-hidden="true"></div>
+        <div class="hero-copy reveal">
           <p class="eyebrow">为 AI 服务的堡垒机</p>
-          <h1>GOSSHD Bastion</h1>
+          <h1 id="hero-title">GOSSHD Bastion</h1>
           <p class="hero-lede">
-            面向 AI 自动化工具和运维人员的 SSH 访问平面，通过别名、策略审核和完整命令审计连接私有服务。
+            让 AI 智能体和运维人员以原生 SSH 的方式访问私有服务，同时经过别名路由、命令策略、LLM 审核和可回放审计。
           </p>
           <div class="hero-actions" aria-label="主要操作">
-            <a class="button primary" href="./docs.zh-CN.html">阅读文档</a>
-            <a class="button secondary" href="https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.23-bastion">下载版本</a>
+            <a class="button primary" href="./docs.zh-CN.html#quickstart">几分钟启动</a>
+            <a class="button secondary" href="#replay">查看访问链路</a>
           </div>
-          <dl class="signal-row" aria-label="产品亮点">
+        </div>
+        <div class="hero-telemetry" aria-label="实时访问状态">
+          <span><i></i> SSH 入口在线</span>
+          <span>LLM 守卫已启用</span>
+          <span>终端录制运行中</span>
+        </div>
+      </section>
+
+      <section class="proof-strip" aria-label="产品链路">
+        <div class="proof-item reveal">
+          <strong>01</strong>
+          <span>公钥识别当前用户</span>
+        </div>
+        <div class="proof-item reveal">
+          <strong>02</strong>
+          <span>SSH 用户名解析目标别名</span>
+        </div>
+        <div class="proof-item reveal">
+          <strong>03</strong>
+          <span>命令策略和 LLM 给出决策</span>
+        </div>
+        <div class="proof-item reveal">
+          <strong>04</strong>
+          <span>执行和交互终端进入审计</span>
+        </div>
+      </section>
+
+      <section class="story-section split-section" id="replay">
+        <div class="section-copy reveal">
+          <p class="eyebrow">远程访问，可被回放</p>
+          <h2>使用 SSH 的旧习惯，获得面向 AI 的新审计。</h2>
+          <p>
+            运维人员和 AI 任务继续使用熟悉的命令。GOSSHD Bastion 负责把公钥映射到用户，把别名解析到目标，
+            执行安全组决策，并保存带时间戳的终端录制数据。
+          </p>
+          <dl class="mini-metrics">
             <div>
-              <dt>AI 就绪</dt>
-              <dd>LLM 命令审核</dd>
+              <dt>别名路由</dt>
+              <dd><code>ssh inference-gpu@bastion</code></dd>
             </div>
             <div>
-              <dt>SSH 原生</dt>
-              <dd><code>ssh test2@host</code></dd>
-            </div>
-            <div>
-              <dt>全量审计</dt>
-              <dd>每次执行决策</dd>
+              <dt>录制器</dt>
+              <dd>带时间戳的终端帧</dd>
             </div>
           </dl>
         </div>
-        <aside class="mission-panel" aria-label="访问链路预览">
-          <div class="panel-status">
-            <span class="status-dot"></span>
-            <span>策略流运行中</span>
+        <div class="xterm-stage reveal" aria-label="xterm.js 风格 SSH 回放演示">
+          <div class="window-bar">
+            <span></span><span></span><span></span>
+            <strong>xterm.js replay</strong>
           </div>
-          <div class="trace-list">
-            <span>公钥映射用户: ai-runner</span>
-            <span>别名解析: inference-gpu</span>
-            <span>用户组策略: production-ai</span>
-            <span>LLM 判定: allow with watch</span>
-            <span>审计记录已封存: exit 0</span>
+          <div class="terminal-cast" data-terminal>
+            <p><span>$</span> ssh -p 22022 inference-gpu@bastion.example.com</p>
+            <p><span>gosshd</span> public key accepted for mia@ops</p>
+            <p><span>route</span> alias inference-gpu -> private node / ai-rack-07</p>
+            <p><span>policy</span> readonly-production matched by user group</p>
+            <p><span>$</span> docker ps --format '{{.Names}} {{.Status}}' | head</p>
+            <p><span>llm</span> allow, read-only container inspection (1.4s)</p>
+            <p><span>rec</span> terminal frame 00:00:07.284 sealed</p>
           </div>
-        </aside>
+          <div class="replay-timeline" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
       </section>
 
-      <section class="product-band" id="architecture">
-        <div class="section-heading">
-          <p class="eyebrow">控制平面</p>
-          <h2>为人类运维和自主 AI 任务提供同一个入口。</h2>
+      <section class="visual-section" id="llm-review">
+        <div class="section-heading reveal">
+          <p class="eyebrow">LLM 命令审核</p>
+          <h2>每条命令抵达生产环境前，都要先得到策略结论。</h2>
           <p>
-            GOSSHD Bastion 保留熟悉的 SSH 使用方式，同时把身份、目标路由、命令策略和审计放入 SQLite 支撑的控制平面。
+            黑白名单先做确定性判断。未命中的命令可以交给 OpenAI 兼容模型，使用你的提示词、超时时间和默认拒绝策略。
           </p>
         </div>
-        <div class="feature-grid">
-          <article class="feature-card">
-            <span class="card-code">01</span>
-            <h3>公钥身份</h3>
-            <p>SSH 公钥识别平台用户。SSH 用户名就是目标别名，访问方式保持简单直接。</p>
-          </article>
-          <article class="feature-card">
-            <span class="card-code">02</span>
-            <h3>私有节点服务</h3>
-            <p>私有主机通过安装脚本注册，之后就是普通、可重命名的 SSH 目标。</p>
-          </article>
-          <article class="feature-card">
-            <span class="card-code">03</span>
-            <h3>命令安全组</h3>
-            <p>把白名单、黑名单或 LLM 审核策略绑定到目标和组织用户组。</p>
-          </article>
-          <article class="feature-card">
-            <span class="card-code">04</span>
-            <h3>自动化审计</h3>
-            <p>每次执行都会记录用户、目标、决策、原因、耗时、退出码和远端地址。</p>
-          </article>
+        <div class="decision-grid">
+          <figure class="promo-frame reveal">
+            <img src="./assets/llm-review-panel.png" alt="展示终端回放和 LLM 审核面板的科幻界面" />
+          </figure>
+          <div class="decision-flow reveal" aria-label="命令审核链路">
+            <article>
+              <span>身份</span>
+              <strong>public key -> mia@ops</strong>
+            </article>
+            <article>
+              <span>范围</span>
+              <strong>production-ai / readonly group</strong>
+            </article>
+            <article>
+              <span>命令</span>
+              <strong>docker ps | head</strong>
+            </article>
+            <article class="verdict allow">
+              <span>决策</span>
+              <strong>allow (1.4s)</strong>
+            </article>
+          </div>
         </div>
       </section>
 
-      <section class="diagram-band">
-        <div class="diagram-shell" aria-label="AI 堡垒机请求流程">
-          <div class="diagram-node source">AI 任务</div>
-          <div class="diagram-link"></div>
-          <div class="diagram-node core">GOSSHD Bastion</div>
-          <div class="diagram-link"></div>
-          <div class="diagram-node target">SSH 服务</div>
-        </div>
-        <div class="diagram-copy">
-          <p class="eyebrow">别名路由</p>
-          <h2><code>ssh inference-gpu@public-ip</code></h2>
+      <section class="story-section console-section" id="console">
+        <div class="section-copy reveal">
+          <p class="eyebrow">内置控制台</p>
+          <h2>控制平面随服务一起启动。</h2>
           <p>
-            提交的公钥找到用户，SSH 用户名找到个人或组织下的目标别名。策略决定命令是否直连执行、经私有节点执行，或在抵达生产环境前被拒绝。
+            在内置 Web UI 中管理组织、用户组、公钥、SSH 服务、彩色标签、私有节点、策略绑定、LLM 配置、
+            审计搜索和终端回放。
           </p>
         </div>
+        <figure class="console-shot reveal">
+          <img src="./assets/console-dashboard.png" alt="GOSSHD Bastion Web 控制台仪表盘" />
+        </figure>
       </section>
 
-      <section class="product-band security-band" id="security">
-        <div class="section-heading">
-          <p class="eyebrow">AI 安全姿态</p>
-          <h2>为行动速度超过人工审核的工具而设计。</h2>
-        </div>
-        <div class="security-grid">
-          <article>
-            <h3>默认全员组</h3>
-            <p>每个组织都有默认全员用户组，策略可以绑定一个或多个用户组。</p>
-          </article>
-          <article>
-            <h3>默认拒绝的 LLM 审核</h3>
-            <p>OpenAI 兼容的审核可以处理未命中的命令。无效响应会被拒绝。</p>
-          </article>
-          <article>
-            <h3>开机启动私有节点</h3>
-            <p>Linux 私有节点通过 systemd 安装。Windows 私有节点通过 sc.exe 安装。</p>
-          </article>
-        </div>
+      <section class="capability-grid" aria-label="核心能力">
+        <article class="feature-card reveal">
+          <span class="card-code">SSH</span>
+          <h3>别名原生访问</h3>
+          <p>用户通过 <code>ssh alias@public-ip</code> 连接。别名可以指向直连主机，也可以指向私有节点。</p>
+        </article>
+        <article class="feature-card reveal">
+          <span class="card-code">NODE</span>
+          <h3>私有服务注册</h3>
+          <p>带令牌的安装命令可注册 NAT 后方主机，并在 Linux 与 Windows 上安装开机启动服务。</p>
+        </article>
+        <article class="feature-card reveal">
+          <span class="card-code">SAFE</span>
+          <h3>命令安全组</h3>
+          <p>按目标、标签、用户组、来源 IP 范围和终端/上传等能力开关绑定规则。</p>
+        </article>
+        <article class="feature-card reveal">
+          <span class="card-code">MCP</span>
+          <h3>自动化控制面</h3>
+          <p>通过 MCP 暴露注册、目标、标签、策略、提示词、LLM 配置和审计查询。</p>
+        </article>
       </section>
 
-      <section class="quickstart-band">
+      <section class="quickstart-band reveal">
         <div>
           <p class="eyebrow">首次启动</p>
           <h2>启动堡垒机。</h2>
@@ -163,6 +204,7 @@
     <footer class="site-footer">
       <span>GOSSHD Bastion</span>
       <a href="./docs.zh-CN.html">文档</a>
+      <a href="https://github.com/qinyongliang/gosshd-bastion/releases/latest">发布包</a>
       <a href="https://github.com/qinyongliang/gosshd-bastion">源码</a>
     </footer>
     <script src="./main.js"></script>

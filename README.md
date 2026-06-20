@@ -1,168 +1,139 @@
-# gosshd Bastion
+# GOSSHD Bastion
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`gosshd-bastion` is an SSH bastion built for AI services, automation, and operators that need audited access to private machines. It runs as a single Go server with an embedded web console, SQLite storage, an SSH gateway, private-node enrollment, command safety policies, LLM review hooks, and an MCP control plane.
+**GOSSHD Bastion is an AI service bastion:** a single Go server that gives operators, automation, and AI agents native SSH access with alias routing, command policy, LLM review, audit search, and terminal replay.
 
-The current public release is [`v0.1.23-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.23-bastion). The latest release page is [here](https://github.com/qinyongliang/gosshd-bastion/releases/latest).
+![GOSSHD Bastion hero](site/assets/hero-ai-bastion.png)
 
-## What Works Now
+## Why It Exists
 
-- SQLite-backed users, sessions, organizations, organization members, user groups, SSH public keys, SSH services, target tags, private-node enrollments, command policies, LLM configs, and prompt resources. Audit logs are stored in a separate SQLite database.
-- A first-run `admin` account. System admins keep normal user menus and also get system settings, account management, and organization repair tools.
-- Personal and shared organizations. Every user gets a personal organization. Shared organizations support `owner`, `admin`, and `member` roles.
-- Organization user groups. Every organization has a default all-members group, and command policies can bind to one or more user groups.
-- SSH public-key login to the bastion. The SSH username is the target alias, for example `test2`.
-- SSH services with a display name, alias, host, port, remote username, auth type, and multiple tags. Tags are stored as first-class records and can be used for filtering and policy binding.
-- Direct SSH services using password or private-key authentication.
-- Private-node SSH services. The SSH services page can generate tokenized Linux/macOS and Windows install commands, including startup-service install commands. Once a private node registers, it becomes a normal SSH service and can be renamed, retagged, filtered, and bound to policies.
-- Advanced SSH server routing can use an existing SSH service as a jump host/proxy for private subnets.
-- Command safety groups with whitelist and blacklist rules, exact/prefix/contains matching, source IP allowlists or ranges, target binding, target-tag binding, user-group binding, default allow/deny, optional LLM review when no rule matches, and switches for interactive shell, port forwarding, upload, and download.
-- Command audit logs for SSH `exec`, interactive shell, SFTP, and port-forward decisions, including user, public key, target, request type, policy decision, reason, LLM timing, exit code, and terminal recording metadata.
-- DingTalk OAuth login. New DingTalk users can be auto-created and placed into a default organization and role.
-- LDAP settings in the admin console. LDAP login is not active in this release.
-- Embedded web UI with Simplified Chinese as the default locale, English switching, persisted language preference, white default theme, dark theme switching, resource tables, tag filters, modals, and detail drawers.
-- `/mcp` exposes the control plane through the official Model Context Protocol Go SDK.
+AI tools can inspect machines, restart services, read logs, and chain commands faster than a human can watch a terminal. Giving those tools a raw SSH key is too much trust; putting every command behind a human approval queue is too slow.
 
-## Current Boundaries
+GOSSHD Bastion sits between AI work and private infrastructure:
 
-- Interactive terminal sessions can be recorded as compressed replay files and replayed in the web console. SFTP and port forwarding are policy-gated capabilities.
-- Target passwords/private keys and LLM API keys are stored in the SQLite database as provided by the API in this release. Restrict database access and use host/disk protection until credential encryption is completed.
-- GitHub Pages source lives under `site/` and the workflow is present, but Pages publishing depends on the repository/account Pages availability.
-- This release publishes cross-platform server packages and standalone private-node binaries. It does not publish a `full` package.
+- SSH still feels like SSH: `ssh inference-gpu@bastion.example.com`.
+- Public keys identify platform users; SSH usernames resolve target aliases.
+- Targets can be direct SSH servers or private nodes enrolled from behind NAT.
+- Command safety groups apply whitelist, blacklist, source IP, user group, target tag, and capability rules.
+- Unmatched commands can be reviewed by an OpenAI-compatible LLM.
+- Exec decisions and interactive terminal sessions are written to audit storage, with compressed replay data for terminal review.
 
-## Release Assets
+## Product Preview
 
-Each release publishes:
+![GOSSHD Bastion console](site/assets/console-dashboard.png)
 
-- `gosshd-<version>-linux-amd64.tar.gz`, `gosshd-<version>-darwin-arm64.tar.gz`, and other server packages.
-- `gosshd-<version>-windows-amd64.zip` and other Windows server packages.
-- `gosshd-agent-<version>-<goos>-<goarch>` standalone private-node binaries.
-- `checksums.txt`.
+The embedded console manages organizations, members, user groups, public keys, SSH services, colored tags, private-node installation, safety policies, LLM configs, prompts, audit search, and terminal replay.
 
-Example Linux install from GitHub Releases:
+![LLM review concept](site/assets/llm-review-panel.png)
+
+## Core Capabilities
+
+- **Alias-native SSH:** users connect through the bastion with `ssh alias@public-ip`.
+- **SQLite control plane:** users, orgs, sessions, groups, keys, targets, tags, policies, prompts, and LLM configs are persisted locally.
+- **Separate audit database:** command audit data is isolated from the main control database.
+- **Private nodes:** Linux/macOS and Windows install commands include enrollment tokens; startup mode uses systemd on Linux and `sc.exe` on Windows.
+- **Command safety groups:** blacklist, whitelist, LLM fallback, IP allowlists, target/tag binding, user-group binding, interactive terminal, port forwarding, upload, and download controls.
+- **LLM review:** OpenAI-compatible chat completions with fail-closed behavior; allowed responses can omit a reason.
+- **Terminal replay:** interactive shell sessions can be recorded as compressed timestamped files and replayed from the console.
+- **Admin console:** system admins keep normal user menus and get system settings, account management, organization repair, DingTalk settings, and LDAP connection settings.
+- **MCP endpoint:** `/mcp` exposes control-plane operations to AI tools.
+
+## Quick Start
+
+Download the latest server package from [GitHub Releases](https://github.com/qinyongliang/gosshd-bastion/releases/latest), then run:
 
 ```sh
-version=v0.1.23-bastion
-platform=linux-amd64
-
-curl -fL -o "gosshd-${version}-${platform}.tar.gz" \
-  "https://github.com/qinyongliang/gosshd-bastion/releases/download/${version}/gosshd-${version}-${platform}.tar.gz"
-
-tar -xzf "gosshd-${version}-${platform}.tar.gz"
-cd "gosshd-${platform}"
-mkdir -p data agent-cache
-
 ./gosshd-server \
   --http-listen :18080 \
   --ssh-listen :22022 \
   --database-path ./data/gosshd.db \
+  --audit-database-path ./data/gosshd-audit.db \
   --host-key-path ./data/gosshd_host_key \
   --agent-cache-path ./agent-cache \
   --public-host bastion.example.com:18080 \
   --bootstrap-admin-password 'change-me'
 ```
 
-Open `http://bastion.example.com:18080/` and sign in as:
+Open `http://bastion.example.com:18080/` and sign in:
 
 ```text
 email: admin
 password: change-me
 ```
 
-The bootstrap admin password is resolved in this order:
+Then:
 
-1. `--bootstrap-admin-password`
-2. `GOSSHD_BOOTSTRAP_ADMIN_PASSWORD`
-3. a random password printed once in the server log when the first admin account is created
-
-## First Use
-
-1. Sign in as `admin`.
-2. Add your SSH public key under **Public keys**.
-3. Create or select an organization.
-4. Add an SSH service with a display name, alias such as `test2`, authentication method, and tags such as `test-env`.
-5. Run a command through the bastion:
+1. Add your SSH public key.
+2. Create or select an organization.
+3. Add a direct SSH server or create a private-node enrollment.
+4. Add command safety groups and optional LLM review.
+5. Connect through the bastion:
 
 ```sh
-ssh -p 22022 test2@bastion.example.com hostname
+ssh -p 22022 inference-gpu@bastion.example.com hostname
 ```
 
-The bastion authenticates your public key, resolves alias `test2` first in your personal organization and then in shared organizations. If a shared alias appears in more than one organization, the request is rejected as ambiguous.
+## Private Node Install
 
-## Private Node Enrollment
+Create a private-node enrollment from **SSH services -> Add service -> Private node**. The console gives tokenized commands.
 
-Open **SSH services**, choose **Add service**, then select the **Private node** tab. Enter the service alias and create an install token. The response contains tokenized commands for the selected owner scope.
-
-Linux/macOS run once:
+Run once:
 
 ```sh
 curl -fsSL http://bastion.example.com:18080/install/<token>.sh | sh
 ```
 
-Linux startup service with `systemctl`:
+```powershell
+irm http://bastion.example.com:18080/install/<token>.ps1 | iex
+```
+
+Install as a startup service:
 
 ```sh
 curl -fsSL http://bastion.example.com:18080/install/<token>.sh | sudo sh -s -- install
 ```
 
-Windows run once:
-
 ```powershell
-irm http://bastion.example.com:18080/install/<token>.ps1 | iex
+$s='http://bastion.example.com:18080/install/<token>.ps1'
+irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install
 ```
 
-Windows startup service with `sc.exe`:
+Once registered, a private node is just another SSH service: rename it, tag it, bind policies to it, and audit it like a manually added target.
 
-```powershell
-$s='http://bastion.example.com:18080/install/<token>.ps1'; irm $s -OutFile $env:TEMP\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Install
+## Command Review Model
+
+Policy evaluation is intentionally predictable:
+
+1. Source IP and capability gates are checked.
+2. Blacklist rules deny matching commands.
+3. Whitelist rules allow matching commands.
+4. If no rule matches and an LLM is configured, the command is sent to the model.
+5. If there is no valid decision, the request fails closed or uses the configured default action.
+
+LLM responses use JSON:
+
+```json
+{"allow": true}
 ```
 
-The server serves private-node binaries from local `--agent-path` when present, otherwise it downloads the matching release asset into `--agent-cache-path` and serves it to the private host.
-
-## Command Policies
-
-Command safety groups are evaluated per target:
-
-- Policies can bind directly to SSH services.
-- Policies can bind to target tags, so editing a service's tags immediately changes which tag-bound policies apply.
-- Policies can bind to organization user groups. If no user group is bound, the policy applies to all users who can reach the target.
-- Blacklist rules deny immediately.
-- Whitelist rules allow matching commands.
-- If no rule matches and an LLM config is attached, the command is sent to the configured model with the selected prompt. The model must return JSON: `{"allow": true|false, "reason": "short reason"}`. `reason` may be omitted for allowed commands; denied commands should include a short reason.
-- If no rule and no LLM applies, the policy's default action is used.
-
-## System Administration
-
-System admins can manage:
-
-- DingTalk login settings: enabled flag, client id/secret, auth/token/userinfo URLs, redirect URL, default organization, and default role.
-- LDAP connection settings: server URL, bind DN/password, base DN, user filter, email attribute, and display-name attribute. LDAP login is reserved for a later release.
-- Accounts: promote or demote system administrators.
-- Organizations: inspect members, update roles, and transfer ownership for repair.
-
-Organization owners can transfer ownership to an existing member. The previous owner becomes `admin`. Personal organization ownership cannot be transferred.
-
-## MCP
-
-The MCP endpoint is:
-
-```text
-http://bastion.example.com:18080/mcp
+```json
+{"allow": false, "reason": "Command modifies production data without an approved maintenance window."}
 ```
 
-It exposes tools for registration, organizations, public keys, targets, target tags, private-node enrollments, LLM configs, prompt resources, command policies, policy bindings, and audit logs.
+## Documentation And Website
+
+The GitHub Pages source lives in [`site/`](site/). It includes the promotional homepage, docs page, generated visual assets, and the xterm-style replay demo used on the public website.
 
 ## Development
-
-Normal Go checks:
 
 ```sh
 go test ./...
 go build ./cmd/gosshd-server ./cmd/gosshd-agent
 ```
 
-Browser E2E on Windows PowerShell:
+Browser E2E requires explicit Node, Playwright, and Chrome paths:
 
 ```powershell
 $env:GOPROXY='https://goproxy.cn,direct'
@@ -172,13 +143,6 @@ $env:GOSSHD_UI_E2E_BROWSER='C:\path\to\chrome.exe'
 go test ./internal/server -run TestUIE2EWithBrowser -v
 ```
 
-Browser E2E on Linux/macOS:
+## Release Shape
 
-```sh
-GOSSHD_UI_E2E_NODE=/path/to/node \
-GOSSHD_UI_E2E_PLAYWRIGHT=/absolute/path/to/playwright \
-GOSSHD_UI_E2E_BROWSER=/absolute/path/to/chrome \
-go test ./internal/server -run TestUIE2EWithBrowser -v
-```
-
-`TestUIE2EWithBrowser` intentionally fails when the browser variables are missing. It drives the embedded UI with Playwright and a real browser.
+Releases publish cross-platform server archives, standalone private-node binaries, and checksums. This version does not publish a `full` package.
