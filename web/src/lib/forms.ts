@@ -2,6 +2,8 @@ import type { FormEvent } from "react";
 import { dateLocale } from "../i18n";
 import type { Member } from "../types";
 
+type Translate = (key: string, fallback?: string) => string;
+
 export function formSubmit(event: FormEvent<HTMLFormElement>, next: (data: Record<string, string>) => void) {
   event.preventDefault();
   next(formValues(event.currentTarget));
@@ -40,10 +42,10 @@ export function sortMembers(members: Member[], query: string, sort: "role" | "na
   });
 }
 
-export function roleText(role?: string) {
-  if (role === "owner") return "所有者";
-  if (role === "admin") return "管理员";
-  return "成员";
+export function roleText(role?: string, t?: Translate) {
+  if (role === "owner") return t ? t("roleOwner") : "Owner";
+  if (role === "admin") return t ? t("roleAdmin") : "Administrator";
+  return t ? t("roleMember") : "Member";
 }
 
 export function formatDate(value?: string) {
@@ -55,19 +57,20 @@ export function formatDate(value?: string) {
   }
 }
 
-export function pageTitle() {
+export function pageTitle(t?: Translate) {
   const path = window.location.pathname.replace(/^\/+/, "") || "dashboard";
   const titles: Record<string, string> = {
-    dashboard: "控制台",
-    orgs: "组织",
-    "org-admin": "组织成员",
-    keys: "公钥",
-    targets: "SSH 服务",
-    policies: "命令安全组",
-    audit: "命令审计",
-    "system-admin": "系统管理",
+    dashboard: "dashboard",
+    orgs: "orgs",
+    "org-admin": "members",
+    keys: "keys",
+    targets: "services",
+    policies: "commandPolicy",
+    audit: "auditPageTitle",
+    "system-admin": "settings",
   };
-  return titles[path] || "控制台";
+  const key = titles[path] || "dashboard";
+  return t ? t(key) : key;
 }
 
 export function localizeError(error: unknown, t: (key: string) => string) {

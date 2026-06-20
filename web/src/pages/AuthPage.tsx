@@ -27,13 +27,13 @@ export function AuthPage({ dingTalkEnabled }: { dingTalkEnabled: boolean }) {
     <section className="auth-screen">
       <div className="brand-panel">
         <div className="brand-row"><div className="mark">g</div><span>gosshd</span></div>
-        <h1>AI 服务堡垒机</h1>
-        <p>为自动化任务和运维人员提供 SSH 别名访问、命令安全组和完整审计。</p>
+        <h1>{t("authTitle")}</h1>
+        <p>{t("authSubtitle")}</p>
       </div>
       <div className="auth-card">
         <div className="auth-card-head">
-          <Segmented value={theme} items={[["dark", "黑", "Black"], ["light", "白", "White"]]} onChange={(value) => setTheme(value as "light" | "dark")} />
-          <Segmented value={locale} items={[["en", "EN", "EN"], ["zh-CN", "中文", "中文"]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
+          <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
+          <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
           <span className="badge info">Auto</span>
         </div>
         <div className="tabs" role="tablist" aria-label="Auth mode">
@@ -41,17 +41,17 @@ export function AuthPage({ dingTalkEnabled }: { dingTalkEnabled: boolean }) {
           <button type="button" role="tab" aria-selected={mode === "login"} className={clsx(mode === "login" && "active")} onClick={() => setMode("login")}>{t("login")}</button>
         </div>
         <form className="stack" onSubmit={(event) => formSubmit(event, (data) => mutation.mutate(data))}>
-          <Field label="Email" name="email" type={mode === "login" ? "text" : "email"} required />
-          {mode === "register" && <Field label="Display name" name="display_name" required />}
-          <Field label="Password" name="password" type="password" required />
+          <Field label={t("commonEmail")} name="email" type={mode === "login" ? "text" : "email"} required />
+          {mode === "register" && <Field label={t("displayName")} name="display_name" required />}
+          <Field label={t("authPassword")} name="password" type="password" required />
           <button className="primary" type="submit" disabled={mutation.isPending}>
             {mode === "login" ? <KeyRound /> : <Plus />}
-            {mode === "login" ? "Sign in" : "Create account"}
+            {mode === "login" ? t("authSignIn") : t("authCreateAccount")}
           </button>
         </form>
         <div className="sso-zone">
           <span>DingTalk</span>
-          {dingTalkEnabled ? <a className="button-link" href="/api/auth/dingtalk/start?redirect_after=/">Continue</a> : <button type="button" className="ghost" disabled>Disabled</button>}
+          {dingTalkEnabled ? <a className="button-link" href="/api/auth/dingtalk/start?redirect_after=/">{t("authProviderContinue")}</a> : <button type="button" className="ghost" disabled>{t("authProviderDisabled")}</button>}
         </div>
         {error && <div className="status error">{error}</div>}
       </div>

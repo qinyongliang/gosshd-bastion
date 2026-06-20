@@ -55,19 +55,19 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
         <header className="topbar">
           <button className="mobile-menu" type="button" onClick={() => setSidebarOpen(true)}><Menu /></button>
           <div>
-            <small>AI 服务堡垒机</small>
-            <h1>{pageTitle()}</h1>
+            <small>{t("shellProduct")}</small>
+            <h1>{pageTitle(t)}</h1>
             <span>{data.activeOrg.name}</span>
           </div>
           <div className="topbar-actions">
-            <Segmented value={theme} items={[["dark", "黑", "Black"], ["light", "白", "White"]]} onChange={(value) => setTheme(value as "light" | "dark")} />
-            <Segmented value={locale} items={[["en", "EN", "EN"], ["zh-CN", "中文", "中文"]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
+            <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
+            <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
           </div>
         </header>
         <div className="hud-line">
-          <span className="hud-pill"><i className="hud-dot" />SSH ingress online</span>
-          <span className="hud-pill">policy guard ready</span>
-          <span className="hud-pill">audit isolated</span>
+          <span className="hud-pill"><i className="hud-dot" />{t("statusIngress")}</span>
+          <span className="hud-pill">{t("statusPolicy")}</span>
+          <span className="hud-pill">{t("statusAudit")}</span>
         </div>
         {children}
       </section>
@@ -76,7 +76,8 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
 }
 
 function OrgSwitcher({ data }: { data: ConsoleData }) {
+  const { t } = useI18n();
   return <select className="org-switcher" value={data.activeOrg.id} onChange={(event) => data.setActiveOrgID(event.target.value)}>
-    {data.orgs.map((org) => <option key={org.id} value={org.id}>{org.name} {org.is_personal ? "个人" : ""}</option>)}
+    {data.orgs.map((org) => <option key={org.id} value={org.id}>{org.name} {org.is_personal ? t("personal") : ""}</option>)}
   </select>;
 }

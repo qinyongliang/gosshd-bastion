@@ -8,13 +8,14 @@ import { copyText, tagColor } from "../utils";
 import { formatDate } from "../lib/forms";
 
 export function AuditTable({ logs }: { logs: AuditLog[] }) {
-  return <SimpleTable headers={["用户", "公钥", "目标服务器", "命令", "类型", "决策", "原因", "退出", "开始时间"]} rows={logs.map((log) => [
+  const { t } = useI18n();
+  return <SimpleTable headers={[t("auditTableUser"), t("auditTableKey"), t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableStarted")]} rows={logs.map((log) => [
     <span><strong>{log.user_display_name || log.user_email || "-"}</strong><small>{log.user_email || ""}</small></span>,
     <span><strong>{log.public_key_name || "-"}</strong><small>{log.public_key_fingerprint || ""}</small></span>,
     <span><strong>{log.target_name || log.target_alias || "-"}</strong><small>{log.target_endpoint || ""}</small></span>,
     <code>{log.command || "-"}</code>,
     log.request_type,
-    <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? "允许" : "拒绝"}</span>,
+    <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
     log.policy_reason || "-",
     String(log.exit_code ?? ""),
     formatDate(log.started_at),
@@ -40,15 +41,17 @@ export function Metric({ label, value, icon }: { label: string; value: number; i
 }
 
 export function Modal({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
+  const { t } = useI18n();
   return <div className="overlay"><section className={clsx("modal", wide && "wide")} role="dialog" aria-label={title}>
-    <header><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label="Close" onClick={onClose}><X /></button></header>
+    <header><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
     <div className="surface-body modal-body-list">{children}</div>
   </section></div>;
 }
 
 export function Drawer({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
+  const { t } = useI18n();
   return <div className="drawer-scrim"><aside className="drawer">
-    <header><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" type="button" aria-label="Close" onClick={onClose}><X /></button></header>
+    <header><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
     <div className="surface-body">{children}</div>
   </aside></div>;
 }
@@ -66,16 +69,17 @@ export function Toggle({ name, label, defaultChecked }: { name: string; label: s
 }
 
 export function ModalActions({ onCancel, submit }: { onCancel?: () => void; submit: string }) {
-  return <div className="form-actions span-two">{onCancel && <button type="button" onClick={onCancel}>取消</button>}<button type="submit" className="primary">{submit}</button></div>;
+  const { t } = useI18n();
+  return <div className="form-actions span-two">{onCancel && <button type="button" onClick={onCancel}>{t("cancel")}</button>}<button type="submit" className="primary">{submit}</button></div>;
 }
 
-export function Segmented({ value, items, onChange }: { value: string; items: (readonly [string, string, string])[]; onChange: (value: string) => void }) {
-  const { locale } = useI18n();
-  return <div className="theme-switch">{items.map(([id, zh, en]) => <button key={id} type="button" className={clsx(value === id && "active")} onClick={() => onChange(id)}>{locale === "en" ? en : zh}</button>)}</div>;
+export function Segmented({ value, items, onChange }: { value: string; items: (readonly [string, string])[]; onChange: (value: string) => void }) {
+  return <div className="theme-switch">{items.map(([id, label]) => <button key={id} type="button" className={clsx(value === id && "active")} onClick={() => onChange(id)}>{label}</button>)}</div>;
 }
 
 export function Toolbar({ query, setQuery, children }: { query: string; setQuery: (value: string) => void; children?: ReactNode }) {
-  return <div className="toolbar"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索..." />{children}<button type="button" onClick={() => setQuery("")}>清空筛选</button></div>;
+  const { t } = useI18n();
+  return <div className="toolbar"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("commonSearchPlaceholder")} />{children}<button type="button" onClick={() => setQuery("")}>{t("commonClearFilters")}</button></div>;
 }
 
 export function SimpleTable({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
@@ -102,7 +106,7 @@ export function CopyButton({ value }: { value: string }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return <button type="button" className="copy-anchor" data-value={value} onClick={async () => { await copyText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1300); }}>
-    <Copy />复制连接命令{copied && <span className="copy-tip">{t("copied")}</span>}
+    <Copy />{t("copyConnectionCommand")}{copied && <span className="copy-tip">{t("copied")}</span>}
   </button>;
 }
 
@@ -111,7 +115,8 @@ export function CommandBox({ label, value }: { label: string; value: string }) {
 }
 
 export function SelectButton({ label, items, onSelect }: { label: string; items: (readonly [string, string])[]; onSelect: (value: string) => void }) {
-  return <label className="field"><span>{label}</span><select defaultValue="" onChange={(event) => { if (event.target.value) onSelect(event.target.value); event.target.value = ""; }}><option value="">选择...</option>{items.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>;
+  const { t } = useI18n();
+  return <label className="field"><span>{label}</span><select defaultValue="" onChange={(event) => { if (event.target.value) onSelect(event.target.value); event.target.value = ""; }}><option value="">{t("commonSelectPlaceholder")}</option>{items.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>;
 }
 
 export function Loading() {
