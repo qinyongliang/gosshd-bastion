@@ -3,7 +3,7 @@ name: GitHub Pages
 on:
   push:
     branches:
-      - codex/bastion
+      - main
     paths:
       - site/**
       - .github/workflows/pages.yml
