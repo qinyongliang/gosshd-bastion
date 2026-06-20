@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="GOSSHD Bastion 文档：部署为 AI 服务的 SSH 堡垒机，注册私有节点，通过别名连接，使用 LLM 审核命令，并回放审计。"
+      content="GOSSHD Bastion 文档：部署面向 AI Agent、MCP 和自动化任务的 SSH 控制平面，注册私有节点，审核命令，并回放审计。"
     />
     <title>文档 | GOSSHD Bastion</title>
     <link rel="alternate" hreflang="en" href="./docs.html" />
@@ -50,10 +50,10 @@
       <article class="docs-content">
         <section class="docs-hero reveal" id="overview">
           <p class="eyebrow">落地指南</p>
-          <h1>在 AI 服务前放置一个可审核的 SSH 控制平面。</h1>
+          <h1>部署面向 AI Agent / MCP / 自动化任务的 SSH 控制平面。</h1>
           <p>
             GOSSHD Bastion 以单个 Go 服务交付，包含 SQLite 数据库、内置 Web 控制台、SSH 网关、
-            私有节点注册、命令安全组、LLM 审核和终端回放元数据。
+            私有节点注册、命令安全组、LLM 审核和终端回放元数据，用来构建命令级 SSH 安全网关。
           </p>
           <div class="doc-hero-actions">
             <a class="button primary" href="#quickstart">部署服务</a>
@@ -63,7 +63,7 @@
 
         <section class="doc-section reveal" id="quickstart">
           <span class="doc-step">01</span>
-          <h2>部署堡垒机</h2>
+          <h2>部署 SSH 控制平面</h2>
           <p>
             从 GitHub Releases 下载 server 包，配置持久化路径，并设置私有节点安装命令会使用的 public host。
           </p>

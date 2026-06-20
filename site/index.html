@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="GOSSHD Bastion is an AI-native SSH bastion for agents, tools, and operators that need policy-reviewed, audited access to private services."
+      content="GOSSHD Bastion is an AI-native SSH access control plane for agents, MCP tools, and automation jobs, with LLM command review, private nodes, and terminal replay."
     />
-    <title>GOSSHD Bastion | AI Service Bastion</title>
+    <title>GOSSHD Bastion | AI-native SSH Access Control Plane</title>
     <link rel="alternate" hreflang="en" href="./index.html" />
     <link rel="alternate" hreflang="zh-CN" href="./index.zh-CN.html" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
@@ -24,9 +24,9 @@
         <span>GOSSHD Bastion</span>
       </a>
       <nav class="site-nav" aria-label="Primary navigation">
-        <a href="#replay">Replay</a>
-        <a href="#llm-review">LLM review</a>
-        <a href="#console">Console</a>
+        <a href="#replay">Scenarios</a>
+        <a href="#llm-review">Safety</a>
+        <a href="#console">Product</a>
         <a href="./docs.html">Docs</a>
         <a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a>
         <span class="language-switch" role="group" aria-label="Language">
@@ -41,11 +41,11 @@
         <img class="hero-image" src="./assets/hero-ai-bastion.png" alt="" />
         <div class="hero-shade" aria-hidden="true"></div>
         <div class="hero-copy reveal">
-          <p class="eyebrow">AI service bastion</p>
+          <p class="eyebrow">AI-native SSH access control plane</p>
           <h1 id="hero-title">GOSSHD Bastion</h1>
           <p class="hero-lede">
-            Give AI agents and operators SSH access that feels native, routes by alias, passes through command policy,
-            and leaves an audit trail you can replay.
+            A command-level SSH safety gateway for AI services and automation jobs. Let agents work inside your
+            servers while your team keeps permission boundaries, risk gates, and replayable audit evidence.
           </p>
           <div class="hero-actions" aria-label="Primary actions">
             <a class="button primary" href="./docs.html#quickstart">Start in minutes</a>
@@ -53,47 +53,47 @@
           </div>
         </div>
         <div class="hero-telemetry" aria-label="Live access signals">
-          <span><i></i> SSH ingress online</span>
-          <span>LLM guard armed</span>
-          <span>replay recorder active</span>
+          <span><i></i> AI remote access online</span>
+          <span>risky commands pass a gate</span>
+          <span>sessions can be replayed</span>
         </div>
       </section>
 
       <section class="proof-strip" aria-label="Product proof points">
         <div class="proof-item reveal">
           <strong>01</strong>
-          <span>Public key identifies the user</span>
+          <span>No raw SSH keys handed to agents</span>
         </div>
         <div class="proof-item reveal">
           <strong>02</strong>
-          <span>SSH username resolves the target alias</span>
+          <span>One entrance for private servers</span>
         </div>
         <div class="proof-item reveal">
           <strong>03</strong>
-          <span>Policy and LLM review decide the command</span>
+          <span>Risky commands are checked first</span>
         </div>
         <div class="proof-item reveal">
           <strong>04</strong>
-          <span>Exec and terminal sessions are sealed for audit</span>
+          <span>Remote work becomes replayable</span>
         </div>
       </section>
 
       <section class="story-section split-section" id="replay">
         <div class="section-copy reveal">
-          <p class="eyebrow">Remote access, recorded</p>
-          <h2>Run SSH the old way. Review it the new way.</h2>
+          <p class="eyebrow">See what AI actually did</p>
+          <h2>Remote execution should not disappear into a black terminal.</h2>
           <p>
-            Operators and AI tasks keep the simple command they already know. GOSSHD Bastion maps the key to a user,
-            resolves the alias, applies safety groups, and stores terminal timing data for playback.
+            When an agent inspects logs, checks containers, or troubleshoots a host, the team gets a replayable record
+            instead of a vague command line and a nervous guess.
           </p>
           <dl class="mini-metrics">
             <div>
-              <dt>Alias route</dt>
-              <dd><code>ssh inference-gpu@bastion</code></dd>
+              <dt>Incident review</dt>
+              <dd>Replay remote work by timeline</dd>
             </div>
             <div>
-              <dt>Recorder</dt>
-              <dd>timestamped terminal frames</dd>
+              <dt>Team trust</dt>
+              <dd>Evidence security and business can read</dd>
             </div>
           </dl>
         </div>
@@ -111,11 +111,11 @@
 
       <section class="visual-section" id="llm-review">
         <div class="section-heading reveal">
-          <p class="eyebrow">LLM command review</p>
-          <h2>A command reaches production only after policy has a verdict.</h2>
+          <p class="eyebrow">Give AI power, with brakes</p>
+          <h2>Risky actions are visible before they run.</h2>
           <p>
-            Blacklists and whitelists make deterministic decisions first. Unmatched commands can be sent to an
-            OpenAI-compatible model with your prompt, timeout, and fail-closed behavior.
+            Routine inspection can move quickly. Sensitive actions can be blocked, reviewed, or judged by your own
+            model prompt before they touch production.
           </p>
         </div>
         <div class="decision-grid">
@@ -124,20 +124,20 @@
           </figure>
           <div class="decision-flow reveal" aria-label="Command review flow">
             <article>
-              <span>Identity</span>
-              <strong>public key -> mia@ops</strong>
+              <span>Request</span>
+              <strong>Agent checks production containers</strong>
             </article>
             <article>
-              <span>Scope</span>
-              <strong>production-ai / readonly group</strong>
+              <span>Boundary</span>
+              <strong>Read-only inspection window</strong>
             </article>
             <article>
-              <span>Command</span>
-              <strong>docker ps | head</strong>
+              <span>Risk</span>
+              <strong>No service state change</strong>
             </article>
             <article class="verdict allow">
-              <span>Verdict</span>
-              <strong>allow (1.4s)</strong>
+              <span>Outcome</span>
+              <strong>Allowed</strong>
             </article>
           </div>
         </div>
@@ -145,45 +145,70 @@
 
       <section class="story-section console-section" id="console">
         <div class="section-copy reveal">
-          <p class="eyebrow">Control console</p>
-          <h2>The control plane is built into the server.</h2>
+          <p class="eyebrow">A console built for AI remote work</p>
+          <h2>Servers, guardrails, and evidence in one clear place.</h2>
           <p>
-            Manage organizations, user groups, public keys, targets, colored tags, private nodes, policy bindings,
-            LLM configs, audit search, and terminal replay from the embedded web UI.
+            Operations, security, and automation teams share one view of who can reach what, which actions are safe,
+            and what happened after a task ran.
           </p>
         </div>
-        <figure class="console-shot reveal">
-          <img src="./assets/console-dashboard.png" alt="GOSSHD Bastion web console dashboard" />
-        </figure>
+        <div class="product-preview reveal" aria-label="GOSSHD Bastion product preview">
+          <div class="preview-topline">
+            <span>GOSSHD Control</span>
+            <strong>AI Remote Access Center</strong>
+          </div>
+          <div class="preview-grid">
+            <article>
+              <span>Assets</span>
+              <strong>Private service catalog</strong>
+              <small>Test, production, and GPU hosts grouped cleanly</small>
+            </article>
+            <article>
+              <span>Safety</span>
+              <strong>Command gate</strong>
+              <small>Allowlists, risk blocks, and model review</small>
+            </article>
+            <article>
+              <span>Audit</span>
+              <strong>Session replay</strong>
+              <small>Review agent activity on a timeline</small>
+            </article>
+          </div>
+          <div class="preview-rail">
+            <span><i></i> Inspection task allowed</span>
+            <span><i></i> Sensitive command blocked</span>
+            <span><i></i> Replay archived</span>
+          </div>
+        </div>
       </section>
 
       <section class="capability-grid" aria-label="Core capabilities">
         <article class="feature-card reveal">
           <span class="card-code">SSH</span>
-          <h3>Alias-native access</h3>
-          <p>Users connect with <code>ssh alias@public-ip</code>. The alias can point to a direct host or a private node.</p>
+          <h3>AI operations entrance</h3>
+          <p>Agents can do remote work without owning the server keys directly.</p>
         </article>
         <article class="feature-card reveal">
           <span class="card-code">NODE</span>
-          <h3>Private service enrollment</h3>
-          <p>Tokenized install commands register hosts behind NAT and can install startup services on Linux and Windows.</p>
+          <h3>Private network reach</h3>
+          <p>Bring test boxes, GPU nodes, and customer-side machines behind a single governed entry point.</p>
         </article>
         <article class="feature-card reveal">
           <span class="card-code">SAFE</span>
-          <h3>Command safety groups</h3>
-          <p>Bind rules by targets, tags, user groups, source IP ranges, and capability switches like terminal or upload.</p>
+          <h3>Command safety gate</h3>
+          <p>Routine inspection moves fast. Risky operations are stopped or reviewed before execution.</p>
         </article>
         <article class="feature-card reveal">
           <span class="card-code">MCP</span>
-          <h3>Automation control plane</h3>
-          <p>Expose registration, targets, tags, policies, prompts, LLM configs, and audit queries through MCP.</p>
+          <h3>Audit evidence trail</h3>
+          <p>Every remote operation can be searched, explained, and replayed when the team needs answers.</p>
         </article>
       </section>
 
       <section class="quickstart-band reveal">
         <div>
           <p class="eyebrow">First launch</p>
-          <h2>Bring the bastion online.</h2>
+          <h2>Bring the SSH control plane online.</h2>
         </div>
         <pre><code>gosshd-server \
   --http-listen :18080 \

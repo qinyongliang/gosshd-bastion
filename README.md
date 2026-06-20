@@ -2,34 +2,28 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-**GOSSHD Bastion is an AI service bastion:** a single Go server that gives operators, automation, and AI agents native SSH access with alias routing, command policy, LLM review, audit search, and terminal replay.
+**GOSSHD Bastion is an AI-native SSH access control plane:** a command-level SSH safety gateway for AI agents, MCP tools, and automation jobs. It lets agents enter servers for inspection, troubleshooting, and automation while your team keeps control of permissions, risky commands, and replayable evidence.
 
 ![GOSSHD Bastion hero](site/assets/hero-ai-bastion.png)
 
 ## Why It Exists
 
-AI tools can inspect machines, restart services, read logs, and chain commands faster than a human can watch a terminal. Giving those tools a raw SSH key is too much trust; putting every command behind a human approval queue is too slow.
+AI tools can inspect machines, read logs, diagnose services, and chain commands faster than a human can watch a terminal. Giving those tools a raw SSH key is too much trust; putting every command behind a human approval queue is too slow.
 
-GOSSHD Bastion sits between AI work and private infrastructure:
+GOSSHD Bastion solves a simple product problem: AI needs SSH to get real work done, but production access needs command-level boundaries, evidence, and replay.
 
-- SSH still feels like SSH: `ssh inference-gpu@bastion.example.com`.
-- Public keys identify platform users; SSH usernames resolve target aliases.
-- Targets can be direct SSH servers or private nodes enrolled from behind NAT.
-- Command safety groups apply whitelist, blacklist, source IP, user group, target tag, and capability rules.
-- Unmatched commands can be reviewed by an OpenAI-compatible LLM.
-- Exec decisions and interactive terminal sessions are written to audit storage, with compressed replay data for terminal review.
+- **For operations:** agents can inspect and troubleshoot without owning server keys directly.
+- **For security:** risky commands can be blocked, reviewed, or judged by a model before execution.
+- **For leaders:** every remote action can be searched, explained, and replayed when evidence matters.
+- **For delivery teams:** private machines, customer-side boxes, and GPU nodes can join one governed entry point.
 
 ## Product Preview
-
-![GOSSHD Bastion console](site/assets/console-dashboard.png)
-
-The embedded console manages organizations, members, user groups, public keys, SSH services, colored tags, private-node installation, safety policies, LLM configs, prompts, audit search, and terminal replay.
 
 ![LLM review concept](site/assets/llm-review-panel.png)
 
 ## Core Capabilities
 
-- **Alias-native SSH:** users connect through the bastion with `ssh alias@public-ip`.
+- **AI-native SSH control plane:** users and agents reach private servers through one governed entry point.
 - **SQLite control plane:** users, orgs, sessions, groups, keys, targets, tags, policies, prompts, and LLM configs are persisted locally.
 - **Separate audit database:** command audit data is isolated from the main control database.
 - **Private nodes:** Linux/macOS and Windows install commands include enrollment tokens; startup mode uses systemd on Linux and `sc.exe` on Windows.
@@ -68,7 +62,7 @@ Then:
 2. Create or select an organization.
 3. Add a direct SSH server or create a private-node enrollment.
 4. Add command safety groups and optional LLM review.
-5. Connect through the bastion:
+5. Connect through the SSH control plane:
 
 ```sh
 ssh -p 22022 inference-gpu@bastion.example.com hostname

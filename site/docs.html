@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="GOSSHD Bastion docs: deploy an AI service bastion, enroll private nodes, connect by SSH alias, review commands with LLMs, and replay audits."
+      content="GOSSHD Bastion docs: deploy an AI-native SSH access control plane for agents, MCP tools, and automation jobs with LLM review and replayable audits."
     />
     <title>Docs | GOSSHD Bastion</title>
     <link rel="alternate" hreflang="en" href="./docs.html" />
@@ -50,10 +50,11 @@
       <article class="docs-content">
         <section class="docs-hero reveal" id="overview">
           <p class="eyebrow">Field guide</p>
-          <h1>Put an audited SSH control plane in front of AI services.</h1>
+          <h1>Deploy the SSH control plane built for AI agents, MCP, and automation.</h1>
           <p>
             GOSSHD Bastion ships as one Go server with SQLite databases, an embedded web console, an SSH gateway,
-            private-node enrollment, command safety groups, LLM review, and terminal replay metadata.
+            private-node enrollment, command safety groups, LLM review, and terminal replay metadata for a
+            command-level SSH safety gateway.
           </p>
           <div class="doc-hero-actions">
             <a class="button primary" href="#quickstart">Deploy the server</a>
@@ -63,7 +64,7 @@
 
         <section class="doc-section reveal" id="quickstart">
           <span class="doc-step">01</span>
-          <h2>Deploy the bastion</h2>
+          <h2>Deploy the SSH control plane</h2>
           <p>
             Download the server package from GitHub Releases, give it persistent paths, and set the public host used
             by private-node install commands.
