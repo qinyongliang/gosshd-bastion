@@ -98,7 +98,7 @@ func TestAgentWSEnrollmentCreatesPersistedAgent(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		if app.store != nil {
-			_ = app.store.Close()
+			_ = app.Close()
 		}
 	})
 	user, err := app.store.Repository().CreateUser(ctx, store.CreateUserParams{Email: "agent@example.com", DisplayName: "Agent", PasswordHash: []byte("hash")})
@@ -168,7 +168,7 @@ func TestAgentWSRejectsMissingEnrollmentToken(t *testing.T) {
 	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
 	t.Cleanup(func() {
 		if app.store != nil {
-			_ = app.store.Close()
+			_ = app.Close()
 		}
 	})
 	mux := http.NewServeMux()
@@ -196,7 +196,7 @@ func TestAgentWSRejectsInvalidEnrollmentToken(t *testing.T) {
 	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
 	t.Cleanup(func() {
 		if app.store != nil {
-			_ = app.store.Close()
+			_ = app.Close()
 		}
 	})
 	mux := http.NewServeMux()
@@ -238,7 +238,7 @@ func createAgentEnrollmentForTest(t *testing.T, ctx context.Context, app *App, l
 	}
 	t.Cleanup(func() {
 		if app.store != nil {
-			_ = app.store.Close()
+			_ = app.Close()
 		}
 	})
 	user, err := app.store.Repository().CreateUser(ctx, store.CreateUserParams{Email: label + "@example.com", DisplayName: label, PasswordHash: []byte("hash")})

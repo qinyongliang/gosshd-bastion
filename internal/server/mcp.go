@@ -218,6 +218,13 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err != nil {
 				return nil, apiLLMConfigResponse{}, err
 			}
+			actor, err := a.store.Repository().GetUser(ctx, in.UserID)
+			if err != nil {
+				return nil, apiLLMConfigResponse{}, err
+			}
+			if err := a.requireOrganizationAdmin(ctx, ownerID, actor); err != nil {
+				return nil, apiLLMConfigResponse{}, err
+			}
 			cfg, err := a.store.Repository().CreateLLMPolicyConfig(ctx, store.CreateLLMPolicyConfigParams{
 				OwnerType:       ownerType,
 				OwnerID:         ownerID,
@@ -242,6 +249,13 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err != nil {
 				return nil, apiLLMPromptResponse{}, err
 			}
+			actor, err := a.store.Repository().GetUser(ctx, in.UserID)
+			if err != nil {
+				return nil, apiLLMPromptResponse{}, err
+			}
+			if err := a.requireOrganizationAdmin(ctx, ownerID, actor); err != nil {
+				return nil, apiLLMPromptResponse{}, err
+			}
 			prompt, err := a.store.Repository().CreateLLMPromptResource(ctx, store.CreateLLMPromptResourceParams{
 				OwnerType: ownerType,
 				OwnerID:   ownerID,
@@ -263,13 +277,25 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err != nil {
 				return nil, apiPolicyResponse{}, err
 			}
+			actor, err := a.store.Repository().GetUser(ctx, in.UserID)
+			if err != nil {
+				return nil, apiPolicyResponse{}, err
+			}
+			if err := a.requireOrganizationAdmin(ctx, ownerID, actor); err != nil {
+				return nil, apiPolicyResponse{}, err
+			}
 			policy, err := a.store.Repository().CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
-				OwnerType:     ownerType,
-				OwnerID:       ownerID,
-				Name:          in.Name,
-				DefaultAction: in.DefaultAction,
-				LLMConfigID:   in.LLMConfigID,
-				LLMPromptID:   in.LLMPromptID,
+				OwnerType:        ownerType,
+				OwnerID:          ownerID,
+				Name:             in.Name,
+				DefaultAction:    in.DefaultAction,
+				LLMConfigID:      in.LLMConfigID,
+				LLMPromptID:      in.LLMPromptID,
+				IPAllowlist:      in.IPAllowlist,
+				AllowPortForward: in.AllowPortForward,
+				AllowUpload:      in.AllowUpload,
+				AllowDownload:    in.AllowDownload,
+				AllowInteractive: in.AllowInteractive,
 			})
 			if err != nil {
 				return nil, apiPolicyResponse{}, err
@@ -335,12 +361,12 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiAuditLogsResponse{}, err
 			}
-			logs, err := a.store.Repository().ListCommandAuditLogs(ctx, store.AuditLogFilter{UserID: in.UserID})
+			page, err := a.audit.Repository().ListCommandAuditLogs(ctx, store.AuditLogFilter{UserID: in.UserID, Limit: 100})
 			if err != nil {
 				return nil, apiAuditLogsResponse{}, err
 			}
-			out := apiAuditLogsResponse{}
-			for _, log := range logs {
+			out := apiAuditLogsResponse{Logs: []apiAuditLog{}, Total: page.Total, Page: 1, PageSize: 100}
+			for _, log := range page.Logs {
 				out.Logs = append(out.Logs, apiAuditLogFromStore(log))
 			}
 			return nil, out, nil
@@ -444,10 +470,15 @@ type mcpLLMPromptInput struct {
 
 type mcpPolicyCreateInput struct {
 	mcpOwnerInput
-	Name          string `json:"name"`
-	DefaultAction string `json:"default_action"`
-	LLMConfigID   string `json:"llm_config_id,omitempty"`
-	LLMPromptID   string `json:"llm_prompt_id,omitempty"`
+	Name             string `json:"name"`
+	DefaultAction    string `json:"default_action"`
+	LLMConfigID      string `json:"llm_config_id,omitempty"`
+	LLMPromptID      string `json:"llm_prompt_id,omitempty"`
+	IPAllowlist      string `json:"ip_allowlist,omitempty"`
+	AllowPortForward bool   `json:"allow_port_forward,omitempty"`
+	AllowUpload      bool   `json:"allow_upload,omitempty"`
+	AllowDownload    bool   `json:"allow_download,omitempty"`
+	AllowInteractive bool   `json:"allow_interactive,omitempty"`
 }
 
 type mcpPolicyRuleInput struct {

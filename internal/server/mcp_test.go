@@ -25,7 +25,7 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 	defer srv.Close()
 	t.Cleanup(func() {
 		if app.store != nil {
-			_ = app.store.Close()
+			_ = app.Close()
 		}
 	})
 
@@ -288,7 +288,7 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.store.Repository().CreateCommandAuditLog(context.Background(), store.CreateCommandAuditLogParams{
+	if _, err := app.createAuditLog(context.Background(), store.CreateCommandAuditLogParams{
 		UserID:         userID,
 		TargetID:       targetID,
 		OrganizationID: orgID,

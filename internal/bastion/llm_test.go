@@ -41,7 +41,7 @@ func TestLLMPolicyAllowsWithoutReasonAndDisablesThinking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Action != store.DecisionAllow || decision.Reason != "allow" {
+	if decision.Action != store.DecisionAllow || decision.Reason != "" {
 		t.Fatalf("decision mismatch: %+v", decision)
 	}
 	if request["enable_thinking"] != false {

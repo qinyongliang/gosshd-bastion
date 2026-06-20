@@ -107,40 +107,20 @@ export function hudLine() {
   </div>`);
 }
 
-export function accessFlowMap() {
-  return raw(`<div class="access-flow-map" aria-label="${escapeHTML(t("dashboard.topologyTitle"))}">
-    <section class="flow-zone ingress">
-      <span>01</span>
-      <strong>${escapeHTML(t("dashboard.flowPublicKey"))}</strong>
-      <small>${escapeHTML(t("dashboard.flowSSHLogin"))}</small>
+export function accessSummaryGrid() {
+  const rows = [
+    ["dashboard.flowPublicKey", "dashboard.flowSSHLogin"],
+    ["dashboard.flowBastion", "dashboard.flowPolicy"],
+    ["dashboard.flowSSHService", "dashboard.flowEgress"],
+    ["dashboard.flowAudit", "dashboard.flowAuditSub"],
+  ];
+  return raw(`<div class="access-summary-grid">${rows.map(([title, body], index) => `
+    <section class="access-summary-card">
+      <span>${String(index + 1).padStart(2, "0")}</span>
+      <strong>${escapeHTML(t(title))}</strong>
+      <small>${escapeHTML(t(body))}</small>
     </section>
-    <section class="flow-zone core">
-      <strong>${escapeHTML(t("dashboard.flowBastion"))}</strong>
-      <ol>
-        <li>${escapeHTML(t("dashboard.flowIdentity"))}</li>
-        <li>${escapeHTML(t("dashboard.flowAlias"))}</li>
-        <li>${escapeHTML(t("dashboard.flowPolicy"))}</li>
-      </ol>
-    </section>
-    <section class="flow-zone egress">
-      <span>03</span>
-      <strong>${escapeHTML(t("dashboard.flowSSHService"))}</strong>
-      <small>${escapeHTML(t("dashboard.flowEgress"))}</small>
-    </section>
-    <div class="flow-route direct">
-      <b>${escapeHTML(t("dashboard.flowDirect"))}</b>
-      <small>${escapeHTML(t("dashboard.flowDirectSub"))}</small>
-    </div>
-    <div class="flow-route private">
-      <b>${escapeHTML(t("dashboard.flowPrivate"))}</b>
-      <small>${escapeHTML(t("dashboard.flowPrivateSub"))}</small>
-    </div>
-    <section class="flow-audit">
-      <span>04</span>
-      <strong>${escapeHTML(t("dashboard.flowAudit"))}</strong>
-      <small>${escapeHTML(t("dashboard.flowAuditSub"))}</small>
-    </section>
-  </div>`);
+  `).join("")}</div>`);
 }
 
 export function streamList() {

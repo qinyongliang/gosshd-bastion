@@ -26,9 +26,9 @@ export function selectField(label, name, options, selected = "") {
   return raw(`<label class="field"><span>${escapeHTML(label)}</span><select name="${escapeHTML(name)}">${choices}</select></label>`);
 }
 
-export function selectOptions(name, label, items, textKey = "name") {
+export function selectOptions(name, label, items, textKey = "name", selected = "") {
   return `<select name="${escapeHTML(name)}" aria-label="${escapeHTML(label)}"><option value="">${escapeHTML(label)}</option>${items
-    .map((item) => `<option value="${escapeHTML(item.id)}">${escapeHTML(item[textKey])}</option>`)
+    .map((item) => `<option value="${escapeHTML(item.id)}" ${item.id === selected ? "selected" : ""}>${escapeHTML(item[textKey])}</option>`)
     .join("")}</select>`;
 }
 

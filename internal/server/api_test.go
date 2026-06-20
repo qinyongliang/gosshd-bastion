@@ -454,6 +454,55 @@ func TestAPIOrganizationDefaultAndCustomUserGroups(t *testing.T) {
 	}
 }
 
+func TestAPIOwnerAccessRequiresMembershipAndPolicyAdmin(t *testing.T) {
+	srv, alice, _ := newAPITestServer(t)
+	defer srv.Close()
+	registerForAPI(t, alice, srv.URL, "owner-access@example.com")
+	var org apiOrganizationResponse
+	postJSON(t, alice, srv.URL+"/api/orgs", map[string]string{"name": "Owner Access", "slug": "owner-access"}, http.StatusCreated, &org)
+
+	bob := apiClient(t)
+	bobUser := registerForAPI(t, bob, srv.URL, "member-access@example.com")
+	outsider := apiClient(t)
+	registerForAPI(t, outsider, srv.URL, "outside-access@example.com")
+
+	getJSON(t, outsider, srv.URL+"/api/targets?owner_type=organization&owner_id="+org.Organization.ID, http.StatusForbidden, nil)
+	postJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members", map[string]string{
+		"user_id": bobUser.User.ID,
+		"role":    "member",
+	}, http.StatusOK, nil)
+	var memberTarget apiTargetResponse
+	postJSON(t, bob, srv.URL+"/api/targets", map[string]any{
+		"owner_type":      "organization",
+		"owner_id":        org.Organization.ID,
+		"name":            "Member service",
+		"alias":           "member-service",
+		"target_type":     "direct",
+		"host":            "127.0.0.1",
+		"port":            22,
+		"remote_username": "root",
+		"auth_type":       "password",
+		"secret":          "secret",
+	}, http.StatusCreated, &memberTarget)
+	if memberTarget.Target.ID == "" {
+		t.Fatalf("member should be able to create organization target: %+v", memberTarget)
+	}
+	postJSON(t, bob, srv.URL+"/api/policies", map[string]any{
+		"owner_type":     "organization",
+		"owner_id":       org.Organization.ID,
+		"name":           "member policy",
+		"default_action": "deny",
+	}, http.StatusForbidden, nil)
+	postJSON(t, bob, srv.URL+"/api/llm-configs", map[string]any{
+		"owner_type":      "organization",
+		"owner_id":        org.Organization.ID,
+		"name":            "member llm",
+		"base_url":        "https://llm.example.com",
+		"model":           "model",
+		"timeout_seconds": 3,
+	}, http.StatusForbidden, nil)
+}
+
 func TestAPIPublicKeyCRUD(t *testing.T) {
 	srv, client, _ := newAPITestServer(t)
 	defer srv.Close()
@@ -634,14 +683,17 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 
 	var policy apiPolicyResponse
 	postJSON(t, client, srv.URL+"/api/policies", map[string]any{
-		"owner_type":     "organization",
-		"owner_id":       org.Organization.ID,
-		"name":           "strict",
-		"default_action": "deny",
-		"llm_config_id":  llm.Config.ID,
-		"llm_prompt_id":  prompt.Prompt.ID,
+		"owner_type":        "organization",
+		"owner_id":          org.Organization.ID,
+		"name":              "strict",
+		"default_action":    "deny",
+		"llm_config_id":     llm.Config.ID,
+		"llm_prompt_id":     prompt.Prompt.ID,
+		"ip_allowlist":      "10.0.0.0/8",
+		"allow_interactive": true,
 	}, http.StatusCreated, &policy)
-	if policy.Policy.LLMConfigID != llm.Config.ID || policy.Policy.LLMPromptID != prompt.Prompt.ID {
+	if policy.Policy.LLMConfigID != llm.Config.ID || policy.Policy.LLMPromptID != prompt.Prompt.ID ||
+		policy.Policy.IPAllowlist != "10.0.0.0/8" || !policy.Policy.AllowInteractive {
 		t.Fatalf("policy llm config mismatch: %+v", policy)
 	}
 	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/rules", map[string]string{
@@ -667,8 +719,39 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if len(listedPolicies.Policies) != 1 || len(listedPolicies.Policies[0].TargetTags) != 1 || listedPolicies.Policies[0].TargetTags[0] != "prod" {
 		t.Fatalf("policy target tags mismatch: %+v", listedPolicies)
 	}
+	var updatedPolicy apiPolicyResponse
+	patchJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID, map[string]any{
+		"name":               "strict edited",
+		"default_action":     "allow",
+		"llm_config_id":      llm.Config.ID,
+		"llm_prompt_id":      prompt.Prompt.ID,
+		"ip_allowlist":       "private",
+		"allow_port_forward": true,
+		"allow_upload":       true,
+		"allow_download":     false,
+		"allow_interactive":  true,
+	}, http.StatusOK, &updatedPolicy)
+	if updatedPolicy.Policy.Name != "strict edited" || updatedPolicy.Policy.DefaultAction != "allow" ||
+		updatedPolicy.Policy.IPAllowlist != "private" || !updatedPolicy.Policy.AllowPortForward ||
+		!updatedPolicy.Policy.AllowUpload || updatedPolicy.Policy.AllowDownload || !updatedPolicy.Policy.AllowInteractive {
+		t.Fatalf("policy update mismatch: %+v", updatedPolicy.Policy)
+	}
+	var copiedPolicy apiPolicyResponse
+	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/copy", map[string]string{
+		"name": "strict copy",
+	}, http.StatusCreated, &copiedPolicy)
+	if copiedPolicy.Policy.Name != "strict copy" || len(copiedPolicy.Policy.TargetTags) != 1 || len(copiedPolicy.Policy.UserGroupIDs) != 1 ||
+		copiedPolicy.Policy.IPAllowlist != "private" || !copiedPolicy.Policy.AllowUpload {
+		t.Fatalf("policy copy mismatch: %+v", copiedPolicy.Policy)
+	}
+	deleteJSON(t, client, srv.URL+"/api/policies/"+copiedPolicy.Policy.ID, http.StatusOK)
+	getJSON(t, client, srv.URL+"/api/policies?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &listedPolicies)
+	if len(listedPolicies.Policies) != 1 || listedPolicies.Policies[0].ID != policy.Policy.ID {
+		t.Fatalf("policy delete mismatch: %+v", listedPolicies)
+	}
 
-	audit, err := app.store.Repository().CreateCommandAuditLog(contextBackground(), store.CreateCommandAuditLogParams{
+	started := time.Now().UTC().Add(-2 * time.Hour)
+	audit, err := app.createAuditLog(contextBackground(), store.CreateCommandAuditLogParams{
 		UserID:               user.User.ID,
 		TargetID:             target.Target.ID,
 		OrganizationID:       org.Organization.ID,
@@ -679,23 +762,72 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 		PolicyDecision:       store.DecisionAllow,
 		PolicyReason:         "whitelist",
 		ExitCode:             intPtr(0),
+		StartedAt:            started,
 		RemoteAddress:        "127.0.0.1:12345",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeTarget, err := app.store.Repository().GetSSHTarget(contextBackground(), target.Target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder, err := newTerminalRecorder(app.auditRecordingsPath, "session-shell", 100, 30, storeTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder.WriteOutput([]byte("hello from shell\r\n"))
+	recording, err := recorder.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shellAudit, err := app.createAuditLog(contextBackground(), store.CreateCommandAuditLogParams{
+		UserID:               user.User.ID,
+		TargetID:             target.Target.ID,
+		OrganizationID:       org.Organization.ID,
+		PublicKeyFingerprint: "SHA256:audit-key",
+		SessionID:            "session-shell",
+		Command:              "interactive terminal",
+		RequestType:          store.RequestShell,
+		PolicyDecision:       store.DecisionAllow,
+		PolicyReason:         "policy capability allowed: strict edited",
+		StartedAt:            started.Add(time.Hour),
+		RemoteAddress:        "127.0.0.1:12345",
+		RecordingPath:        recording.RelativePath,
+		RecordingSize:        recording.Size,
+		RecordingSHA256:      recording.SHA256,
+		RecordingDurationMS:  recording.DurationMS,
+		RecordingWidth:       recording.Width,
+		RecordingHeight:      recording.Height,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var logs apiAuditLogsResponse
 	getJSON(t, client, srv.URL+"/api/audit", http.StatusOK, &logs)
-	if len(logs.Logs) != 1 || logs.Logs[0].ID != audit.ID || logs.Logs[0].Command != "whoami" {
+	if len(logs.Logs) != 2 || logs.Total != 2 {
 		t.Fatalf("audit logs mismatch: %+v", logs)
 	}
-	if logs.Logs[0].UserEmail != user.User.Email ||
-		logs.Logs[0].UserDisplayName != user.User.DisplayName ||
-		logs.Logs[0].PublicKeyFingerprint != "SHA256:audit-key" ||
-		logs.Logs[0].TargetName != target.Target.Name ||
-		logs.Logs[0].TargetAlias != target.Target.Alias ||
-		logs.Logs[0].TargetEndpoint != "root@127.0.0.1:22" {
-		t.Fatalf("audit log enriched fields mismatch: %+v", logs.Logs[0])
+	var filteredLogs apiAuditLogsResponse
+	getJSON(t, client, srv.URL+"/api/audit?query=whoami&page=1&page_size=1&started_from="+url.QueryEscape(started.Format(time.RFC3339))+"&started_to="+url.QueryEscape(started.Add(30*time.Minute).Format(time.RFC3339)), http.StatusOK, &filteredLogs)
+	if len(filteredLogs.Logs) != 1 || filteredLogs.Total != 1 || filteredLogs.Logs[0].ID != audit.ID || filteredLogs.Logs[0].Command != "whoami" {
+		t.Fatalf("audit filtered logs mismatch: %+v", filteredLogs)
+	}
+	if filteredLogs.Logs[0].UserEmail != user.User.Email ||
+		filteredLogs.Logs[0].UserDisplayName != user.User.DisplayName ||
+		filteredLogs.Logs[0].PublicKeyFingerprint != "SHA256:audit-key" ||
+		filteredLogs.Logs[0].TargetName != target.Target.Name ||
+		filteredLogs.Logs[0].TargetAlias != target.Target.Alias ||
+		filteredLogs.Logs[0].TargetEndpoint != "root@127.0.0.1:22" {
+		t.Fatalf("audit log enriched fields mismatch: %+v", filteredLogs.Logs[0])
+	}
+	var replay struct {
+		Log   apiAuditLog       `json:"log"`
+		Lines []json.RawMessage `json:"lines"`
+	}
+	getJSON(t, client, srv.URL+"/api/audit/"+shellAudit.ID+"/recording", http.StatusOK, &replay)
+	if replay.Log.ID != shellAudit.ID || !replay.Log.HasRecording || replay.Log.RecordingWidth != 100 || len(replay.Lines) < 2 {
+		t.Fatalf("audit replay mismatch: %+v", replay)
 	}
 }
 
@@ -800,7 +932,7 @@ func newAPITestServer(t *testing.T) (*httptest.Server, *http.Client, *App) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		if app.store != nil {
-			app.store.Close()
+			app.Close()
 		}
 	})
 	return srv, apiClient(t), app
@@ -945,6 +1077,22 @@ func putJSON(t *testing.T, client *http.Client, url string, body any, wantStatus
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func deleteJSON(t *testing.T, client *http.Client, url string, wantStatus int) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != wantStatus {
+		t.Fatalf("DELETE %s status mismatch: got %d want %d", url, resp.StatusCode, wantStatus)
 	}
 }
 

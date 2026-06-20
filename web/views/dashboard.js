@@ -1,14 +1,21 @@
 import { activeOrg, state } from "../state.js";
 import { optionText, t } from "../i18n.js";
-import { accessFlowMap, badge, emptyState, escapeHTML, metric, panel, raw, streamList, table } from "../components/html.js";
+import { accessSummaryGrid, badge, emptyState, escapeHTML, metric, panel, raw, table } from "../components/html.js";
 
 export function renderDashboard() {
   const org = activeOrg();
   const latestAudit = state.audit.slice(0, 5);
   return raw(`
     <div class="signal-panel">
-      ${panel(t("dashboard.topologyTitle"), t("dashboard.topologySub"), accessFlowMap().__raw).__raw}
-      ${panel(t("dashboard.streamTitle"), t("dashboard.streamSub"), streamList().__raw).__raw}
+      ${panel(t("dashboard.topologyTitle"), t("dashboard.topologySub"), accessSummaryGrid().__raw).__raw}
+      ${panel(t("dashboard.streamTitle"), t("dashboard.streamSub"), `
+        <div class="summary-list">
+          <span><strong>${escapeHTML(state.keys.length)}</strong><small>${escapeHTML(t("dashboard.flowPublicKey"))}</small></span>
+          <span><strong>${escapeHTML(state.targets.length)}</strong><small>${escapeHTML(t("dashboard.flowSSHService"))}</small></span>
+          <span><strong>${escapeHTML(state.policies.length)}</strong><small>${escapeHTML(t("dashboard.policies"))}</small></span>
+          <span><strong>${escapeHTML(state.audit.length)}</strong><small>${escapeHTML(t("dashboard.auditRows"))}</small></span>
+        </div>
+      `).__raw}
     </div>
     <div class="metrics">
       ${metric(t("dashboard.sshServices"), state.targets.length, "server").__raw}

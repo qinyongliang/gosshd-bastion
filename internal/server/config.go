@@ -7,6 +7,8 @@ type Config struct {
 	SSHListen              string
 	HostKeyPath            string
 	DatabasePath           string
+	AuditDatabasePath      string
+	AuditRecordingPath     string
 	SecretKey              string
 	SecretKeyPath          string
 	BootstrapAdminPassword string

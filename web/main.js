@@ -3,6 +3,7 @@ import { formData } from "./components/forms.js";
 import { renderShell } from "./components/layout.js";
 import { selectedTags, tagInputChip } from "./components/tag-input.js";
 import { applyDocumentLocale, setLocale, t } from "./i18n.js";
+import { mountTerminalReplay } from "./terminal-replay.js";
 import { applyDocumentTheme, setTheme } from "./theme.js";
 import { routeFromLocation, bindRouter, navigate } from "./router.js";
 import {
@@ -65,6 +66,15 @@ function bindEvents() {
         render();
         return;
       }
+      if (action === "set-audit-filter") {
+        state.auditQuery = data.query || "";
+        state.auditStartedFrom = data.started_from || "";
+        state.auditStartedTo = data.started_to || "";
+        state.auditPage = 1;
+        await refreshAudit();
+        render();
+        return;
+      }
       if (action === "register") await api.register(data);
       if (action === "login") await api.login(data);
       if (action === "register" || action === "login") {
@@ -106,7 +116,8 @@ function bindEvents() {
       }
       if (action === "create-llm") await api.createLLMConfig({ ...ownerPayload(data), timeout_seconds: Number(data.timeout_seconds || 10) });
       if (action === "create-prompt") await api.createPrompt(ownerPayload(data));
-      if (action === "create-policy") await api.createPolicy(ownerPayload(data));
+      if (action === "create-policy") await api.createPolicy(ownerPayload(policyPayload(data)));
+      if (action === "update-policy") await api.updatePolicy(form.dataset.policyId, policyPayload(data));
       if (action === "add-rule") await api.addRule(data.policy_id, {
         rule_type: data.rule_type,
         pattern_type: data.pattern_type,
@@ -201,6 +212,7 @@ function bindEvents() {
         state.ui.drawer = "";
         state.ui.sidebarOpen = false;
         navigate(button.dataset.route);
+        if (button.dataset.route === "audit") await refreshAudit();
       }
       if (action === "open-sidebar") {
         state.ui.sidebarOpen = true;
@@ -243,6 +255,49 @@ function bindEvents() {
         state.ui.drawer = "policy-detail";
         state.ui.modal = "";
         state.ui.modalLayer = "";
+      }
+      if (action === "toggle-policy-select") {
+        const id = button.dataset.policyId || "";
+        state.selectedPolicyIDs = button.checked
+          ? [...new Set([...state.selectedPolicyIDs, id])]
+          : state.selectedPolicyIDs.filter((item) => item !== id);
+      }
+      if (action === "copy-policy") {
+        const policy = state.policies.find((item) => item.id === button.dataset.policyId);
+        await api.copyPolicy(button.dataset.policyId, { name: policy ? `${policy.name} Copy` : "" });
+        state.notice = t("status.saved");
+        await refreshData();
+      }
+      if (action === "delete-policy") {
+        if (!window.confirm(t("confirm.removePolicy"))) return;
+        await api.deletePolicy(button.dataset.policyId);
+        state.ui.drawer = "";
+        state.ui.policyID = "";
+        state.selectedPolicyIDs = state.selectedPolicyIDs.filter((item) => item !== button.dataset.policyId);
+        await refreshData();
+      }
+      if (action === "bulk-delete-policies") {
+        if (!state.selectedPolicyIDs.length || !window.confirm(t("confirm.removePolicies"))) return;
+        await Promise.all(state.selectedPolicyIDs.map((id) => api.deletePolicy(id)));
+        state.selectedPolicyIDs = [];
+        state.ui.drawer = "";
+        await refreshData();
+      }
+      if (action === "audit-page") {
+        state.auditPage = Math.max(1, Number(button.dataset.page || 1));
+        await refreshAudit();
+      }
+      if (action === "clear-audit-filter") {
+        state.auditQuery = "";
+        state.auditStartedFrom = "";
+        state.auditStartedTo = "";
+        state.auditPage = 1;
+        await refreshAudit();
+      }
+      if (action === "open-audit-replay") {
+        state.ui.auditID = button.dataset.auditId || "";
+        state.ui.drawer = "audit-replay";
+        state.auditReplay = await api.auditRecording(state.ui.auditID);
       }
       if (action === "open-member-role") {
         state.ui.memberUserID = button.dataset.userId || "";
@@ -413,7 +468,7 @@ async function refreshData() {
     api.groups(activeOrg().id),
     api.targets(currentOwner),
     api.policies(currentOwner),
-    api.audit(),
+    api.audit(auditParams()),
     api.llmConfigs(currentOwner),
     api.prompts(currentOwner),
   ];
@@ -426,11 +481,34 @@ async function refreshData() {
     display_name: `${target.name || target.alias} (${target.alias})`,
   }));
   state.policies = policies.policies || [];
+  state.selectedPolicyIDs = state.selectedPolicyIDs.filter((id) => state.policies.some((policy) => policy.id === id));
   state.audit = audit.logs || [];
+  state.auditTotal = audit.total || 0;
+  state.auditPage = audit.page || state.auditPage;
+  state.auditPageSize = audit.page_size || state.auditPageSize;
   state.llms = llms.configs || [];
   state.prompts = prompts.prompts || [];
   state.members = members?.members || [];
   if (state.user.is_system_admin) await refreshAdminData();
+}
+
+async function refreshAudit() {
+  if (!state.user) return;
+  const audit = await api.audit(auditParams());
+  state.audit = audit.logs || [];
+  state.auditTotal = audit.total || 0;
+  state.auditPage = audit.page || state.auditPage;
+  state.auditPageSize = audit.page_size || state.auditPageSize;
+}
+
+function auditParams() {
+  return {
+    query: state.auditQuery,
+    started_from: state.auditStartedFrom,
+    started_to: state.auditStartedTo,
+    page: state.auditPage,
+    page_size: state.auditPageSize,
+  };
 }
 
 async function refreshAdminData() {
@@ -478,6 +556,7 @@ function render() {
   }
   const shell = renderShell(renderRoute());
   app.innerHTML = shell.__raw || shell;
+  mountTerminalReplay();
 }
 
 function renderRoute() {
@@ -614,6 +693,16 @@ function adminLDAPPayload(data) {
     user_filter: data.user_filter || "",
     email_attr: data.email_attr || "",
     name_attr: data.name_attr || "",
+  };
+}
+
+function policyPayload(data) {
+  return {
+    ...data,
+    allow_port_forward: data.allow_port_forward === "on",
+    allow_upload: data.allow_upload === "on",
+    allow_download: data.allow_download === "on",
+    allow_interactive: data.allow_interactive === "on",
   };
 }
 

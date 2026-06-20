@@ -488,6 +488,23 @@ func (r *Repository) ListOrganizationUserGroups(ctx context.Context, organizatio
 	return groups, rows.Err()
 }
 
+func (r *Repository) GetOrganizationUserGroup(ctx context.Context, groupID string) (OrganizationUserGroup, error) {
+	var group OrganizationUserGroup
+	var isDefault int
+	var created string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, name, slug, is_default, created_at
+		FROM organization_user_groups
+		WHERE id = ?
+	`, groupID).Scan(&group.ID, &group.OrganizationID, &group.Name, &group.Slug, &isDefault, &created)
+	if err != nil {
+		return OrganizationUserGroup{}, wrapScanErr(err)
+	}
+	group.IsDefault = isDefault == 1
+	group.CreatedAt = parseTime(created)
+	return group, nil
+}
+
 func (r *Repository) GetDefaultOrganizationUserGroup(ctx context.Context, organizationID string) (OrganizationUserGroup, error) {
 	var group OrganizationUserGroup
 	var isDefault int
@@ -824,6 +841,21 @@ func (r *Repository) GetUserByPublicKeyFingerprint(ctx context.Context, fingerpr
 		WHERE k.fingerprint = ?
 	`, strings.TrimSpace(fingerprint))
 	return scanUser(row)
+}
+
+func (r *Repository) GetPublicKeyByFingerprint(ctx context.Context, fingerprint string) (PublicKey, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, user_id, name, authorized_key, fingerprint, created_at
+		FROM user_public_keys
+		WHERE fingerprint = ?
+	`, strings.TrimSpace(fingerprint))
+	var key PublicKey
+	var created string
+	if err := row.Scan(&key.ID, &key.UserID, &key.Name, &key.AuthorizedKey, &key.Fingerprint, &created); err != nil {
+		return PublicKey{}, wrapScanErr(err)
+	}
+	key.CreatedAt = parseTime(created)
+	return key, nil
 }
 
 func (r *Repository) ListPublicKeysForUser(ctx context.Context, userID string) ([]PublicKey, error) {
@@ -1381,20 +1413,29 @@ func (r *Repository) ListLLMPromptResources(ctx context.Context, ownerType, owne
 
 func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateCommandPolicyParams) (CommandPolicy, error) {
 	policy := CommandPolicy{
-		ID:            uuid.NewString(),
-		OwnerType:     params.OwnerType,
-		OwnerID:       params.OwnerID,
-		Name:          strings.TrimSpace(params.Name),
-		DefaultAction: params.DefaultAction,
-		LLMConfigID:   params.LLMConfigID,
-		LLMPromptID:   params.LLMPromptID,
-		CreatedAt:     time.Now().UTC(),
+		ID:               uuid.NewString(),
+		OwnerType:        params.OwnerType,
+		OwnerID:          params.OwnerID,
+		Name:             strings.TrimSpace(params.Name),
+		DefaultAction:    normalizePolicyAction(params.DefaultAction),
+		LLMConfigID:      strings.TrimSpace(params.LLMConfigID),
+		LLMPromptID:      strings.TrimSpace(params.LLMPromptID),
+		IPAllowlist:      strings.TrimSpace(params.IPAllowlist),
+		AllowPortForward: params.AllowPortForward,
+		AllowUpload:      params.AllowUpload,
+		AllowDownload:    params.AllowDownload,
+		AllowInteractive: params.AllowInteractive,
+		CreatedAt:        time.Now().UTC(),
 	}
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO command_policies (id, owner_type, owner_id, name, default_action, llm_config_id, llm_prompt_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO command_policies (
+			id, owner_type, owner_id, name, default_action, llm_config_id, llm_prompt_id,
+			ip_allowlist, allow_port_forward, allow_upload, allow_download, allow_interactive, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, policy.ID, policy.OwnerType, policy.OwnerID, policy.Name, policy.DefaultAction,
-		nullableString(policy.LLMConfigID), nullableString(policy.LLMPromptID), formatTime(policy.CreatedAt))
+		nullableString(policy.LLMConfigID), nullableString(policy.LLMPromptID), policy.IPAllowlist,
+		boolInt(policy.AllowPortForward), boolInt(policy.AllowUpload), boolInt(policy.AllowDownload),
+		boolInt(policy.AllowInteractive), formatTime(policy.CreatedAt))
 	if err != nil {
 		return CommandPolicy{}, err
 	}
@@ -1403,7 +1444,9 @@ func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateComma
 
 func (r *Repository) ListCommandPolicies(ctx context.Context, ownerType, ownerID string) ([]CommandPolicy, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, owner_type, owner_id, name, default_action, COALESCE(llm_config_id, ''), COALESCE(llm_prompt_id, ''), created_at
+		SELECT id, owner_type, owner_id, name, default_action, COALESCE(llm_config_id, ''),
+			COALESCE(llm_prompt_id, ''), ip_allowlist, allow_port_forward, allow_upload,
+			allow_download, allow_interactive, created_at
 		FROM command_policies
 		WHERE owner_type = ? AND owner_id = ?
 		ORDER BY created_at ASC
@@ -1414,12 +1457,10 @@ func (r *Repository) ListCommandPolicies(ctx context.Context, ownerType, ownerID
 	defer rows.Close()
 	var policies []CommandPolicy
 	for rows.Next() {
-		var policy CommandPolicy
-		var created string
-		if err := rows.Scan(&policy.ID, &policy.OwnerType, &policy.OwnerID, &policy.Name, &policy.DefaultAction, &policy.LLMConfigID, &policy.LLMPromptID, &created); err != nil {
+		policy, err := scanCommandPolicyRows(rows)
+		if err != nil {
 			return nil, err
 		}
-		policy.CreatedAt = parseTime(created)
 		rules, err := r.listPolicyRules(ctx, policy.ID)
 		if err != nil {
 			return nil, err
@@ -1438,6 +1479,124 @@ func (r *Repository) ListCommandPolicies(ctx context.Context, ownerType, ownerID
 		policies = append(policies, policy)
 	}
 	return policies, rows.Err()
+}
+
+func (r *Repository) GetCommandPolicy(ctx context.Context, id string) (CommandPolicy, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, name, default_action, COALESCE(llm_config_id, ''),
+			COALESCE(llm_prompt_id, ''), ip_allowlist, allow_port_forward, allow_upload,
+			allow_download, allow_interactive, created_at
+		FROM command_policies
+		WHERE id = ?
+	`, id)
+	policy, err := scanCommandPolicyRows(row)
+	if err != nil {
+		return CommandPolicy{}, wrapScanErr(err)
+	}
+	policy.Rules, err = r.listPolicyRules(ctx, policy.ID)
+	if err != nil {
+		return CommandPolicy{}, err
+	}
+	policy.UserGroupIDs, err = r.listPolicyUserGroupIDs(ctx, policy.ID)
+	if err != nil {
+		return CommandPolicy{}, err
+	}
+	policy.TargetTags, err = r.listPolicyTargetTags(ctx, policy.ID)
+	if err != nil {
+		return CommandPolicy{}, err
+	}
+	return policy, nil
+}
+
+func (r *Repository) UpdateCommandPolicy(ctx context.Context, id string, params UpdateCommandPolicyParams) (CommandPolicy, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE command_policies
+		SET name = ?, default_action = ?, llm_config_id = ?, llm_prompt_id = ?,
+			ip_allowlist = ?, allow_port_forward = ?, allow_upload = ?,
+			allow_download = ?, allow_interactive = ?
+		WHERE id = ?
+	`, strings.TrimSpace(params.Name), normalizePolicyAction(params.DefaultAction),
+		nullableString(params.LLMConfigID), nullableString(params.LLMPromptID),
+		strings.TrimSpace(params.IPAllowlist), boolInt(params.AllowPortForward),
+		boolInt(params.AllowUpload), boolInt(params.AllowDownload), boolInt(params.AllowInteractive), id)
+	if err != nil {
+		return CommandPolicy{}, err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return CommandPolicy{}, err
+	}
+	return r.GetCommandPolicy(ctx, id)
+}
+
+func (r *Repository) DeleteCommandPolicy(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM command_policies WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
+func (r *Repository) CopyCommandPolicy(ctx context.Context, id string, name string) (CommandPolicy, error) {
+	source, err := r.GetCommandPolicy(ctx, id)
+	if err != nil {
+		return CommandPolicy{}, err
+	}
+	if strings.TrimSpace(name) == "" {
+		name = source.Name + " Copy"
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CommandPolicy{}, err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC()
+	copy := CommandPolicy{
+		ID:               uuid.NewString(),
+		OwnerType:        source.OwnerType,
+		OwnerID:          source.OwnerID,
+		Name:             strings.TrimSpace(name),
+		DefaultAction:    source.DefaultAction,
+		LLMConfigID:      source.LLMConfigID,
+		LLMPromptID:      source.LLMPromptID,
+		IPAllowlist:      source.IPAllowlist,
+		AllowPortForward: source.AllowPortForward,
+		AllowUpload:      source.AllowUpload,
+		AllowDownload:    source.AllowDownload,
+		AllowInteractive: source.AllowInteractive,
+		CreatedAt:        now,
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO command_policies (
+			id, owner_type, owner_id, name, default_action, llm_config_id, llm_prompt_id,
+			ip_allowlist, allow_port_forward, allow_upload, allow_download, allow_interactive, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, copy.ID, copy.OwnerType, copy.OwnerID, copy.Name, copy.DefaultAction,
+		nullableString(copy.LLMConfigID), nullableString(copy.LLMPromptID), copy.IPAllowlist,
+		boolInt(copy.AllowPortForward), boolInt(copy.AllowUpload), boolInt(copy.AllowDownload),
+		boolInt(copy.AllowInteractive), formatTime(copy.CreatedAt)); err != nil {
+		return CommandPolicy{}, err
+	}
+	for _, rule := range source.Rules {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO policy_rules (id, policy_id, rule_type, pattern_type, pattern, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, uuid.NewString(), copy.ID, rule.RuleType, rule.PatternType, rule.Pattern, formatTime(now)); err != nil {
+			return CommandPolicy{}, err
+		}
+	}
+	if err := copyPolicyRelation(ctx, tx, "policy_targets", "target_id", source.ID, copy.ID); err != nil {
+		return CommandPolicy{}, err
+	}
+	if err := copyPolicyRelation(ctx, tx, "policy_target_tags", "tag_id", source.ID, copy.ID); err != nil {
+		return CommandPolicy{}, err
+	}
+	if err := copyPolicyRelation(ctx, tx, "policy_user_groups", "group_id", source.ID, copy.ID); err != nil {
+		return CommandPolicy{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CommandPolicy{}, err
+	}
+	return r.GetCommandPolicy(ctx, copy.ID)
 }
 
 func (r *Repository) CreatePolicyRule(ctx context.Context, params CreatePolicyRuleParams) (PolicyRule, error) {
@@ -1516,7 +1675,9 @@ func (r *Repository) DetachPolicyFromUserGroup(ctx context.Context, policyID, gr
 func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string) ([]CommandPolicy, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT p.id, p.owner_type, p.owner_id, p.name, p.default_action,
-			COALESCE(p.llm_config_id, ''), COALESCE(p.llm_prompt_id, ''), p.created_at
+			COALESCE(p.llm_config_id, ''), COALESCE(p.llm_prompt_id, ''),
+			p.ip_allowlist, p.allow_port_forward, p.allow_upload, p.allow_download,
+			p.allow_interactive, p.created_at
 		FROM command_policies p
 		WHERE EXISTS (
 			SELECT 1 FROM policy_targets pt
@@ -1536,12 +1697,10 @@ func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string)
 
 	var policies []CommandPolicy
 	for rows.Next() {
-		var policy CommandPolicy
-		var created string
-		if err := rows.Scan(&policy.ID, &policy.OwnerType, &policy.OwnerID, &policy.Name, &policy.DefaultAction, &policy.LLMConfigID, &policy.LLMPromptID, &created); err != nil {
+		policy, err := scanCommandPolicyRows(rows)
+		if err != nil {
 			return nil, err
 		}
-		policy.CreatedAt = parseTime(created)
 		rules, err := r.listPolicyRules(ctx, policy.ID)
 		if err != nil {
 			return nil, err
@@ -1629,6 +1788,44 @@ func (r *Repository) listPolicyRules(ctx context.Context, policyID string) ([]Po
 		rules = append(rules, rule)
 	}
 	return rules, rows.Err()
+}
+
+func scanCommandPolicyRows(row targetScanner) (CommandPolicy, error) {
+	var policy CommandPolicy
+	var created string
+	var allowPortForward, allowUpload, allowDownload, allowInteractive int
+	err := row.Scan(&policy.ID, &policy.OwnerType, &policy.OwnerID, &policy.Name, &policy.DefaultAction,
+		&policy.LLMConfigID, &policy.LLMPromptID, &policy.IPAllowlist, &allowPortForward,
+		&allowUpload, &allowDownload, &allowInteractive, &created)
+	if err != nil {
+		return CommandPolicy{}, err
+	}
+	policy.AllowPortForward = allowPortForward == 1
+	policy.AllowUpload = allowUpload == 1
+	policy.AllowDownload = allowDownload == 1
+	policy.AllowInteractive = allowInteractive == 1
+	policy.CreatedAt = parseTime(created)
+	return policy, nil
+}
+
+func copyPolicyRelation(ctx context.Context, tx *sql.Tx, table, valueColumn, sourceID, copyID string) error {
+	switch table + "." + valueColumn {
+	case "policy_targets.target_id", "policy_target_tags.tag_id", "policy_user_groups.group_id":
+	default:
+		return fmt.Errorf("unsupported policy relation %s.%s", table, valueColumn)
+	}
+	_, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		INSERT OR IGNORE INTO %s (policy_id, %s)
+		SELECT ?, %s FROM %s WHERE policy_id = ?
+	`, table, valueColumn, valueColumn, table), copyID, sourceID)
+	return err
+}
+
+func normalizePolicyAction(action string) string {
+	if strings.TrimSpace(action) == DecisionDeny {
+		return DecisionDeny
+	}
+	return DecisionAllow
 }
 
 func (r *Repository) CreateCommandAuditLog(ctx context.Context, params CreateCommandAuditLogParams) (CommandAuditLog, error) {
@@ -1855,7 +2052,7 @@ func wrapScanErr(err error) error {
 }
 
 func formatTime(t time.Time) string {
-	return t.UTC().Format(time.RFC3339Nano)
+	return t.UTC().Format("2006-01-02T15:04:05.000000000Z07:00")
 }
 
 func parseTime(raw string) time.Time {

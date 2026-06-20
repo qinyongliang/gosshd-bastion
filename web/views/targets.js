@@ -261,12 +261,7 @@ function targetDrawer() {
           <b>${escapeHTML(`${target.remote_username}@${target.host}:${target.port}`)}</b>
         </div>
       `).__raw}
-      ${sectionBlock(t("targets.basicInfo"), t("targets.detailTitle"), detailList([
-        [t("targets.tableAlias"), `<code>${escapeHTML(target.alias)}</code>`],
-        [t("targets.type"), escapeHTML(optionText("targetTypes", target.target_type))],
-        [t("targets.tableAuth"), escapeHTML(optionText("authTypes", target.auth_type))],
-        [t("targets.agentID"), escapeHTML(target.agent_id || "-")],
-      ]).__raw).__raw}
+      ${sectionBlock(t("targets.basicInfo"), t("targets.detailTitle"), detailList(targetBasicRows(target)).__raw).__raw}
       ${sectionBlock(t("targets.editTitle"), t("targets.editSub"), `
         <form data-action="rename-target" data-target-id="${escapeHTML(target.id)}" class="stack">
           <div class="form-grid">
@@ -292,6 +287,18 @@ function targetDrawer() {
       ${sectionBlock(t("targets.tagColorTitle"), t("targets.tagColorSub"), targetTagColorEditor(target)).__raw}
     `,
   });
+}
+
+function targetBasicRows(target) {
+  const rows = [
+    [t("targets.tableAlias"), `<code>${escapeHTML(target.alias)}</code>`],
+    [t("targets.type"), escapeHTML(optionText("targetTypes", target.target_type))],
+    [t("targets.tableAuth"), escapeHTML(optionText("authTypes", target.auth_type))],
+  ];
+  if (target.target_type === "agent" && target.agent_id) {
+    rows.push([t("targets.agentID"), escapeHTML(target.agent_id)]);
+  }
+  return rows;
 }
 
 function targetTags(target) {

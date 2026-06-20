@@ -43,11 +43,15 @@ export const api = {
   createPrompt: (body) => request("/api/llm-prompts", post(body)),
   policies: (owner) => request(`/api/policies?${ownerQuery(owner)}`),
   createPolicy: (body) => request("/api/policies", post(body)),
+  updatePolicy: (id, body) => request(`/api/policies/${id}`, patch(body)),
+  deletePolicy: (id) => request(`/api/policies/${id}`, { method: "DELETE" }),
+  copyPolicy: (id, body) => request(`/api/policies/${id}/copy`, post(body || {})),
   addRule: (policyID, body) => request(`/api/policies/${policyID}/rules`, post(body)),
   bindTarget: (policyID, targetID) => request(`/api/policies/${policyID}/targets`, post({ target_id: targetID })),
   bindTargetTag: (policyID, body) => request(`/api/policies/${policyID}/target-tags`, post(body)),
   bindGroup: (policyID, groupID) => request(`/api/policies/${policyID}/user-groups`, post({ group_id: groupID })),
-  audit: () => request("/api/audit"),
+  audit: (params = {}) => request(`/api/audit?${queryString(params)}`),
+  auditRecording: (id) => request(`/api/audit/${id}/recording`),
   adminSettings: () => request("/api/admin/settings"),
   updateDingTalkSettings: (body) => request("/api/admin/settings/dingtalk", put(body)),
   updateLDAPSettings: (body) => request("/api/admin/settings/ldap", put(body)),
@@ -76,5 +80,13 @@ function ownerQuery(owner) {
   const params = new URLSearchParams();
   if (owner?.owner_type) params.set("owner_type", owner.owner_type);
   if (owner?.owner_id) params.set("owner_id", owner.owner_id);
+  return params.toString();
+}
+
+function queryString(values) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values || {})) {
+    if (value !== undefined && value !== null && value !== "") params.set(key, value);
+  }
   return params.toString();
 }

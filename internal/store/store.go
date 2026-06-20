@@ -37,12 +37,16 @@ func Open(ctx context.Context, path string) (*Store, error) {
 }
 
 func (s *Store) configure(ctx context.Context) error {
+	return configureSQLite(ctx, s.db)
+}
+
+func configureSQLite(ctx context.Context, db *sql.DB) error {
 	for _, stmt := range []string{
 		`PRAGMA foreign_keys = ON`,
 		`PRAGMA journal_mode = WAL`,
 		`PRAGMA busy_timeout = 5000`,
 	} {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("configure sqlite %q: %w", stmt, err)
 		}
 	}

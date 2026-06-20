@@ -115,11 +115,15 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/llm-prompts", a.requireUser(a.handleCreateLLMPrompt))
 	mux.HandleFunc("GET /api/policies", a.requireUser(a.handleListPolicies))
 	mux.HandleFunc("POST /api/policies", a.requireUser(a.handleCreatePolicy))
+	mux.HandleFunc("PATCH /api/policies/{id}", a.requireUser(a.handleUpdatePolicy))
+	mux.HandleFunc("DELETE /api/policies/{id}", a.requireUser(a.handleDeletePolicy))
+	mux.HandleFunc("POST /api/policies/{id}/copy", a.requireUser(a.handleCopyPolicy))
 	mux.HandleFunc("POST /api/policies/{id}/rules", a.requireUser(a.handleCreatePolicyRule))
 	mux.HandleFunc("POST /api/policies/{id}/targets", a.requireUser(a.handleAttachPolicyTarget))
 	mux.HandleFunc("POST /api/policies/{id}/target-tags", a.requireUser(a.handleAttachPolicyTargetTag))
 	mux.HandleFunc("POST /api/policies/{id}/user-groups", a.requireUser(a.handleAttachPolicyUserGroup))
 	mux.HandleFunc("GET /api/audit", a.requireUser(a.handleListAuditLogs))
+	mux.HandleFunc("GET /api/audit/{id}/recording", a.requireUser(a.handleAuditRecording))
 	mux.HandleFunc("GET /install/{file}", a.handleInstall)
 }
 

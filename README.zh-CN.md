@@ -2,13 +2,13 @@
 
 [English](README.md) | 简体中文
 
-`gosshd-bastion` 是一个面向 AI 服务、自动化 Agent 和运维人员的 SSH 堡垒机。它以单个 Go 服务运行，内置 Web 控制台、SQLite 存储、SSH 网关、Agent 注册、命令安全组、LLM 实时审核钩子和 MCP 控制面。
+`gosshd-bastion` 是一个面向 AI 服务、自动化工具和运维人员的 SSH 堡垒机。它以单个 Go 服务运行，内置 Web 控制台、SQLite 存储、SSH 网关、私有节点注册、命令安全组、LLM 实时审核钩子和 MCP 控制面。
 
-当前公开版本是 [`v0.1.21-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.21-bastion)。最新版本入口在 [GitHub Releases](https://github.com/qinyongliang/gosshd-bastion/releases/latest)。
+当前公开版本是 [`v0.1.22-bastion`](https://github.com/qinyongliang/gosshd-bastion/releases/tag/v0.1.22-bastion)。最新版本入口在 [GitHub Releases](https://github.com/qinyongliang/gosshd-bastion/releases/latest)。
 
 ## 当前已实现
 
-- 基于 SQLite 持久化用户、会话、组织、组织成员、用户组、SSH 公钥、SSH 服务、目标标签、Agent 注册、命令安全组、LLM 配置、提示词资源和审计日志。
+- 基于 SQLite 持久化用户、会话、组织、组织成员、用户组、SSH 公钥、SSH 服务、目标标签、私有节点注册、命令安全组、LLM 配置和提示词资源。审计日志使用独立 SQLite 数据库。
 - 首次启动自动创建 `admin` 账号。系统管理员拥有普通用户菜单，也拥有系统配置、账号管理和组织修复入口。
 - 支持个人组织和共享组织。每个用户都有个人组织；共享组织支持 `owner`、`admin`、`member` 三种角色。
 - 支持组织用户组。每个组织默认有一个全员用户组，命令安全组可以绑定一个或多个用户组。
@@ -17,8 +17,8 @@
 - 支持直连 SSH 服务，认证方式包括账号密码和私钥。
 - 支持私有节点 SSH 服务。在 SSH 服务页可以生成带 token 的 Linux/macOS 与 Windows 安装命令，并包含开机启动安装命令。私有节点上线后会成为普通 SSH 服务，可以重命名、改标签、筛选和绑定安全组。
 - SSH 服务器高级配置支持选择已有 SSH 服务作为跳板机/Proxy，用于访问私有网段。
-- 命令安全组支持黑名单、白名单、精确/前缀/包含匹配、目标绑定、目标标签绑定、用户组绑定、默认允许/拒绝，以及未命中规则时接入 LLM 审核。
-- 对 SSH `exec` 命令请求写入审计日志，包括命令、目标、策略决策、原因和退出码。
+- 命令安全组支持黑名单、白名单、精确/前缀/包含匹配、来源 IP 白名单或范围、目标绑定、目标标签绑定、用户组绑定、默认允许/拒绝、未命中规则时接入 LLM 审核，并可控制交互式终端、端口转发、上传和下载。
+- 对 SSH `exec`、交互式终端、SFTP、端口转发决策写入审计日志，包括用户、公钥、目标、请求类型、策略决策、原因、LLM 耗时、退出码和终端录制元数据。
 - 支持钉钉 OAuth 登录。首次通过钉钉登录的用户可以自动创建本地账号，并加入默认组织和角色。
 - 系统管理中提供 LDAP 连接配置入口。当前版本尚未启用 LDAP 登录。
 - 内嵌 Web UI 默认使用简体中文，支持英文切换并记住选择；默认白色主题，支持黑白主题切换；复杂资源页使用资源表、标签筛选、弹窗和详情抽屉。
@@ -26,7 +26,7 @@
 
 ## 当前边界
 
-- SSH 网关当前支持命令执行请求，例如 `ssh test2@bastion.example.com hostname`。交互式 shell 和 SFTP 在当前版本还没有开放。
+- 交互式终端会按策略启用，并可压缩录制为回放文件，在 Web 控制台中查看。SFTP 和端口转发也由安全组能力开关控制。
 - 目标服务密码/私钥和 LLM API Key 在当前版本会按 API 提交内容存入 SQLite。请限制数据库文件访问，并使用主机或磁盘级保护；凭据加密需要后续版本补上。
 - 官网和文档源码位于 `site/`，仓库里已经包含 Pages workflow；实际发布依赖当前 GitHub 账号/仓库是否可用 GitHub Pages。
 - 当前版本发布跨平台 server 压缩包和独立 agent 二进制，不发布 `full` 包。
@@ -37,13 +37,13 @@
 
 - `gosshd-<version>-linux-amd64.tar.gz`、`gosshd-<version>-darwin-arm64.tar.gz` 等 server 包。
 - `gosshd-<version>-windows-amd64.zip` 等 Windows server 包。
-- `gosshd-agent-<version>-<goos>-<goarch>` 独立 Agent 二进制。
+- `gosshd-agent-<version>-<goos>-<goarch>` 独立私有节点二进制。
 - `checksums.txt`。
 
 Linux 从 GitHub Releases 安装示例：
 
 ```sh
-version=v0.1.21-bastion
+version=v0.1.22-bastion
 platform=linux-amd64
 
 curl -fL -o "gosshd-${version}-${platform}.tar.gz" \
@@ -151,7 +151,7 @@ MCP 端点：
 http://bastion.example.com:18080/mcp
 ```
 
-它提供注册、组织管理、公钥、目标服务、目标标签、Agent enrollment、LLM 配置、提示词资源、命令安全组、策略绑定和审计查询工具。
+它提供注册、组织管理、公钥、目标服务、目标标签、私有节点注册、LLM 配置、提示词资源、命令安全组、策略绑定和审计查询工具。
 
 ## 开发验证
 
