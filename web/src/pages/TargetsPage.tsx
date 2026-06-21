@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { Plus } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { api, type Enrollment } from "../api";
 import { CommandBox, CopyButton, Drawer, Empty, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toolbar } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -11,11 +11,18 @@ import { splitTags, tagColor, targetEndpoint } from "../utils";
 
 export function TargetsPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState(false);
   const [drawer, setDrawer] = useState<Target | null>(null);
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const filtered = data.targets.filter((target) => [target.name, target.alias, target.host, target.remote_username, ...(target.tags || [])].join(" ").toLowerCase().includes(query.toLowerCase()));
+  const refreshTargets = () => void queryClient.invalidateQueries({ queryKey: ["targets"] });
+
+  useEffect(() => {
+    refreshTargets();
+  }, [data.activeOrg.id]);
+
   return (
     <>
       <section className="resource-head">
@@ -44,7 +51,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
       </Panel>
       {modal && <TargetCreateModal data={data} onClose={() => setModal(false)} onEnrollment={(out) => { setModal(false); setEnrollment(out); }} />}
       {drawer && <TargetDrawer data={data} target={drawer} onClose={() => setDrawer(null)} />}
-      {enrollment && <InstallDrawer enrollment={enrollment} onClose={() => setEnrollment(null)} />}
+      {enrollment && <InstallDrawer enrollment={enrollment} onClose={() => { setEnrollment(null); refreshTargets(); }} />}
     </>
   );
 }

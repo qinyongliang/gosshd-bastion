@@ -79,6 +79,33 @@ try {
   await expectText(page, "sc.exe");
   await page.getByRole("button", { name: "Close" }).click();
 
+  const externalAlias = `refresh-${Date.now()}`;
+  await page.getByRole("link", { name: /^Audit$/ }).click();
+  await page.evaluate(async (alias) => {
+    const me = await fetch("/api/me").then((response) => response.json());
+    const ownerID = localStorage.getItem("gosshd_active_org") || me.organizations[0].id;
+    const response = await fetch("/api/targets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        owner_type: "organization",
+        owner_id: ownerID,
+        target_type: "direct",
+        name: "Externally created service",
+        alias,
+        host: "127.0.0.1",
+        port: 22,
+        remote_username: "root",
+        auth_type: "password",
+        secret: "root-pass",
+        tags: ["refresh"],
+      }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+  }, externalAlias);
+  await page.getByRole("link", { name: /SSH services/ }).click();
+  await expectText(page, externalAlias);
+
   await page.getByRole("link", { name: /Command policy/ }).click();
   await page.getByRole("button", { name: "Create safety group" }).click();
   const policyDialog = page.getByRole("dialog", { name: "Create safety group" });
