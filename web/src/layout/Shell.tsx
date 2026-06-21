@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { KeyRound, LayoutDashboard, ListChecks, LockKeyhole, Menu, Server, Settings, Shield, Users } from "lucide-react";
+import { KeyRound, LayoutDashboard, ListChecks, LockKeyhole, Menu, Server, Settings, Shield, Users, X } from "lucide-react";
 import { ComponentType, ReactNode, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -36,10 +36,14 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
   if (data.user.is_system_admin) nav.push(["/system-admin", t("settings"), Settings]);
 
   return (
-    <section className="console">
-      <aside className={clsx("sidebar", sidebarOpen && "open")}>
-        <div className="brand-row"><div className="mark">g</div><strong>gosshd</strong></div>
-        <div className="sidebar-user">
+    <section className={clsx("console", sidebarOpen && "sidebar-open")}>
+      <aside className="sidebar">
+        <div className="brand-row">
+          <div className="mark">g</div>
+          <strong>gosshd</strong>
+          <button className="mobile-sidebar-close icon-button" type="button" aria-label={t("close")} onClick={() => setSidebarOpen(false)}><X /></button>
+        </div>
+        <div className="user-block">
           <strong>{data.user.display_name || data.user.email}</strong>
           <span>{data.user.email}</span>
           {data.user.is_system_admin && <span className="pill">{t("admin")}</span>}
@@ -48,18 +52,18 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
           {nav.map(([to, label, Icon]) => <NavButton key={to} to={to} label={label} icon={<Icon />} onClick={() => setSidebarOpen(false)} />)}
         </nav>
         <OrgSwitcher data={data} />
-        <button type="button" onClick={() => logout.mutate()}><LockKeyhole />{t("logout")}</button>
+        <button type="button" className="logout-button" onClick={() => logout.mutate()}><LockKeyhole />{t("logout")}</button>
       </aside>
-      {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close menu" onClick={() => setSidebarOpen(false)} />}
+      <button className="sidebar-scrim" aria-label={t("close")} onClick={() => setSidebarOpen(false)} />
       <section className="workspace">
         <header className="topbar">
-          <button className="mobile-menu" type="button" onClick={() => setSidebarOpen(true)}><Menu /></button>
+          <button className="mobile-menu-button icon-button" type="button" aria-label={t("openMenu")} onClick={() => setSidebarOpen(true)}><Menu /></button>
           <div>
             <small>{t("shellProduct")}</small>
             <h1>{pageTitle(t)}</h1>
-            <span>{data.activeOrg.name}</span>
+            <span className="context-line">{data.activeOrg.name}</span>
           </div>
-          <div className="topbar-actions">
+          <div className="top-actions">
             <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
             <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
           </div>
