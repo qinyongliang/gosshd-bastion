@@ -189,10 +189,6 @@ func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 	ctx := context.Background()
 	userSigner := testSSHSigner(t)
 	user := seedBastionUserWithKey(t, app, userSigner)
-	targetAddr, closeTarget := startTestSSHServer(t)
-	defer closeTarget()
-	host, portText, _ := net.SplitHostPort(targetAddr)
-	port := mustAtoi(t, portText)
 	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -204,8 +200,8 @@ func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 		OwnerID:     personal.ID,
 		TokenHash:   codeHash(token),
 		Label:       "agentbox-initial",
-		DefaultHost: host,
-		DefaultPort: port,
+		DefaultHost: "127.0.0.1",
+		DefaultPort: 22,
 		CreatedBy:   user.ID,
 		ExpiresAt:   time.Now().Add(time.Hour),
 	}); err != nil {
@@ -255,11 +251,11 @@ func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 		t.Fatalf("rename mismatch: %+v", renamed)
 	}
 
-	out, err := runBastionSSHCommand(sshAddr, "agentbox", userSigner, "whoami")
+	out, err := runBastionSSHCommand(sshAddr, "agentbox", userSigner, "echo agent-ok")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(out) != "remote" {
+	if strings.TrimSpace(out) != "agent-ok" {
 		t.Fatalf("unexpected agent output %q", out)
 	}
 }

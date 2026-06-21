@@ -322,6 +322,14 @@ func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target stor
 }
 
 func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh.Channel, command string) int {
+	if target.TargetType == store.TargetAgent {
+		return a.agentFramedSession(target.AgentID, ch, protocol.StreamRequest{
+			Type:    protocol.StreamExec,
+			Command: command,
+			Width:   80,
+			Height:  24,
+		}, nil)
+	}
 	client, err := a.openTargetSSHClient(ctx, target)
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
@@ -370,6 +378,13 @@ func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 }
 
 func (a *App) shellOnTarget(ctx context.Context, target store.SSHTarget, ch gossh.Channel, width, height int, recorder *terminalRecorder) int {
+	if target.TargetType == store.TargetAgent {
+		return a.agentFramedSession(target.AgentID, ch, protocol.StreamRequest{
+			Type:   protocol.StreamShell,
+			Width:  width,
+			Height: height,
+		}, recorder)
+	}
 	client, err := a.openTargetSSHClient(ctx, target)
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
@@ -433,6 +448,9 @@ func (a *App) shellOnTarget(ctx context.Context, target store.SSHTarget, ch goss
 }
 
 func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh.Channel, allowUpload, allowDownload bool) int {
+	if target.TargetType == store.TargetAgent {
+		return a.agentSFTP(target.AgentID, ch, allowUpload, allowDownload)
+	}
 	client, err := a.openTargetSSHClient(ctx, target)
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
@@ -482,6 +500,87 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 	return 255
 }
 
+func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.StreamRequest, recorder *terminalRecorder) int {
+	reader, stream, err := a.openAgentStream(agentID, req)
+	if err != nil {
+		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
+		return 255
+	}
+	defer stream.Close()
+
+	go func() {
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := ch.Read(buf)
+			if n > 0 {
+				if writeErr := protocol.WriteFrame(stream, protocol.Frame{Type: protocol.FrameStdin, Data: append([]byte(nil), buf[:n]...)}); writeErr != nil {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	exitCode := 255
+	for {
+		frame, err := protocol.ReadFrame(reader)
+		if err != nil {
+			break
+		}
+		switch frame.Type {
+		case protocol.FrameStdout:
+			if recorder != nil {
+				recorder.WriteOutput(frame.Data)
+			}
+			_, _ = ch.Write(frame.Data)
+		case protocol.FrameStderr:
+			if recorder != nil {
+				recorder.WriteOutput(frame.Data)
+			}
+			_, _ = ch.Stderr().Write(frame.Data)
+		case protocol.FrameExit:
+			exitCode = protocol.ExitCode(frame)
+			_ = ch.CloseWrite()
+			return exitCode
+		}
+	}
+	_ = ch.CloseWrite()
+	return exitCode
+}
+
+func (a *App) agentSFTP(agentID string, ch gossh.Channel, allowUpload, allowDownload bool) int {
+	reader, stream, err := a.openAgentStream(agentID, protocol.StreamRequest{Type: protocol.StreamSFTP})
+	if err != nil {
+		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
+		return 255
+	}
+	defer stream.Close()
+
+	var wg sync.WaitGroup
+	var closeOnce sync.Once
+	closeBoth := func() {
+		closeOnce.Do(func() {
+			_ = ch.Close()
+			_ = stream.Close()
+		})
+	}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_ = proxySFTPPackets(ch, stream, allowUpload, allowDownload)
+		closeBoth()
+	}()
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(ch, reader)
+		closeBoth()
+	}()
+	wg.Wait()
+	return 0
+}
+
 func (a *App) handleBastionDirectTCPIP(userID, publicKeyFingerprint string, target store.SSHTarget, newCh gossh.NewChannel, sourceIP string) {
 	var payload directTCPIPPayload
 	if err := gossh.Unmarshal(newCh.ExtraData(), &payload); err != nil {
@@ -524,18 +623,33 @@ func (a *App) handleBastionDirectTCPIP(userID, publicKeyFingerprint string, targ
 	}
 	go gossh.DiscardRequests(reqs)
 	exitCode := 0
-	client, err := a.openTargetSSHClient(ctx, target)
-	if err != nil {
-		exitCode = 255
-		_ = ch.Close()
+	if target.TargetType == store.TargetAgent {
+		reader, stream, err := a.openAgentStream(target.AgentID, protocol.StreamRequest{Type: protocol.StreamTCP, Target: destination})
+		if err != nil {
+			exitCode = 255
+			_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
+			_ = ch.Close()
+		} else {
+			bridge(ch, struct {
+				io.Reader
+				io.Writer
+				io.Closer
+			}{Reader: reader, Writer: stream, Closer: stream})
+		}
 	} else {
-		defer client.Close()
-		conn, err := client.Dial("tcp", destination)
+		client, err := a.openTargetSSHClient(ctx, target)
 		if err != nil {
 			exitCode = 255
 			_ = ch.Close()
 		} else {
-			bridge(ch, conn)
+			defer client.Close()
+			conn, err := client.Dial("tcp", destination)
+			if err != nil {
+				exitCode = 255
+				_ = ch.Close()
+			} else {
+				bridge(ch, conn)
+			}
 		}
 	}
 	endedAt := time.Now().UTC()
