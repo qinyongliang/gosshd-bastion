@@ -68,6 +68,8 @@ try {
   await page.getByLabel("Key or password").fill("root-pass");
   await page.getByRole("button", { name: "Add service" }).last().click();
   await expectText(page, "react-test2");
+  const copyCommand = await page.locator("tr").filter({ hasText: "react-test2" }).locator("button.copy-anchor").getAttribute("data-value");
+  if (!copyCommand?.includes("-p 22022")) throw new Error(`copy command should use public ssh port 22022, got ${copyCommand}`);
   await page.getByRole("button", { name: /Copy SSH command/ }).first().click();
   await expectText(page, "Copied");
 
@@ -132,7 +134,9 @@ try {
   await page.getByRole("link", { name: /^Audit$/ }).click();
   await page.getByRole("link", { name: /SSH services/ }).click();
   await expectText(page, privateAlias);
-  await page.locator("tr").filter({ hasText: privateAlias }).getByRole("button", { name: "Edit" }).click();
+  const privateRow = page.locator("tr").filter({ hasText: privateAlias }).first();
+  await privateRow.getByText("root@127.0.0.1:22").waitFor();
+  await privateRow.getByRole("button", { name: "Edit" }).click();
   await expectText(page, "Private node metadata");
   await expectText(page, "Replace private node");
   await expectText(page, "Tag colors");

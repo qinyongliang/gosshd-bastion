@@ -833,6 +833,7 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 
 func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	srv, client, app := newAPITestServer(t)
+	app.cfg.PublicSSHPort = 22022
 	defer srv.Close()
 	user := registerForAPI(t, client, srv.URL, "alice@example.com")
 	var me apiMeResponse
@@ -871,6 +872,9 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	if !strings.Contains(shBody, "systemctl enable --now gosshd-agent") || !strings.Contains(shBody, "--enrollment-token") {
 		t.Fatalf("shell install script missing service install flow:\n%s", shBody)
 	}
+	if !strings.Contains(shBody, `--ssh-port "22022"`) {
+		t.Fatalf("shell install script missing public ssh port hint:\n%s", shBody)
+	}
 
 	resp, err = client.Get(srv.URL + "/install/" + enrollment.Token + ".ps1")
 	if err != nil {
@@ -889,6 +893,9 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	}
 	if !strings.Contains(psBody, `$server = "`) || !strings.Contains(psBody, `& $tmp --server $server --enrollment-token $enrollmentToken`) {
 		t.Fatalf("powershell install script missing safe server/token variables:\n%s", psBody)
+	}
+	if !strings.Contains(psBody, `$sshPort = "22022"`) || !strings.Contains(psBody, `--ssh-port $sshPort`) {
+		t.Fatalf("powershell install script missing public ssh port hint:\n%s", psBody)
 	}
 	if strings.Contains(shBody, "installl") || strings.Contains(psBody, "installl") {
 		t.Fatalf("install scripts should not accept misspelled install mode")
