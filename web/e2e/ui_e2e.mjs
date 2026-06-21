@@ -106,6 +106,46 @@ try {
   await page.getByRole("link", { name: /SSH services/ }).click();
   await expectText(page, externalAlias);
 
+  const privateAlias = `private-edit-${Date.now()}`;
+  await page.evaluate(async (alias) => {
+    const me = await fetch("/api/me").then((response) => response.json());
+    const ownerID = localStorage.getItem("gosshd_active_org") || me.organizations[0].id;
+    const response = await fetch("/api/targets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        owner_type: "organization",
+        owner_id: ownerID,
+        target_type: "agent",
+        name: "Private E2E node",
+        alias,
+        host: "127.0.0.1",
+        port: 22,
+        remote_username: "root",
+        auth_type: "password",
+        agent_id: `agent-${Date.now()}`,
+        tags: ["private-refresh"],
+      }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+  }, privateAlias);
+  await page.getByRole("link", { name: /^Audit$/ }).click();
+  await page.getByRole("link", { name: /SSH services/ }).click();
+  await expectText(page, privateAlias);
+  await page.locator("tr").filter({ hasText: privateAlias }).getByRole("button", { name: "Edit" }).click();
+  await expectText(page, "Private node metadata");
+  await expectText(page, "Replace private node");
+  await expectText(page, "Tag colors");
+  await expectCount(page.getByLabel("Target host"), 0);
+  await expectCount(page.getByLabel("Target port"), 0);
+  await expectCount(page.getByLabel("Remote username"), 0);
+  await expectCount(page.getByLabel("Authentication method"), 0);
+  await page.getByRole("button", { name: /Set tag color private-refresh blue/ }).click();
+  await page.getByRole("button", { name: "Create replacement install token" }).click();
+  await expectText(page, "systemctl");
+  await page.getByRole("button", { name: "Close" }).last().click();
+  await page.getByRole("button", { name: "Close" }).first().click();
+
   await page.getByRole("link", { name: /Command policy/ }).click();
   await page.getByRole("button", { name: "Create safety group" }).click();
   const policyDialog = page.getByRole("dialog", { name: "Create safety group" });
