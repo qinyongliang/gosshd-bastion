@@ -41,7 +41,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
         {filtered.length ? <SimpleTable headers={[t("serviceTableService"), t("serviceTableAlias"), t("commonEndpoint"), t("commonAuth"), t("commonTag"), t("commonActions")]} rows={filtered.map((target) => [
           <strong>{target.name}</strong>,
           <code>{target.alias}</code>,
-          target.target_type === "agent" ? t("privateNode") : targetEndpoint(target),
+          target.target_type === "agent" ? <span><strong>{t("privateNode")}</strong><small>{targetEndpoint(target)}</small></span> : targetEndpoint(target),
           target.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword"),
           <TagList target={target} />,
           <span className="inline-actions">

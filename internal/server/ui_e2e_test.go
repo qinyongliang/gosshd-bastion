@@ -22,6 +22,7 @@ func TestUIE2EWithBrowser(t *testing.T) {
 		SessionCookieName:      "ui_e2e_session",
 		BootstrapAdminPassword: "admin-pass",
 		PublicHost:             "127.0.0.1",
+		PublicSSHPort:          22022,
 	})
 	mux := http.NewServeMux()
 	app.routes(mux)

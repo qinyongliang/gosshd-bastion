@@ -14,6 +14,7 @@ type Config struct {
 	BootstrapAdminPassword string
 	SessionCookieName      string
 	PublicHost             string
+	PublicSSHPort          int
 	AgentPath              string
 	AgentCachePath         string
 	Version                string

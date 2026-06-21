@@ -34,3 +34,12 @@ func TestRuntimeInfoUsesPublicHostAndSSHListen(t *testing.T) {
 		t.Fatalf("runtimeInfo mismatch: %+v", got)
 	}
 }
+
+func TestRuntimeInfoUsesPublicSSHPortOverride(t *testing.T) {
+	app := NewApp(Config{PublicHost: "https://bastion.example.com:18080", SSHListen: ":22", PublicSSHPort: 22022})
+	req := httptest.NewRequest("GET", "http://internal.local:18080/api/me", nil)
+	got := app.runtimeInfo(req)
+	if got.SSHHost != "bastion.example.com" || got.SSHPort != 22022 {
+		t.Fatalf("runtimeInfo mismatch: %+v", got)
+	}
+}

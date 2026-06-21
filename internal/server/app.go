@@ -221,7 +221,7 @@ func hostFromListenAddress(listen string) string {
 func (a *App) runtimeInfo(r *http.Request) apiRuntime {
 	return apiRuntime{
 		SSHHost: publicSSHHost(a.cfg.PublicHost, r.Host),
-		SSHPort: publicSSHPort(a.cfg.SSHListen),
+		SSHPort: publicSSHPort(a.cfg.PublicSSHPort, a.cfg.SSHListen),
 	}
 }
 
@@ -246,7 +246,10 @@ func publicSSHHost(configuredHost, requestHost string) string {
 	return strings.Trim(host, "[]")
 }
 
-func publicSSHPort(listen string) int {
+func publicSSHPort(configured int, listen string) int {
+	if configured > 0 {
+		return configured
+	}
 	listen = strings.TrimSpace(listen)
 	if listen == "" {
 		return 22

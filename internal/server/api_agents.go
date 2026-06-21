@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,6 +102,7 @@ func (a *App) handleInstall(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleInstallSH(w http.ResponseWriter, r *http.Request, token string) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	base := publicBaseURL(r, a.cfg.publicHost())
+	sshPort := strconv.Itoa(publicSSHPort(a.cfg.PublicSSHPort, a.cfg.SSHListen))
 	fmt.Fprintf(w, `#!/usr/bin/env sh
 set -eu
 mode="${1:-run}"
@@ -133,7 +135,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gosshd-agent --server "%s" --enrollment-token %q
+ExecStart=/usr/local/bin/gosshd-agent --server "%s" --enrollment-token %q --ssh-port %q
 Restart=always
 RestartSec=5
 
@@ -145,13 +147,14 @@ SERVICE
   systemctl status gosshd-agent --no-pager
   exit 0
 fi
-exec "$tmp" --server "%s" --enrollment-token %q
-`, base, base, token, base, token)
+exec "$tmp" --server "%s" --enrollment-token %q --ssh-port %q
+`, base, base, token, sshPort, base, token, sshPort)
 }
 
 func (a *App) handleInstallPS1(w http.ResponseWriter, r *http.Request, token string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	base := publicBaseURL(r, a.cfg.publicHost())
+	sshPort := strconv.Itoa(publicSSHPort(a.cfg.PublicSSHPort, a.cfg.SSHListen))
 	fmt.Fprintf(w, `param(
   [switch]$Install
 )
@@ -161,13 +164,14 @@ $tmp = Join-Path $env:TEMP "gosshd-agent.exe"
 $url = "%s/download/agent/windows/amd64"
 $server = "%s"
 $enrollmentToken = "%s"
+$sshPort = "%s"
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp
 $targetDir = Join-Path $env:ProgramData "gosshd"
 $target = Join-Path $targetDir "gosshd-agent.exe"
 if ($isInstall) {
   New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
   Copy-Item -Force $tmp $target
-  $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '"'
+  $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '" --ssh-port "' + $sshPort + '"'
   $existing = Get-Service -Name "gosshd-agent" -ErrorAction SilentlyContinue
   if ($existing) {
     sc.exe stop gosshd-agent | Out-Null
@@ -180,6 +184,6 @@ if ($isInstall) {
   Get-Service gosshd-agent
   exit 0
 }
-& $tmp --server $server --enrollment-token $enrollmentToken
-`, base, base, token)
+& $tmp --server $server --enrollment-token $enrollmentToken --ssh-port $sshPort
+`, base, base, token, sshPort)
 }
