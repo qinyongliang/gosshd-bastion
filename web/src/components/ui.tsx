@@ -25,7 +25,7 @@ export function AuditTable({ logs }: { logs: AuditLog[] }) {
 export function NavButton({ to, label, icon, onClick }: { to: string; label: string; icon: ReactNode; onClick: () => void }) {
   const location = useLocation();
   const active = to === "/" ? location.pathname === "/" : location.pathname.startsWith(to);
-  return <Link className={clsx(active && "active")} to={to} onClick={onClick}>{icon}{label}</Link>;
+  return <Link className={clsx("nav-link", active && "active")} to={to} onClick={onClick}>{icon}{label}</Link>;
 }
 
 export function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
@@ -40,20 +40,23 @@ export function Metric({ label, value, icon }: { label: string; value: number; i
   return <div className="metric">{icon || <Activity />}<span>{label}</span><strong>{value}</strong></div>;
 }
 
-export function Modal({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
+export function Modal({ title, children, onClose, wide = false, stacked = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; stacked?: boolean }) {
   const { t } = useI18n();
-  return <div className="overlay"><section className={clsx("modal", wide && "wide")} role="dialog" aria-label={title}>
-    <header><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
+  return <div className={clsx("overlay", stacked && "stacked")}><section className={clsx("modal", wide && "wide")} role="dialog" aria-label={title}>
+    <header className="surface-head"><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
     <div className="surface-body modal-body-list">{children}</div>
   </section></div>;
 }
 
 export function Drawer({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
   const { t } = useI18n();
-  return <div className="drawer-scrim"><aside className="drawer">
-    <header><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
-    <div className="surface-body">{children}</div>
-  </aside></div>;
+  return <div className="drawer-layer">
+    <button className="drawer-scrim" type="button" tabIndex={-1} aria-hidden="true" onClick={onClose} />
+    <aside className="drawer">
+      <header className="surface-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
+      <div className="surface-body">{children}</div>
+    </aside>
+  </div>;
 }
 
 export function Field({ label, name, type = "text", defaultValue = "", required = false, placeholder = "", disabled = false }: { label: string; name: string; type?: string; defaultValue?: string; required?: boolean; placeholder?: string; disabled?: boolean }) {
