@@ -4,15 +4,41 @@ package agent
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
+	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
 	"golang.org/x/sys/windows"
 )
+
+const (
+	conPTYCtrlCArg = "--gosshd-conpty-ctrl-c"
+	conPTYCtrlCEnv = "GOSSHD_CONPTY_CTRL_C_PID"
+)
+
+func init() {
+	if len(os.Args) < 2 || os.Args[1] != conPTYCtrlCArg {
+		return
+	}
+	processID, err := strconv.ParseUint(os.Getenv(conPTYCtrlCEnv), 10, 32)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := sendConsoleCtrlC(uint32(processID)); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
 
 func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) {
 	if req.Type == protocol.StreamShell {
@@ -94,7 +120,7 @@ func (c *Client) handleShell(stream io.ReadWriteCloser, reader *bufio.Reader, re
 	defer input.Close()
 	defer output.Close()
 
-	process, attributeList, err := startConPTYProcess(c.cfg.Shell, c.cfg.Root, console)
+	process, processID, attributeList, err := startConPTYProcess(c.cfg.Shell, c.cfg.Root, console)
 	if err != nil {
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: err.Error()})
 		return
@@ -106,7 +132,7 @@ func (c *Client) handleShell(stream io.ReadWriteCloser, reader *bufio.Reader, re
 		return
 	}
 
-	go copyFramesToConPTY(input, reader, console)
+	go copyFramesToConPTY(input, reader, console, processID)
 	go copyReaderToFrame(stream, protocol.FrameStdout, output)
 
 	code := waitProcessExitCode(process)
@@ -140,18 +166,18 @@ func createConPTYPipes() (windows.Handle, windows.Handle, windows.Handle, window
 	return inRead, inWrite, outRead, outWrite, nil
 }
 
-func startConPTYProcess(shell, root string, console windows.Handle) (windows.Handle, *windows.ProcThreadAttributeListContainer, error) {
+func startConPTYProcess(shell, root string, console windows.Handle) (windows.Handle, uint32, *windows.ProcThreadAttributeListContainer, error) {
 	shellPath, err := exec.LookPath(shell)
 	if err != nil {
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 	attributeList, err := windows.NewProcThreadAttributeList(1)
 	if err != nil {
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 	if err := attributeList.Update(windows.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, unsafe.Pointer(console), unsafe.Sizeof(console)); err != nil {
 		attributeList.Delete()
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 
 	startup := windows.StartupInfoEx{
@@ -165,14 +191,14 @@ func startConPTYProcess(shell, root string, console windows.Handle) (windows.Han
 	appName, err := windows.UTF16PtrFromString(shellPath)
 	if err != nil {
 		attributeList.Delete()
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 	var currentDir *uint16
 	if root != "" {
 		currentDir, err = windows.UTF16PtrFromString(root)
 		if err != nil {
 			attributeList.Delete()
-			return 0, nil, err
+			return 0, 0, nil, err
 		}
 	}
 
@@ -182,17 +208,17 @@ func startConPTYProcess(shell, root string, console windows.Handle) (windows.Han
 		nil,
 		nil,
 		false,
-		windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_UNICODE_ENVIRONMENT|windows.CREATE_NEW_PROCESS_GROUP,
+		windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_UNICODE_ENVIRONMENT,
 		nil,
 		currentDir,
 		&startup.StartupInfo,
 		&processInfo,
 	); err != nil {
 		attributeList.Delete()
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 	_ = windows.CloseHandle(processInfo.Thread)
-	return processInfo.Process, attributeList, nil
+	return processInfo.Process, processInfo.ProcessId, attributeList, nil
 }
 
 func copyFramesToWriter(w io.WriteCloser, reader *bufio.Reader) {
@@ -208,7 +234,7 @@ func copyFramesToWriter(w io.WriteCloser, reader *bufio.Reader) {
 	}
 }
 
-func copyFramesToConPTY(w io.WriteCloser, reader *bufio.Reader, console windows.Handle) {
+func copyFramesToConPTY(w io.WriteCloser, reader *bufio.Reader, console windows.Handle, processID uint32) {
 	defer w.Close()
 	for {
 		frame, err := protocol.ReadFrame(reader)
@@ -217,7 +243,7 @@ func copyFramesToConPTY(w io.WriteCloser, reader *bufio.Reader, console windows.
 		}
 		switch frame.Type {
 		case protocol.FrameStdin:
-			_, _ = w.Write(frame.Data)
+			writeConPTYInput(w, frame.Data, processID)
 		case protocol.FrameResize:
 			if len(frame.Data) == 8 {
 				width := int16(uint16(frame.Data[2])<<8 | uint16(frame.Data[3]))
@@ -228,6 +254,117 @@ func copyFramesToConPTY(w io.WriteCloser, reader *bufio.Reader, console windows.
 			}
 		}
 	}
+}
+
+func writeConPTYInput(w io.Writer, data []byte, processID uint32) {
+	for len(data) > 0 {
+		ctrlC := -1
+		for i, b := range data {
+			if b == 0x03 {
+				ctrlC = i
+				break
+			}
+		}
+		if ctrlC < 0 {
+			_, _ = w.Write(data)
+			return
+		}
+		if ctrlC > 0 {
+			_, _ = w.Write(data[:ctrlC])
+		}
+		_ = interruptConsoleProcess(processID)
+		data = data[ctrlC+1:]
+	}
+}
+
+var (
+	kernel32                  = windows.NewLazySystemDLL("kernel32.dll")
+	procAttachConsole         = kernel32.NewProc("AttachConsole")
+	procFreeConsole           = kernel32.NewProc("FreeConsole")
+	procSetConsoleCtrlHandler = kernel32.NewProc("SetConsoleCtrlHandler")
+)
+
+func interruptConsoleProcess(processID uint32) error {
+	if processID == 0 {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, conPTYCtrlCArg)
+	cmd.Env = append(os.Environ(), conPTYCtrlCEnv+"="+strconv.FormatUint(uint64(processID), 10))
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	return cmd.Run()
+}
+
+func sendConsoleCtrlC(processID uint32) error {
+	detached, err := attachConsole(processID)
+	if err != nil {
+		return err
+	}
+	defer restoreConsole(detached)
+
+	_ = setConsoleCtrlIgnored(true)
+	defer setConsoleCtrlIgnored(false)
+
+	if err := windows.GenerateConsoleCtrlEvent(windows.CTRL_C_EVENT, 0); err != nil {
+		return err
+	}
+	time.Sleep(100 * time.Millisecond)
+	return nil
+}
+
+func attachConsole(processID uint32) (bool, error) {
+	if err := callAttachConsole(processID); err == nil {
+		return false, nil
+	} else if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return false, err
+	}
+
+	if err := freeConsole(); err != nil {
+		return false, err
+	}
+	if err := callAttachConsole(processID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func restoreConsole(reattachParent bool) {
+	_ = freeConsole()
+	if reattachParent {
+		const attachParentProcess = ^uint32(0)
+		_ = callAttachConsole(attachParentProcess)
+	}
+}
+
+func callAttachConsole(processID uint32) error {
+	r, _, err := procAttachConsole.Call(uintptr(processID))
+	if r == 0 {
+		return err
+	}
+	return nil
+}
+
+func freeConsole() error {
+	r, _, err := procFreeConsole.Call()
+	if r == 0 {
+		return err
+	}
+	return nil
+}
+
+func setConsoleCtrlIgnored(ignore bool) error {
+	add := uintptr(0)
+	if ignore {
+		add = 1
+	}
+	r, _, err := procSetConsoleCtrlHandler.Call(0, add)
+	if r == 0 {
+		return err
+	}
+	return nil
 }
 
 func copyReaderToFrame(w io.Writer, typ byte, r io.Reader) {

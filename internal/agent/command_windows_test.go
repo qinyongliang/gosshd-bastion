@@ -51,11 +51,29 @@ func TestWindowsShellUsesConPTYForInteractiveInput(t *testing.T) {
 	if !strings.Contains(output, "conpty-ok") {
 		t.Fatalf("interactive output missing command result: %q", output)
 	}
+	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte("ping -t 127.0.0.1\r")}); err != nil {
+		t.Fatal(err)
+	}
+	_ = readFramesUntil(t, reader, "Reply from 127.0.0.1")
+	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte{0x03}}); err != nil {
+		t.Fatal(err)
+	}
+	output = readFramesUntil(t, reader, "Control-C")
+	if !strings.Contains(output, "Control-C") {
+		t.Fatalf("ctrl-c did not interrupt ping: %q", output)
+	}
+	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte("echo still-alive\r")}); err != nil {
+		t.Fatal(err)
+	}
+	output = readFramesUntil(t, reader, "still-alive")
+	if !strings.Contains(output, "still-alive") {
+		t.Fatalf("shell did not continue after ctrl-c: %q", output)
+	}
 	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte("exit\r")}); err != nil {
 		t.Fatal(err)
 	}
-	if code := readExitCode(t, reader); code != 0 {
-		t.Fatalf("exit code mismatch: got %d want 0", code)
+	if code := readExitCode(t, reader); code != 0 && code != 0xC000013A {
+		t.Fatalf("exit code mismatch: got %d want 0 or CTRL_C_EVENT", code)
 	}
 }
 
@@ -65,7 +83,7 @@ func readFramesUntil(t *testing.T, reader *bufio.Reader, marker string) string {
 	for out.Len() < 64*1024 {
 		frame, err := protocol.ReadFrame(reader)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("read frames until %q: %v; output=%q", marker, err, out.String())
 		}
 		switch frame.Type {
 		case protocol.FrameStdout, protocol.FrameStderr:
