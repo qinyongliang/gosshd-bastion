@@ -14,9 +14,10 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState(false);
-  const [drawer, setDrawer] = useState<Target | null>(null);
+  const [drawerTargetID, setDrawerTargetID] = useState("");
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const filtered = data.targets.filter((target) => [target.name, target.alias, target.host, target.remote_username, ...(target.tags || [])].join(" ").toLowerCase().includes(query.toLowerCase()));
+  const drawerTarget = data.targets.find((target) => target.id === drawerTargetID) || null;
   const refreshTargets = () => void queryClient.invalidateQueries({ queryKey: ["targets"] });
 
   useEffect(() => {
@@ -45,12 +46,12 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
           <TagList target={target} />,
           <span className="inline-actions">
             <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} />
-            <button type="button" onClick={() => setDrawer(target)}>{t("commonEdit")}</button>
+            <button type="button" onClick={() => setDrawerTargetID(target.id)}>{t("commonEdit")}</button>
           </span>,
         ])} /> : <Empty title={t("serviceEmptyTitle")} body={t("serviceEmptyBody")} />}
       </Panel>
       {modal && <TargetCreateModal data={data} onClose={() => setModal(false)} onEnrollment={(out) => { setModal(false); setEnrollment(out); }} />}
-      {drawer && <TargetDrawer data={data} target={drawer} onClose={() => setDrawer(null)} />}
+      {drawerTarget && <TargetDrawer data={data} target={drawerTarget} onClose={() => setDrawerTargetID("")} onEnrollment={setEnrollment} />}
       {enrollment && <InstallDrawer enrollment={enrollment} onClose={() => { setEnrollment(null); refreshTargets(); }} />}
     </>
   );
@@ -124,11 +125,17 @@ function TargetCreateModal({ data, onClose, onEnrollment }: { data: ConsoleData;
   </Modal>;
 }
 
-function TargetDrawer({ data, target, onClose }: { data: ConsoleData; target: Target; onClose: () => void }) {
+function TargetDrawer({ data, target, onClose, onEnrollment }: { data: ConsoleData; target: Target; onClose: () => void; onEnrollment: (enrollment: Enrollment) => void }) {
+  if (target.target_type === "agent") {
+    return <PrivateNodeDrawer data={data} target={target} onClose={onClose} onEnrollment={onEnrollment} />;
+  }
+  return <DirectTargetDrawer data={data} target={target} onClose={onClose} />;
+}
+
+function DirectTargetDrawer({ data, target, onClose }: { data: ConsoleData; target: Target; onClose: () => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const update = useMutation({ mutationFn: (body: Record<string, unknown>) => api.updateTarget(target.id, body), onSuccess: async () => queryClient.invalidateQueries() });
-  const color = useMutation({ mutationFn: (body: Record<string, unknown>) => api.updateTargetTagColor(body), onSuccess: async () => queryClient.invalidateQueries() });
   return <Drawer title={target.name} subtitle={t("serviceEditBody")} onClose={onClose}>
     <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => update.mutate({
       name: body.name,
@@ -152,16 +159,59 @@ function TargetDrawer({ data, target, onClose }: { data: ConsoleData; target: Ta
       <Select label={t("serviceAdvancedProxy")} name="proxy_target_id" defaultValue={target.proxy_target_id || ""} options={[["", t("commonNotUse")], ...data.targets.filter((item) => item.id !== target.id).map((item): [string, string] => [item.id, `${item.name} (${item.alias})`])]} />
       <ModalActions onCancel={onClose} submit={t("save")} />
     </form>
+    <TagColorEditor data={data} target={target} />
+  </Drawer>;
+}
+
+function PrivateNodeDrawer({ data, target, onClose, onEnrollment }: { data: ConsoleData; target: Target; onClose: () => void; onEnrollment: (enrollment: Enrollment) => void }) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const update = useMutation({ mutationFn: (body: Record<string, unknown>) => api.updateTarget(target.id, body), onSuccess: async () => queryClient.invalidateQueries() });
+  const replace = useMutation({
+    mutationFn: () => api.enrollPrivateNode({ owner_type: "organization", owner_id: data.activeOrg.id, label: target.alias || target.name || "private-node", default_host: "127.0.0.1", default_port: 22 }),
+    onSuccess: async (out) => {
+      await queryClient.invalidateQueries({ queryKey: ["targets"] });
+      onEnrollment(out);
+    },
+  });
+
+  return <Drawer title={target.name} subtitle={t("servicePrivateEditBody")} onClose={onClose}>
     <section className="section-block embedded">
-      <h3>{t("serviceTagColors")}</h3>
-      {(target.tags || []).map((tag) => <div className="tag-color-row" key={tag}>
-        <Tag tag={tag} color={tagColor(tag, target.tag_colors)} />
-        <div className="tag-color-swatches">
-          {["gray", "red", "orange", "yellow", "green", "blue", "purple"].map((item) => <button key={item} type="button" className={`tag-color-${item}`} onClick={() => color.mutate({ owner_type: "organization", owner_id: data.activeOrg.id, name: tag, color: item })}>{item}</button>)}
-        </div>
-      </div>)}
+      <h3>{t("servicePrivateMetadataTitle")}</h3>
+      <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => update.mutate({
+        name: body.name,
+        alias: body.alias,
+        tags: splitTags(body.tags || ""),
+      }))}>
+        <Field label={t("serviceName")} name="name" defaultValue={target.name} required />
+        <Field label={t("serviceAlias")} name="alias" defaultValue={target.alias} required />
+        <Field label={t("commonTag")} name="tags" defaultValue={(target.tags || []).join(", ")} />
+        <ModalActions onCancel={onClose} submit={t("save")} />
+      </form>
+    </section>
+    <TagColorEditor data={data} target={target} />
+    <section className="notice-card compact">
+      <h3>{t("servicePrivateReplaceTitle")}</h3>
+      <p>{t("servicePrivateReplaceBody")}</p>
+      <button type="button" className="primary" onClick={() => replace.mutate()} disabled={replace.isPending}>{t("servicePrivateReplaceAction")}</button>
     </section>
   </Drawer>;
+}
+
+function TagColorEditor({ data, target }: { data: ConsoleData; target: Target }) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const color = useMutation({ mutationFn: (body: Record<string, unknown>) => api.updateTargetTagColor(body), onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["targets"] }) });
+  const tags = target.tags || [];
+  return <section className="section-block embedded">
+    <h3>{t("serviceTagColors")}</h3>
+    {tags.length ? tags.map((tag) => <div className="tag-color-row" key={tag}>
+      <Tag tag={tag} color={tagColor(tag, target.tag_colors)} />
+      <div className="tag-color-swatches">
+        {["gray", "red", "orange", "yellow", "green", "blue", "purple"].map((item) => <button key={item} type="button" aria-label={`${t("serviceTagColorSet")} ${tag} ${t(`tagColor${item[0].toUpperCase()}${item.slice(1)}`)}`} className={`tag-color-${item}`} onClick={() => color.mutate({ owner_type: "organization", owner_id: data.activeOrg.id, name: tag, color: item })}>{item}</button>)}
+      </div>
+    </div>) : <p className="muted">{t("serviceNoTagsForColors")}</p>}
+  </section>;
 }
 
 function InstallDrawer({ enrollment, onClose }: { enrollment: Enrollment; onClose: () => void }) {
