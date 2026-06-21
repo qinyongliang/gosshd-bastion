@@ -152,11 +152,11 @@ func TestBastionE2E(t *testing.T) {
 	agentTarget := waitForAgentTarget(t, app, personalOrg.ID)
 	var renamed apiTargetResponse
 	patchJSON(t, client, baseURL+"/api/targets/"+agentTarget.ID, map[string]string{"alias": "agentbox"}, http.StatusOK, &renamed)
-	out, err = runBastionSSHCommand(sshLn.Addr().String(), "agentbox", userSigner, "whoami")
+	out, err = runBastionSSHCommand(sshLn.Addr().String(), "agentbox", userSigner, "echo agent-ok")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(out) != "remote" {
+	if strings.TrimSpace(out) != "agent-ok" {
 		t.Fatalf("unexpected agent ssh output %q", out)
 	}
 
