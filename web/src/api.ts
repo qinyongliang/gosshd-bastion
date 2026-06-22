@@ -16,6 +16,7 @@ import type {
   PublicKey,
   Runtime,
   Target,
+  TargetSystemSnapshot,
   User,
   UserGroup,
 } from "./types";
@@ -102,6 +103,7 @@ export const api = {
 
   audit: (params: Record<string, unknown>) => request<{ logs: AuditLog[]; total: number; page: number; page_size: number }>(`/api/audit?${queryString(params)}`),
   auditRecording: (id: string) => request<AuditRecording>(`/api/audit/${id}/recording`),
+  targetSystem: (targetID: string) => request<TargetSystemSnapshot>(`/api/targets/${targetID}/system`),
 
   adminSettings: () => request<Record<string, unknown>>("/api/admin/settings"),
   updateAuthSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/auth", put(body)),

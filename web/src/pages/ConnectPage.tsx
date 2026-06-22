@@ -1,10 +1,14 @@
+import { useQuery } from "@tanstack/react-query";
 import { Terminal } from "@xterm/xterm";
-import { ArrowLeft, Maximize, RefreshCw, Unplug } from "lucide-react";
+import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, FileText, Globe, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Server, Shield, Unplug } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { api } from "../api";
+import { Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
-import type { ConsoleData, Target } from "../types";
+import { useTheme } from "../theme";
+import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
 import { targetEndpoint } from "../utils";
 import { FileManager } from "./FileManager";
 
@@ -20,19 +24,16 @@ export function ConnectPage({ data }: { data: ConsoleData }) {
 
   if (!target) {
     return (
-      <section className="connect-page">
-        <section className="resource-head">
-          <div>
-            <small>{t("services")}</small>
-            <h2>{t("connect")}</h2>
-            <p>{t("serviceEmptyBody")}</p>
-          </div>
-          <Link className="button-link" to="/targets">
+      <main className="connect-workspace empty">
+        <section className="connect-error">
+          <div className="connect-error-icon"><Server /></div>
+          <h2>{t("connect")}</h2>
+          <p>{t("serviceEmptyBody")}</p>
+          <a className="button-link" href="/targets">
             <ArrowLeft />{t("connectBack")}
-          </Link>
+          </a>
         </section>
-        <div className="status error">{t("serviceEmptyTitle")}</div>
-      </section>
+      </main>
     );
   }
 
@@ -40,58 +41,213 @@ export function ConnectPage({ data }: { data: ConsoleData }) {
 }
 
 function ConnectWorkspace({ target }: { target: Target }) {
-  const { t } = useI18n();
+  const { t, locale, setLocale } = useI18n();
+  const { theme, setTheme } = useTheme();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const endpoint = targetEndpoint(target);
 
   return (
-    <section className="connect-page">
-      <section className="resource-head">
-        <div>
-          <small>{t("services")} / {target.name}</small>
-          <h2>{t("connectTerminal")}</h2>
-          <p>{targetEndpoint(target)}</p>
+    <main className="connect-workspace">
+      <header className="connect-appbar">
+        <div className="connect-appbar-brand">
+          <div className="connect-appbar-mark">g</div>
+          <div className="connect-appbar-title">
+            <strong>gosshd</strong>
+            <span>{t("shellProduct")}</span>
+          </div>
         </div>
-        <div className="top-actions">
-          <Link className="button-link" to="/targets">
-            <ArrowLeft />{t("connectBack")}
-          </Link>
+
+        <button
+          type="button"
+          className="icon-button connect-sidebar-toggle"
+          onClick={() => setSidebarOpen((prev) => !prev)}
+          aria-label={sidebarOpen ? t("connectCollapseSidebar") : t("connectExpandSidebar")}
+          title={sidebarOpen ? t("connectCollapseSidebar") : t("connectExpandSidebar")}
+        >
+          {sidebarOpen ? <ChevronLeft /> : <ChevronRight />}
+        </button>
+
+        <div className="connect-appbar-host">
+          <Server />
+          <div>
+            <strong>{target.name}</strong>
+            <code>{target.alias}</code>
+          </div>
         </div>
+
+        <div className="connect-appbar-meta">
+          <span className="connect-appbar-endpoint"><Globe />{endpoint}</span>
+          <span className="connect-appbar-type">
+            {target.target_type === "agent" ? <Monitor /> : <HardDrive />}
+            {target.target_type === "agent" ? t("privateNode") : t("serviceDirect")}
+          </span>
+          <span className="connect-appbar-auth"><Shield />{target.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword")}</span>
+        </div>
+
+        <div className="connect-appbar-actions">
+          <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
+          <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
+          <a className="button-link back" href="/targets"><ArrowLeft />{t("connectBack")}</a>
+        </div>
+      </header>
+
+      <section className="connect-body">
+        <aside className={`connect-host-panel ${sidebarOpen ? "" : "collapsed"}`}>
+          <section className="connect-panel compact">
+            <h3><Monitor />{t("connectHostInfo")}</h3>
+            <dl className="connect-host-list">
+              <div><dt>{t("serviceName")}</dt><dd>{target.name}</dd></div>
+              <div><dt>{t("serviceAlias")}</dt><dd><code>{target.alias}</code></dd></div>
+              <div><dt>{t("targetHost")}</dt><dd>{target.host || "-"}</dd></div>
+              <div><dt>{t("targetPort")}</dt><dd>{target.port || 22}</dd></div>
+              <div><dt>{t("serviceRemoteUser")}</dt><dd>{target.remote_username}</dd></div>
+              <div><dt>{t("serviceAuthType")}</dt><dd>{target.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword")}</dd></div>
+              <div><dt>{t("commonTag")}</dt><dd>{(target.tags || []).join(", ") || "-"}</dd></div>
+            </dl>
+          </section>
+          <SystemSnapshotPanel targetID={target.id} />
+        </aside>
+
+        <section className="connect-main">
+          <div className="connect-zone terminal-zone">
+            <div className="connect-zone-head">
+              <span><Monitor />{t("connectTerminalTitle")}</span>
+            </div>
+            <TerminalPanel target={target} />
+          </div>
+          <div className="connect-zone files-zone">
+            <div className="connect-zone-head">
+              <span><FileText />{t("connectFilesTitle")}</span>
+            </div>
+            <FileManager target={target} />
+          </div>
+        </section>
       </section>
-      <div className="connect-layout">
-        <HostSummary target={target} />
-        <div className="connect-main">
-          <TerminalPanel target={target} />
-          <FileManager target={target} />
+    </main>
+  );
+}
+
+function SystemSnapshotPanel({ targetID }: { targetID: string }) {
+  const { t } = useI18n();
+  const system = useQuery({
+    queryKey: ["target-system", targetID],
+    queryFn: () => api.targetSystem(targetID),
+    refetchInterval: 15000,
+    staleTime: 5000,
+    retry: 1,
+  });
+  const snapshot = system.data;
+
+  return (
+    <section className="connect-panel compact telemetry-panel">
+      <header className="telemetry-head">
+        <h3><Activity />{t("connectSystemInfo")}</h3>
+        <button type="button" className="icon-button" onClick={() => system.refetch()} disabled={system.isFetching} title={t("commonRefresh")}>
+          <RefreshCw />
+        </button>
+      </header>
+
+      {!snapshot && (
+        <div className="telemetry-empty">
+          <strong>{system.isLoading ? t("loading") : t("connectSystemUnavailable")}</strong>
+          {system.error ? <span>{String((system.error as Error).message || "")}</span> : <span>{t("connectSystemHint")}</span>}
         </div>
-      </div>
+      )}
+
+      {snapshot && (
+        <>
+          <div className="telemetry-ip-card">
+            <span>{t("connectSystemIP")}</span>
+            <strong title={snapshot.ip || snapshot.hostname || "-"}>{snapshot.ip || snapshot.hostname || "-"}</strong>
+            <small>{[snapshot.os, snapshot.hostname].filter(Boolean).join(" / ") || "-"}</small>
+          </div>
+
+          <dl className="telemetry-summary">
+            <div>
+              <dt>{t("connectSystemUptime")}</dt>
+              <dd title={snapshot.uptime || "-"}>{snapshot.uptime || "-"}</dd>
+            </div>
+            <div>
+              <dt>{t("connectSystemLoad")}</dt>
+              <dd>{snapshot.load || "-"}</dd>
+            </div>
+          </dl>
+
+          <ResourceMeter icon={<Cpu />} label={t("connectSystemCPU")} percent={snapshot.cpu_percent} />
+          <ResourceMeter label={t("connectSystemMemory")} usage={snapshot.memory} />
+          <ResourceMeter label={t("connectSystemSwap")} usage={snapshot.swap} />
+
+          <section className="telemetry-block">
+            <h4>{t("connectSystemProcesses")}</h4>
+            <div className="telemetry-process-list">
+              {(snapshot.processes || []).slice(0, 5).map((item) => (
+                <div className="telemetry-process" key={`${item.command}-${item.rss_bytes}-${item.cpu_percent}`}>
+                  <strong title={item.command}>{item.command}</strong>
+                  <span>{formatBytes(item.rss_bytes)}</span>
+                  <span>{item.cpu_percent.toFixed(1)}%</span>
+                </div>
+              ))}
+              {!snapshot.processes?.length && <p>{t("connectSystemNoData")}</p>}
+            </div>
+          </section>
+
+          <section className="telemetry-block">
+            <h4><Network />{t("connectSystemNetwork")}</h4>
+            <div className="telemetry-network-list">
+              {(snapshot.network || []).slice(0, 4).map((item) => (
+                <div className="telemetry-network" key={item.interface}>
+                  <strong title={item.interface}>{item.interface}</strong>
+                  <span>↓ {formatBytes(item.rx_bytes)}</span>
+                  <span>↑ {formatBytes(item.tx_bytes)}</span>
+                </div>
+              ))}
+              {!snapshot.network?.length && <p>{t("connectSystemNoData")}</p>}
+            </div>
+          </section>
+
+          <section className="telemetry-block">
+            <h4><HardDrive />{t("connectSystemFilesystems")}</h4>
+            <div className="telemetry-disk-list">
+              {(snapshot.filesystems || []).slice(0, 12).map((item) => (
+                <div className="telemetry-disk" key={item.path}>
+                  <div>
+                    <strong title={item.path}>{item.path}</strong>
+                    <span>{formatBytes(item.used_bytes)}/{formatBytes(item.total_bytes)}</span>
+                  </div>
+                  <Meter percent={item.percent} />
+                </div>
+              ))}
+              {!snapshot.filesystems?.length && <p>{t("connectSystemNoData")}</p>}
+            </div>
+          </section>
+        </>
+      )}
     </section>
   );
 }
 
-function HostSummary({ target }: { target: Target }) {
-  const { t } = useI18n();
+function ResourceMeter({ icon, label, percent, usage }: { icon?: ReactNode; label: string; percent?: number; usage?: TargetSystemUsage }) {
+  const value = clampNumber(percent ?? usage?.percent ?? 0);
   return (
-    <aside className="connect-sidebar">
-      <section className="section-block">
-        <h3>{t("connectHostSummary")}</h3>
-        <div className="detail-list compact">
-          <div><dt>{t("serviceName")}</dt><dd>{target.name}</dd></div>
-          <div><dt>{t("serviceAlias")}</dt><dd>{target.alias}</dd></div>
-          <div><dt>{t("targetHost")}</dt><dd>{target.host || "-"}</dd></div>
-          <div><dt>{t("targetPort")}</dt><dd>{target.port || 22}</dd></div>
-          <div><dt>{t("serviceRemoteUser")}</dt><dd>{target.remote_username}</dd></div>
-          <div><dt>{t("serviceAuthType")}</dt><dd>{target.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword")}</dd></div>
-          <div><dt>{t("commonTag")}</dt><dd>{(target.tags || []).join(", ") || "-"}</dd></div>
-        </div>
-      </section>
-      <section className="section-block">
-        <h3>{t("dashboardControlTitle")}</h3>
-        <div className="ops-grid">
-          <span><strong>CPU</strong><small>{t("connectResourcePlaceholder")}</small></span>
-          <span><strong>Memory</strong><small>{t("connectResourcePlaceholder")}</small></span>
-          <span><strong>Load</strong><small>{t("connectResourcePlaceholder")}</small></span>
-        </div>
-      </section>
-    </aside>
+    <div className="resource-meter">
+      <div className="resource-meter-head">
+        <span>{icon}{label}</span>
+        <strong>{value.toFixed(0)}%</strong>
+      </div>
+      <Meter percent={value} />
+      {usage && usage.total_bytes > 0 && (
+        <small>{formatBytes(usage.used_bytes)}/{formatBytes(usage.total_bytes)}</small>
+      )}
+    </div>
+  );
+}
+
+function Meter({ percent }: { percent: number }) {
+  const value = clampNumber(percent);
+  return (
+    <div className="meter-track" aria-label={`${value.toFixed(0)}%`}>
+      <span style={{ width: `${value}%` }} />
+    </div>
   );
 }
 
@@ -100,11 +256,11 @@ function TerminalPanel({ target }: { target: Target }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
-  const fitRetryRef = useRef<number | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [error, setError] = useState("");
   const [dims, setDims] = useState({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const fitRetryRef = useRef<number | null>(null);
 
   const connect = () => {
     if (socketRef.current) {
@@ -251,12 +407,12 @@ function TerminalPanel({ target }: { target: Target }) {
           ) : (
             <button type="button" onClick={() => socketRef.current?.close()} disabled={status !== "connected"}><Unplug />{t("connectDisconnect")}</button>
           )}
-          <button type="button" onClick={() => setIsFullscreen((prev) => !prev)} aria-label={t("connectTerminalSize")}>
-            <Maximize />
+          <button type="button" className="icon-button" onClick={() => setIsFullscreen((prev) => !prev)} aria-label={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")} title={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")}>
+            {isFullscreen ? <Minimize /> : <Maximize />}
           </button>
         </div>
       </header>
-      {error && <div className="status error">{error}</div>}
+      {error && <div className="terminal-error">{error}</div>}
       <div className="terminal-viewport" ref={containerRef} />
     </section>
   );
@@ -269,4 +425,18 @@ function estimateTerminalDimensions(width: number, height: number, fontSize: num
     cols: Math.max(20, Math.floor(width / charWidth)),
     rows: Math.max(8, Math.floor(height / charHeight)),
   };
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  if (value < 1024) return `${value.toFixed(0)} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function clampNumber(value: number) {
+  if (!Number.isFinite(value) || value < 0) return 0;
+  if (value > 100) return 100;
+  return value;
 }
