@@ -13,9 +13,19 @@ import { targetEndpoint } from "../utils";
 import { FileManager } from "./FileManager";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
+type MetricSample = {
+  at: number;
+  cpu: number;
+  memory: number;
+  swap: number;
+  rx: number;
+  tx: number;
+};
 
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
+const SYSTEM_REFRESH_MS = 5000;
+const MAX_SYSTEM_SAMPLES = 60;
 
 export function ConnectPage({ data }: { data: ConsoleData }) {
   const { targetID } = useParams<{ targetID: string }>();
@@ -129,14 +139,26 @@ function ConnectWorkspace({ target }: { target: Target }) {
 
 function SystemSnapshotPanel({ targetID }: { targetID: string }) {
   const { t } = useI18n();
+  const [samples, setSamples] = useState<MetricSample[]>([]);
   const system = useQuery({
     queryKey: ["target-system", targetID],
     queryFn: () => api.targetSystem(targetID),
-    refetchInterval: 15000,
-    staleTime: 5000,
+    refetchInterval: SYSTEM_REFRESH_MS,
+    staleTime: 4000,
     retry: 1,
   });
   const snapshot = system.data;
+  const networkTrend = buildNetworkRates(samples);
+
+  useEffect(() => {
+    setSamples([]);
+  }, [targetID]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const sample = snapshotToSample(snapshot);
+    setSamples((current) => [...current, sample].slice(-MAX_SYSTEM_SAMPLES));
+  }, [snapshot]);
 
   return (
     <section className="connect-panel compact telemetry-panel">
@@ -173,9 +195,9 @@ function SystemSnapshotPanel({ targetID }: { targetID: string }) {
             </div>
           </dl>
 
-          <ResourceMeter icon={<Cpu />} label={t("connectSystemCPU")} percent={snapshot.cpu_percent} />
-          <ResourceMeter label={t("connectSystemMemory")} usage={snapshot.memory} />
-          <ResourceMeter label={t("connectSystemSwap")} usage={snapshot.swap} />
+          <ResourceMeter icon={<Cpu />} label={t("connectSystemCPU")} percent={snapshot.cpu_percent} trend={samples.map((item) => item.cpu)} />
+          <ResourceMeter label={t("connectSystemMemory")} usage={snapshot.memory} trend={samples.map((item) => item.memory)} />
+          <ResourceMeter label={t("connectSystemSwap")} usage={snapshot.swap} trend={samples.map((item) => item.swap)} />
 
           <section className="telemetry-block">
             <h4>{t("connectSystemProcesses")}</h4>
@@ -193,6 +215,10 @@ function SystemSnapshotPanel({ targetID }: { targetID: string }) {
 
           <section className="telemetry-block">
             <h4><Network />{t("connectSystemNetwork")}</h4>
+            <div className="telemetry-trend-pair">
+              <TrendLine label={t("connectSystemRX")} values={networkTrend.rx} />
+              <TrendLine label={t("connectSystemTX")} values={networkTrend.tx} />
+            </div>
             <div className="telemetry-network-list">
               {(snapshot.network || []).slice(0, 4).map((item) => (
                 <div className="telemetry-network" key={item.interface}>
@@ -226,7 +252,7 @@ function SystemSnapshotPanel({ targetID }: { targetID: string }) {
   );
 }
 
-function ResourceMeter({ icon, label, percent, usage }: { icon?: ReactNode; label: string; percent?: number; usage?: TargetSystemUsage }) {
+function ResourceMeter({ icon, label, percent, usage, trend }: { icon?: ReactNode; label: string; percent?: number; usage?: TargetSystemUsage; trend?: number[] }) {
   const value = clampNumber(percent ?? usage?.percent ?? 0);
   return (
     <div className="resource-meter">
@@ -238,6 +264,7 @@ function ResourceMeter({ icon, label, percent, usage }: { icon?: ReactNode; labe
       {usage && usage.total_bytes > 0 && (
         <small>{formatBytes(usage.used_bytes)}/{formatBytes(usage.total_bytes)}</small>
       )}
+      <TrendLine label={label} values={trend || []} max={100} compact />
     </div>
   );
 }
@@ -247,6 +274,19 @@ function Meter({ percent }: { percent: number }) {
   return (
     <div className="meter-track" aria-label={`${value.toFixed(0)}%`}>
       <span style={{ width: `${value}%` }} />
+    </div>
+  );
+}
+
+function TrendLine({ label, values, max, compact = false }: { label: string; values: number[]; max?: number; compact?: boolean }) {
+  const points = sparklinePoints(values, max);
+  const latest = values.length ? values[values.length - 1] : 0;
+  return (
+    <div className={compact ? "trend-line compact" : "trend-line"} title={`${label}: ${latest.toFixed(1)}`}>
+      <svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-label={label}>
+        <polyline points={points} />
+      </svg>
+      {!compact && <span>{label}</span>}
     </div>
   );
 }
@@ -425,6 +465,49 @@ function estimateTerminalDimensions(width: number, height: number, fontSize: num
     cols: Math.max(20, Math.floor(width / charWidth)),
     rows: Math.max(8, Math.floor(height / charHeight)),
   };
+}
+
+function snapshotToSample(snapshot: TargetSystemSnapshot): MetricSample {
+  const network = sumNetwork(snapshot);
+  return {
+    at: snapshot.collected_at ? new Date(snapshot.collected_at).getTime() || Date.now() : Date.now(),
+    cpu: clampNumber(snapshot.cpu_percent),
+    memory: clampNumber(snapshot.memory?.percent || 0),
+    swap: clampNumber(snapshot.swap?.percent || 0),
+    rx: network.rx,
+    tx: network.tx,
+  };
+}
+
+function sumNetwork(snapshot: TargetSystemSnapshot) {
+  return (snapshot.network || []).reduce((total, item) => ({
+    rx: total.rx + Math.max(0, item.rx_bytes || 0),
+    tx: total.tx + Math.max(0, item.tx_bytes || 0),
+  }), { rx: 0, tx: 0 });
+}
+
+function buildNetworkRates(samples: MetricSample[]) {
+  const rx: number[] = [];
+  const tx: number[] = [];
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = samples[index - 1];
+    const current = samples[index];
+    const seconds = Math.max(1, (current.at - previous.at) / 1000);
+    rx.push(Math.max(0, current.rx - previous.rx) / seconds);
+    tx.push(Math.max(0, current.tx - previous.tx) / seconds);
+  }
+  return { rx, tx };
+}
+
+function sparklinePoints(values: number[], fixedMax?: number) {
+  if (!values.length) return "0,28 100,28";
+  const items = values.length === 1 ? [values[0], values[0]] : values.slice(-MAX_SYSTEM_SAMPLES);
+  const max = Math.max(fixedMax || 0, ...items, 1);
+  return items.map((value, index) => {
+    const x = items.length === 1 ? 100 : (index / (items.length - 1)) * 100;
+    const y = 28 - (clampNumber((value / max) * 100) / 100) * 26;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
 }
 
 function formatBytes(value: number) {
