@@ -241,12 +241,8 @@ func (a *App) handleBastionShell(userID, publicKeyFingerprint string, target sto
 		return
 	}
 	exitCode := a.shellOnTarget(ctx, target, ch, width, height, recorder)
-	meta, recErr := recorder.Close()
-	if recErr != nil {
-		_, _ = ch.Stderr().Write([]byte("terminal recording close failed: " + recErr.Error() + "\n"))
-	}
 	endedAt := time.Now().UTC()
-	_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
+	a.recordShellAuditAsync(recorder, store.CreateCommandAuditLogParams{
 		UserID:               userID,
 		TargetID:             target.ID,
 		OrganizationID:       organizationIDForTarget(target),
@@ -260,14 +256,25 @@ func (a *App) handleBastionShell(userID, publicKeyFingerprint string, target sto
 		StartedAt:            startedAt,
 		EndedAt:              &endedAt,
 		RemoteAddress:        sourceIP,
-		RecordingPath:        meta.RelativePath,
-		RecordingSize:        meta.Size,
-		RecordingSHA256:      meta.SHA256,
-		RecordingDurationMS:  meta.DurationMS,
-		RecordingWidth:       meta.Width,
-		RecordingHeight:      meta.Height,
 	})
 	sendExit(ch, exitCode)
+}
+
+func (a *App) recordShellAuditAsync(recorder *terminalRecorder, params store.CreateCommandAuditLogParams) {
+	a.backgroundWG.Add(1)
+	go func() {
+		defer a.backgroundWG.Done()
+		meta, err := recorder.Close()
+		if err == nil {
+			params.RecordingPath = meta.RelativePath
+			params.RecordingSize = meta.Size
+			params.RecordingSHA256 = meta.SHA256
+			params.RecordingDurationMS = meta.DurationMS
+			params.RecordingWidth = meta.Width
+			params.RecordingHeight = meta.Height
+		}
+		_, _ = a.createAuditLog(context.Background(), params)
+	}()
 }
 
 func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target store.SSHTarget, ch gossh.Channel, sourceIP string) {
@@ -420,24 +427,24 @@ func (a *App) shellOnTarget(ctx context.Context, target store.SSHTarget, ch goss
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 		return 255
 	}
-	var wg sync.WaitGroup
-	wg.Add(3)
+	var outputWG sync.WaitGroup
+	outputWG.Add(2)
 	go func() {
-		defer wg.Done()
 		_, _ = io.Copy(stdin, ch)
 		_ = closeWriter(stdin)
 	}()
 	go func() {
-		defer wg.Done()
+		defer outputWG.Done()
 		_, _ = copyAndRecord(ch, stdout, recorder)
 	}()
 	go func() {
-		defer wg.Done()
+		defer outputWG.Done()
 		_, _ = copyAndRecord(ch.Stderr(), stderr, recorder)
 	}()
 	err = session.Wait()
+	_ = closeWriter(stdin)
 	_ = ch.CloseWrite()
-	wg.Wait()
+	outputWG.Wait()
 	if err == nil {
 		return 0
 	}

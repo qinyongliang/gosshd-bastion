@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Activity, Copy, Search, X } from "lucide-react";
+import { Activity, Copy, Play, Search, X } from "lucide-react";
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useI18n } from "../i18n";
@@ -7,19 +7,46 @@ import type { AuditLog, Member, Target } from "../types";
 import { copyText, tagColor } from "../utils";
 import { formatDate } from "../lib/forms";
 
-export function AuditTable({ logs }: { logs: AuditLog[] }) {
+export function AuditTable({ logs, onReplay }: { logs: AuditLog[]; onReplay?: (log: AuditLog) => void }) {
   const { t } = useI18n();
-  return <SimpleTable headers={[t("auditTableUser"), t("auditTableKey"), t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableStarted")]} rows={logs.map((log) => [
-    <span><strong>{log.user_display_name || log.user_email || "-"}</strong><small>{log.user_email || ""}</small></span>,
-    <span><strong>{log.public_key_name || "-"}</strong><small>{log.public_key_fingerprint || ""}</small></span>,
-    <span><strong>{log.target_name || log.target_alias || "-"}</strong><small>{log.target_endpoint || ""}</small></span>,
-    <code>{log.command || "-"}</code>,
-    log.request_type,
-    <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
-    log.policy_reason || "-",
-    String(log.exit_code ?? ""),
-    formatDate(log.started_at),
-  ])} />;
+  const [detail, setDetail] = useState<{ title: string; value: string; mono?: boolean } | null>(null);
+  const headers = [t("auditTableUser"), t("auditTableKey"), t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableStarted")];
+  if (onReplay) headers.push(t("commonActions"));
+  const openDetail = (title: string, value: string, mono = false) => {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === "-") return;
+    setDetail({ title, value: trimmed, mono });
+  };
+  return <>
+    <SimpleTable headers={headers} rows={logs.map((log) => {
+      const row: ReactNode[] = [
+        <AuditTextCell title={t("auditTableUser")} primary={log.user_display_name || log.user_email || "-"} secondary={log.user_email || ""} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableKey")} primary={log.public_key_name || "-"} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableTarget")} primary={log.target_name || log.target_alias || "-"} secondary={log.target_endpoint || ""} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono lines={2} onOpen={openDetail} />,
+        log.request_type,
+        <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
+        <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} lines={2} onOpen={openDetail} />,
+        String(log.exit_code ?? ""),
+        formatDate(log.started_at),
+      ];
+      if (onReplay) {
+        row.push(log.has_recording ? <button type="button" className="small" onClick={() => onReplay(log)}><Play />{t("auditReplay")}</button> : <span className="muted">-</span>);
+      }
+      return row;
+    })} />
+    {detail && <Modal title={detail.title} onClose={() => setDetail(null)} wide className="audit-detail-modal">
+      <pre className={clsx("audit-detail-content", detail.mono && "mono")}>{detail.value}</pre>
+    </Modal>}
+  </>;
+}
+
+function AuditTextCell({ title, primary, secondary = "", mono = false, lines = 1, onOpen }: { title: string; primary: string; secondary?: string; mono?: boolean; lines?: 1 | 2; onOpen: (title: string, value: string, mono?: boolean) => void }) {
+  const full = [primary, secondary].filter(Boolean).join("\n");
+  return <button type="button" className={clsx("audit-cell", mono && "mono", lines === 2 && "two-lines")} title={full} onClick={() => onOpen(title, full, mono)}>
+    <strong>{primary}</strong>
+    {secondary && <small>{secondary}</small>}
+  </button>;
 }
 
 export function NavButton({ to, label, icon, onClick }: { to: string; label: string; icon: ReactNode; onClick: () => void }) {
@@ -40,9 +67,9 @@ export function Metric({ label, value, icon }: { label: string; value: number; i
   return <div className="metric">{icon || <Activity />}<span>{label}</span><strong>{value}</strong></div>;
 }
 
-export function Modal({ title, children, onClose, wide = false, stacked = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; stacked?: boolean }) {
+export function Modal({ title, children, onClose, wide = false, stacked = false, className = "" }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; stacked?: boolean; className?: string }) {
   const { t } = useI18n();
-  return <div className={clsx("overlay", stacked && "stacked")}><section className={clsx("modal", wide && "wide")} role="dialog" aria-label={title}>
+  return <div className={clsx("overlay", stacked && "stacked")}><section className={clsx("modal", wide && "wide", className)} role="dialog" aria-label={title}>
     <header className="surface-head"><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
     <div className="surface-body modal-body-list">{children}</div>
   </section></div>;

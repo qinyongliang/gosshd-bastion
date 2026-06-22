@@ -28,6 +28,7 @@ type App struct {
 	bastion             *bastion.Service
 	auditRecordingsPath string
 	initMu              sync.Mutex
+	backgroundWG        sync.WaitGroup
 	httpSrv             *http.Server
 	sshLn               net.Listener
 }
@@ -44,6 +45,7 @@ func (a *App) Registry() *AgentRegistry {
 }
 
 func (a *App) Close() error {
+	a.backgroundWG.Wait()
 	a.initMu.Lock()
 	defer a.initMu.Unlock()
 	var err error

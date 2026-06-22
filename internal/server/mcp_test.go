@@ -44,7 +44,7 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !mcpHasTool(tools, "target_create") || !mcpHasTool(tools, "policy_create") || !mcpHasTool(tools, "policy_bind_target_tag") || !mcpHasTool(tools, "llm_prompt_create") {
+	if !mcpHasTool(tools, "target_create") || !mcpHasTool(tools, "target_delete") || !mcpHasTool(tools, "policy_create") || !mcpHasTool(tools, "policy_bind_target_tag") || !mcpHasTool(tools, "llm_prompt_create") {
 		t.Fatalf("expected bastion tools, got %+v", tools.Tools)
 	}
 
@@ -311,6 +311,31 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 	}
 	if !containsStructuredField(audit.StructuredContent, "logs", "command", "whoami") {
 		t.Fatalf("audit_list missing whoami audit: %#v", audit.StructuredContent)
+	}
+	deletedTarget, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "target_delete",
+		Arguments: map[string]any{
+			"user_id":   userID,
+			"target_id": targetID,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deletedTarget.IsError {
+		t.Fatalf("target_delete returned MCP error: %#v", deletedTarget)
+	}
+	if _, err := app.store.Repository().GetSSHTarget(context.Background(), targetID); err == nil {
+		t.Fatalf("target_delete did not remove target %s", targetID)
+	}
+	policyAfterTargetDelete, err := app.store.Repository().GetCommandPolicy(context.Background(), policyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, boundTargetID := range policyAfterTargetDelete.TargetIDs {
+		if boundTargetID == targetID {
+			t.Fatalf("target_delete should remove policy target binding: %#v", policyAfterTargetDelete.TargetIDs)
+		}
 	}
 	if _, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "org_leave",

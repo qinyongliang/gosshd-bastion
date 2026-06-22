@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
@@ -77,6 +78,224 @@ func TestPolicyEvaluationWhitelistBlacklistDefaultAndUserGroups(t *testing.T) {
 	}
 	if decision.Action != store.DecisionDeny {
 		t.Fatalf("default decision mismatch: %+v", decision)
+	}
+}
+
+func TestPolicyWhitelistRequiresEveryShellSegmentToMatch(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+	user, err := repo.CreateUser(ctx, store.CreateUserParams{Email: "reader@example.com", DisplayName: "Reader", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := repo.CreateOrganization(ctx, store.CreateOrganizationParams{Name: "Read Only", Slug: "read-only", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := repo.CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Alias: "test2",
+		TargetType: store.TargetDirect, Host: "127.0.0.1", Port: 22,
+		RemoteUsername: "root", AuthType: store.AuthPassword, CreatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := repo.CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
+		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Name: "readonly", DefaultAction: store.DecisionDeny,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range []string{"ls", "pwd", "wc"} {
+		if _, err := repo.CreatePolicyRule(ctx, store.CreatePolicyRuleParams{
+			PolicyID: policy.ID, RuleType: store.RuleWhitelist, PatternType: store.PatternContains, Pattern: pattern,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(repo)
+	decision, err := svc.EvaluateCommand(ctx, user.ID, target.ID, "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionAllow {
+		t.Fatalf("single whitelisted command should be allowed: %+v", decision)
+	}
+	decision, err = svc.EvaluateCommand(ctx, user.ID, target.ID, "ls && pwd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionAllow {
+		t.Fatalf("all whitelisted shell segments should be allowed: %+v", decision)
+	}
+	decision, err = svc.EvaluateCommand(ctx, user.ID, target.ID, "ls && mkdir test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionDeny {
+		t.Fatalf("compound command with unapproved segment should be denied: %+v", decision)
+	}
+}
+
+func TestPolicyPipeCommandsUseLLMReview(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+	user, err := repo.CreateUser(ctx, store.CreateUserParams{Email: "pipe@example.com", DisplayName: "Pipe", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := repo.CreateOrganization(ctx, store.CreateOrganizationParams{Name: "Pipe Review", Slug: "pipe-review", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := repo.CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Alias: "test2",
+		TargetType: store.TargetDirect, Host: "127.0.0.1", Port: 22,
+		RemoteUsername: "root", AuthType: store.AuthPassword, CreatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var llmRequest map[string]any
+	srv := llmTestServerWithRequest(t, `{"allow":true}`, &llmRequest)
+	defer srv.Close()
+	llm, err := repo.CreateLLMPolicyConfig(ctx, store.CreateLLMPolicyConfigParams{
+		OwnerType: store.OwnerOrganization,
+		OwnerID:   org.ID,
+		Name:      "pipe reviewer",
+		BaseURL:   srv.URL,
+		Model:     "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := repo.CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
+		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Name: "readonly with llm", DefaultAction: store.DecisionDeny,
+		LLMConfigID: llm.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range []string{"ls", "wc"} {
+		if _, err := repo.CreatePolicyRule(ctx, store.CreatePolicyRuleParams{
+			PolicyID: policy.ID, RuleType: store.RuleWhitelist, PatternType: store.PatternContains, Pattern: pattern,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, pattern := range []string{"rm", "dd", ">"} {
+		if _, err := repo.CreatePolicyRule(ctx, store.CreatePolicyRuleParams{
+			PolicyID: policy.ID, RuleType: store.RuleBlacklist, PatternType: store.PatternContains, Pattern: pattern,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	decision, err := NewService(repo).EvaluateCommand(ctx, user.ID, target.ID, "ip addr 2>/dev/null | grep 'inet '; docker info --format '{{.ServerVersion}}' | wc -l")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionAllow || !strings.HasPrefix(decision.Reason, "llm") {
+		t.Fatalf("pipe command should be decided by llm: %+v", decision)
+	}
+	messages, ok := llmRequest["messages"].([]any)
+	if !ok || len(messages) < 2 || !strings.Contains(messages[1].(map[string]any)["content"].(string), "docker info --format") {
+		t.Fatalf("llm request should include pipe command: %+v", llmRequest)
+	}
+}
+
+func TestPolicyPipeCommandWithoutLLMIsDenied(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+	user, err := repo.CreateUser(ctx, store.CreateUserParams{Email: "no-llm-pipe@example.com", DisplayName: "Pipe", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := repo.CreateOrganization(ctx, store.CreateOrganizationParams{Name: "Pipe No LLM", Slug: "pipe-no-llm", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := repo.CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Alias: "test2",
+		TargetType: store.TargetDirect, Host: "127.0.0.1", Port: 22,
+		RemoteUsername: "root", AuthType: store.AuthPassword, CreatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := repo.CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
+		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Name: "readonly without llm", DefaultAction: store.DecisionAllow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range []string{"ls", "wc"} {
+		if _, err := repo.CreatePolicyRule(ctx, store.CreatePolicyRuleParams{
+			PolicyID: policy.ID, RuleType: store.RuleWhitelist, PatternType: store.PatternContains, Pattern: pattern,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	decision, err := NewService(repo).EvaluateCommand(ctx, user.ID, target.ID, "ls | wc -l")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionDeny {
+		t.Fatalf("pipe command without llm should be denied: %+v", decision)
+	}
+}
+
+func TestContainsBareCommandRulesMatchCommandTokens(t *testing.T) {
+	rmRule := store.PolicyRule{RuleType: store.RuleBlacklist, PatternType: store.PatternContains, Pattern: "rm"}
+	ddRule := store.PolicyRule{RuleType: store.RuleBlacklist, PatternType: store.PatternContains, Pattern: "dd"}
+	lsRule := store.PolicyRule{RuleType: store.RuleWhitelist, PatternType: store.PatternContains, Pattern: "ls"}
+
+	if ruleMatches(rmRule, "docker info --format '{{.ServerVersion}}'") {
+		t.Fatalf("rm should not match --format")
+	}
+	if ruleMatches(ddRule, "ip addr 2>/dev/null") {
+		t.Fatalf("dd should not match addr")
+	}
+	if ruleMatches(lsRule, "false") {
+		t.Fatalf("ls should not match false")
+	}
+	if !ruleMatches(rmRule, "rm -rf /tmp/x") {
+		t.Fatalf("rm command should match")
+	}
+	if !ruleMatches(rmRule, "sudo /bin/rm -rf /tmp/x") {
+		t.Fatalf("sudo /bin/rm command should match")
+	}
+	if !ruleMatches(ddRule, "dd if=/dev/zero of=/tmp/x bs=1M count=1") {
+		t.Fatalf("dd command should match")
+	}
+	if !ruleMatches(lsRule, "ls -la /tmp") {
+		t.Fatalf("ls command should match")
 	}
 }
 

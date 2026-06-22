@@ -126,7 +126,17 @@ export type AuditLog = {
   policy_reason: string;
   exit_code?: number;
   started_at: string;
+  ended_at?: string;
+  has_recording?: boolean;
+  recording_duration_ms?: number;
+  recording_width?: number;
+  recording_height?: number;
   recording_path?: string;
+};
+
+export type AuditRecording = {
+  log: AuditLog;
+  lines: unknown[];
 };
 
 export type AdminUser = User;

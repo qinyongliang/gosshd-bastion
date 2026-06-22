@@ -226,6 +226,14 @@ func auditWhere(filter AuditLogFilter) (string, []any) {
 		clauses = append(clauses, "target_id = ?")
 		args = append(args, filter.TargetID)
 	}
+	if filter.PolicyDecision != "" {
+		clauses = append(clauses, "policy_decision = ?")
+		args = append(args, filter.PolicyDecision)
+	}
+	if filter.RequestType != "" {
+		clauses = append(clauses, "request_type = ?")
+		args = append(args, filter.RequestType)
+	}
 	if !filter.StartedFrom.IsZero() {
 		clauses = append(clauses, "started_at >= ?")
 		args = append(args, formatTime(filter.StartedFrom))

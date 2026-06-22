@@ -206,6 +206,31 @@ func (a *App) handleUpdateTarget(w http.ResponseWriter, r *http.Request, user st
 	writeJSON(w, http.StatusOK, apiTargetResponse{Target: apiTargetFromStore(target)})
 }
 
+func (a *App) handleDeleteTarget(w http.ResponseWriter, r *http.Request, user store.User) {
+	target, err := a.store.Repository().GetSSHTarget(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, _, err := a.resolveOwner(r.Context(), target.OwnerType, target.OwnerID, user.ID); err != nil {
+		writeOwnerError(w, err)
+		return
+	}
+	if err := a.store.Repository().DeleteSSHTarget(r.Context(), target.ID); err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusNoContent, nil)
+}
+
 func (a *App) handleUpdateTargetTagColor(w http.ResponseWriter, r *http.Request, user store.User) {
 	var req struct {
 		OwnerType string `json:"owner_type"`

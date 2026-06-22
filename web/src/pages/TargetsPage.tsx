@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { Plus } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { Plus, Trash2 } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api, type Enrollment } from "../api";
 import { CommandBox, CopyButton, Drawer, Empty, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toolbar } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -16,13 +16,38 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   const [modal, setModal] = useState(false);
   const [drawerTargetID, setDrawerTargetID] = useState("");
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
+  const [tip, setTip] = useState("");
+  const tipTimerRef = useRef<number | null>(null);
   const filtered = data.targets.filter((target) => [target.name, target.alias, target.host, target.remote_username, ...(target.tags || [])].join(" ").toLowerCase().includes(query.toLowerCase()));
   const drawerTarget = data.targets.find((target) => target.id === drawerTargetID) || null;
   const refreshTargets = () => void queryClient.invalidateQueries({ queryKey: ["targets"] });
+  const removeTarget = useMutation({
+    mutationFn: api.deleteTarget,
+    onSuccess: async (_, id) => {
+      if (drawerTargetID === id) setDrawerTargetID("");
+      await queryClient.invalidateQueries({ queryKey: ["targets"] });
+      await queryClient.invalidateQueries({ queryKey: ["policies"] });
+    },
+  });
+
+  function deleteTarget(target: Target) {
+    if (!window.confirm(t("serviceDeleteConfirm"))) return;
+    removeTarget.mutate(target.id);
+  }
+
+  function showTip(message: string) {
+    if (tipTimerRef.current) window.clearTimeout(tipTimerRef.current);
+    setTip(message);
+    tipTimerRef.current = window.setTimeout(() => setTip(""), 1800);
+  }
 
   useEffect(() => {
     refreshTargets();
   }, [data.activeOrg.id]);
+
+  useEffect(() => () => {
+    if (tipTimerRef.current) window.clearTimeout(tipTimerRef.current);
+  }, []);
 
   return (
     <>
@@ -47,12 +72,14 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
           <span className="inline-actions">
             <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} />
             <button type="button" onClick={() => setDrawerTargetID(target.id)}>{t("commonEdit")}</button>
+            <button type="button" className="danger" onClick={() => deleteTarget(target)} disabled={removeTarget.isPending}><Trash2 />{t("commonDelete")}</button>
           </span>,
         ])} /> : <Empty title={t("serviceEmptyTitle")} body={t("serviceEmptyBody")} />}
       </Panel>
       {modal && <TargetCreateModal data={data} onClose={() => setModal(false)} onEnrollment={(out) => { setModal(false); setEnrollment(out); }} />}
-      {drawerTarget && <TargetDrawer data={data} target={drawerTarget} onClose={() => setDrawerTargetID("")} onEnrollment={setEnrollment} />}
+      {drawerTarget && <TargetDrawer data={data} target={drawerTarget} onClose={() => setDrawerTargetID("")} onEnrollment={setEnrollment} onSaved={() => showTip(t("serviceSaveSuccess"))} />}
       {enrollment && <InstallDrawer enrollment={enrollment} onClose={() => { setEnrollment(null); refreshTargets(); }} />}
+      {tip && <div className="page-toast" role="status">{tip}</div>}
     </>
   );
 }
@@ -125,17 +152,33 @@ function TargetCreateModal({ data, onClose, onEnrollment }: { data: ConsoleData;
   </Modal>;
 }
 
-function TargetDrawer({ data, target, onClose, onEnrollment }: { data: ConsoleData; target: Target; onClose: () => void; onEnrollment: (enrollment: Enrollment) => void }) {
+function TargetDrawer({ data, target, onClose, onEnrollment, onSaved }: { data: ConsoleData; target: Target; onClose: () => void; onEnrollment: (enrollment: Enrollment) => void; onSaved: () => void }) {
   if (target.target_type === "agent") {
-    return <PrivateNodeDrawer data={data} target={target} onClose={onClose} onEnrollment={onEnrollment} />;
+    return <PrivateNodeDrawer data={data} target={target} onClose={onClose} onEnrollment={onEnrollment} onSaved={onSaved} />;
   }
-  return <DirectTargetDrawer data={data} target={target} onClose={onClose} />;
+  return <DirectTargetDrawer data={data} target={target} onClose={onClose} onSaved={onSaved} />;
 }
 
-function DirectTargetDrawer({ data, target, onClose }: { data: ConsoleData; target: Target; onClose: () => void }) {
+function DirectTargetDrawer({ data, target, onClose, onSaved }: { data: ConsoleData; target: Target; onClose: () => void; onSaved: () => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const update = useMutation({ mutationFn: (body: Record<string, unknown>) => api.updateTarget(target.id, body), onSuccess: async () => queryClient.invalidateQueries() });
+  const update = useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.updateTarget(target.id, body),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["targets"] });
+      await queryClient.invalidateQueries({ queryKey: ["policies"] });
+      onSaved();
+      onClose();
+    },
+  });
+  const remove = useMutation({
+    mutationFn: () => api.deleteTarget(target.id),
+    onSuccess: async () => {
+      onClose();
+      await queryClient.invalidateQueries({ queryKey: ["targets"] });
+      await queryClient.invalidateQueries({ queryKey: ["policies"] });
+    },
+  });
   return <Drawer title={target.name} subtitle={t("serviceEditBody")} onClose={onClose}>
     <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => update.mutate({
       name: body.name,
@@ -160,13 +203,34 @@ function DirectTargetDrawer({ data, target, onClose }: { data: ConsoleData; targ
       <ModalActions onCancel={onClose} submit={t("save")} />
     </form>
     <TagColorEditor data={data} target={target} />
+    <section className="notice-card compact danger-zone">
+      <h3>{t("serviceDeleteTitle")}</h3>
+      <p>{t("serviceDeleteBody")}</p>
+      <button type="button" className="danger" onClick={() => { if (window.confirm(t("serviceDeleteConfirm"))) remove.mutate(); }} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
+    </section>
   </Drawer>;
 }
 
-function PrivateNodeDrawer({ data, target, onClose, onEnrollment }: { data: ConsoleData; target: Target; onClose: () => void; onEnrollment: (enrollment: Enrollment) => void }) {
+function PrivateNodeDrawer({ data, target, onClose, onEnrollment, onSaved }: { data: ConsoleData; target: Target; onClose: () => void; onEnrollment: (enrollment: Enrollment) => void; onSaved: () => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const update = useMutation({ mutationFn: (body: Record<string, unknown>) => api.updateTarget(target.id, body), onSuccess: async () => queryClient.invalidateQueries() });
+  const update = useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.updateTarget(target.id, body),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["targets"] });
+      await queryClient.invalidateQueries({ queryKey: ["policies"] });
+      onSaved();
+      onClose();
+    },
+  });
+  const remove = useMutation({
+    mutationFn: () => api.deleteTarget(target.id),
+    onSuccess: async () => {
+      onClose();
+      await queryClient.invalidateQueries({ queryKey: ["targets"] });
+      await queryClient.invalidateQueries({ queryKey: ["policies"] });
+    },
+  });
   const replace = useMutation({
     mutationFn: () => api.enrollPrivateNode({ owner_type: "organization", owner_id: data.activeOrg.id, label: target.alias || target.name || "private-node", default_host: "127.0.0.1", default_port: 22 }),
     onSuccess: async (out) => {
@@ -194,6 +258,11 @@ function PrivateNodeDrawer({ data, target, onClose, onEnrollment }: { data: Cons
       <h3>{t("servicePrivateReplaceTitle")}</h3>
       <p>{t("servicePrivateReplaceBody")}</p>
       <button type="button" className="primary" onClick={() => replace.mutate()} disabled={replace.isPending}>{t("servicePrivateReplaceAction")}</button>
+    </section>
+    <section className="notice-card compact danger-zone">
+      <h3>{t("serviceDeleteTitle")}</h3>
+      <p>{t("serviceDeleteBody")}</p>
+      <button type="button" className="danger" onClick={() => { if (window.confirm(t("serviceDeleteConfirm"))) remove.mutate(); }} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
     </section>
   </Drawer>;
 }
