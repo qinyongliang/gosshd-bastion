@@ -17,7 +17,7 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 	defer srv.Close()
 
 	indexBody := ""
-	for _, path := range []string{"/", "/targets"} {
+	for _, path := range []string{"/", "/targets", "/targets/target-123/connect"} {
 		resp, err := srv.Client().Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)

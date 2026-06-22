@@ -225,6 +225,85 @@ func (r *Repository) GetSystemSetting(ctx context.Context, key string) (SystemSe
 	return setting, nil
 }
 
+func (r *Repository) CreateMCPToken(ctx context.Context, params CreateMCPTokenParams) (MCPToken, error) {
+	name := strings.TrimSpace(params.Name)
+	if name == "" {
+		name = "MCP token"
+	}
+	if params.UserID == "" {
+		return MCPToken{}, errors.New("user id is required")
+	}
+	if len(params.TokenHash) == 0 {
+		return MCPToken{}, errors.New("token hash is required")
+	}
+	token := MCPToken{
+		ID:        uuid.NewString(),
+		UserID:    params.UserID,
+		Name:      name,
+		TokenHash: append([]byte(nil), params.TokenHash...),
+		CreatedAt: time.Now().UTC(),
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO mcp_tokens (id, user_id, name, token_hash, last_used_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, token.ID, token.UserID, token.Name, token.TokenHash, nullableTime(token.LastUsedAt), formatTime(token.CreatedAt))
+	if err != nil {
+		return MCPToken{}, err
+	}
+	return token, nil
+}
+
+func (r *Repository) ListMCPTokensForUser(ctx context.Context, userID string) ([]MCPToken, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, user_id, name, token_hash, last_used_at, created_at
+		FROM mcp_tokens
+		WHERE user_id = ?
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tokens []MCPToken
+	for rows.Next() {
+		token, err := scanMCPTokenRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, token)
+	}
+	return tokens, rows.Err()
+}
+
+func (r *Repository) GetMCPTokenByHash(ctx context.Context, tokenHash []byte) (MCPToken, error) {
+	token, err := scanMCPTokenRows(r.db.QueryRowContext(ctx, `
+		SELECT id, user_id, name, token_hash, last_used_at, created_at
+		FROM mcp_tokens
+		WHERE token_hash = ?
+	`, tokenHash))
+	if err != nil {
+		return MCPToken{}, wrapScanErr(err)
+	}
+	return token, nil
+}
+
+func (r *Repository) TouchMCPToken(ctx context.Context, tokenID string, usedAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE mcp_tokens SET last_used_at = ? WHERE id = ?
+	`, formatTime(usedAt.UTC()), tokenID)
+	return err
+}
+
+func (r *Repository) DeleteMCPToken(ctx context.Context, userID, tokenID string) error {
+	res, err := r.db.ExecContext(ctx, `
+		DELETE FROM mcp_tokens WHERE user_id = ? AND id = ?
+	`, userID, tokenID)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
 func (r *Repository) CreateExternalIdentity(ctx context.Context, params CreateExternalIdentityParams) (ExternalIdentity, error) {
 	now := time.Now().UTC()
 	identity := ExternalIdentity{
@@ -2125,6 +2204,22 @@ func scanExternalIdentity(row targetScanner) (ExternalIdentity, error) {
 	identity.CreatedAt = parseTime(created)
 	identity.UpdatedAt = parseTime(updated)
 	return identity, nil
+}
+
+func scanMCPTokenRows(row targetScanner) (MCPToken, error) {
+	var token MCPToken
+	var lastUsed sql.NullString
+	var created string
+	err := row.Scan(&token.ID, &token.UserID, &token.Name, &token.TokenHash, &lastUsed, &created)
+	if err != nil {
+		return MCPToken{}, err
+	}
+	if lastUsed.Valid {
+		v := parseTime(lastUsed.String)
+		token.LastUsedAt = &v
+	}
+	token.CreatedAt = parseTime(created)
+	return token, nil
 }
 
 func scanTarget(row *sql.Row) (SSHTarget, error) {

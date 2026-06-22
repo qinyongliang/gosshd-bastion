@@ -1163,6 +1163,98 @@ html[data-theme="light"] .audit-detail-content {
   background: rgba(255, 255, 255, 0.76);
 }
 
+.audit-table-compact .table-wrap table {
+  table-layout: fixed;
+  min-width: min(1240px, 100vw);
+}
+
+.audit-table-compact th,
+.audit-table-compact td {
+  padding: 6px 8px;
+  line-height: 1.24;
+  vertical-align: middle;
+}
+
+.audit-table-compact th {
+  font-size: 11px;
+}
+
+.audit-table-compact th:nth-child(1),
+.audit-table-compact td:nth-child(1) {
+  width: 64px;
+}
+
+.audit-table-compact th:nth-child(2),
+.audit-table-compact td:nth-child(2) {
+  width: 132px;
+}
+
+.audit-table-compact th:nth-child(3),
+.audit-table-compact td:nth-child(3) {
+  width: 190px;
+}
+
+.audit-table-compact th:nth-child(4),
+.audit-table-compact td:nth-child(4) {
+  width: 34%;
+}
+
+.audit-table-compact th:nth-child(5),
+.audit-table-compact td:nth-child(5) {
+  width: 58px;
+}
+
+.audit-table-compact th:nth-child(6),
+.audit-table-compact td:nth-child(6) {
+  width: 62px;
+}
+
+.audit-table-compact th:nth-child(7),
+.audit-table-compact td:nth-child(7) {
+  width: 16%;
+}
+
+.audit-table-compact th:nth-child(8),
+.audit-table-compact td:nth-child(8) {
+  width: 48px;
+}
+
+.audit-table-compact th:nth-child(9),
+.audit-table-compact td:nth-child(9) {
+  width: 136px;
+}
+
+.audit-table-compact th:nth-child(10),
+.audit-table-compact td:nth-child(10) {
+  width: 64px;
+}
+
+.audit-table-compact .audit-cell {
+  max-width: 100%;
+  gap: 1px;
+}
+
+.audit-table-compact .audit-cell strong,
+.audit-table-compact .audit-cell small {
+  display: block;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+}
+
+.audit-table-compact .badge {
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.audit-table-compact button.small {
+  min-height: 28px;
+  padding: 0 8px;
+}
+
 .status, .notice-card {
   margin: 12px 0;
   padding: 12px 14px;
@@ -3202,6 +3294,237 @@ html[data-theme="light"] .toolbar-chips span.tag-chip,
 html[data-theme="light"] .tag-row .tag-chip {
   color: var(--tag-fg);
   background: var(--tag-bg);
+}
+
+.connect-page {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+}
+
+.connect-page .resource-head .top-actions button.active {
+  color: #031017;
+  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+}
+
+.connect-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.26fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.connect-sidebar {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.connect-sidebar .section-block {
+  margin: 0;
+}
+
+.connect-main {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.terminal-panel {
+  display: grid;
+  gap: 12px;
+  grid-template-rows: auto auto minmax(420px, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.terminal-panel.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  border-radius: 0;
+  grid-template-rows: auto auto 1fr;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.terminal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.terminal-dims {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.terminal-viewport {
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  color: #dbeafe;
+  background: radial-gradient(circle at 18% 0%, rgba(14, 165, 183, 0.18), transparent 30%), #08111e;
+  overflow: hidden;
+}
+
+.terminal-panel.fullscreen .terminal-viewport {
+  min-height: 0;
+}
+
+.file-manager {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.file-manager-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.file-manager-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+.file-manager-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.file-upload-input {
+  display: none;
+}
+
+.file-manager-body {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(2, 6, 12, 0.36);
+}
+
+.file-manager-body table {
+  min-width: 640px;
+  margin: 0;
+  background: transparent;
+}
+
+.file-row {
+  transition: background 120ms ease;
+}
+
+.file-row:hover,
+.file-row.selected {
+  background: rgba(103, 232, 249, 0.1);
+}
+
+.file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  background: transparent;
+  text-decoration: none;
+}
+
+.file-name:hover {
+  transform: none;
+  box-shadow: none;
+  color: var(--accent);
+}
+
+.file-empty {
+  text-align: center;
+  color: var(--muted);
+}
+
+html[data-theme="light"] .terminal-panel,
+html[data-theme="light"] .file-manager {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 252, 255, 0.82));
+}
+
+html[data-theme="light"] .file-manager-body {
+  background: #f8fcff;
+}
+
+html[data-theme="dark"] .file-manager-body {
+  background: rgba(2, 6, 12, 0.54);
+}
+
+html[data-theme="light"] .file-row:hover,
+html[data-theme="light"] .file-row.selected {
+  background: rgba(103, 232, 249, 0.14);
+}
+
+html[data-theme="light"] .file-name {
+  color: #102033;
+}
+
+html[data-theme="light"] .file-name:hover {
+  color: #0ea5b7;
+}
+
+html[data-theme="light"] .terminal-viewport .xterm,
+html[data-theme="light"] .terminal-viewport .xterm-rows {
+  color: #dbeafe;
+}
+
+html[data-theme="dark"] .xterm-rows {
+  color: #dbeafe;
+}
+
+@media (max-width: 1120px) {
+  .connect-layout {
+    grid-template-columns: 1fr;
+  }
+  .connect-sidebar {
+    grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  }
+  .terminal-panel {
+    min-height: 520px;
+  }
+}
+
+@media (max-width: 640px) {
+  .terminal-panel {
+    padding: 10px;
+    min-height: 360px;
+  }
+  .terminal-viewport {
+    min-height: 260px;
+  }
+  .file-manager-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 html[data-theme="light"] .toolbar-chips button.tag-chip.active {

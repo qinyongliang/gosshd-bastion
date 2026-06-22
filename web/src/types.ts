@@ -147,6 +147,7 @@ export type AdminOrg = Organization & {
 
 export type Providers = {
   dingtalk?: { enabled: boolean };
+  registration_enabled?: boolean;
 };
 
 export type ConsoleData = {
@@ -164,4 +165,13 @@ export type ConsoleData = {
   prompts: PromptResource[];
   auditPage: { logs: AuditLog[]; total: number; page: number; page_size: number };
   refetchAll: () => void;
+};
+
+export type FileEntry = {
+  name: string;
+  path: string;
+  type: "file" | "dir" | "symlink";
+  size: number;
+  mode: string;
+  modified_at?: string;
 };

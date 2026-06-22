@@ -113,6 +113,15 @@ type PublicKey struct {
 	CreatedAt     time.Time
 }
 
+type MCPToken struct {
+	ID         string
+	UserID     string
+	Name       string
+	TokenHash  []byte
+	LastUsedAt *time.Time
+	CreatedAt  time.Time
+}
+
 type SSHTarget struct {
 	ID              string
 	OwnerType       string
@@ -356,6 +365,12 @@ type CreatePublicKeyParams struct {
 	Fingerprint   string
 }
 
+type CreateMCPTokenParams struct {
+	UserID    string
+	Name      string
+	TokenHash []byte
+}
+
 type CreateSSHTargetParams struct {
 	OwnerType       string
 	OwnerID         string
@@ -478,6 +493,7 @@ type CreateCommandAuditLogParams struct {
 
 type AuditLogFilter struct {
 	UserID         string
+	OrganizationID string
 	TargetID       string
 	Query          string
 	PolicyDecision string

@@ -3,6 +3,8 @@ package server
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +31,7 @@ const minDirectDownloadBytesPerSecond = 100 * 1024
 var upgrader = websocket.Upgrader{
 	HandshakeTimeout: 10 * time.Second,
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		return requestOriginAllowed(r)
 	},
 }
 
@@ -53,6 +55,11 @@ func (a *App) downloadAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	goos, goarch := parts[0], parts[1]
+	checksumOnly := false
+	if strings.HasSuffix(goarch, ".sha256") {
+		checksumOnly = true
+		goarch = strings.TrimSuffix(goarch, ".sha256")
+	}
 	if !isSafePlatformPart(goos) || !isSafePlatformPart(goarch) {
 		http.Error(w, "invalid platform", http.StatusBadRequest)
 		return
@@ -62,6 +69,10 @@ func (a *App) downloadAgent(w http.ResponseWriter, r *http.Request) {
 		name += ".exe"
 	}
 	if path, ok := a.localAgentPath(goos, goarch, name); ok {
+		if checksumOnly {
+			a.serveAgentChecksum(w, path)
+			return
+		}
 		http.ServeFile(w, r, path)
 		return
 	}
@@ -69,6 +80,10 @@ func (a *App) downloadAgent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("agent download failed for %s/%s: %v", goos, goarch, err)
 		http.Error(w, "agent binary unavailable", http.StatusBadGateway)
+		return
+	}
+	if checksumOnly {
+		a.serveAgentChecksum(w, path)
 		return
 	}
 	http.ServeFile(w, r, path)
@@ -99,8 +114,14 @@ func (a *App) ensureAgentBinary(goos, goarch, name string) (string, error) {
 		return "", err
 	}
 
+	assetName := a.agentAssetName(goos, goarch)
+	checksumURL := a.releaseChecksumsURL()
+	expectedSHA256, err := fetchReleaseChecksum(checksumURL, assetName)
+	if err != nil {
+		return "", fmt.Errorf("fetch release checksum: %w", err)
+	}
 	directURL := a.agentReleaseURL(goos, goarch, name)
-	if err := downloadAgentFile(directURL, cachePath, true); err == nil {
+	if err := downloadAgentFile(directURL, cachePath, true, expectedSHA256); err == nil {
 		return cachePath, nil
 	} else {
 		log.Printf("direct agent download failed or slow from %s: %v", directURL, err)
@@ -110,7 +131,13 @@ func (a *App) ensureAgentBinary(goos, goarch, name string) (string, error) {
 	if proxyURL == directURL {
 		return "", fmt.Errorf("direct download failed and no proxy URL configured")
 	}
-	if err := downloadAgentFile(proxyURL, cachePath, false); err != nil {
+	proxyChecksumURL := a.proxyReleaseURL(checksumURL)
+	if proxyChecksumURL != checksumURL {
+		if checksum, err := fetchReleaseChecksum(proxyChecksumURL, assetName); err == nil {
+			expectedSHA256 = checksum
+		}
+	}
+	if err := downloadAgentFile(proxyURL, cachePath, false, expectedSHA256); err != nil {
 		return "", err
 	}
 	return cachePath, nil
@@ -136,13 +163,24 @@ func (a *App) localAgentPath(goos, goarch, name string) (string, bool) {
 }
 
 func (a *App) agentReleaseURL(goos, goarch, name string) string {
+	_ = name
+	assetName := a.agentAssetName(goos, goarch)
+	base := strings.TrimRight(a.cfg.releaseBaseURL(), "/")
+	return fmt.Sprintf("%s/%s/%s", base, url.PathEscape(a.cfg.version()), url.PathEscape(assetName))
+}
+
+func (a *App) agentAssetName(goos, goarch string) string {
 	version := a.cfg.version()
 	assetName := fmt.Sprintf("gosshd-agent-%s-%s-%s", version, goos, goarch)
 	if goos == "windows" {
 		assetName += ".exe"
 	}
+	return assetName
+}
+
+func (a *App) releaseChecksumsURL() string {
 	base := strings.TrimRight(a.cfg.releaseBaseURL(), "/")
-	return fmt.Sprintf("%s/%s/%s", base, url.PathEscape(version), url.PathEscape(assetName))
+	return fmt.Sprintf("%s/%s/checksums.txt", base, url.PathEscape(a.cfg.version()))
 }
 
 func (a *App) proxyReleaseURL(rawURL string) string {
@@ -153,7 +191,10 @@ func (a *App) proxyReleaseURL(rawURL string) string {
 	return strings.TrimRight(proxy, "/") + "/" + rawURL
 }
 
-func downloadAgentFile(rawURL, cachePath string, enforceSpeed bool) error {
+func downloadAgentFile(rawURL, cachePath string, enforceSpeed bool, expectedSHA256 string) error {
+	if strings.TrimSpace(expectedSHA256) == "" {
+		return errors.New("expected sha256 is required")
+	}
 	tmpPath := cachePath + ".tmp"
 	_ = os.Remove(tmpPath)
 
@@ -171,7 +212,8 @@ func downloadAgentFile(rawURL, cachePath string, enforceSpeed bool) error {
 	if err != nil {
 		return err
 	}
-	written, copyErr := copyWithSpeedCheck(tmp, resp.Body, enforceSpeed)
+	hasher := sha256.New()
+	written, copyErr := copyWithSpeedCheck(tmp, io.TeeReader(resp.Body, hasher), enforceSpeed)
 	closeErr := tmp.Close()
 	if copyErr != nil {
 		_ = os.Remove(tmpPath)
@@ -185,11 +227,68 @@ func downloadAgentFile(rawURL, cachePath string, enforceSpeed bool) error {
 		_ = os.Remove(tmpPath)
 		return errors.New("empty download")
 	}
+	if got := hex.EncodeToString(hasher.Sum(nil)); !strings.EqualFold(got, expectedSHA256) {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("sha256 mismatch: got %s want %s", got, expectedSHA256)
+	}
 	if err := os.Rename(tmpPath, cachePath); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
 	}
 	return nil
+}
+
+func fetchReleaseChecksum(rawURL, assetName string) (string, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(rawURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("unexpected status %s", resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[1], "*")
+		if filepath.Base(name) == assetName {
+			if _, err := hex.DecodeString(fields[0]); err != nil || len(fields[0]) != sha256.Size*2 {
+				return "", fmt.Errorf("invalid checksum for %s", assetName)
+			}
+			return strings.ToLower(fields[0]), nil
+		}
+	}
+	return "", fmt.Errorf("checksum for %s not found", assetName)
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func (a *App) serveAgentChecksum(w http.ResponseWriter, path string) {
+	sum, err := fileSHA256(path)
+	if err != nil {
+		http.Error(w, "agent checksum unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = fmt.Fprintln(w, sum)
 }
 
 func copyWithSpeedCheck(dst io.Writer, src io.Reader, enforceSpeed bool) (int64, error) {
@@ -258,6 +357,11 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close()
 		return
 	}
+	if !a.allowAuthAttempt(r, "agent:"+hello.ID, 60, 5*time.Minute) {
+		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "too many agent enrollment attempts"})
+		_ = conn.Close()
+		return
+	}
 	if strings.TrimSpace(hello.EnrollmentToken) == "" {
 		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "enrollment token is required"})
 		_ = conn.Close()
@@ -301,7 +405,11 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		goarch = runtime.GOARCH
 	}
 	downloadURL := publicBaseURL(r, a.cfg.publicHost()) + "/download/agent/" + goos + "/" + goarch
-	if err := protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: true, ServerVersion: a.cfg.version(), AgentDownloadURL: downloadURL}); err != nil {
+	downloadSHA256, err := a.agentDownloadSHA256(goos, goarch)
+	if err != nil {
+		log.Printf("agent checksum unavailable for %s/%s: %v", goos, goarch, err)
+	}
+	if err := protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: true, ServerVersion: a.cfg.version(), AgentDownloadURL: downloadURL, AgentDownloadSHA256: downloadSHA256}); err != nil {
 		_ = conn.Close()
 		return
 	}
@@ -359,7 +467,7 @@ func (a *App) ensureAgentTarget(ctx context.Context, enrollment store.AgentEnrol
 
 func publicBaseURL(r *http.Request, configuredHost string) string {
 	scheme := "http"
-	if r.TLS != nil {
+	if isHTTPSRequest(r) {
 		scheme = "https"
 	}
 	host := configuredHost
@@ -369,8 +477,42 @@ func publicBaseURL(r *http.Request, configuredHost string) string {
 	if host == "" {
 		return ""
 	}
-	if runtime.GOOS == "windows" {
-		host = strings.TrimSpace(host)
+	host = strings.TrimRight(strings.TrimSpace(host), "/")
+	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
+		return host
 	}
 	return scheme + "://" + host
+}
+
+func (a *App) agentDownloadSHA256(goos, goarch string) (string, error) {
+	name := "gosshd-agent"
+	if goos == "windows" {
+		name += ".exe"
+	}
+	if path, ok := a.localAgentPath(goos, goarch, name); ok {
+		return fileSHA256(path)
+	}
+	cachePath := a.agentCachePath(goos, goarch, name)
+	if _, err := os.Stat(cachePath); err == nil {
+		return fileSHA256(cachePath)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	return "", errors.New("agent binary is not cached")
+}
+
+func requestOriginAllowed(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	expectedHost := r.Host
+	if expectedHost == "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Host, expectedHost)
 }

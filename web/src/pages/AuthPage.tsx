@@ -8,7 +8,7 @@ import { useI18n } from "../i18n";
 import { formSubmit, localizeError } from "../lib/forms";
 import { useTheme } from "../theme";
 
-export function AuthPage({ dingTalkEnabled }: { dingTalkEnabled: boolean }) {
+export function AuthPage({ dingTalkEnabled, registrationEnabled }: { dingTalkEnabled: boolean; registrationEnabled: boolean }) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
@@ -37,7 +37,7 @@ export function AuthPage({ dingTalkEnabled }: { dingTalkEnabled: boolean }) {
           <span className="badge info">Auto</span>
         </div>
         <div className="tabs" role="tablist" aria-label="Auth mode">
-          <button type="button" role="tab" aria-selected={mode === "register"} className={clsx(mode === "register" && "active")} onClick={() => setMode("register")}>{t("register")}</button>
+          {registrationEnabled && <button type="button" role="tab" aria-selected={mode === "register"} className={clsx(mode === "register" && "active")} onClick={() => setMode("register")}>{t("register")}</button>}
           <button type="button" role="tab" aria-selected={mode === "login"} className={clsx(mode === "login" && "active")} onClick={() => setMode("login")}>{t("login")}</button>
         </div>
         <form className="stack" onSubmit={(event) => formSubmit(event, (data) => mutation.mutate(data))}>

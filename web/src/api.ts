@@ -3,6 +3,7 @@ import type {
   AdminUser,
   AuditLog,
   AuditRecording,
+  FileEntry,
   LLMConfig,
   Member,
   Organization,
@@ -108,6 +109,15 @@ export const api = {
   adminUpdateOrgMember: (orgID: string, userID: string, body: Record<string, unknown>) =>
     request<void>(`/api/admin/orgs/${orgID}/members/${userID}`, patch(body)),
   adminTransferOrgOwner: (orgID: string, userID: string) => request<void>(`/api/admin/orgs/${orgID}/transfer-owner`, post({ user_id: userID })),
+
+  targetTerminalURL: (targetID: string, cols: number, rows: number) => terminalURL(`/api/targets/${targetID}/terminal/ws`, cols, rows),
+  listFiles: (targetID: string, path: string) => request<{ path: string; entries: FileEntry[] }>(`/api/targets/${targetID}/files?${queryString({ path })}`),
+  downloadFile: (targetID: string, path: string) => `/api/targets/${targetID}/files/download?${queryString({ path })}`,
+  uploadFile: (targetID: string, path: string, file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request<{ path: string }>(`/api/targets/${targetID}/files/upload?${queryString({ path })}`, { method: "POST", body });
+  },
 };
 
 export type Enrollment = {
@@ -144,4 +154,11 @@ function queryString(values: Record<string, unknown>) {
     if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
   }
   return params.toString();
+}
+
+function terminalURL(path: string, cols: number, rows: number) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = window.location.host;
+  const params = new URLSearchParams({ cols: String(cols), rows: String(rows) });
+  return `${protocol}//${host}${path}?${params.toString()}`;
 }

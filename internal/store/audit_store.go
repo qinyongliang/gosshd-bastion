@@ -222,6 +222,10 @@ func auditWhere(filter AuditLogFilter) (string, []any) {
 		clauses = append(clauses, "user_id = ?")
 		args = append(args, filter.UserID)
 	}
+	if filter.OrganizationID != "" {
+		clauses = append(clauses, "organization_id = ?")
+		args = append(args, filter.OrganizationID)
+	}
 	if filter.TargetID != "" {
 		clauses = append(clauses, "target_id = ?")
 		args = append(args, filter.TargetID)

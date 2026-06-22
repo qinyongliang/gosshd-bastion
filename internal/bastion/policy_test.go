@@ -428,7 +428,7 @@ func TestPolicyEvaluationAppliesByTargetTag(t *testing.T) {
 		t.Fatal(err)
 	}
 	if decision.Action != store.DecisionAllow || decision.Reason != "no policy" {
-		t.Fatalf("tag removal should detach policy dynamically: %+v", decision)
+		t.Fatalf("tag removal should use default allow without a matching policy: %+v", decision)
 	}
 }
 

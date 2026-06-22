@@ -51,11 +51,12 @@ type StreamRequest struct {
 }
 
 type StreamResponse struct {
-	OK               bool   `json:"ok"`
-	Error            string `json:"error,omitempty"`
-	ExitCode         int    `json:"exit_code,omitempty"`
-	ServerVersion    string `json:"server_version,omitempty"`
-	AgentDownloadURL string `json:"agent_download_url,omitempty"`
+	OK                  bool   `json:"ok"`
+	Error               string `json:"error,omitempty"`
+	ExitCode            int    `json:"exit_code,omitempty"`
+	ServerVersion       string `json:"server_version,omitempty"`
+	AgentDownloadURL    string `json:"agent_download_url,omitempty"`
+	AgentDownloadSHA256 string `json:"agent_download_sha256,omitempty"`
 }
 
 type Frame struct {

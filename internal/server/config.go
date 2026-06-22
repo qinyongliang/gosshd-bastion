@@ -15,6 +15,7 @@ type Config struct {
 	SessionCookieName      string
 	PublicHost             string
 	PublicSSHPort          int
+	KnownHostsPath         string
 	AgentPath              string
 	AgentCachePath         string
 	Version                string

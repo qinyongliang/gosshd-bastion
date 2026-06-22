@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/auth"
 	"github.com/qinyongliang/gosshd-bastion/internal/bastion"
@@ -25,9 +26,11 @@ type App struct {
 	store               *store.Store
 	audit               *store.AuditStore
 	auth                *auth.Service
+	authLimiter         *authRateLimiter
 	bastion             *bastion.Service
 	auditRecordingsPath string
 	initMu              sync.Mutex
+	knownHostsMu        sync.Mutex
 	backgroundWG        sync.WaitGroup
 	httpSrv             *http.Server
 	sshLn               net.Listener
@@ -35,8 +38,9 @@ type App struct {
 
 func NewApp(cfg Config) *App {
 	return &App{
-		cfg:      cfg,
-		registry: NewAgentRegistry(),
+		cfg:         cfg,
+		registry:    NewAgentRegistry(),
+		authLimiter: newAuthRateLimiter(),
 	}
 }
 
@@ -92,7 +96,15 @@ func (a *App) ensureServices(ctx context.Context) error {
 	if admin, createdPassword, err := st.Repository().EnsureBootstrapAdmin(ctx, password); err != nil {
 		return err
 	} else if createdPassword != "" {
-		log.Printf("bootstrap admin account ready: email=%s password=%s", admin.Email, createdPassword)
+		if password == "" {
+			path, err := a.writeBootstrapPassword(createdPassword)
+			if err != nil {
+				return err
+			}
+			log.Printf("bootstrap admin account ready: email=%s password_file=%s", admin.Email, path)
+		} else {
+			log.Printf("bootstrap admin account ready: email=%s password=provided", admin.Email)
+		}
 	}
 	return nil
 }
@@ -127,6 +139,40 @@ func (a *App) auditRecordingPath() string {
 	return filepath.Join(dir, "audit-recordings")
 }
 
+func (a *App) knownHostsPath() string {
+	if strings.TrimSpace(a.cfg.KnownHostsPath) != "" {
+		return a.cfg.KnownHostsPath
+	}
+	base := strings.TrimSpace(a.cfg.DatabasePath)
+	if base == "" {
+		return "known_hosts"
+	}
+	dir := filepath.Dir(base)
+	if dir == "." || dir == "" {
+		return "known_hosts"
+	}
+	return filepath.Join(dir, "known_hosts")
+}
+
+func (a *App) writeBootstrapPassword(password string) (string, error) {
+	base := strings.TrimSpace(a.cfg.DatabasePath)
+	dir := "."
+	if base != "" {
+		dir = filepath.Dir(base)
+	}
+	if dir == "" {
+		dir = "."
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "bootstrap-admin-password.txt")
+	if err := os.WriteFile(path, []byte(password+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 func (a *App) sessionCookieName() string {
 	if a.cfg.SessionCookieName != "" {
 		return a.cfg.SessionCookieName
@@ -137,7 +183,7 @@ func (a *App) sessionCookieName() string {
 func (a *App) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 	a.routes(mux)
-	a.httpSrv = &http.Server{Addr: a.cfg.HTTPListen, Handler: mux}
+	a.httpSrv = newHTTPServer(a.cfg.HTTPListen, mux)
 
 	sshLn, err := net.Listen("tcp", a.cfg.SSHListen)
 	if err != nil {
@@ -272,7 +318,7 @@ func publicSSHPort(configured int, listen string) int {
 func (a *App) RunListeners(ctx context.Context, httpLn net.Listener, sshLn net.Listener) error {
 	mux := http.NewServeMux()
 	a.routes(mux)
-	a.httpSrv = &http.Server{Handler: mux}
+	a.httpSrv = newHTTPServer("", mux)
 	a.sshLn = sshLn
 
 	errs := make(chan error, 2)
@@ -302,5 +348,14 @@ func (a *App) RunListeners(ctx context.Context, httpLn net.Listener, sshLn net.L
 		_ = sshLn.Close()
 		wg.Wait()
 		return err
+	}
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 }

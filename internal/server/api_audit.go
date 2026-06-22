@@ -47,14 +47,16 @@ type apiAuditLogsResponse struct {
 func (a *App) handleListAuditLogs(w http.ResponseWriter, r *http.Request, user store.User) {
 	page, pageSize := auditPageParams(r.URL.Query())
 	filter := store.AuditLogFilter{
-		Query:       r.URL.Query().Get("query"),
-		StartedFrom: parseAuditTime(r.URL.Query().Get("started_from")),
-		StartedTo:   parseAuditTime(r.URL.Query().Get("started_to")),
-		Limit:       pageSize,
-		Offset:      (page - 1) * pageSize,
+		Query:          r.URL.Query().Get("query"),
+		OrganizationID: strings.TrimSpace(r.URL.Query().Get("organization_id")),
+		StartedFrom:    parseAuditTime(r.URL.Query().Get("started_from")),
+		StartedTo:      parseAuditTime(r.URL.Query().Get("started_to")),
+		Limit:          pageSize,
+		Offset:         (page - 1) * pageSize,
 	}
-	if !user.IsSystemAdmin {
-		filter.UserID = user.ID
+	if err := a.scopeAuditFilter(r, user, &filter); err != nil {
+		writeOwnerError(w, err)
+		return
 	}
 	if targetID := strings.TrimSpace(r.URL.Query().Get("target_id")); targetID != "" {
 		filter.TargetID = targetID
@@ -83,7 +85,7 @@ func (a *App) handleAuditRecording(w http.ResponseWriter, r *http.Request, user 
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if !user.IsSystemAdmin && log.UserID != user.ID {
+	if !a.canReadAuditLog(r, user, log) {
 		writeError(w, http.StatusForbidden, "audit recording access denied")
 		return
 	}
@@ -135,6 +137,39 @@ func apiAuditLogFromStore(log store.CommandAuditLog) apiAuditLog {
 		out.EndedAt = log.EndedAt.Format(time.RFC3339)
 	}
 	return out
+}
+
+func (a *App) scopeAuditFilter(r *http.Request, user store.User, filter *store.AuditLogFilter) error {
+	if user.IsSystemAdmin {
+		return nil
+	}
+	if filter.OrganizationID == "" {
+		filter.UserID = user.ID
+		return nil
+	}
+	member, err := a.store.Repository().GetOrganizationMember(r.Context(), filter.OrganizationID, user.ID)
+	if err != nil {
+		return errOwnerAccess
+	}
+	if member.Role == store.RoleOwner || member.Role == store.RoleAdmin {
+		return nil
+	}
+	filter.UserID = user.ID
+	return nil
+}
+
+func (a *App) canReadAuditLog(r *http.Request, user store.User, log store.CommandAuditLog) bool {
+	if user.IsSystemAdmin || log.UserID == user.ID {
+		return true
+	}
+	if strings.TrimSpace(log.OrganizationID) == "" {
+		return false
+	}
+	member, err := a.store.Repository().GetOrganizationMember(r.Context(), log.OrganizationID, user.ID)
+	if err != nil {
+		return false
+	}
+	return member.Role == store.RoleOwner || member.Role == store.RoleAdmin
 }
 
 func auditPageParams(values url.Values) (int, int) {

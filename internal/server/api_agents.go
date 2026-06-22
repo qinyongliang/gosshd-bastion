@@ -80,9 +80,9 @@ func agentEnrollmentResponse(id, token, base string) apiAgentEnrollmentResponse 
 	return apiAgentEnrollmentResponse{
 		ID:         id,
 		Token:      token,
-		InstallSH:  fmt.Sprintf("curl -fsSL %s/install/%s.sh | sh", base, token),
-		InstallPS1: fmt.Sprintf("irm %s/install/%s.ps1 | iex", base, token),
-		ServiceSH:  fmt.Sprintf("curl -fsSL %s/install/%s.sh | sudo sh -s -- install", base, token),
+		InstallSH:  fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sh \"$tmp\"", base, token),
+		InstallPS1: fmt.Sprintf("$s='%s/install/%s.ps1'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; irm $s -OutFile $tmp; powershell -ExecutionPolicy Bypass -File $tmp", base, token),
+		ServiceSH:  fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sudo sh \"$tmp\" install", base, token),
 		ServicePS1: fmt.Sprintf("$s='%s/install/%s.ps1'; irm $s -OutFile $env:TEMP\\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\gosshd-agent-install.ps1 -Install", base, token),
 	}
 }
@@ -119,7 +119,18 @@ case "$arch" in
 esac
 tmp="${TMPDIR:-/tmp}/gosshd-agent"
 url="%s/download/agent/${os}/${arch}"
+sha_url="${url}.sha256"
 curl -fsSL "$url" -o "$tmp"
+expected_sha="$(curl -fsSL "$sha_url" | tr -d '[:space:]')"
+if command -v sha256sum >/dev/null 2>&1; then
+  printf '%%s  %%s\n' "$expected_sha" "$tmp" | sha256sum -c -
+elif command -v shasum >/dev/null 2>&1; then
+  actual_sha="$(shasum -a 256 "$tmp" | awk '{print $1}')"
+  [ "$actual_sha" = "$expected_sha" ] || { echo "sha256 mismatch" >&2; exit 1; }
+else
+  echo "sha256 checker not found" >&2
+  exit 1
+fi
 chmod +x "$tmp"
 if [ "$mode" = "install" ]; then
   if [ "$(id -u)" -ne 0 ]; then
@@ -162,10 +173,16 @@ $ErrorActionPreference = "Stop"
 $isInstall = $Install
 $tmp = Join-Path $env:TEMP "gosshd-agent.exe"
 $url = "%s/download/agent/windows/amd64"
+$shaUrl = "$url.sha256"
 $server = "%s"
 $enrollmentToken = "%s"
 $sshPort = "%s"
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp
+$expectedSha = (Invoke-WebRequest -UseBasicParsing -Uri $shaUrl).Content.Trim().ToLowerInvariant()
+$actualSha = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLowerInvariant()
+if ($actualSha -ne $expectedSha) {
+  throw "sha256 mismatch: $actualSha != $expectedSha"
+}
 $targetDir = Join-Path $env:ProgramData "gosshd"
 $target = Join-Path $targetDir "gosshd-agent.exe"
 if ($isInstall) {

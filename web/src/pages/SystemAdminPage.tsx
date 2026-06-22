@@ -51,7 +51,7 @@ function AdminUsersModal({ users, onClose }: { users: AdminUser[]; onClose: () =
 function ResetPasswordModal({ user, onClose }: { user: AdminUser; onClose: () => void }) {
   const { t } = useI18n();
   const reset = useMutation({ mutationFn: (body: Record<string, string>) => api.resetAdminUserPassword(user.id, body), onSuccess: onClose });
-  return <Modal title={t("adminResetPasswordTitle")} onClose={onClose} stacked>
+  return <Modal title={t("adminResetPasswordTitle")} onClose={onClose} stacked closeOnEscape={false}>
     <form className="stack" onSubmit={(event) => formSubmit(event, (body) => reset.mutate(body))}>
       <p>{user.display_name || user.email}</p>
       <Field label={t("adminNewPassword")} name="password" type="password" required />
@@ -95,7 +95,7 @@ function AdminOrgDrawer({ org, onClose }: { org: AdminOrg; onClose: () => void }
 function ProviderModal({ title, action, onClose }: { title: string; action: (body: Record<string, unknown>) => Promise<void>; onClose: () => void }) {
   const { t } = useI18n();
   const mutation = useMutation({ mutationFn: action, onSuccess: onClose });
-  return <Modal title={title} onClose={onClose}>
+  return <Modal title={title} onClose={onClose} closeOnEscape={false}>
     <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => mutation.mutate(body))}>
       <Field label={t("adminProviderEnable")} name="enabled" />
       <Field label={t("adminProviderClientID")} name="client_id" />

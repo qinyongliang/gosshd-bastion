@@ -27,7 +27,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           <button type="button" onClick={() => remove.mutate(key.id)}>{t("commonDelete")}</button>,
         ])} /> : <Empty title={t("keysEmptyTitle")} body={t("keysEmptyBody")} />}
       </Panel>
-      {modal && <Modal title={t("keysAddTitle")} onClose={() => setModal(false)}>
+      {modal && <Modal title={t("keysAddTitle")} onClose={() => setModal(false)} closeOnEscape={false}>
         <form className="stack" onSubmit={(event) => formSubmit(event, (body) => create.mutate({ name: body.name, authorized_key: body.authorized_key }))}>
           <Field label={t("commonTitle")} name="name" required />
           <label className="field"><span>{t("keysTableKey")}</span><textarea name="authorized_key" placeholder="ssh-ed25519 AAAA..." required /></label>

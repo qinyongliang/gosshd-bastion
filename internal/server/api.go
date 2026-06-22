@@ -78,6 +78,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/me", a.requireUser(a.handleMe))
 	mux.HandleFunc("PUT /api/me/password", a.requireUser(a.handleChangeOwnPassword))
 	mux.HandleFunc("GET /api/admin/settings", a.requireSystemAdmin(a.handleAdminSettings))
+	mux.HandleFunc("PUT /api/admin/settings/auth", a.requireSystemAdmin(a.handleUpdateAuthSettings))
 	mux.HandleFunc("PUT /api/admin/settings/dingtalk", a.requireSystemAdmin(a.handleUpdateDingTalkSettings))
 	mux.HandleFunc("PUT /api/admin/settings/ldap", a.requireSystemAdmin(a.handleUpdateLDAPSettings))
 	mux.HandleFunc("GET /api/admin/users", a.requireSystemAdmin(a.handleAdminListUsers))
@@ -104,10 +105,17 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/keys", a.requireUser(a.handleListPublicKeys))
 	mux.HandleFunc("POST /api/keys", a.requireUser(a.handleCreatePublicKey))
 	mux.HandleFunc("DELETE /api/keys/{id}", a.requireUser(a.handleDeletePublicKey))
+	mux.HandleFunc("GET /api/mcp-tokens", a.requireUser(a.handleListMCPTokens))
+	mux.HandleFunc("POST /api/mcp-tokens", a.requireUser(a.handleCreateMCPToken))
+	mux.HandleFunc("DELETE /api/mcp-tokens/{id}", a.requireUser(a.handleDeleteMCPToken))
 	mux.HandleFunc("GET /api/targets", a.requireUser(a.handleListTargets))
 	mux.HandleFunc("POST /api/targets", a.requireUser(a.handleCreateTarget))
 	mux.HandleFunc("PATCH /api/targets/{id}", a.requireUser(a.handleUpdateTarget))
 	mux.HandleFunc("DELETE /api/targets/{id}", a.requireUser(a.handleDeleteTarget))
+	mux.HandleFunc("GET /api/targets/{id}/terminal/ws", a.requireUser(a.handleTargetTerminalWS))
+	mux.HandleFunc("GET /api/targets/{id}/files", a.requireUser(a.handleTargetFiles))
+	mux.HandleFunc("GET /api/targets/{id}/files/download", a.requireUser(a.handleTargetFileDownload))
+	mux.HandleFunc("POST /api/targets/{id}/files/upload", a.requireUser(a.handleTargetFileUpload))
 	mux.HandleFunc("PATCH /api/target-tags", a.requireUser(a.handleUpdateTargetTagColor))
 	mux.HandleFunc("POST /api/agent-enrollments", a.requireUser(a.handleCreateAgentEnrollment))
 	mux.HandleFunc("GET /api/llm-configs", a.requireUser(a.handleListLLMConfigs))
@@ -176,22 +184,24 @@ func (a *App) requireOrganizationOwner(ctx context.Context, orgID string, user s
 
 func (a *App) requireUser(next func(http.ResponseWriter, *http.Request, store.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := a.ensureServices(r.Context()); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		cookie, err := r.Cookie(a.sessionCookieName())
-		if err != nil || strings.TrimSpace(cookie.Value) == "" {
-			writeError(w, http.StatusUnauthorized, "authentication required")
-			return
-		}
-		user, err := a.auth.UserForSession(r.Context(), cookie.Value)
+		user, err := a.userForRequest(r)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
 		next(w, r, user)
 	}
+}
+
+func (a *App) userForRequest(r *http.Request) (store.User, error) {
+	if err := a.ensureServices(r.Context()); err != nil {
+		return store.User{}, err
+	}
+	cookie, err := r.Cookie(a.sessionCookieName())
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return store.User{}, store.ErrNotFound
+	}
+	return a.auth.UserForSession(r.Context(), cookie.Value)
 }
 
 func readJSON(r *http.Request, dst any) error {
@@ -211,26 +221,33 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-func setSessionCookie(w http.ResponseWriter, name, token string) {
+func setSessionCookie(w http.ResponseWriter, r *http.Request, name, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   isHTTPSRequest(r),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(30 * 24 * time.Hour),
+		MaxAge:   int((30 * 24 * time.Hour).Seconds()),
 	})
 }
 
-func clearSessionCookie(w http.ResponseWriter, name string) {
+func clearSessionCookie(w http.ResponseWriter, r *http.Request, name string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   isHTTPSRequest(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
+}
+
+func isHTTPSRequest(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func apiUserFromStore(user store.User) apiUser {

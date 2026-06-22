@@ -1,7 +1,9 @@
 package server
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
@@ -78,7 +80,21 @@ func (a *App) handleAddOrganizationGroupMember(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if err := a.store.Repository().AddUserToGroup(r.Context(), r.PathValue("group_id"), req.UserID); err != nil {
+	group, err := a.organizationGroupForWrite(r, orgID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	userID := strings.TrimSpace(req.UserID)
+	if userID == "" {
+		writeError(w, http.StatusBadRequest, "user_id is required")
+		return
+	}
+	if _, err := a.store.Repository().GetOrganizationMember(r.Context(), orgID, userID); err != nil {
+		writeError(w, http.StatusBadRequest, "user must belong to the organization")
+		return
+	}
+	if err := a.store.Repository().AddUserToGroup(r.Context(), group.ID, userID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -91,11 +107,27 @@ func (a *App) handleRemoveOrganizationGroupMember(w http.ResponseWriter, r *http
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
-	if err := a.store.Repository().RemoveUserFromGroup(r.Context(), r.PathValue("group_id"), r.PathValue("user_id")); err != nil {
+	group, err := a.organizationGroupForWrite(r, orgID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.store.Repository().RemoveUserFromGroup(r.Context(), group.ID, r.PathValue("user_id")); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) organizationGroupForWrite(r *http.Request, orgID string) (store.OrganizationUserGroup, error) {
+	group, err := a.store.Repository().GetOrganizationUserGroup(r.Context(), r.PathValue("group_id"))
+	if err != nil {
+		return store.OrganizationUserGroup{}, err
+	}
+	if group.OrganizationID != orgID {
+		return store.OrganizationUserGroup{}, errors.New("group must belong to the organization")
+	}
+	return group, nil
 }
 
 func apiUserGroupFromStore(group store.OrganizationUserGroup) apiUserGroup {

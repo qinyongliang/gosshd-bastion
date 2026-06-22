@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -30,12 +33,20 @@ func (c *Client) maybeUpdateAndRestart(ctx context.Context, resp protocol.Stream
 	if downloadURL == "" {
 		return nil
 	}
+	expectedSHA256 := strings.TrimSpace(resp.AgentDownloadSHA256)
+	if expectedSHA256 == "" {
+		log.Printf("agent update %s -> %s skipped: missing download checksum", c.cfg.Version, serverVersion)
+		return nil
+	}
+	if _, err := hex.DecodeString(expectedSHA256); err != nil || len(expectedSHA256) != sha256.Size*2 {
+		return fmt.Errorf("invalid agent download checksum")
+	}
 	currentExe, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	logPrefix := fmt.Sprintf("agent update %s -> %s", c.cfg.Version, serverVersion)
-	tmpPath, err := downloadReplacement(ctx, downloadURL, currentExe)
+	tmpPath, err := downloadReplacement(ctx, downloadURL, currentExe, expectedSHA256)
 	if err != nil {
 		return fmt.Errorf("%s failed: %w", logPrefix, err)
 	}
@@ -50,7 +61,7 @@ func (c *Client) maybeUpdateAndRestart(ctx context.Context, resp protocol.Stream
 	return errAgentRestarting
 }
 
-func downloadReplacement(ctx context.Context, rawURL, currentExe string) (string, error) {
+func downloadReplacement(ctx context.Context, rawURL, currentExe, expectedSHA256 string) (string, error) {
 	tmp, err := os.CreateTemp(filepath.Dir(currentExe), filepath.Base(currentExe)+".new-*")
 	if err != nil {
 		return "", err
@@ -77,12 +88,16 @@ func downloadReplacement(ctx context.Context, rawURL, currentExe string) (string
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("unexpected status %s", resp.Status)
 	}
-	written, err := io.Copy(tmp, resp.Body)
+	hasher := sha256.New()
+	written, err := io.Copy(tmp, io.TeeReader(resp.Body, hasher))
 	if err != nil {
 		return "", err
 	}
 	if written == 0 {
 		return "", errors.New("empty download")
+	}
+	if got := hex.EncodeToString(hasher.Sum(nil)); !strings.EqualFold(got, expectedSHA256) {
+		return "", fmt.Errorf("sha256 mismatch: got %s want %s", got, expectedSHA256)
 	}
 	if err := tmp.Chmod(0o755); err != nil {
 		return "", err

@@ -15,6 +15,7 @@ import (
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
+var ErrWeakPassword = errors.New("password must be at least 8 characters")
 
 type Service struct {
 	repo       *store.Repository
@@ -29,6 +30,10 @@ func NewService(repo *store.Repository) *Service {
 }
 
 func (s *Service) Register(ctx context.Context, email, displayName, password string) (store.User, string, error) {
+	password = strings.TrimSpace(password)
+	if len(password) < 8 {
+		return store.User{}, "", ErrWeakPassword
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return store.User{}, "", err
