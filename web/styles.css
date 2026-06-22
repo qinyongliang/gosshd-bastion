@@ -3656,6 +3656,57 @@ html[data-theme="dark"] .connect-workspace {
   transition: width 240ms ease;
 }
 
+.trend-line {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.trend-line svg {
+  width: 100%;
+  height: 34px;
+  overflow: visible;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background:
+    linear-gradient(rgba(103, 232, 249, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(103, 232, 249, 0.08) 1px, transparent 1px),
+    rgba(2, 6, 12, 0.16);
+  background-size: 100% 50%, 20% 100%, 100% 100%;
+}
+
+.trend-line polyline {
+  fill: none;
+  stroke: #16b6c7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-line span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.trend-line.compact svg {
+  height: 26px;
+}
+
+.telemetry-trend-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.telemetry-trend-pair .trend-line:nth-child(2) polyline {
+  stroke: #8b5cf6;
+}
+
 .telemetry-block {
   display: grid;
   gap: 7px;
@@ -4037,6 +4088,13 @@ html[data-theme="light"] .telemetry-disk {
 
 html[data-theme="light"] .meter-track {
   background: rgba(203, 213, 225, 0.42);
+}
+
+html[data-theme="light"] .trend-line svg {
+  background:
+    linear-gradient(rgba(14, 165, 183, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14, 165, 183, 0.08) 1px, transparent 1px),
+    rgba(241, 250, 252, 0.72);
 }
 
 html[data-theme="light"] .file-manager-body {
