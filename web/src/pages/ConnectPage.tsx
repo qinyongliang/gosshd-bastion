@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Terminal } from "@xterm/xterm";
-import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, FileText, Globe, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Server, Shield, Unplug } from "lucide-react";
+import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Copy, Cpu, FileText, Globe, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Server, Shield, Unplug } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
-import { Segmented } from "../components/ui";
+import { CopyButton, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { useTheme } from "../theme";
 import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
@@ -47,14 +47,15 @@ export function ConnectPage({ data }: { data: ConsoleData }) {
     );
   }
 
-  return <ConnectWorkspace target={target} />;
+  return <ConnectWorkspace data={data} target={target} />;
 }
 
-function ConnectWorkspace({ target }: { target: Target }) {
+function ConnectWorkspace({ data, target }: { data: ConsoleData; target: Target }) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const endpoint = targetEndpoint(target);
+  const sshCommand = `ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`;
 
   return (
     <main className="connect-workspace">
@@ -114,6 +115,11 @@ function ConnectWorkspace({ target }: { target: Target }) {
               <div><dt>{t("serviceAuthType")}</dt><dd>{target.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword")}</dd></div>
               <div><dt>{t("commonTag")}</dt><dd>{(target.tags || []).join(", ") || "-"}</dd></div>
             </dl>
+          </section>
+          <section className="connect-panel compact connect-command-panel">
+            <h3><Copy />{t("copyConnectionCommand")}</h3>
+            <code className="connect-command">{sshCommand}</code>
+            <CopyButton value={sshCommand} label={t("copyConnectionCommand")} />
           </section>
           <SystemSnapshotPanel targetID={target.id} />
         </aside>

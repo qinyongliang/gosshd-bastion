@@ -52,7 +52,7 @@ func (s *Service) EvaluateCommandForSource(ctx context.Context, userID, targetID
 			continue
 		}
 		if decision, ok := evaluateSourceIP(policy, sourceIP); ok {
-			return decision, nil
+			return markManualReview(policy, decision), nil
 		}
 		requiresLLM := shellCommandHasChannel(trimmed)
 		policyDecision := Decision{Action: policy.DefaultAction, Reason: "default " + policy.DefaultAction}
@@ -91,14 +91,14 @@ func (s *Service) EvaluateCommandForSource(ctx context.Context, userID, targetID
 			})
 			policyDecision.Reason = appendLLMDuration(policyDecision.Reason, time.Since(llmStarted))
 			if err != nil {
-				return policyDecision, nil
+				return markManualReview(policy, policyDecision), nil
 			}
 			if !strings.HasPrefix(strings.ToLower(policyDecision.Reason), "llm") {
 				policyDecision.Reason = "llm: " + policyDecision.Reason
 			}
 		}
 		if policyDecision.Action == store.DecisionDeny {
-			return policyDecision, nil
+			return markManualReview(policy, policyDecision), nil
 		}
 		result = policyDecision
 	}
@@ -173,6 +173,13 @@ func (s *Service) EvaluateSFTPAccess(ctx context.Context, userID, targetID, sour
 		return Decision{Action: store.DecisionDeny, Reason: "file transfer disabled by policy"}, false, false, nil
 	}
 	return result, allowUpload, allowDownload, nil
+}
+
+func markManualReview(policy store.CommandPolicy, decision Decision) Decision {
+	if decision.Action == store.DecisionDeny && policy.AllowManualReview {
+		decision.AllowManualReview = true
+	}
+	return decision
 }
 
 func evaluateSourceIP(policy store.CommandPolicy, sourceIP string) (Decision, bool) {

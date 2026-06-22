@@ -283,12 +283,13 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 
 	policy, err := repo.CreateCommandPolicy(ctx, CreateCommandPolicyParams{
-		OwnerType:     OwnerOrganization,
-		OwnerID:       personal.ID,
-		Name:          "strict",
-		DefaultAction: DecisionDeny,
-		LLMConfigID:   llm.ID,
-		LLMPromptID:   customPrompt.ID,
+		OwnerType:         OwnerOrganization,
+		OwnerID:           personal.ID,
+		Name:              "strict",
+		DefaultAction:     DecisionDeny,
+		LLMConfigID:       llm.ID,
+		LLMPromptID:       customPrompt.ID,
+		AllowManualReview: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -327,16 +328,20 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if policies[0].LLMPromptID != customPrompt.ID {
 		t.Fatalf("policy llm prompt mismatch: %#v", policies[0])
 	}
+	if !policies[0].AllowManualReview {
+		t.Fatalf("policy manual review flag mismatch: %#v", policies[0])
+	}
 	if _, err := repo.UpdateCommandPolicy(ctx, policy.ID, UpdateCommandPolicyParams{
-		Name:             "strict edited",
-		DefaultAction:    DecisionAllow,
-		LLMConfigID:      llm.ID,
-		LLMPromptID:      customPrompt.ID,
-		IPAllowlist:      "private",
-		AllowPortForward: true,
-		AllowUpload:      true,
-		AllowDownload:    false,
-		AllowInteractive: true,
+		Name:              "strict edited",
+		DefaultAction:     DecisionAllow,
+		LLMConfigID:       llm.ID,
+		LLMPromptID:       customPrompt.ID,
+		IPAllowlist:       "private",
+		AllowPortForward:  true,
+		AllowUpload:       true,
+		AllowDownload:     false,
+		AllowInteractive:  true,
+		AllowManualReview: true,
 	}); err != nil {
 		t.Fatal(err)
 	}

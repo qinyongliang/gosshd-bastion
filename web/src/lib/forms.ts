@@ -29,6 +29,7 @@ export function policyPayload(body: Record<string, string>): Record<string, unkn
     allow_port_forward: body.allow_port_forward === "on",
     allow_upload: body.allow_upload === "on",
     allow_download: body.allow_download === "on",
+    allow_manual_review: body.allow_manual_review === "on",
   };
 }
 
@@ -63,7 +64,7 @@ export function pageTitle(t?: Translate) {
     dashboard: "dashboard",
     orgs: "orgs",
     "org-admin": "members",
-    keys: "keys",
+    keys: "authorization",
     targets: "services",
     policies: "commandPolicy",
     audit: "auditPageTitle",

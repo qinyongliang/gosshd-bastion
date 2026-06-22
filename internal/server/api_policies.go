@@ -8,22 +8,23 @@ import (
 )
 
 type apiPolicy struct {
-	ID               string          `json:"id"`
-	OwnerType        string          `json:"owner_type"`
-	OwnerID          string          `json:"owner_id"`
-	Name             string          `json:"name"`
-	DefaultAction    string          `json:"default_action"`
-	LLMConfigID      string          `json:"llm_config_id"`
-	LLMPromptID      string          `json:"llm_prompt_id"`
-	IPAllowlist      string          `json:"ip_allowlist"`
-	AllowPortForward bool            `json:"allow_port_forward"`
-	AllowUpload      bool            `json:"allow_upload"`
-	AllowDownload    bool            `json:"allow_download"`
-	AllowInteractive bool            `json:"allow_interactive"`
-	TargetIDs        []string        `json:"target_ids"`
-	UserGroupIDs     []string        `json:"user_group_ids"`
-	TargetTags       []string        `json:"target_tags"`
-	Rules            []apiPolicyRule `json:"rules"`
+	ID                string          `json:"id"`
+	OwnerType         string          `json:"owner_type"`
+	OwnerID           string          `json:"owner_id"`
+	Name              string          `json:"name"`
+	DefaultAction     string          `json:"default_action"`
+	LLMConfigID       string          `json:"llm_config_id"`
+	LLMPromptID       string          `json:"llm_prompt_id"`
+	IPAllowlist       string          `json:"ip_allowlist"`
+	AllowPortForward  bool            `json:"allow_port_forward"`
+	AllowUpload       bool            `json:"allow_upload"`
+	AllowDownload     bool            `json:"allow_download"`
+	AllowInteractive  bool            `json:"allow_interactive"`
+	AllowManualReview bool            `json:"allow_manual_review"`
+	TargetIDs         []string        `json:"target_ids"`
+	UserGroupIDs      []string        `json:"user_group_ids"`
+	TargetTags        []string        `json:"target_tags"`
+	Rules             []apiPolicyRule `json:"rules"`
 }
 
 type apiPolicyRule struct {
@@ -307,19 +308,20 @@ func (a *App) handleListPolicies(w http.ResponseWriter, r *http.Request, user st
 
 func (a *App) handleCreatePolicy(w http.ResponseWriter, r *http.Request, user store.User) {
 	var req struct {
-		OwnerType        string `json:"owner_type"`
-		OwnerID          string `json:"owner_id"`
-		Name             string `json:"name"`
-		DefaultAction    string `json:"default_action"`
-		LLMConfigID      string `json:"llm_config_id"`
-		LLMPromptID      string `json:"llm_prompt_id"`
-		IPAllowlist      string `json:"ip_allowlist"`
-		AllowPortForward bool   `json:"allow_port_forward"`
-		AllowUpload      bool   `json:"allow_upload"`
-		AllowDownload    bool   `json:"allow_download"`
-		AllowInteractive bool   `json:"allow_interactive"`
-		PromptTitle      string `json:"prompt_title"`
-		PromptContent    string `json:"prompt_content"`
+		OwnerType         string `json:"owner_type"`
+		OwnerID           string `json:"owner_id"`
+		Name              string `json:"name"`
+		DefaultAction     string `json:"default_action"`
+		LLMConfigID       string `json:"llm_config_id"`
+		LLMPromptID       string `json:"llm_prompt_id"`
+		IPAllowlist       string `json:"ip_allowlist"`
+		AllowPortForward  bool   `json:"allow_port_forward"`
+		AllowUpload       bool   `json:"allow_upload"`
+		AllowDownload     bool   `json:"allow_download"`
+		AllowInteractive  bool   `json:"allow_interactive"`
+		AllowManualReview bool   `json:"allow_manual_review"`
+		PromptTitle       string `json:"prompt_title"`
+		PromptContent     string `json:"prompt_content"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -349,17 +351,18 @@ func (a *App) handleCreatePolicy(w http.ResponseWriter, r *http.Request, user st
 		llmPromptID = prompt.ID
 	}
 	policy, err := a.store.Repository().CreateCommandPolicy(r.Context(), store.CreateCommandPolicyParams{
-		OwnerType:        ownerType,
-		OwnerID:          ownerID,
-		Name:             req.Name,
-		DefaultAction:    req.DefaultAction,
-		LLMConfigID:      req.LLMConfigID,
-		LLMPromptID:      llmPromptID,
-		IPAllowlist:      req.IPAllowlist,
-		AllowPortForward: req.AllowPortForward,
-		AllowUpload:      req.AllowUpload,
-		AllowDownload:    req.AllowDownload,
-		AllowInteractive: req.AllowInteractive,
+		OwnerType:         ownerType,
+		OwnerID:           ownerID,
+		Name:              req.Name,
+		DefaultAction:     req.DefaultAction,
+		LLMConfigID:       req.LLMConfigID,
+		LLMPromptID:       llmPromptID,
+		IPAllowlist:       req.IPAllowlist,
+		AllowPortForward:  req.AllowPortForward,
+		AllowUpload:       req.AllowUpload,
+		AllowDownload:     req.AllowDownload,
+		AllowInteractive:  req.AllowInteractive,
+		AllowManualReview: req.AllowManualReview,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -375,15 +378,16 @@ func (a *App) handleUpdatePolicy(w http.ResponseWriter, r *http.Request, user st
 		return
 	}
 	var req struct {
-		Name             string `json:"name"`
-		DefaultAction    string `json:"default_action"`
-		LLMConfigID      string `json:"llm_config_id"`
-		LLMPromptID      string `json:"llm_prompt_id"`
-		IPAllowlist      string `json:"ip_allowlist"`
-		AllowPortForward bool   `json:"allow_port_forward"`
-		AllowUpload      bool   `json:"allow_upload"`
-		AllowDownload    bool   `json:"allow_download"`
-		AllowInteractive bool   `json:"allow_interactive"`
+		Name              string `json:"name"`
+		DefaultAction     string `json:"default_action"`
+		LLMConfigID       string `json:"llm_config_id"`
+		LLMPromptID       string `json:"llm_prompt_id"`
+		IPAllowlist       string `json:"ip_allowlist"`
+		AllowPortForward  bool   `json:"allow_port_forward"`
+		AllowUpload       bool   `json:"allow_upload"`
+		AllowDownload     bool   `json:"allow_download"`
+		AllowInteractive  bool   `json:"allow_interactive"`
+		AllowManualReview bool   `json:"allow_manual_review"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -393,15 +397,16 @@ func (a *App) handleUpdatePolicy(w http.ResponseWriter, r *http.Request, user st
 		req.Name = policy.Name
 	}
 	updated, err := a.store.Repository().UpdateCommandPolicy(r.Context(), policy.ID, store.UpdateCommandPolicyParams{
-		Name:             req.Name,
-		DefaultAction:    req.DefaultAction,
-		LLMConfigID:      req.LLMConfigID,
-		LLMPromptID:      req.LLMPromptID,
-		IPAllowlist:      req.IPAllowlist,
-		AllowPortForward: req.AllowPortForward,
-		AllowUpload:      req.AllowUpload,
-		AllowDownload:    req.AllowDownload,
-		AllowInteractive: req.AllowInteractive,
+		Name:              req.Name,
+		DefaultAction:     req.DefaultAction,
+		LLMConfigID:       req.LLMConfigID,
+		LLMPromptID:       req.LLMPromptID,
+		IPAllowlist:       req.IPAllowlist,
+		AllowPortForward:  req.AllowPortForward,
+		AllowUpload:       req.AllowUpload,
+		AllowDownload:     req.AllowDownload,
+		AllowInteractive:  req.AllowInteractive,
+		AllowManualReview: req.AllowManualReview,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -677,22 +682,23 @@ func apiPolicyFromStore(policy store.CommandPolicy) apiPolicy {
 		})
 	}
 	return apiPolicy{
-		ID:               policy.ID,
-		OwnerType:        policy.OwnerType,
-		OwnerID:          policy.OwnerID,
-		Name:             policy.Name,
-		DefaultAction:    policy.DefaultAction,
-		LLMConfigID:      policy.LLMConfigID,
-		LLMPromptID:      policy.LLMPromptID,
-		IPAllowlist:      policy.IPAllowlist,
-		AllowPortForward: policy.AllowPortForward,
-		AllowUpload:      policy.AllowUpload,
-		AllowDownload:    policy.AllowDownload,
-		AllowInteractive: policy.AllowInteractive,
-		TargetIDs:        policy.TargetIDs,
-		UserGroupIDs:     policy.UserGroupIDs,
-		TargetTags:       policy.TargetTags,
-		Rules:            rules,
+		ID:                policy.ID,
+		OwnerType:         policy.OwnerType,
+		OwnerID:           policy.OwnerID,
+		Name:              policy.Name,
+		DefaultAction:     policy.DefaultAction,
+		LLMConfigID:       policy.LLMConfigID,
+		LLMPromptID:       policy.LLMPromptID,
+		IPAllowlist:       policy.IPAllowlist,
+		AllowPortForward:  policy.AllowPortForward,
+		AllowUpload:       policy.AllowUpload,
+		AllowDownload:     policy.AllowDownload,
+		AllowInteractive:  policy.AllowInteractive,
+		AllowManualReview: policy.AllowManualReview,
+		TargetIDs:         policy.TargetIDs,
+		UserGroupIDs:      policy.UserGroupIDs,
+		TargetTags:        policy.TargetTags,
+		Rules:             rules,
 	}
 }
 
