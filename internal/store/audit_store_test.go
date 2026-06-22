@@ -17,13 +17,16 @@ func TestAuditRepositoryPaginationSearchAndRecordingMetadata(t *testing.T) {
 	repo := audit.Repository()
 	start := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
 	for i, item := range []struct {
-		command string
-		target  string
-		key     string
+		command  string
+		target   string
+		key      string
+		request  string
+		decision string
 	}{
-		{"whoami", "test2", "workstation"},
-		{"docker ps", "docker-host", "ops-laptop"},
-		{"df -h", "db-host", "readonly-key"},
+		{"whoami", "test2", "workstation", RequestExec, DecisionAllow},
+		{"docker ps", "docker-host", "ops-laptop", RequestExec, DecisionDeny},
+		{"df -h", "db-host", "readonly-key", RequestExec, DecisionAllow},
+		{"interactive terminal", "jump-host", "terminal-key", RequestShell, DecisionAllow},
 	} {
 		if _, err := repo.CreateCommandAuditLog(ctx, CreateCommandAuditLogParams{
 			UserID:               "user-1",
@@ -40,8 +43,8 @@ func TestAuditRepositoryPaginationSearchAndRecordingMetadata(t *testing.T) {
 			PublicKeyName:        item.key,
 			SessionID:            "session-" + item.target,
 			Command:              item.command,
-			RequestType:          RequestExec,
-			PolicyDecision:       DecisionAllow,
+			RequestType:          item.request,
+			PolicyDecision:       item.decision,
 			PolicyReason:         "llm (1s)",
 			ExitCode:             intPtr(0),
 			StartedAt:            start.Add(time.Duration(i) * time.Minute),
@@ -66,6 +69,20 @@ func TestAuditRepositoryPaginationSearchAndRecordingMetadata(t *testing.T) {
 	}
 	if page.Logs[0].PublicKeyName != "ops-laptop" || page.Logs[0].RecordingPath != "docker-host.jsonl.gz" {
 		t.Fatalf("audit denormalized metadata missing: %+v", page.Logs[0])
+	}
+	page, err = repo.ListCommandAuditLogs(ctx, AuditLogFilter{PolicyDecision: DecisionDeny, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Logs) != 1 || page.Logs[0].PolicyDecision != DecisionDeny || page.Logs[0].Command != "docker ps" {
+		t.Fatalf("decision filter mismatch: %+v", page)
+	}
+	page, err = repo.ListCommandAuditLogs(ctx, AuditLogFilter{RequestType: RequestShell, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Logs) != 1 || page.Logs[0].RequestType != RequestShell || page.Logs[0].Command != "interactive terminal" {
+		t.Fatalf("request type filter mismatch: %+v", page)
 	}
 
 	page, err = repo.ListCommandAuditLogs(ctx, AuditLogFilter{

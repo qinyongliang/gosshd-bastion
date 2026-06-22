@@ -172,6 +172,24 @@ func (a *App) newMCPServer() *mcp.Server {
 			return nil, apiTargetResponse{Target: apiTargetFromStore(target)}, nil
 		})
 
+	mcp.AddTool(s, &mcp.Tool{Name: "target_delete", Description: "Delete an SSH target and remove its policy/tag bindings."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpTargetDeleteInput) (*mcp.CallToolResult, mcpOK, error) {
+			if err := a.ensureServices(ctx); err != nil {
+				return nil, mcpOK{}, err
+			}
+			target, err := a.store.Repository().GetSSHTarget(ctx, in.TargetID)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			if _, _, err := a.resolveOwner(ctx, target.OwnerType, target.OwnerID, in.UserID); err != nil {
+				return nil, mcpOK{}, err
+			}
+			if err := a.store.Repository().DeleteSSHTarget(ctx, target.ID); err != nil {
+				return nil, mcpOK{}, err
+			}
+			return nil, mcpOK{OK: true}, nil
+		})
+
 	mcp.AddTool(s, &mcp.Tool{Name: "agent_enrollment_create", Description: "Create an agent enrollment and install commands."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpAgentEnrollmentInput) (*mcp.CallToolResult, apiAgentEnrollmentResponse, error) {
 			if err := a.ensureServices(ctx); err != nil {
@@ -444,6 +462,11 @@ type mcpTargetCreateInput struct {
 	AgentID        string   `json:"agent_id,omitempty"`
 	ProxyTargetID  string   `json:"proxy_target_id,omitempty"`
 	Tags           []string `json:"tags,omitempty"`
+}
+
+type mcpTargetDeleteInput struct {
+	UserID   string `json:"user_id"`
+	TargetID string `json:"target_id"`
 }
 
 type mcpAgentEnrollmentInput struct {

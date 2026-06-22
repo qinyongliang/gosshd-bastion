@@ -260,6 +260,73 @@ func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 	}
 }
 
+func TestSSHInteractiveShellReturnsAfterRemoteExitWithoutClientEOF(t *testing.T) {
+	app, _, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner := testSSHSigner(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestShellExitServer(t)
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        personal.ID,
+		Alias:          "shellbox",
+		TargetType:     store.TargetDirect,
+		Host:           host,
+		Port:           port,
+		RemoteUsername: "remote",
+		AuthType:       store.AuthPassword,
+		CreatedBy:      user.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	client, err := gossh.Dial("tcp", sshAddr, &gossh.ClientConfig{
+		User:            "shellbox",
+		Auth:            []gossh.AuthMethod{gossh.PublicKeys(userSigner)},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = stdin
+	if err := session.RequestPty("xterm-256color", 24, 80, gossh.TerminalModes{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Shell(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- session.Wait()
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(700 * time.Millisecond):
+		t.Fatal("interactive shell did not return after remote exit")
+	}
+}
+
 func startBastionTestApp(t *testing.T) (*App, string, string, func()) {
 	t.Helper()
 	httpLn, err := net.Listen("tcp", "127.0.0.1:0")
@@ -343,6 +410,32 @@ func startTestSSHServer(t *testing.T) (string, func()) {
 	return startTestSSHServerWithAuthorizedKey(t, nil)
 }
 
+func startTestShellExitServer(t *testing.T) (string, func()) {
+	t.Helper()
+	hostSigner := testSSHSigner(t)
+	cfg := &gossh.ServerConfig{NoClientAuth: true}
+	cfg.AddHostKey(hostSigner)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			raw, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go handleTestShellExitConn(raw, cfg)
+		}
+	}()
+	return ln.Addr().String(), func() {
+		_ = ln.Close()
+		<-done
+	}
+}
+
 func startTestSSHServerWithAuthorizedKey(t *testing.T, authorizedKey gossh.PublicKey) (string, func()) {
 	t.Helper()
 	hostSigner := testSSHSigner(t)
@@ -376,6 +469,42 @@ func startTestSSHServerWithAuthorizedKey(t *testing.T, authorizedKey gossh.Publi
 	return ln.Addr().String(), func() {
 		_ = ln.Close()
 		<-done
+	}
+}
+
+func handleTestShellExitConn(raw net.Conn, cfg *gossh.ServerConfig) {
+	conn, chans, reqs, err := gossh.NewServerConn(raw, cfg)
+	if err != nil {
+		_ = raw.Close()
+		return
+	}
+	defer conn.Close()
+	go gossh.DiscardRequests(reqs)
+	for ch := range chans {
+		if ch.ChannelType() != "session" {
+			_ = ch.Reject(gossh.UnknownChannelType, "unsupported")
+			continue
+		}
+		channel, requests, err := ch.Accept()
+		if err != nil {
+			continue
+		}
+		go func() {
+			defer channel.Close()
+			for req := range requests {
+				switch req.Type {
+				case "pty-req":
+					req.Reply(true, nil)
+				case "shell":
+					req.Reply(true, nil)
+					_, _ = channel.Write([]byte("bye\r\n"))
+					sendExit(channel, 0)
+					return
+				default:
+					req.Reply(false, nil)
+				}
+			}
+		}()
 	}
 }
 

@@ -244,6 +244,15 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if len(prompts) != 1 || !prompts[0].IsReadonly {
 		t.Fatalf("organization default prompt mismatch: %#v", prompts)
 	}
+	customPrompt, err := repo.CreateLLMPromptResource(ctx, CreateLLMPromptResourceParams{
+		OwnerType: OwnerOrganization,
+		OwnerID:   personal.ID,
+		Title:     "custom review",
+		Content:   "deny risky changes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	policy, err := repo.CreateCommandPolicy(ctx, CreateCommandPolicyParams{
 		OwnerType:     OwnerOrganization,
@@ -251,7 +260,7 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 		Name:          "strict",
 		DefaultAction: DecisionDeny,
 		LLMConfigID:   llm.ID,
-		LLMPromptID:   prompts[0].ID,
+		LLMPromptID:   customPrompt.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -287,8 +296,91 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if policies[0].LLMConfigID != llm.ID {
 		t.Fatalf("policy llm config mismatch: %#v", policies[0])
 	}
-	if policies[0].LLMPromptID != prompts[0].ID {
+	if policies[0].LLMPromptID != customPrompt.ID {
 		t.Fatalf("policy llm prompt mismatch: %#v", policies[0])
+	}
+	if _, err := repo.UpdateCommandPolicy(ctx, policy.ID, UpdateCommandPolicyParams{
+		Name:             "strict edited",
+		DefaultAction:    DecisionAllow,
+		LLMConfigID:      llm.ID,
+		LLMPromptID:      customPrompt.ID,
+		IPAllowlist:      "private",
+		AllowPortForward: true,
+		AllowUpload:      true,
+		AllowDownload:    false,
+		AllowInteractive: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deletedTarget, err := repo.CreateSSHTarget(ctx, CreateSSHTargetParams{
+		OwnerType:      OwnerOrganization,
+		OwnerID:        personal.ID,
+		Name:           "Delete me",
+		Alias:          "delete-me",
+		TargetType:     TargetDirect,
+		Host:           "10.0.0.7",
+		Port:           22,
+		RemoteUsername: "root",
+		AuthType:       AuthPassword,
+		CreatedBy:      user.ID,
+		Tags:           []string{"trash"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyDependent, err := repo.CreateSSHTarget(ctx, CreateSSHTargetParams{
+		OwnerType:      OwnerOrganization,
+		OwnerID:        personal.ID,
+		Name:           "Proxy dependent",
+		Alias:          "proxy-dependent",
+		TargetType:     TargetDirect,
+		Host:           "10.0.0.8",
+		Port:           22,
+		RemoteUsername: "root",
+		AuthType:       AuthPassword,
+		ProxyTargetID:  deletedTarget.ID,
+		CreatedBy:      user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AttachPolicyToTarget(ctx, policy.ID, deletedTarget.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteSSHTarget(ctx, deletedTarget.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetSSHTarget(ctx, deletedTarget.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted target lookup error mismatch: %v", err)
+	}
+	proxyDependent, err = repo.GetSSHTarget(ctx, proxyDependent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxyDependent.ProxyTargetID != "" {
+		t.Fatalf("deleted proxy target should be cleared from dependents: %#v", proxyDependent)
+	}
+	cleanedPolicy, err := repo.GetCommandPolicy(ctx, policy.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, targetID := range cleanedPolicy.TargetIDs {
+		if targetID == deletedTarget.ID {
+			t.Fatalf("deleted target should be removed from policy bindings: %#v", cleanedPolicy.TargetIDs)
+		}
+	}
+	if err := repo.DeleteLLMPolicyConfig(ctx, llm.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteLLMPromptResource(ctx, customPrompt.ID); err != nil {
+		t.Fatal(err)
+	}
+	clearedPolicy, err := repo.GetCommandPolicy(ctx, policy.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clearedPolicy.LLMConfigID != "" || clearedPolicy.LLMPromptID != "" {
+		t.Fatalf("deleted policy resources should clear references: %#v", clearedPolicy)
 	}
 
 	started := time.Now().UTC()

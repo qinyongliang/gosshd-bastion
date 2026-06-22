@@ -59,6 +59,12 @@ func (a *App) handleListAuditLogs(w http.ResponseWriter, r *http.Request, user s
 	if targetID := strings.TrimSpace(r.URL.Query().Get("target_id")); targetID != "" {
 		filter.TargetID = targetID
 	}
+	if decision := auditDecisionParam(r.URL.Query().Get("decision")); decision != "" {
+		filter.PolicyDecision = decision
+	}
+	if requestType := auditRequestTypeParam(r.URL.Query().Get("request_type")); requestType != "" {
+		filter.RequestType = requestType
+	}
 	pageResult, err := a.audit.Repository().ListCommandAuditLogs(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -157,6 +163,24 @@ func parseAuditTime(raw string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+func auditDecisionParam(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case store.DecisionAllow, store.DecisionDeny:
+		return strings.TrimSpace(raw)
+	default:
+		return ""
+	}
+}
+
+func auditRequestTypeParam(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case store.RequestExec, store.RequestShell, store.RequestSFTP, store.RequestForward:
+		return strings.TrimSpace(raw)
+	default:
+		return ""
+	}
 }
 
 func auditTargetEndpoint(log store.CommandAuditLog) string {

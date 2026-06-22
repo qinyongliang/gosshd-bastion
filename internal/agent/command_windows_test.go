@@ -69,7 +69,7 @@ func TestWindowsShellUsesConPTYForInteractiveInput(t *testing.T) {
 	if !strings.Contains(output, "still-alive") {
 		t.Fatalf("shell did not continue after ctrl-c: %q", output)
 	}
-	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte("exit\r")}); err != nil {
+	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte{0x04}}); err != nil {
 		t.Fatal(err)
 	}
 	if code := readExitCode(t, reader); code != 0 && code != 0xC000013A {

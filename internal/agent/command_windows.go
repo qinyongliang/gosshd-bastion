@@ -258,22 +258,27 @@ func copyFramesToConPTY(w io.WriteCloser, reader *bufio.Reader, console windows.
 
 func writeConPTYInput(w io.Writer, data []byte, processID uint32) {
 	for len(data) > 0 {
-		ctrlC := -1
+		special := -1
 		for i, b := range data {
-			if b == 0x03 {
-				ctrlC = i
+			if b == 0x03 || b == 0x04 {
+				special = i
 				break
 			}
 		}
-		if ctrlC < 0 {
+		if special < 0 {
 			_, _ = w.Write(data)
 			return
 		}
-		if ctrlC > 0 {
-			_, _ = w.Write(data[:ctrlC])
+		if special > 0 {
+			_, _ = w.Write(data[:special])
 		}
-		_ = interruptConsoleProcess(processID)
-		data = data[ctrlC+1:]
+		switch data[special] {
+		case 0x03:
+			_ = interruptConsoleProcess(processID)
+		case 0x04:
+			_, _ = w.Write([]byte("exit\r\n"))
+		}
+		data = data[special+1:]
 	}
 }
 

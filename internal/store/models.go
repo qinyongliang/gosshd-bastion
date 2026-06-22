@@ -183,6 +183,7 @@ type CommandPolicy struct {
 	AllowInteractive bool
 	CreatedAt        time.Time
 	Rules            []PolicyRule
+	TargetIDs        []string
 	UserGroupIDs     []string
 	TargetTags       []string
 }
@@ -256,6 +257,14 @@ type CreateLLMPolicyConfigParams struct {
 	TimeoutSeconds  int
 }
 
+type UpdateLLMPolicyConfigParams struct {
+	Name            string
+	BaseURL         string
+	EncryptedAPIKey []byte
+	Model           string
+	TimeoutSeconds  int
+}
+
 type CreateLLMPromptResourceParams struct {
 	OwnerType  string
 	OwnerID    string
@@ -263,6 +272,11 @@ type CreateLLMPromptResourceParams struct {
 	Content    string
 	IsDefault  bool
 	IsReadonly bool
+}
+
+type UpdateLLMPromptResourceParams struct {
+	Title   string
+	Content string
 }
 
 type CommandAuditLog struct {
@@ -463,13 +477,15 @@ type CreateCommandAuditLogParams struct {
 }
 
 type AuditLogFilter struct {
-	UserID      string
-	TargetID    string
-	Query       string
-	StartedFrom time.Time
-	StartedTo   time.Time
-	Limit       int
-	Offset      int
+	UserID         string
+	TargetID       string
+	Query          string
+	PolicyDecision string
+	RequestType    string
+	StartedFrom    time.Time
+	StartedTo      time.Time
+	Limit          int
+	Offset         int
 }
 
 type AuditLogPage struct {

@@ -1001,6 +1001,35 @@ func (r *Repository) GetSSHTarget(ctx context.Context, targetID string) (SSHTarg
 	return target, nil
 }
 
+func (r *Repository) DeleteSSHTarget(ctx context.Context, targetID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE ssh_targets
+		SET proxy_target_id = NULL
+		WHERE proxy_target_id = ?
+	`, targetID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM policy_targets WHERE target_id = ?`, targetID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM target_tag_bindings WHERE target_id = ?`, targetID); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM ssh_targets WHERE id = ?`, targetID)
+	if err != nil {
+		return err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, params UpdateSSHTargetParams) (SSHTarget, error) {
 	current, err := r.GetSSHTarget(ctx, targetID)
 	if err != nil {
@@ -1351,6 +1380,47 @@ func (r *Repository) ListLLMPolicyConfigs(ctx context.Context, ownerType, ownerI
 	return configs, rows.Err()
 }
 
+func (r *Repository) UpdateLLMPolicyConfig(ctx context.Context, id string, params UpdateLLMPolicyConfigParams) (LLMPolicyConfig, error) {
+	timeout := params.TimeoutSeconds
+	if timeout <= 0 {
+		timeout = 10
+	}
+	apiKey := nullableBytes(params.EncryptedAPIKey)
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE llm_policy_configs
+		SET name = ?, base_url = ?, api_key_encrypted = COALESCE(?, api_key_encrypted),
+			model = ?, timeout_seconds = ?
+		WHERE id = ?
+	`, strings.TrimSpace(params.Name), strings.TrimRight(strings.TrimSpace(params.BaseURL), "/"), apiKey,
+		strings.TrimSpace(params.Model), timeout, id)
+	if err != nil {
+		return LLMPolicyConfig{}, err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return LLMPolicyConfig{}, err
+	}
+	return r.GetLLMPolicyConfig(ctx, id)
+}
+
+func (r *Repository) DeleteLLMPolicyConfig(ctx context.Context, id string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE command_policies SET llm_config_id = NULL WHERE llm_config_id = ?`, id); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM llm_policy_configs WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (r *Repository) CreateLLMPromptResource(ctx context.Context, params CreateLLMPromptResourceParams) (LLMPromptResource, error) {
 	prompt := LLMPromptResource{
 		ID:         uuid.NewString(),
@@ -1411,6 +1481,40 @@ func (r *Repository) ListLLMPromptResources(ctx context.Context, ownerType, owne
 	return prompts, rows.Err()
 }
 
+func (r *Repository) UpdateLLMPromptResource(ctx context.Context, id string, params UpdateLLMPromptResourceParams) (LLMPromptResource, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE llm_prompt_resources
+		SET title = ?, content = ?
+		WHERE id = ? AND is_readonly = 0
+	`, strings.TrimSpace(params.Title), strings.TrimSpace(params.Content), id)
+	if err != nil {
+		return LLMPromptResource{}, err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return LLMPromptResource{}, err
+	}
+	return r.GetLLMPromptResource(ctx, id)
+}
+
+func (r *Repository) DeleteLLMPromptResource(ctx context.Context, id string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE command_policies SET llm_prompt_id = NULL WHERE llm_prompt_id = ?`, id); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM llm_prompt_resources WHERE id = ? AND is_readonly = 0`, id)
+	if err != nil {
+		return err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateCommandPolicyParams) (CommandPolicy, error) {
 	policy := CommandPolicy{
 		ID:               uuid.NewString(),
@@ -1466,6 +1570,11 @@ func (r *Repository) ListCommandPolicies(ctx context.Context, ownerType, ownerID
 			return nil, err
 		}
 		policy.Rules = rules
+		targetIDs, err := r.listPolicyTargetIDs(ctx, policy.ID)
+		if err != nil {
+			return nil, err
+		}
+		policy.TargetIDs = targetIDs
 		userGroupIDs, err := r.listPolicyUserGroupIDs(ctx, policy.ID)
 		if err != nil {
 			return nil, err
@@ -1494,6 +1603,10 @@ func (r *Repository) GetCommandPolicy(ctx context.Context, id string) (CommandPo
 		return CommandPolicy{}, wrapScanErr(err)
 	}
 	policy.Rules, err = r.listPolicyRules(ctx, policy.ID)
+	if err != nil {
+		return CommandPolicy{}, err
+	}
+	policy.TargetIDs, err = r.listPolicyTargetIDs(ctx, policy.ID)
 	if err != nil {
 		return CommandPolicy{}, err
 	}
@@ -1618,10 +1731,27 @@ func (r *Repository) CreatePolicyRule(ctx context.Context, params CreatePolicyRu
 	return rule, nil
 }
 
+func (r *Repository) DeletePolicyRule(ctx context.Context, policyID, ruleID string) error {
+	res, err := r.db.ExecContext(ctx, `
+		DELETE FROM policy_rules WHERE policy_id = ? AND id = ?
+	`, policyID, ruleID)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
 func (r *Repository) AttachPolicyToTarget(ctx context.Context, policyID, targetID string) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO policy_targets (policy_id, target_id)
 		VALUES (?, ?)
+	`, policyID, targetID)
+	return err
+}
+
+func (r *Repository) DetachPolicyFromTarget(ctx context.Context, policyID, targetID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM policy_targets WHERE policy_id = ? AND target_id = ?
 	`, policyID, targetID)
 	return err
 }
@@ -1655,6 +1785,16 @@ func (r *Repository) AttachPolicyToTargetTag(ctx context.Context, policyID, owne
 		return err
 	}
 	return tx.Commit()
+}
+
+func (r *Repository) DetachPolicyFromTargetTag(ctx context.Context, policyID, ownerType, ownerID, tagName string) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM policy_target_tags
+		WHERE policy_id = ? AND tag_id IN (
+			SELECT id FROM target_tags WHERE owner_type = ? AND owner_id = ? AND name = ?
+		)
+	`, policyID, ownerType, ownerID, strings.TrimSpace(tagName))
+	return err
 }
 
 func (r *Repository) AttachPolicyToUserGroup(ctx context.Context, policyID, groupID string) error {
@@ -1706,6 +1846,11 @@ func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string)
 			return nil, err
 		}
 		policy.Rules = rules
+		targetIDs, err := r.listPolicyTargetIDs(ctx, policy.ID)
+		if err != nil {
+			return nil, err
+		}
+		policy.TargetIDs = targetIDs
 		userGroupIDs, err := r.listPolicyUserGroupIDs(ctx, policy.ID)
 		if err != nil {
 			return nil, err
@@ -1719,6 +1864,27 @@ func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string)
 		policies = append(policies, policy)
 	}
 	return policies, rows.Err()
+}
+
+func (r *Repository) listPolicyTargetIDs(ctx context.Context, policyID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT target_id FROM policy_targets
+		WHERE policy_id = ?
+		ORDER BY target_id ASC
+	`, policyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *Repository) listPolicyUserGroupIDs(ctx context.Context, policyID string) ([]string, error) {

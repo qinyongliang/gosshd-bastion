@@ -572,6 +572,20 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if llm.Config.ID == "" || llm.Config.BaseURL != "https://llm.example.com" || llm.Config.Model != "ops-model" {
 		t.Fatalf("llm config response mismatch: %+v", llm)
 	}
+	var updatedLLM apiLLMConfigResponse
+	patchJSON(t, client, srv.URL+"/api/llm-configs/"+llm.Config.ID, map[string]any{
+		"name":            "reviewer edited",
+		"base_url":        "https://llm2.example.com/",
+		"model":           "ops-model-v2",
+		"timeout_seconds": 5,
+	}, http.StatusOK, &updatedLLM)
+	if updatedLLM.Config.Name != "reviewer edited" ||
+		updatedLLM.Config.BaseURL != "https://llm2.example.com" ||
+		updatedLLM.Config.Model != "ops-model-v2" ||
+		updatedLLM.Config.TimeoutSeconds != 5 {
+		t.Fatalf("llm config update mismatch: %+v", updatedLLM)
+	}
+	llm.Config = updatedLLM.Config
 	var llms apiLLMConfigsResponse
 	getJSON(t, client, srv.URL+"/api/llm-configs?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &llms)
 	if len(llms.Configs) != 1 || llms.Configs[0].ID != llm.Config.ID {
@@ -592,6 +606,15 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if prompt.Prompt.ID == "" || prompt.Prompt.IsReadonly {
 		t.Fatalf("prompt response mismatch: %+v", prompt)
 	}
+	var updatedPrompt apiLLMPromptResponse
+	patchJSON(t, client, srv.URL+"/api/llm-prompts/"+prompt.Prompt.ID, map[string]string{
+		"title":   "High risk review edited",
+		"content": "deny writes and risky shells",
+	}, http.StatusOK, &updatedPrompt)
+	if updatedPrompt.Prompt.Title != "High risk review edited" || updatedPrompt.Prompt.Content != "deny writes and risky shells" {
+		t.Fatalf("prompt update mismatch: %+v", updatedPrompt)
+	}
+	prompt.Prompt = updatedPrompt.Prompt
 
 	var target apiTargetResponse
 	postJSON(t, client, srv.URL+"/api/targets", map[string]any{
@@ -679,6 +702,44 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if len(colored.Targets) < 1 || colored.Targets[0].TagColors["prod"] != "green" {
 		t.Fatalf("target tag color update mismatch: %+v", colored)
 	}
+	var removable apiTargetResponse
+	postJSON(t, client, srv.URL+"/api/targets", map[string]any{
+		"owner_type":      "organization",
+		"owner_id":        org.Organization.ID,
+		"name":            "Delete target",
+		"alias":           "delete-target",
+		"target_type":     "direct",
+		"host":            "10.0.1.7",
+		"port":            22,
+		"remote_username": "root",
+		"auth_type":       "password",
+		"secret":          "secret",
+	}, http.StatusCreated, &removable)
+	var dependent apiTargetResponse
+	postJSON(t, client, srv.URL+"/api/targets", map[string]any{
+		"owner_type":      "organization",
+		"owner_id":        org.Organization.ID,
+		"name":            "Proxy dependent",
+		"alias":           "proxy-dependent",
+		"target_type":     "direct",
+		"host":            "10.0.1.8",
+		"port":            22,
+		"remote_username": "root",
+		"auth_type":       "password",
+		"secret":          "secret",
+		"proxy_target_id": removable.Target.ID,
+	}, http.StatusCreated, &dependent)
+	deleteJSON(t, client, srv.URL+"/api/targets/"+removable.Target.ID, http.StatusNoContent)
+	var afterTargetDelete apiTargetsResponse
+	getJSON(t, client, srv.URL+"/api/targets?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &afterTargetDelete)
+	for _, item := range afterTargetDelete.Targets {
+		if item.ID == removable.Target.ID {
+			t.Fatalf("deleted target still listed: %+v", afterTargetDelete)
+		}
+		if item.ID == dependent.Target.ID && item.ProxyTargetID != "" {
+			t.Fatalf("dependent target proxy should be cleared after delete: %+v", item)
+		}
+	}
 	target.Target = renamed.Target
 
 	var policy apiPolicyResponse
@@ -716,8 +777,16 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 		Policies []apiPolicy `json:"policies"`
 	}
 	getJSON(t, client, srv.URL+"/api/policies?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &listedPolicies)
-	if len(listedPolicies.Policies) != 1 || len(listedPolicies.Policies[0].TargetTags) != 1 || listedPolicies.Policies[0].TargetTags[0] != "prod" {
-		t.Fatalf("policy target tags mismatch: %+v", listedPolicies)
+	if len(listedPolicies.Policies) != 1 ||
+		len(listedPolicies.Policies[0].Rules) != 1 ||
+		listedPolicies.Policies[0].Rules[0].Pattern != "whoami" ||
+		len(listedPolicies.Policies[0].TargetIDs) != 1 ||
+		listedPolicies.Policies[0].TargetIDs[0] != target.Target.ID ||
+		len(listedPolicies.Policies[0].TargetTags) != 1 ||
+		listedPolicies.Policies[0].TargetTags[0] != "prod" ||
+		len(listedPolicies.Policies[0].UserGroupIDs) != 1 ||
+		listedPolicies.Policies[0].UserGroupIDs[0] != groups.Groups[0].ID {
+		t.Fatalf("policy bindings and rules mismatch: %+v", listedPolicies)
 	}
 	var updatedPolicy apiPolicyResponse
 	patchJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID, map[string]any{
@@ -740,14 +809,50 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/copy", map[string]string{
 		"name": "strict copy",
 	}, http.StatusCreated, &copiedPolicy)
-	if copiedPolicy.Policy.Name != "strict copy" || len(copiedPolicy.Policy.TargetTags) != 1 || len(copiedPolicy.Policy.UserGroupIDs) != 1 ||
+	if copiedPolicy.Policy.Name != "strict copy" || len(copiedPolicy.Policy.Rules) != 1 || len(copiedPolicy.Policy.TargetIDs) != 1 ||
+		len(copiedPolicy.Policy.TargetTags) != 1 || len(copiedPolicy.Policy.UserGroupIDs) != 1 ||
 		copiedPolicy.Policy.IPAllowlist != "private" || !copiedPolicy.Policy.AllowUpload {
 		t.Fatalf("policy copy mismatch: %+v", copiedPolicy.Policy)
+	}
+	deleteJSON(t, client, srv.URL+"/api/policies/"+copiedPolicy.Policy.ID+"/rules/"+copiedPolicy.Policy.Rules[0].ID, http.StatusOK)
+	deleteJSON(t, client, srv.URL+"/api/policies/"+copiedPolicy.Policy.ID+"/targets/"+target.Target.ID, http.StatusOK)
+	deleteJSON(t, client, srv.URL+"/api/policies/"+copiedPolicy.Policy.ID+"/target-tags/prod", http.StatusOK)
+	deleteJSON(t, client, srv.URL+"/api/policies/"+copiedPolicy.Policy.ID+"/user-groups/"+groups.Groups[0].ID, http.StatusOK)
+	getJSON(t, client, srv.URL+"/api/policies?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &listedPolicies)
+	for _, listedPolicy := range listedPolicies.Policies {
+		if listedPolicy.ID == copiedPolicy.Policy.ID &&
+			(len(listedPolicy.Rules) != 0 ||
+				len(listedPolicy.TargetIDs) != 0 ||
+				len(listedPolicy.TargetTags) != 0 ||
+				len(listedPolicy.UserGroupIDs) != 0) {
+			t.Fatalf("policy detach mismatch: %+v", listedPolicy)
+		}
 	}
 	deleteJSON(t, client, srv.URL+"/api/policies/"+copiedPolicy.Policy.ID, http.StatusOK)
 	getJSON(t, client, srv.URL+"/api/policies?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &listedPolicies)
 	if len(listedPolicies.Policies) != 1 || listedPolicies.Policies[0].ID != policy.Policy.ID {
 		t.Fatalf("policy delete mismatch: %+v", listedPolicies)
+	}
+	deleteJSON(t, client, srv.URL+"/api/llm-configs/"+llm.Config.ID, http.StatusOK)
+	deleteJSON(t, client, srv.URL+"/api/llm-prompts/"+prompt.Prompt.ID, http.StatusOK)
+	getJSON(t, client, srv.URL+"/api/llm-configs?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &llms)
+	if len(llms.Configs) != 0 {
+		t.Fatalf("deleted llm config still listed: %+v", llms)
+	}
+	getJSON(t, client, srv.URL+"/api/llm-prompts?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &prompts)
+	if len(prompts.Prompts) != 1 || !prompts.Prompts[0].IsReadonly {
+		t.Fatalf("deleted custom prompt should leave only readonly default prompt: %+v", prompts)
+	}
+	directPolicy, err := app.store.Repository().GetCommandPolicy(contextBackground(), policy.Policy.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if directPolicy.LLMConfigID != "" || directPolicy.LLMPromptID != "" {
+		t.Fatalf("direct policy resource delete should clear references: %+v", directPolicy)
+	}
+	getJSON(t, client, srv.URL+"/api/policies?owner_type=organization&owner_id="+org.Organization.ID, http.StatusOK, &listedPolicies)
+	if len(listedPolicies.Policies) != 1 || listedPolicies.Policies[0].LLMConfigID != "" || listedPolicies.Policies[0].LLMPromptID != "" {
+		t.Fatalf("policy resource delete should clear references: %+v", listedPolicies)
 	}
 
 	started := time.Now().UTC().Add(-2 * time.Hour)
@@ -803,9 +908,25 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	denyAudit, err := app.createAuditLog(contextBackground(), store.CreateCommandAuditLogParams{
+		UserID:               user.User.ID,
+		TargetID:             target.Target.ID,
+		OrganizationID:       org.Organization.ID,
+		PublicKeyFingerprint: "SHA256:audit-key",
+		SessionID:            "session-deny",
+		Command:              "mkdir test",
+		RequestType:          store.RequestExec,
+		PolicyDecision:       store.DecisionDeny,
+		PolicyReason:         "whitelist missing: ls",
+		StartedAt:            started.Add(2 * time.Hour),
+		RemoteAddress:        "127.0.0.1:12345",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var logs apiAuditLogsResponse
 	getJSON(t, client, srv.URL+"/api/audit", http.StatusOK, &logs)
-	if len(logs.Logs) != 2 || logs.Total != 2 {
+	if len(logs.Logs) != 3 || logs.Total != 3 {
 		t.Fatalf("audit logs mismatch: %+v", logs)
 	}
 	var filteredLogs apiAuditLogsResponse
@@ -820,6 +941,16 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 		filteredLogs.Logs[0].TargetAlias != target.Target.Alias ||
 		filteredLogs.Logs[0].TargetEndpoint != "root@127.0.0.1:22" {
 		t.Fatalf("audit log enriched fields mismatch: %+v", filteredLogs.Logs[0])
+	}
+	var deniedLogs apiAuditLogsResponse
+	getJSON(t, client, srv.URL+"/api/audit?decision=deny", http.StatusOK, &deniedLogs)
+	if len(deniedLogs.Logs) != 1 || deniedLogs.Total != 1 || deniedLogs.Logs[0].ID != denyAudit.ID || deniedLogs.Logs[0].PolicyDecision != store.DecisionDeny {
+		t.Fatalf("audit decision filter mismatch: %+v", deniedLogs)
+	}
+	var shellLogs apiAuditLogsResponse
+	getJSON(t, client, srv.URL+"/api/audit?request_type=shell", http.StatusOK, &shellLogs)
+	if len(shellLogs.Logs) != 1 || shellLogs.Total != 1 || shellLogs.Logs[0].ID != shellAudit.ID || shellLogs.Logs[0].RequestType != store.RequestShell {
+		t.Fatalf("audit request type filter mismatch: %+v", shellLogs)
 	}
 	var replay struct {
 		Log   apiAuditLog       `json:"log"`
