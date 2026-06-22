@@ -46,7 +46,7 @@ export function MembersPage({ data }: { data: ConsoleData }) {
           </span>,
         ])} />
       </Panel>
-      {modal === "add" && <Modal title={t("membersAddTitle")} onClose={() => setModal("")}>
+      {modal === "add" && <Modal title={t("membersAddTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => add.mutate(body))}>
           <Field label={t("commonEmail")} name="email" />
           <Field label={t("membersUserID")} name="user_id" />
@@ -54,7 +54,7 @@ export function MembersPage({ data }: { data: ConsoleData }) {
           <ModalActions onCancel={() => setModal("")} submit={t("addMember")} />
         </form>
       </Modal>}
-      {modal === "groups" && <Modal title={t("membersGroupTitle")} onClose={() => setModal("")}>
+      {modal === "groups" && <Modal title={t("membersGroupTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => group.mutate(body))}>
           <Field label={t("membersGroupName")} name="name" required />
           <Field label="group-slug" name="slug" required />
@@ -62,7 +62,7 @@ export function MembersPage({ data }: { data: ConsoleData }) {
         </form>
         <SimpleTable headers={[t("commonName"), "Slug"]} rows={data.groups.map((item) => [item.name, item.slug])} />
       </Modal>}
-      {modal === "transfer" && <Modal title={t("membersTransferTitle")} onClose={() => setModal("")}>
+      {modal === "transfer" && <Modal title={t("membersTransferTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         <form className="stack" onSubmit={(event) => formSubmit(event, (body) => transfer.mutate(body))}>
           <Select label={t("membersNewOwner")} name="user_id" options={data.members.filter((item) => item.role !== "owner").map((item) => [item.user_id, item.display_name || item.email])} />
           <ModalActions onCancel={() => setModal("")} submit={t("membersTransfer")} />

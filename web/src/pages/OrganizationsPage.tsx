@@ -35,14 +35,14 @@ export function OrganizationsPage({ data }: { data: ConsoleData }) {
           <button type="button" onClick={() => data.setActiveOrgID(org.id)}>{t("commonSwitch")}</button>,
         ])} />
       </Panel>
-      {modal === "create" && <Modal title={t("orgCreateTitle")} onClose={() => setModal("")}>
+      {modal === "create" && <Modal title={t("orgCreateTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => create.mutate(body))}>
           <Field label={t("orgName")} name="name" required />
           <Field label={t("orgSlug")} name="slug" required />
           <ModalActions onCancel={() => setModal("")} submit={t("orgCreate")} />
         </form>
       </Modal>}
-      {modal === "join" && <Modal title={t("orgJoinTitle")} onClose={() => setModal("")}>
+      {modal === "join" && <Modal title={t("orgJoinTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         <form className="stack" onSubmit={(event) => formSubmit(event, (body) => join.mutate(body))}>
           <Field label={t("orgJoinCode")} name="code" required />
           <ModalActions onCancel={() => setModal("")} submit={t("orgJoin")} />

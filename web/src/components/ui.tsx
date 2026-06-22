@@ -1,11 +1,13 @@
 import clsx from "clsx";
 import { Activity, Copy, Play, Search, X } from "lucide-react";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useI18n } from "../i18n";
 import type { AuditLog, Member, Target } from "../types";
 import { copyText, tagColor } from "../utils";
 import { formatDate } from "../lib/forms";
+
+const modalStack: symbol[] = [];
 
 export function AuditTable({ logs, onReplay }: { logs: AuditLog[]; onReplay?: (log: AuditLog) => void }) {
   const { t } = useI18n();
@@ -18,15 +20,17 @@ export function AuditTable({ logs, onReplay }: { logs: AuditLog[]; onReplay?: (l
     setDetail({ title, value: trimmed, mono });
   };
   return <>
-    <SimpleTable headers={headers} rows={logs.map((log) => {
+    <div className="audit-table-compact"><SimpleTable headers={headers} rows={logs.map((log) => {
+      const userPrimary = log.user_display_name || log.user_email || "-";
+      const userSecondary = log.user_email && log.user_email !== userPrimary ? log.user_email : "";
       const row: ReactNode[] = [
-        <AuditTextCell title={t("auditTableUser")} primary={log.user_display_name || log.user_email || "-"} secondary={log.user_email || ""} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableUser")} primary={userPrimary} secondary={userSecondary} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableKey")} primary={log.public_key_name || "-"} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableTarget")} primary={log.target_name || log.target_alias || "-"} secondary={log.target_endpoint || ""} onOpen={openDetail} />,
-        <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono lines={2} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono onOpen={openDetail} />,
         log.request_type,
         <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
-        <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} lines={2} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} onOpen={openDetail} />,
         String(log.exit_code ?? ""),
         formatDate(log.started_at),
       ];
@@ -34,7 +38,7 @@ export function AuditTable({ logs, onReplay }: { logs: AuditLog[]; onReplay?: (l
         row.push(log.has_recording ? <button type="button" className="small" onClick={() => onReplay(log)}><Play />{t("auditReplay")}</button> : <span className="muted">-</span>);
       }
       return row;
-    })} />
+    })} /></div>
     {detail && <Modal title={detail.title} onClose={() => setDetail(null)} wide className="audit-detail-modal">
       <pre className={clsx("audit-detail-content", detail.mono && "mono")}>{detail.value}</pre>
     </Modal>}
@@ -67,12 +71,38 @@ export function Metric({ label, value, icon }: { label: string; value: number; i
   return <div className="metric">{icon || <Activity />}<span>{label}</span><strong>{value}</strong></div>;
 }
 
-export function Modal({ title, children, onClose, wide = false, stacked = false, className = "" }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; stacked?: boolean; className?: string }) {
+export function Modal({ title, children, onClose, wide = false, stacked = false, className = "", closeOnEscape = true }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; stacked?: boolean; className?: string; closeOnEscape?: boolean }) {
   const { t } = useI18n();
-  return <div className={clsx("overlay", stacked && "stacked")}><section className={clsx("modal", wide && "wide", className)} role="dialog" aria-label={title}>
+  const modalID = useRef(Symbol(title));
+  useEffect(() => {
+    modalStack.push(modalID.current);
+    return () => {
+      const index = modalStack.indexOf(modalID.current);
+      if (index >= 0) modalStack.splice(index, 1);
+    };
+  }, []);
+  useEffect(() => {
+    if (!closeOnEscape) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (modalStack[modalStack.length - 1] !== modalID.current) return;
+      if (isEditingTarget(event.target)) return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closeOnEscape, onClose]);
+  return <div className={clsx("overlay", stacked && "stacked")}><section className={clsx("modal", wide && "wide", className)} role="dialog" aria-modal="true" aria-label={title}>
     <header className="surface-head"><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
     <div className="surface-body modal-body-list">{children}</div>
   </section></div>;
+}
+
+function isEditingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
 }
 
 export function Drawer({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {

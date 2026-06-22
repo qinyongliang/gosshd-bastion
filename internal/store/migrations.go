@@ -21,6 +21,14 @@ var migrations = []string{
 		expires_at TEXT NOT NULL,
 		created_at TEXT NOT NULL
 	)`,
+	`CREATE TABLE IF NOT EXISTS mcp_tokens (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		token_hash BLOB NOT NULL UNIQUE,
+		last_used_at TEXT,
+		created_at TEXT NOT NULL
+	)`,
 	`CREATE TABLE IF NOT EXISTS organizations (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,

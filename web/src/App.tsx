@@ -6,6 +6,7 @@ import { useConsoleData } from "./hooks/useConsoleData";
 import { Shell } from "./layout/Shell";
 import { AuditPage } from "./pages/AuditPage";
 import { AuthPage } from "./pages/AuthPage";
+import { ConnectPage } from "./pages/ConnectPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { KeysPage } from "./pages/KeysPage";
 import { MembersPage } from "./pages/MembersPage";
@@ -21,7 +22,7 @@ export function App() {
 
   if (me.isLoading || providers.isLoading) return <Loading />;
   if (me.error instanceof ApiError && me.error.status === 401) {
-    return <AuthPage dingTalkEnabled={Boolean(providers.data?.dingtalk?.enabled)} />;
+    return <AuthPage dingTalkEnabled={Boolean(providers.data?.dingtalk?.enabled)} registrationEnabled={Boolean(providers.data?.registration_enabled)} />;
   }
   if (me.error) return <Fatal error={me.error} />;
   if (!me.data) return <Loading />;
@@ -40,6 +41,7 @@ function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[];
         <Route path="/org-admin" element={<MembersPage data={data} />} />
         <Route path="/keys" element={<KeysPage data={data} />} />
         <Route path="/targets" element={<TargetsPage data={data} />} />
+        <Route path="/targets/:targetID/connect" element={<ConnectPage data={data} />} />
         <Route path="/agents" element={<Navigate to="/targets" replace />} />
         <Route path="/policies" element={<PoliciesPage data={data} />} />
         <Route path="/audit" element={<AuditPage data={data} />} />

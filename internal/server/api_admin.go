@@ -24,6 +24,12 @@ type apiOrganizationMembersResponse struct {
 
 func (a *App) handleAdminSettings(w http.ResponseWriter, r *http.Request, user store.User) {
 	out := map[string]any{}
+	authConfig, err := a.loadAuthSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out[settingAuth] = authConfig
 	for _, key := range []string{settingDingTalk, settingLDAP} {
 		setting, err := a.store.Repository().GetSystemSetting(r.Context(), key)
 		if isNotFound(err) {
@@ -42,6 +48,24 @@ func (a *App) handleAdminSettings(w http.ResponseWriter, r *http.Request, user s
 		out[key] = value
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) handleUpdateAuthSettings(w http.ResponseWriter, r *http.Request, user store.User) {
+	var req authSettings
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	payload, err := json.Marshal(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.store.Repository().UpsertSystemSetting(r.Context(), settingAuth, payload, user.ID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"auth": req})
 }
 
 func (a *App) handleUpdateDingTalkSettings(w http.ResponseWriter, r *http.Request, user store.User) {

@@ -51,7 +51,7 @@ func TestSSHExecRoutesAliasToDirectTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
 		OwnerType:      store.OwnerOrganization,
 		OwnerID:        personal.ID,
 		Alias:          "test2",
@@ -61,9 +61,11 @@ func TestSSHExecRoutesAliasToDirectTarget(t *testing.T) {
 		RemoteUsername: "remote",
 		AuthType:       store.AuthPassword,
 		CreatedBy:      user.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	attachAllowPolicyForTarget(t, app, personal.ID, target.ID, false)
 
 	out, err := runBastionSSHCommand(sshAddr, "test2", userSigner, "whoami")
 	if err != nil {
@@ -89,7 +91,7 @@ func TestSSHExecRoutesAliasToPrivateKeyTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
 		OwnerType:       store.OwnerOrganization,
 		OwnerID:         personal.ID,
 		Alias:           "private-box",
@@ -100,9 +102,11 @@ func TestSSHExecRoutesAliasToPrivateKeyTarget(t *testing.T) {
 		AuthType:        store.AuthPrivateKey,
 		EncryptedSecret: targetPrivateKey,
 		CreatedBy:       user.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	attachAllowPolicyForTarget(t, app, personal.ID, target.ID, false)
 
 	out, err := runBastionSSHCommand(sshAddr, "private-box", userSigner, "whoami")
 	if err != nil {
@@ -250,6 +254,7 @@ func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 	if renamed.Alias != "agentbox" {
 		t.Fatalf("rename mismatch: %+v", renamed)
 	}
+	attachAllowPolicyForTarget(t, app, personal.ID, renamed.ID, false)
 
 	out, err := runBastionSSHCommand(sshAddr, "agentbox", userSigner, "echo agent-ok")
 	if err != nil {
@@ -274,7 +279,7 @@ func TestSSHInteractiveShellReturnsAfterRemoteExitWithoutClientEOF(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
 		OwnerType:      store.OwnerOrganization,
 		OwnerID:        personal.ID,
 		Alias:          "shellbox",
@@ -284,9 +289,11 @@ func TestSSHInteractiveShellReturnsAfterRemoteExitWithoutClientEOF(t *testing.T)
 		RemoteUsername: "remote",
 		AuthType:       store.AuthPassword,
 		CreatedBy:      user.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	attachAllowPolicyForTarget(t, app, personal.ID, target.ID, true)
 	client, err := gossh.Dial("tcp", sshAddr, &gossh.ClientConfig{
 		User:            "shellbox",
 		Auth:            []gossh.AuthMethod{gossh.PublicKeys(userSigner)},
@@ -381,6 +388,34 @@ func seedBastionUserWithKey(t *testing.T, app *App, signer gossh.Signer) store.U
 		t.Fatal(err)
 	}
 	return user
+}
+
+func attachAllowPolicyForTarget(t *testing.T, app *App, orgID, targetID string, allowInteractive bool) {
+	t.Helper()
+	ctx := context.Background()
+	groups, err := app.store.Repository().ListOrganizationUserGroups(ctx, orgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) == 0 {
+		t.Fatalf("organization %s has no user groups", orgID)
+	}
+	policy, err := app.store.Repository().CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
+		OwnerType:        store.OwnerOrganization,
+		OwnerID:          orgID,
+		Name:             "allow test target",
+		DefaultAction:    store.DecisionAllow,
+		AllowInteractive: allowInteractive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.store.Repository().AttachPolicyToTarget(ctx, policy.ID, targetID); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.store.Repository().AttachPolicyToUserGroup(ctx, policy.ID, groups[0].ID); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func runBastionSSHCommand(addr, alias string, signer gossh.Signer, command string) (string, error) {

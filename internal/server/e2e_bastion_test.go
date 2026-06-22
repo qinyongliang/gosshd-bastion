@@ -29,10 +29,11 @@ func TestBastionE2E(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app := NewApp(Config{
-		DatabasePath:      filepath.Join(t.TempDir(), "gosshd.db"),
-		HostKeyPath:       filepath.Join(t.TempDir(), "host_key"),
-		SessionCookieName: "e2e_session",
+		DatabasePath:            filepath.Join(t.TempDir(), "gosshd.db"),
+		HostKeyPath:             filepath.Join(t.TempDir(), "host_key"),
+		SessionCookieName:       "e2e_session",
 	})
+	enablePublicRegistrationForTest(t, app)
 	go func() {
 		if err := app.RunListeners(ctx, httpLn, sshLn); err != nil {
 			t.Logf("server stopped: %v", err)
@@ -92,6 +93,7 @@ func TestBastionE2E(t *testing.T) {
 		"remote_username": "remote",
 		"auth_type":       "password",
 	}, http.StatusCreated, &target)
+	bindAllowPolicyForAPI(t, client, baseURL, personalOrg.ID, target.Target.ID, groups.Groups[0].ID)
 
 	out, err := runBastionSSHCommand(sshLn.Addr().String(), "test2", userSigner, "whoami")
 	if err != nil {
@@ -152,6 +154,7 @@ func TestBastionE2E(t *testing.T) {
 	agentTarget := waitForAgentTarget(t, app, personalOrg.ID)
 	var renamed apiTargetResponse
 	patchJSON(t, client, baseURL+"/api/targets/"+agentTarget.ID, map[string]string{"alias": "agentbox"}, http.StatusOK, &renamed)
+	bindAllowPolicyForAPI(t, client, baseURL, personalOrg.ID, agentTarget.ID, groups.Groups[0].ID)
 	out, err = runBastionSSHCommand(sshLn.Addr().String(), "agentbox", userSigner, "echo agent-ok")
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +163,7 @@ func TestBastionE2E(t *testing.T) {
 		t.Fatalf("unexpected agent ssh output %q", out)
 	}
 
-	assertMCPListsTools(t, baseURL, http.DefaultClient)
+	assertMCPListsTools(t, baseURL, client)
 
 	resp, err := client.Get(baseURL + "/")
 	if err != nil {
@@ -331,6 +334,23 @@ func assertAuditContains(t *testing.T, client *http.Client, baseURL, command, de
 		}
 	}
 	t.Fatalf("audit missing %q/%q in %+v", command, decision, logs.Logs)
+}
+
+func bindAllowPolicyForAPI(t *testing.T, client *http.Client, baseURL, orgID, targetID, groupID string) {
+	t.Helper()
+	var policy apiPolicyResponse
+	postJSON(t, client, baseURL+"/api/policies", map[string]any{
+		"owner_type":     "organization",
+		"owner_id":       orgID,
+		"name":           "allow test commands",
+		"default_action": "allow",
+	}, http.StatusCreated, &policy)
+	postJSON(t, client, baseURL+"/api/policies/"+policy.Policy.ID+"/targets", map[string]string{
+		"target_id": targetID,
+	}, http.StatusOK, nil)
+	postJSON(t, client, baseURL+"/api/policies/"+policy.Policy.ID+"/user-groups", map[string]string{
+		"group_id": groupID,
+	}, http.StatusOK, nil)
 }
 
 func orgRole(orgs []apiOrganization, id string) string {

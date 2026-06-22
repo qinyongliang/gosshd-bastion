@@ -15,7 +15,7 @@ func TestUIE2EWithBrowser(t *testing.T) {
 	playwrightPath := os.Getenv("GOSSHD_UI_E2E_PLAYWRIGHT")
 	browserPath := os.Getenv("GOSSHD_UI_E2E_BROWSER")
 	if nodePath == "" || playwrightPath == "" || browserPath == "" {
-		t.Fatalf("GOSSHD_UI_E2E_NODE, GOSSHD_UI_E2E_PLAYWRIGHT, and GOSSHD_UI_E2E_BROWSER are required")
+		t.Skip("GOSSHD_UI_E2E_NODE, GOSSHD_UI_E2E_PLAYWRIGHT, and GOSSHD_UI_E2E_BROWSER are required")
 	}
 	app := NewApp(Config{
 		DatabasePath:           filepath.Join(t.TempDir(), "gosshd.db"),

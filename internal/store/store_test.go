@@ -37,6 +37,7 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 	for _, table := range []string{
 		"users",
 		"sessions",
+		"mcp_tokens",
 		"organizations",
 		"organization_members",
 		"organization_user_groups",
@@ -144,6 +145,33 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 	if lookupUser.ID != user.ID || key.UserID != user.ID {
 		t.Fatalf("public key user mismatch")
+	}
+	mcpToken, err := repo.CreateMCPToken(ctx, CreateMCPTokenParams{
+		UserID:    user.ID,
+		Name:      "agent",
+		TokenHash: []byte("mcp-token-hash"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetMCPTokenByHash(ctx, []byte("mcp-token-hash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.TouchMCPToken(ctx, mcpToken.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := repo.ListMCPTokensForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tokens) != 1 || tokens[0].LastUsedAt == nil {
+		t.Fatalf("mcp token list mismatch: %#v", tokens)
+	}
+	if err := repo.DeleteMCPToken(ctx, user.ID, mcpToken.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetMCPTokenByHash(ctx, []byte("mcp-token-hash")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleted mcp token to be missing, got %v", err)
 	}
 
 	target, err := repo.CreateSSHTarget(ctx, CreateSSHTargetParams{

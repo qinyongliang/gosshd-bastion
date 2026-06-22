@@ -143,7 +143,7 @@ function PolicyCapabilities({ policy }: { policy: Policy }) {
 
 function PolicyFormModal({ data, onClose, onSubmit }: { data: ConsoleData; onClose: () => void; onSubmit: (body: Record<string, unknown>) => void }) {
   const { t } = useI18n();
-  return <Modal title={t("policyCreateTitle")} onClose={onClose}>
+  return <Modal title={t("policyCreateTitle")} onClose={onClose} closeOnEscape={false}>
     <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => onSubmit(policyPayload(body)))}>
       <Field label={t("commonName")} name="name" required />
       <Select label={t("policyDefaultAction")} name="default_action" defaultValue="deny" options={[["deny", t("commonDeny")], ["allow", t("commonAllow")]]} />
@@ -368,7 +368,7 @@ function LLMManagerModal({ data, onClose, onCreated, stacked = false }: { data: 
     },
   });
 
-  return <Modal title={t("policyLLMConfigTitle")} onClose={onClose} wide stacked={stacked} className="resource-modal">
+  return <Modal title={t("policyLLMConfigTitle")} onClose={onClose} wide stacked={stacked} className="resource-modal" closeOnEscape={false}>
     <div className="resource-manager">
       <ResourceListPanel title={t("policyLLMConfigTitle")} createLabel={t("policyCreateLLM")} onCreate={() => setSelectedID("__new__")}>
         {data.llms.map((config) => <ResourceRow key={config.id} active={selectedID === config.id} title={config.name} detail={`${config.model} · ${config.base_url}`} meta={`${config.timeout_seconds}s`} onSelect={() => setSelectedID(config.id)} onDelete={() => remove.mutate(config.id)} />)}
@@ -421,7 +421,7 @@ function PromptManagerModal({ data, onClose, onCreated, stacked = false }: { dat
     },
   });
 
-  return <Modal title={t("policyPromptConfigTitle")} onClose={onClose} wide stacked={stacked} className="resource-modal">
+  return <Modal title={t("policyPromptConfigTitle")} onClose={onClose} wide stacked={stacked} className="resource-modal" closeOnEscape={false}>
     <div className="resource-manager">
       <ResourceListPanel title={t("policyPromptConfigTitle")} createLabel={t("policyCreatePrompt")} onCreate={() => setSelectedID("__new__")}>
         {data.prompts.map((prompt) => <ResourceRow key={prompt.id} active={selectedID === prompt.id} title={prompt.title} detail={prompt.content} meta={prompt.is_readonly ? t("policyReadonlyPrompt") : ""} onSelect={() => setSelectedID(prompt.id)} onDelete={() => remove.mutate(prompt.id)} disabled={prompt.is_readonly} />)}

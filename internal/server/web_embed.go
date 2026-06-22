@@ -29,7 +29,7 @@ func (a *App) serveWeb(w http.ResponseWriter, r *http.Request) {
 	}
 	assetPath := strings.TrimPrefix(r.URL.Path, "/")
 	assetPath = strings.Trim(assetPath, "/")
-	if spaRoutes[assetPath] {
+	if isSPARoute(assetPath) {
 		assetPath = "index.html"
 	} else {
 		if assetPath == "" || strings.Contains(assetPath, "..") || strings.HasPrefix(assetPath, ".") {
@@ -42,4 +42,11 @@ func (a *App) serveWeb(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.ServeFileFS(w, r, assets, assetPath)
+}
+
+func isSPARoute(assetPath string) bool {
+	if spaRoutes[assetPath] {
+		return true
+	}
+	return strings.HasPrefix(assetPath, "targets/") && strings.HasSuffix(assetPath, "/connect")
 }

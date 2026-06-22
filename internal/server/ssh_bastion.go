@@ -749,7 +749,7 @@ func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSH
 	cfg := &gossh.ClientConfig{
 		User:            target.RemoteUsername,
 		Auth:            []gossh.AuthMethod{auth},
-		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		HostKeyCallback: a.targetHostKeyCallback(),
 		Timeout:         5 * time.Second,
 	}
 	addr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))

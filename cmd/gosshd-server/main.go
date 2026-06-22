@@ -27,6 +27,7 @@ func main() {
 	flag.StringVar(&cfg.SessionCookieName, "session-cookie-name", "", "HTTP session cookie name")
 	flag.StringVar(&cfg.PublicHost, "public-host", "", "public host override used in generated install links; defaults to the request Host")
 	flag.IntVar(&cfg.PublicSSHPort, "public-ssh-port", 0, "public SSH port shown in copy commands and agent hints; defaults to ssh-listen port")
+	flag.StringVar(&cfg.KnownHostsPath, "known-hosts-path", "", "OpenSSH known_hosts file used to verify target host keys; defaults next to the database")
 	flag.StringVar(&cfg.AgentPath, "agent-path", "dist/agent", "directory containing agent binaries by goos/goarch")
 	flag.StringVar(&cfg.AgentCachePath, "agent-cache-path", "", "directory used to cache downloaded agent binaries")
 	flag.StringVar(&cfg.Version, "version", version, "release version used when proxy-downloading agent binaries")

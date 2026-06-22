@@ -56,6 +56,35 @@ func TestAPIRegisterLoginMeAndLogout(t *testing.T) {
 	}
 }
 
+func TestAPIRegisterDisabledByDefault(t *testing.T) {
+	app := NewApp(Config{
+		DatabasePath:           filepath.Join(t.TempDir(), "gosshd.db"),
+		SessionCookieName:      "gosshd_test_session",
+		BootstrapAdminPassword: "admin-pass",
+	})
+	mux := http.NewServeMux()
+	app.routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	t.Cleanup(func() {
+		if app.store != nil {
+			_ = app.Close()
+		}
+	})
+
+	var providers ProvidersForTest
+	getJSON(t, apiClient(t), srv.URL+"/api/auth/providers", http.StatusOK, &providers)
+	if providers.RegistrationEnabled {
+		t.Fatalf("registration should be disabled by default: %+v", providers)
+	}
+
+	postJSON(t, apiClient(t), srv.URL+"/api/auth/register", map[string]string{
+		"email":        "blocked@example.com",
+		"display_name": "Blocked",
+		"password":     "secret-pass",
+	}, http.StatusForbidden, nil)
+}
+
 func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 	srv, adminClient, _ := newAPITestServer(t)
 	defer srv.Close()
@@ -72,6 +101,9 @@ func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 	var settings map[string]any
 	getJSON(t, adminClient, srv.URL+"/api/admin/settings", http.StatusOK, &settings)
 
+	putJSON(t, adminClient, srv.URL+"/api/admin/settings/auth", map[string]any{
+		"public_registration": true,
+	}, http.StatusOK, nil)
 	putJSON(t, adminClient, srv.URL+"/api/admin/settings/dingtalk", map[string]any{
 		"enabled":        true,
 		"client_id":      "app-key",
@@ -94,8 +126,13 @@ func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 		"name_attr":     "cn",
 	}, http.StatusOK, nil)
 	getJSON(t, adminClient, srv.URL+"/api/admin/settings", http.StatusOK, &settings)
-	if settings["dingtalk"] == nil || settings["ldap"] == nil {
+	if settings["auth"] == nil || settings["dingtalk"] == nil || settings["ldap"] == nil {
 		t.Fatalf("settings response missing providers: %+v", settings)
+	}
+	var providers ProvidersForTest
+	getJSON(t, adminClient, srv.URL+"/api/auth/providers", http.StatusOK, &providers)
+	if !providers.RegistrationEnabled {
+		t.Fatalf("provider response should expose public registration setting: %+v", providers)
 	}
 
 	regular := apiClient(t)
@@ -391,6 +428,12 @@ func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
 	if len(me.Organizations) != 2 || !hasOrganization(me.Organizations, org.Organization.ID) || !hasPersonalOrganization(me.Organizations) {
 		t.Fatalf("bob organizations mismatch: %+v", me.Organizations)
 	}
+	postJSON(t, bob, srv.URL+"/api/orgs/"+org.Organization.ID+"/invites", map[string]string{
+		"role": "member",
+	}, http.StatusForbidden, nil)
+	postJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/invites", map[string]string{
+		"role": "owner",
+	}, http.StatusBadRequest, nil)
 
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/orgs/"+org.Organization.ID+"/leave", nil)
 	if err != nil {
@@ -435,6 +478,14 @@ func TestAPIOrganizationDefaultAndCustomUserGroups(t *testing.T) {
 	if custom.Group.ID == "" || custom.Group.IsDefault {
 		t.Fatalf("custom group mismatch: %+v", custom)
 	}
+	var otherOrg apiOrganizationResponse
+	postJSON(t, alice, srv.URL+"/api/orgs", map[string]string{
+		"name": "Other",
+		"slug": "other",
+	}, http.StatusCreated, &otherOrg)
+	postJSON(t, alice, srv.URL+"/api/orgs/"+otherOrg.Organization.ID+"/groups/"+custom.Group.ID+"/members", map[string]string{
+		"user_id": aliceUser.User.ID,
+	}, http.StatusBadRequest, nil)
 
 	postJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/groups/"+custom.Group.ID+"/members", map[string]string{
 		"user_id": aliceUser.User.ID,
@@ -924,10 +975,42 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bobClient := apiClient(t)
+	bobUser := registerForAPI(t, bobClient, srv.URL, "audit-bob@example.com")
+	if err := app.store.Repository().AddOrganizationMember(contextBackground(), org.Organization.ID, bobUser.User.ID, store.RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	bobAudit, err := app.createAuditLog(contextBackground(), store.CreateCommandAuditLogParams{
+		UserID:               bobUser.User.ID,
+		TargetID:             target.Target.ID,
+		OrganizationID:       org.Organization.ID,
+		PublicKeyFingerprint: "SHA256:bob-audit-key",
+		SessionID:            "session-bob",
+		Command:              "id",
+		RequestType:          store.RequestExec,
+		PolicyDecision:       store.DecisionAllow,
+		PolicyReason:         "whitelist",
+		ExitCode:             intPtr(0),
+		StartedAt:            started.Add(3 * time.Hour),
+		RemoteAddress:        "127.0.0.1:12345",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var logs apiAuditLogsResponse
 	getJSON(t, client, srv.URL+"/api/audit", http.StatusOK, &logs)
 	if len(logs.Logs) != 3 || logs.Total != 3 {
 		t.Fatalf("audit logs mismatch: %+v", logs)
+	}
+	var orgLogs apiAuditLogsResponse
+	getJSON(t, client, srv.URL+"/api/audit?organization_id="+org.Organization.ID, http.StatusOK, &orgLogs)
+	if len(orgLogs.Logs) != 4 || orgLogs.Total != 4 {
+		t.Fatalf("organization owner should see organization audit logs: %+v", orgLogs)
+	}
+	var bobAdminLogs apiAuditLogsResponse
+	getJSON(t, bobClient, srv.URL+"/api/audit?organization_id="+org.Organization.ID, http.StatusOK, &bobAdminLogs)
+	if len(bobAdminLogs.Logs) != 4 || bobAdminLogs.Total != 4 {
+		t.Fatalf("organization admin should see organization audit logs: %+v", bobAdminLogs)
 	}
 	var filteredLogs apiAuditLogsResponse
 	getJSON(t, client, srv.URL+"/api/audit?query=whoami&page=1&page_size=1&started_from="+url.QueryEscape(started.Format(time.RFC3339))+"&started_to="+url.QueryEscape(started.Add(30*time.Minute).Format(time.RFC3339)), http.StatusOK, &filteredLogs)
@@ -960,6 +1043,19 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	if replay.Log.ID != shellAudit.ID || !replay.Log.HasRecording || replay.Log.RecordingWidth != 100 || len(replay.Lines) < 2 {
 		t.Fatalf("audit replay mismatch: %+v", replay)
 	}
+	getJSON(t, bobClient, srv.URL+"/api/audit/"+shellAudit.ID+"/recording", http.StatusOK, &replay)
+	if replay.Log.ID != shellAudit.ID {
+		t.Fatalf("organization admin should replay organization audit recording: %+v", replay)
+	}
+	if err := app.store.Repository().AddOrganizationMember(contextBackground(), org.Organization.ID, bobUser.User.ID, store.RoleMember); err != nil {
+		t.Fatal(err)
+	}
+	var bobMemberLogs apiAuditLogsResponse
+	getJSON(t, bobClient, srv.URL+"/api/audit?organization_id="+org.Organization.ID, http.StatusOK, &bobMemberLogs)
+	if len(bobMemberLogs.Logs) != 1 || bobMemberLogs.Total != 1 || bobMemberLogs.Logs[0].ID != bobAudit.ID {
+		t.Fatalf("organization member should only see own audit logs: %+v", bobMemberLogs)
+	}
+	getJSON(t, bobClient, srv.URL+"/api/audit/"+shellAudit.ID+"/recording", http.StatusForbidden, nil)
 }
 
 func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
@@ -984,7 +1080,7 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	if enrollment.Token == "" || enrollment.InstallSH == "" || enrollment.InstallPS1 == "" || enrollment.ServiceSH == "" || enrollment.ServicePS1 == "" {
 		t.Fatalf("enrollment response missing install data: %+v", enrollment)
 	}
-	if !strings.Contains(enrollment.ServiceSH, "sudo sh -s -- install") {
+	if !strings.Contains(enrollment.ServiceSH, "sudo sh") || !strings.Contains(enrollment.ServiceSH, " install") {
 		t.Fatalf("shell service command missing install mode: %s", enrollment.ServiceSH)
 	}
 	if !strings.Contains(enrollment.ServicePS1, "-Install") {
@@ -1003,6 +1099,9 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	if !strings.Contains(shBody, "systemctl enable --now gosshd-agent") || !strings.Contains(shBody, "--enrollment-token") {
 		t.Fatalf("shell install script missing service install flow:\n%s", shBody)
 	}
+	if !strings.Contains(shBody, ".sha256") || !strings.Contains(shBody, "sha256sum -c") {
+		t.Fatalf("shell install script missing checksum verification:\n%s", shBody)
+	}
 	if !strings.Contains(shBody, `--ssh-port "22022"`) {
 		t.Fatalf("shell install script missing public ssh port hint:\n%s", shBody)
 	}
@@ -1018,6 +1117,9 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	resp.Body.Close()
 	if !strings.Contains(psBody, "sc.exe create gosshd-agent") || !strings.Contains(psBody, "sc.exe start gosshd-agent") {
 		t.Fatalf("powershell install script missing service install flow:\n%s", psBody)
+	}
+	if !strings.Contains(psBody, ".sha256") || !strings.Contains(psBody, "Get-FileHash") {
+		t.Fatalf("powershell install script missing checksum verification:\n%s", psBody)
 	}
 	if strings.Contains(psBody, "$quote") || strings.Contains(psBody, "$quotehttp") {
 		t.Fatalf("powershell install script should not concatenate quote variables with URLs:\n%s", psBody)
@@ -1065,6 +1167,7 @@ func newAPITestServer(t *testing.T) (*httptest.Server, *http.Client, *App) {
 		SessionCookieName:      "gosshd_test_session",
 		BootstrapAdminPassword: "admin-pass",
 	})
+	enablePublicRegistrationForTest(t, app)
 	mux := http.NewServeMux()
 	app.routes(mux)
 	srv := httptest.NewServer(mux)
@@ -1074,6 +1177,25 @@ func newAPITestServer(t *testing.T) (*httptest.Server, *http.Client, *App) {
 		}
 	})
 	return srv, apiClient(t), app
+}
+
+type ProvidersForTest struct {
+	RegistrationEnabled bool `json:"registration_enabled"`
+}
+
+func enablePublicRegistrationForTest(t *testing.T, app *App) {
+	t.Helper()
+	ctx := context.Background()
+	if err := app.ensureServices(ctx); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(authSettings{PublicRegistration: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.store.Repository().UpsertSystemSetting(ctx, settingAuth, payload, "test"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func apiClient(t *testing.T) *http.Client {

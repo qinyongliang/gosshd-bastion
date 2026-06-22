@@ -35,8 +35,10 @@ esac
 platform="${os}-${arch}"
 asset="gosshd-${version}-${platform}.tar.gz"
 url="https://github.com/${repo}/releases/download/${version}/${asset}"
+checksums_url="https://github.com/${repo}/releases/download/${version}/checksums.txt"
 tmp_root="${GOSSHD_TMPDIR:-${TMPDIR:-/tmp}}/gosshd"
 archive="${tmp_root}/${asset}"
+checksums="${tmp_root}/checksums-${version}.txt"
 extract_dir="${tmp_root}/server-${version}-${platform}-$$"
 
 mkdir -p "$tmp_root"
@@ -57,6 +59,25 @@ if ! download "$url" "$archive" yes; then
   proxy_url="${proxy%/}/${url}"
   echo "direct download failed or slow; retrying ${proxy_url}" >&2
   download "$proxy_url" "$archive" no
+fi
+if ! download "$checksums_url" "$checksums" no; then
+  proxy_checksums_url="${proxy%/}/${checksums_url}"
+  echo "checksum download failed; retrying ${proxy_checksums_url}" >&2
+  download "$proxy_checksums_url" "$checksums" no
+fi
+expected_sha="$(awk -v asset="$asset" '$2 == asset || $2 == "*" asset { print $1; exit }' "$checksums")"
+if [ -z "$expected_sha" ]; then
+  echo "checksum for ${asset} not found" >&2
+  exit 1
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+  printf '%s  %s\n' "$expected_sha" "$archive" | sha256sum -c -
+elif command -v shasum >/dev/null 2>&1; then
+  actual_sha="$(shasum -a 256 "$archive" | awk '{print $1}')"
+  [ "$actual_sha" = "$expected_sha" ] || { echo "sha256 mismatch" >&2; exit 1; }
+else
+  echo "sha256 checker not found" >&2
+  exit 1
 fi
 
 mkdir -p "$extract_dir"

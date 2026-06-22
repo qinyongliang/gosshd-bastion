@@ -54,8 +54,8 @@ func (a *App) handleListOrganizations(w http.ResponseWriter, r *http.Request, us
 
 func (a *App) handleCreateOrganizationInvite(w http.ResponseWriter, r *http.Request, user store.User) {
 	orgID := r.PathValue("id")
-	if _, err := a.store.Repository().GetOrganizationMember(r.Context(), orgID, user.ID); err != nil {
-		writeError(w, http.StatusForbidden, "organization access required")
+	if err := a.requireOrganizationAdmin(r.Context(), orgID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	org, err := a.store.Repository().GetOrganization(r.Context(), orgID)
@@ -77,6 +77,16 @@ func (a *App) handleCreateOrganizationInvite(w http.ResponseWriter, r *http.Requ
 	role := strings.TrimSpace(req.Role)
 	if role == "" {
 		role = store.RoleMember
+	}
+	if role != store.RoleMember && role != store.RoleAdmin {
+		writeError(w, http.StatusBadRequest, "invite role must be member or admin")
+		return
+	}
+	if role == store.RoleAdmin {
+		if err := a.requireOrganizationOwner(r.Context(), orgID, user); err != nil {
+			writeError(w, http.StatusForbidden, "organization owner required for admin invites")
+			return
+		}
 	}
 	code, hash, err := randomCode()
 	if err != nil {
@@ -119,6 +129,9 @@ func (a *App) joinOrganizationWithCode(ctx context.Context, userID, code string)
 	}
 	if invite.ConsumedAt != nil || time.Now().UTC().After(invite.ExpiresAt) {
 		return store.Organization{}, errors.New("invite expired")
+	}
+	if invite.Role != store.RoleMember && invite.Role != store.RoleAdmin {
+		return store.Organization{}, errors.New("invite role is invalid")
 	}
 	if err := a.store.Repository().AddOrganizationMember(ctx, invite.OrganizationID, userID, invite.Role); err != nil {
 		return store.Organization{}, err

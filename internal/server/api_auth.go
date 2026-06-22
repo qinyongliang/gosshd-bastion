@@ -4,19 +4,24 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/auth"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
-const (
-	settingDingTalk = "dingtalk"
-	settingLDAP     = "ldap"
-)
-
 func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if err := a.ensureServices(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	settings, err := a.loadAuthSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !settings.PublicRegistration {
+		writeError(w, http.StatusForbidden, "public registration is disabled")
 		return
 	}
 	var req struct {
@@ -28,12 +33,16 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	if !a.allowAuthAttempt(r, "register:"+strings.TrimSpace(req.Email), 10, 10*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "too many registration attempts")
+		return
+	}
 	user, token, err := a.auth.Register(r.Context(), req.Email, req.DisplayName, req.Password)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	setSessionCookie(w, a.sessionCookieName(), token)
+	setSessionCookie(w, r, a.sessionCookieName(), token)
 	writeJSON(w, http.StatusCreated, apiUserResponse{User: apiUserFromStore(user)})
 }
 
@@ -50,12 +59,16 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	if !a.allowAuthAttempt(r, "login:"+strings.TrimSpace(req.Email), 20, 5*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "too many login attempts")
+		return
+	}
 	user, token, err := a.auth.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
-	setSessionCookie(w, a.sessionCookieName(), token)
+	setSessionCookie(w, r, a.sessionCookieName(), token)
 	writeJSON(w, http.StatusOK, apiUserResponse{User: apiUserFromStore(user)})
 }
 
@@ -67,7 +80,7 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(a.sessionCookieName()); err == nil {
 		_ = a.auth.Logout(r.Context(), cookie.Value)
 	}
-	clearSessionCookie(w, a.sessionCookieName())
+	clearSessionCookie(w, r, a.sessionCookieName())
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -81,16 +94,26 @@ func (a *App) handleAuthProviders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	settings, err := a.loadAuthSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"dingtalk": map[string]any{
 			"enabled": cfg.Enabled,
 		},
+		"registration_enabled": settings.PublicRegistration,
 	})
 }
 
 func (a *App) handleDingTalkStart(w http.ResponseWriter, r *http.Request) {
 	if err := a.ensureServices(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !a.allowAuthAttempt(r, "dingtalk:start", 30, 5*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "too many dingtalk auth attempts")
 		return
 	}
 	cfg, err := a.dingTalkConfig(r)
@@ -115,6 +138,10 @@ func (a *App) handleDingTalkCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if !a.allowAuthAttempt(r, "dingtalk:callback", 30, 5*time.Minute) {
+		writeError(w, http.StatusTooManyRequests, "too many dingtalk auth attempts")
+		return
+	}
 	cfg, err := a.dingTalkConfig(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -125,7 +152,7 @@ func (a *App) handleDingTalkCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	setSessionCookie(w, a.sessionCookieName(), token)
+	setSessionCookie(w, r, a.sessionCookieName(), token)
 	_ = user
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

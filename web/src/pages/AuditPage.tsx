@@ -12,7 +12,10 @@ export function AuditPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
   const [filters, setFilters] = useState({ query: "", decision: "", request_type: "", started_from: "", started_to: "", page: 1, page_size: 20 });
   const [replayID, setReplayID] = useState("");
-  const audit = useQuery({ queryKey: ["audit-page", filters], queryFn: () => api.audit(filters) });
+  const audit = useQuery({
+    queryKey: ["audit-page", data.activeOrg.id, filters],
+    queryFn: () => api.audit({ ...filters, organization_id: data.activeOrg.id }),
+  });
   const replay = useQuery({ queryKey: ["audit-recording", replayID], queryFn: () => api.auditRecording(replayID), enabled: Boolean(replayID) });
   const logs = audit.data?.logs || data.auditPage.logs;
   return (

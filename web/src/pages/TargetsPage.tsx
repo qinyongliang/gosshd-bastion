@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, TerminalSquare, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type Enrollment } from "../api";
 import { CommandBox, CopyButton, Drawer, Empty, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toolbar } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -71,6 +72,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
           <TagList target={target} />,
           <span className="inline-actions">
             <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} />
+            <Link className="button-link" to={`/targets/${target.id}/connect`}><TerminalSquare />{t("connect")}</Link>
             <button type="button" onClick={() => setDrawerTargetID(target.id)}>{t("commonEdit")}</button>
             <button type="button" className="danger" onClick={() => deleteTarget(target)} disabled={removeTarget.isPending}><Trash2 />{t("commonDelete")}</button>
           </span>,
@@ -121,7 +123,7 @@ function TargetCreateModal({ data, onClose, onEnrollment }: { data: ConsoleData;
     });
   }
 
-  return <Modal title={t("serviceCreateTitle")} onClose={onClose}>
+  return <Modal title={t("serviceCreateTitle")} onClose={onClose} closeOnEscape={false}>
     <div className="tabs" role="tablist">
       <button type="button" role="tab" aria-selected={mode === "direct"} className={clsx(mode === "direct" && "active")} onClick={() => { setMode("direct"); setStep(0); }}>{t("serviceServerTab")}</button>
       <button type="button" role="tab" aria-selected={mode === "private"} className={clsx(mode === "private" && "active")} onClick={() => { setMode("private"); setStep(0); }}>{t("privateNode")}</button>

@@ -18,7 +18,11 @@ export function useConsoleData({ user, orgs, runtime }: { user: User; orgs: Orga
   const policies = useQuery({ queryKey: ["policies", owner], queryFn: () => api.policies(owner!), enabled: Boolean(owner) });
   const llms = useQuery({ queryKey: ["llms", owner], queryFn: () => api.llmConfigs(owner!), enabled: Boolean(owner) });
   const prompts = useQuery({ queryKey: ["prompts", owner], queryFn: () => api.prompts(owner!), enabled: Boolean(owner) });
-  const audit = useQuery({ queryKey: ["audit", activeOrg?.id], queryFn: () => api.audit({ page: 1, page_size: 20 }), enabled: Boolean(activeOrg) });
+  const audit = useQuery({
+    queryKey: ["audit", activeOrg?.id],
+    queryFn: () => api.audit({ organization_id: activeOrg.id, page: 1, page_size: 20 }),
+    enabled: Boolean(activeOrg),
+  });
 
   if (!activeOrg) return null;
 

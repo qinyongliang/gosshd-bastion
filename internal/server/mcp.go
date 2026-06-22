@@ -16,19 +16,61 @@ type mcpOK struct {
 }
 
 func (a *App) mcpHandler() http.Handler {
-	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
-		return a.newMCPServer()
-	}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
-	return handler
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, err := a.userForMCPRequest(r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+			return a.newMCPServer(user)
+		}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
+		handler.ServeHTTP(w, r)
+	})
 }
 
-func (a *App) newMCPServer() *mcp.Server {
+func (a *App) userForMCPRequest(r *http.Request) (store.User, error) {
+	if user, err := a.userForRequest(r); err == nil {
+		return user, nil
+	}
+	tokenValue := bearerToken(r)
+	if tokenValue == "" {
+		return store.User{}, store.ErrNotFound
+	}
+	if err := a.ensureServices(r.Context()); err != nil {
+		return store.User{}, err
+	}
+	token, err := a.store.Repository().GetMCPTokenByHash(r.Context(), codeHash(tokenValue))
+	if err != nil {
+		return store.User{}, err
+	}
+	user, err := a.store.Repository().GetUser(r.Context(), token.UserID)
+	if err != nil {
+		return store.User{}, err
+	}
+	_ = a.store.Repository().TouchMCPToken(r.Context(), token.ID, time.Now().UTC())
+	return user, nil
+}
+
+func bearerToken(r *http.Request) string {
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	prefix := "bearer "
+	if len(header) <= len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(header[len(prefix):])
+}
+
+func (a *App) newMCPServer(actor store.User) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "gosshd-bastion", Version: a.cfg.version()}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{Name: "auth_register", Description: "Register a user and create their personal organization."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpRegisterInput) (*mcp.CallToolResult, apiUserResponse, error) {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiUserResponse{}, err
+			}
+			if !actor.IsSystemAdmin {
+				return nil, apiUserResponse{}, errors.New("system admin required")
 			}
 			user, _, err := a.auth.Register(ctx, in.Email, in.DisplayName, in.Password)
 			if err != nil {
@@ -42,7 +84,11 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiOrganizationsPayload{}, err
 			}
-			orgs, err := a.store.Repository().ListOrganizationsForUser(ctx, in.UserID)
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, apiOrganizationsPayload{}, err
+			}
+			orgs, err := a.store.Repository().ListOrganizationsForUser(ctx, userID)
 			if err != nil {
 				return nil, apiOrganizationsPayload{}, err
 			}
@@ -54,10 +100,14 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiOrganizationResponse{}, err
 			}
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, apiOrganizationResponse{}, err
+			}
 			org, err := a.store.Repository().CreateOrganization(ctx, store.CreateOrganizationParams{
 				Name:        in.Name,
 				Slug:        in.Slug,
-				OwnerUserID: in.UserID,
+				OwnerUserID: userID,
 			})
 			if err != nil {
 				return nil, apiOrganizationResponse{}, err
@@ -68,6 +118,12 @@ func (a *App) newMCPServer() *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "org_invite_create", Description: "Create an invite code for a non-personal organization."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpOrgInviteInput) (*mcp.CallToolResult, apiInviteResponse, error) {
 			if err := a.ensureServices(ctx); err != nil {
+				return nil, apiInviteResponse{}, err
+			}
+			if _, err := mcpUserID(actor, in.UserID); err != nil {
+				return nil, apiInviteResponse{}, err
+			}
+			if err := a.requireOrganizationAdmin(ctx, in.OrganizationID, actor); err != nil {
 				return nil, apiInviteResponse{}, err
 			}
 			org, err := a.store.Repository().GetOrganization(ctx, in.OrganizationID)
@@ -85,12 +141,20 @@ func (a *App) newMCPServer() *mcp.Server {
 			if role == "" {
 				role = store.RoleMember
 			}
+			if role != store.RoleMember && role != store.RoleAdmin {
+				return nil, apiInviteResponse{}, errors.New("invite role must be member or admin")
+			}
+			if role == store.RoleAdmin {
+				if err := a.requireOrganizationOwner(ctx, in.OrganizationID, actor); err != nil {
+					return nil, apiInviteResponse{}, errors.New("organization owner required for admin invites")
+				}
+			}
 			if _, err := a.store.Repository().CreateOrganizationInvite(ctx, store.CreateOrganizationInviteParams{
 				OrganizationID: in.OrganizationID,
 				CodeHash:       hash,
 				Role:           role,
 				ExpiresAt:      time.Now().UTC().Add(7 * 24 * time.Hour),
-				CreatedBy:      in.UserID,
+				CreatedBy:      actor.ID,
 			}); err != nil {
 				return nil, apiInviteResponse{}, err
 			}
@@ -102,7 +166,11 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiOrganizationResponse{}, err
 			}
-			org, err := a.joinOrganizationWithCode(ctx, in.UserID, in.Code)
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, apiOrganizationResponse{}, err
+			}
+			org, err := a.joinOrganizationWithCode(ctx, userID, in.Code)
 			if err != nil {
 				return nil, apiOrganizationResponse{}, err
 			}
@@ -114,7 +182,11 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpOK{}, err
 			}
-			if err := a.store.Repository().LeaveOrganization(ctx, in.OrganizationID, in.UserID); err != nil {
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			if err := a.store.Repository().LeaveOrganization(ctx, in.OrganizationID, userID); err != nil {
 				return nil, mcpOK{}, err
 			}
 			return nil, mcpOK{OK: true}, nil
@@ -125,12 +197,16 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiPublicKeyResponse{}, err
 			}
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, apiPublicKeyResponse{}, err
+			}
 			normalized, fingerprint, err := a.bastion.NormalizeAuthorizedKey(in.AuthorizedKey)
 			if err != nil {
 				return nil, apiPublicKeyResponse{}, err
 			}
 			key, err := a.store.Repository().CreatePublicKey(ctx, store.CreatePublicKeyParams{
-				UserID:        in.UserID,
+				UserID:        userID,
 				Name:          in.Name,
 				AuthorizedKey: normalized,
 				Fingerprint:   fingerprint,
@@ -146,7 +222,11 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiTargetResponse{}, err
 			}
-			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, in.UserID)
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, apiTargetResponse{}, err
+			}
+			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, userID)
 			if err != nil {
 				return nil, apiTargetResponse{}, err
 			}
@@ -164,7 +244,7 @@ func (a *App) newMCPServer() *mcp.Server {
 				AgentID:         in.AgentID,
 				ProxyTargetID:   in.ProxyTargetID,
 				Tags:            in.Tags,
-				CreatedBy:       in.UserID,
+				CreatedBy:       userID,
 			})
 			if err != nil {
 				return nil, apiTargetResponse{}, err
@@ -177,11 +257,15 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpOK{}, err
 			}
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
 			target, err := a.store.Repository().GetSSHTarget(ctx, in.TargetID)
 			if err != nil {
 				return nil, mcpOK{}, err
 			}
-			if _, _, err := a.resolveOwner(ctx, target.OwnerType, target.OwnerID, in.UserID); err != nil {
+			if _, _, err := a.resolveOwner(ctx, target.OwnerType, target.OwnerID, userID); err != nil {
 				return nil, mcpOK{}, err
 			}
 			if err := a.store.Repository().DeleteSSHTarget(ctx, target.ID); err != nil {
@@ -195,7 +279,11 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiAgentEnrollmentResponse{}, err
 			}
-			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, in.UserID)
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, apiAgentEnrollmentResponse{}, err
+			}
+			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, userID)
 			if err != nil {
 				return nil, apiAgentEnrollmentResponse{}, err
 			}
@@ -211,7 +299,7 @@ func (a *App) newMCPServer() *mcp.Server {
 				Label:       in.Label,
 				DefaultHost: defaultHost,
 				DefaultPort: defaultPort,
-				CreatedBy:   in.UserID,
+				CreatedBy:   userID,
 				ExpiresAt:   time.Now().UTC().Add(30 * 24 * time.Hour),
 			})
 			if err != nil {
@@ -232,11 +320,11 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiLLMConfigResponse{}, err
 			}
-			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, in.UserID)
+			userID, err := mcpUserID(actor, in.UserID)
 			if err != nil {
 				return nil, apiLLMConfigResponse{}, err
 			}
-			actor, err := a.store.Repository().GetUser(ctx, in.UserID)
+			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, userID)
 			if err != nil {
 				return nil, apiLLMConfigResponse{}, err
 			}
@@ -263,11 +351,11 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiLLMPromptResponse{}, err
 			}
-			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, in.UserID)
+			userID, err := mcpUserID(actor, in.UserID)
 			if err != nil {
 				return nil, apiLLMPromptResponse{}, err
 			}
-			actor, err := a.store.Repository().GetUser(ctx, in.UserID)
+			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, userID)
 			if err != nil {
 				return nil, apiLLMPromptResponse{}, err
 			}
@@ -291,11 +379,11 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiPolicyResponse{}, err
 			}
-			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, in.UserID)
+			userID, err := mcpUserID(actor, in.UserID)
 			if err != nil {
 				return nil, apiPolicyResponse{}, err
 			}
-			actor, err := a.store.Repository().GetUser(ctx, in.UserID)
+			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, userID)
 			if err != nil {
 				return nil, apiPolicyResponse{}, err
 			}
@@ -326,6 +414,9 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpOK{}, err
 			}
+			if _, err := a.policyForWrite(ctx, in.PolicyID, actor); err != nil {
+				return nil, mcpOK{}, err
+			}
 			if _, err := a.store.Repository().CreatePolicyRule(ctx, store.CreatePolicyRuleParams{
 				PolicyID:    in.PolicyID,
 				RuleType:    in.RuleType,
@@ -342,6 +433,17 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpOK{}, err
 			}
+			policy, err := a.policyForWrite(ctx, in.PolicyID, actor)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			target, err := a.store.Repository().GetSSHTarget(ctx, in.TargetID)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			if target.OwnerType != policy.OwnerType || target.OwnerID != policy.OwnerID {
+				return nil, mcpOK{}, errors.New("policy target must belong to the same owner")
+			}
 			if err := a.store.Repository().AttachPolicyToTarget(ctx, in.PolicyID, in.TargetID); err != nil {
 				return nil, mcpOK{}, err
 			}
@@ -353,9 +455,20 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpOK{}, err
 			}
-			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, in.UserID)
+			userID, err := mcpUserID(actor, in.UserID)
 			if err != nil {
 				return nil, mcpOK{}, err
+			}
+			policy, err := a.policyForWrite(ctx, in.PolicyID, actor)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, userID)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			if ownerType != policy.OwnerType || ownerID != policy.OwnerID {
+				return nil, mcpOK{}, errors.New("policy tag must belong to the same owner")
 			}
 			if err := a.store.Repository().AttachPolicyToTargetTag(ctx, in.PolicyID, ownerType, ownerID, in.Tag); err != nil {
 				return nil, mcpOK{}, err
@@ -368,6 +481,17 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpOK{}, err
 			}
+			policy, err := a.policyForWrite(ctx, in.PolicyID, actor)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			group, err := a.store.Repository().GetOrganizationUserGroup(ctx, in.GroupID)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			if policy.OwnerType != store.OwnerOrganization || group.OrganizationID != policy.OwnerID {
+				return nil, mcpOK{}, errors.New("policy user group must belong to the same organization")
+			}
 			if err := a.store.Repository().AttachPolicyToUserGroup(ctx, in.PolicyID, in.GroupID); err != nil {
 				return nil, mcpOK{}, err
 			}
@@ -379,7 +503,11 @@ func (a *App) newMCPServer() *mcp.Server {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, apiAuditLogsResponse{}, err
 			}
-			page, err := a.audit.Repository().ListCommandAuditLogs(ctx, store.AuditLogFilter{UserID: in.UserID, Limit: 100})
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, apiAuditLogsResponse{}, err
+			}
+			page, err := a.audit.Repository().ListCommandAuditLogs(ctx, store.AuditLogFilter{UserID: userID, Limit: 100})
 			if err != nil {
 				return nil, apiAuditLogsResponse{}, err
 			}
@@ -403,6 +531,17 @@ func apiOrganizationsFromStore(orgs []store.Organization) apiOrganizationsPayloa
 		out.Organizations = append(out.Organizations, apiOrganizationFromStore(org))
 	}
 	return out
+}
+
+func mcpUserID(actor store.User, requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return actor.ID, nil
+	}
+	if actor.IsSystemAdmin || requested == actor.ID {
+		return requested, nil
+	}
+	return "", errors.New("user_id must match authenticated user")
 }
 
 type mcpRegisterInput struct {

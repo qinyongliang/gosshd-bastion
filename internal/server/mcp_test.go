@@ -17,7 +17,8 @@ import (
 
 func TestMCPToolsControlBastionObjects(t *testing.T) {
 	app := NewApp(Config{
-		DatabasePath: filepath.Join(t.TempDir(), "gosshd.db"),
+		DatabasePath:           filepath.Join(t.TempDir(), "gosshd.db"),
+		BootstrapAdminPassword: "admin-pass",
 	})
 	mux := http.NewServeMux()
 	app.routes(mux)
@@ -29,10 +30,16 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 		}
 	})
 
+	httpClient := apiClient(t)
+	postJSON(t, httpClient, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "admin",
+		"password": "admin-pass",
+	}, http.StatusOK, nil)
+
 	client := mcp.NewClient(&mcp.Implementation{Name: "gosshd-test"}, nil)
 	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
 		Endpoint:             srv.URL + "/mcp",
-		HTTPClient:           srv.Client(),
+		HTTPClient:           httpClient,
 		DisableStandaloneSSE: true,
 	}, nil)
 	if err != nil {
@@ -345,6 +352,30 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMCPRequiresAuthentication(t *testing.T) {
+	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	mux := http.NewServeMux()
+	app.routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	t.Cleanup(func() {
+		if app.store != nil {
+			_ = app.Close()
+		}
+	})
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "gosshd-test"}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
+		Endpoint:             srv.URL + "/mcp",
+		HTTPClient:           srv.Client(),
+		DisableStandaloneSSE: true,
+	}, nil)
+	if err == nil {
+		_ = session.Close()
+		t.Fatalf("expected unauthenticated MCP connection to fail")
 	}
 }
 
