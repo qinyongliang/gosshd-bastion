@@ -32,6 +32,8 @@ const (
 
 	DefaultLLMPromptTitle   = "Default SSH Command Review"
 	DefaultLLMPromptContent = "You are reviewing an SSH command for a bastion host. Respond with JSON only: {\"allow\":true|false,\"reason\":\"short reason\"}. When allow is true, reason may be omitted or empty. When allow is false, include a short reason. Do not output chain-of-thought, analysis, or reasoning steps. Deny destructive, privilege-escalation, persistence, credential-exfiltration, and unclear high-risk commands unless there is an explicit safe operational reason."
+
+	DefaultManualReviewTimeoutSeconds = 30
 )
 
 type User struct {
@@ -178,24 +180,25 @@ type Agent struct {
 }
 
 type CommandPolicy struct {
-	ID                string
-	OwnerType         string
-	OwnerID           string
-	Name              string
-	DefaultAction     string
-	LLMConfigID       string
-	LLMPromptID       string
-	IPAllowlist       string
-	AllowPortForward  bool
-	AllowUpload       bool
-	AllowDownload     bool
-	AllowInteractive  bool
-	AllowManualReview bool
-	CreatedAt         time.Time
-	Rules             []PolicyRule
-	TargetIDs         []string
-	UserGroupIDs      []string
-	TargetTags        []string
+	ID                         string
+	OwnerType                  string
+	OwnerID                    string
+	Name                       string
+	DefaultAction              string
+	LLMConfigID                string
+	LLMPromptID                string
+	IPAllowlist                string
+	AllowPortForward           bool
+	AllowUpload                bool
+	AllowDownload              bool
+	AllowInteractive           bool
+	AllowManualReview          bool
+	ManualReviewTimeoutSeconds int
+	CreatedAt                  time.Time
+	Rules                      []PolicyRule
+	TargetIDs                  []string
+	UserGroupIDs               []string
+	TargetTags                 []string
 }
 
 type PolicyRule struct {
@@ -430,31 +433,33 @@ type UpsertAgentParams struct {
 }
 
 type CreateCommandPolicyParams struct {
-	OwnerType         string
-	OwnerID           string
-	Name              string
-	DefaultAction     string
-	LLMConfigID       string
-	LLMPromptID       string
-	IPAllowlist       string
-	AllowPortForward  bool
-	AllowUpload       bool
-	AllowDownload     bool
-	AllowInteractive  bool
-	AllowManualReview bool
+	OwnerType                  string
+	OwnerID                    string
+	Name                       string
+	DefaultAction              string
+	LLMConfigID                string
+	LLMPromptID                string
+	IPAllowlist                string
+	AllowPortForward           bool
+	AllowUpload                bool
+	AllowDownload              bool
+	AllowInteractive           bool
+	AllowManualReview          bool
+	ManualReviewTimeoutSeconds int
 }
 
 type UpdateCommandPolicyParams struct {
-	Name              string
-	DefaultAction     string
-	LLMConfigID       string
-	LLMPromptID       string
-	IPAllowlist       string
-	AllowPortForward  bool
-	AllowUpload       bool
-	AllowDownload     bool
-	AllowInteractive  bool
-	AllowManualReview bool
+	Name                       string
+	DefaultAction              string
+	LLMConfigID                string
+	LLMPromptID                string
+	IPAllowlist                string
+	AllowPortForward           bool
+	AllowUpload                bool
+	AllowDownload              bool
+	AllowInteractive           bool
+	AllowManualReview          bool
+	ManualReviewTimeoutSeconds int
 }
 
 type CreatePolicyRuleParams struct {

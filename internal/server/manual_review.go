@@ -7,16 +7,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
-
-const manualReviewTTL = 30 * time.Second
 
 var errManualReviewNotFound = errors.New("manual review request not found")
 
 type manualReviewHub struct {
-	mu      sync.Mutex
-	pending map[string]*manualReviewRequest
-	notify  chan struct{}
+	mu            sync.Mutex
+	pending       map[string]*manualReviewRequest
+	activePollers map[string]int
+	notify        chan struct{}
 }
 
 type manualReviewRequest struct {
@@ -59,18 +59,22 @@ type manualReviewSnapshot struct {
 
 func newManualReviewHub() *manualReviewHub {
 	return &manualReviewHub{
-		pending: make(map[string]*manualReviewRequest),
-		notify:  make(chan struct{}),
+		pending:       make(map[string]*manualReviewRequest),
+		activePollers: make(map[string]int),
+		notify:        make(chan struct{}),
 	}
 }
 
-func (h *manualReviewHub) Create(req manualReviewRequest) (manualReviewSnapshot, <-chan manualReviewDecision) {
+func (h *manualReviewHub) Create(req manualReviewRequest, timeout time.Duration) (manualReviewSnapshot, <-chan manualReviewDecision) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := time.Now().UTC()
+	if timeout <= 0 {
+		timeout = time.Duration(store.DefaultManualReviewTimeoutSeconds) * time.Second
+	}
 	req.ID = uuid.NewString()
 	req.CreatedAt = now
-	req.ExpiresAt = now.Add(manualReviewTTL)
+	req.ExpiresAt = now.Add(timeout)
 	req.decision = make(chan manualReviewDecision, 1)
 	h.pending[req.ID] = &req
 	h.signalLocked()
@@ -80,8 +84,17 @@ func (h *manualReviewHub) Create(req manualReviewRequest) (manualReviewSnapshot,
 func (h *manualReviewHub) List(ctx context.Context, organizationID string, timeout time.Duration, knownIDs map[string]struct{}) ([]manualReviewSnapshot, error) {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
+	registered := false
+	defer func() {
+		if registered {
+			h.unregisterPoller(organizationID)
+		}
+	}()
 	for {
-		reviews, notify := h.listOrNotify(organizationID, knownIDs)
+		reviews, notify, didRegister := h.listOrNotify(organizationID, knownIDs, timeout > 0 && !registered)
+		if didRegister {
+			registered = true
+		}
 		if len(reviews) > 0 || timeout <= 0 {
 			return reviews, nil
 		}
@@ -93,6 +106,12 @@ func (h *manualReviewHub) List(ctx context.Context, organizationID string, timeo
 		case <-notify:
 		}
 	}
+}
+
+func (h *manualReviewHub) HasActivePollers(organizationID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.activePollers[organizationID] > 0
 }
 
 func (h *manualReviewHub) Get(id string) (manualReviewSnapshot, bool) {
@@ -132,12 +151,17 @@ func (h *manualReviewHub) Expire(id string) {
 	}
 }
 
-func (h *manualReviewHub) listOrNotify(organizationID string, knownIDs map[string]struct{}) ([]manualReviewSnapshot, <-chan struct{}) {
+func (h *manualReviewHub) listOrNotify(organizationID string, knownIDs map[string]struct{}, registerPoller bool) ([]manualReviewSnapshot, <-chan struct{}, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.expireLocked(time.Now().UTC())
 	reviews := h.listLocked(organizationID, knownIDs)
-	return reviews, h.notify
+	registered := false
+	if registerPoller && len(reviews) == 0 {
+		h.activePollers[organizationID]++
+		registered = true
+	}
+	return reviews, h.notify, registered
 }
 
 func (h *manualReviewHub) listLocked(organizationID string, knownIDs map[string]struct{}) []manualReviewSnapshot {
@@ -167,6 +191,16 @@ func (h *manualReviewHub) expireLocked(now time.Time) {
 func (h *manualReviewHub) signalLocked() {
 	close(h.notify)
 	h.notify = make(chan struct{})
+}
+
+func (h *manualReviewHub) unregisterPoller(organizationID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.activePollers[organizationID] <= 1 {
+		delete(h.activePollers, organizationID)
+		return
+	}
+	h.activePollers[organizationID]--
 }
 
 func snapshotManualReview(req *manualReviewRequest) manualReviewSnapshot {

@@ -30,6 +30,7 @@ export function policyPayload(body: Record<string, string>): Record<string, unkn
     allow_upload: body.allow_upload === "on",
     allow_download: body.allow_download === "on",
     allow_manual_review: body.allow_manual_review === "on",
+    manual_review_timeout_seconds: Number(body.manual_review_timeout_seconds || 30),
   };
 }
 

@@ -12,12 +12,19 @@ func (a *App) reviewDeniedCommand(ctx context.Context, userID string, target sto
 	if !decision.AllowManualReview {
 		return decision
 	}
+	organizationID := organizationIDForTarget(target)
+	if !a.manualReviews.HasActivePollers(organizationID) {
+		decision.AllowManualReview = false
+		decision.Reason = "manual review skipped: no active reviewer polling: " + decision.Reason
+		return decision
+	}
 	user, err := a.store.Repository().GetUser(ctx, userID)
 	if err != nil {
 		return decision
 	}
+	timeout := time.Duration(decision.ManualReviewTimeoutSeconds) * time.Second
 	review, decided := a.manualReviews.Create(manualReviewRequest{
-		OrganizationID:  organizationIDForTarget(target),
+		OrganizationID:  organizationID,
 		TargetID:        target.ID,
 		TargetName:      target.Name,
 		TargetAlias:     target.Alias,
@@ -26,7 +33,7 @@ func (a *App) reviewDeniedCommand(ctx context.Context, userID string, target sto
 		UserDisplayName: user.DisplayName,
 		Command:         command,
 		Reason:          decision.Reason,
-	})
+	}, timeout)
 	wait := time.Until(review.ExpiresAt)
 	if wait <= 0 {
 		a.manualReviews.Expire(review.ID)

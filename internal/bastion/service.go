@@ -178,6 +178,7 @@ func (s *Service) EvaluateSFTPAccess(ctx context.Context, userID, targetID, sour
 func markManualReview(policy store.CommandPolicy, decision Decision) Decision {
 	if decision.Action == store.DecisionDeny && policy.AllowManualReview {
 		decision.AllowManualReview = true
+		decision.ManualReviewTimeoutSeconds = policy.ManualReviewTimeoutSeconds
 	}
 	return decision
 }

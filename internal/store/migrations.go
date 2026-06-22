@@ -152,6 +152,7 @@ var migrations = []string{
 		allow_download INTEGER NOT NULL DEFAULT 0,
 		allow_interactive INTEGER NOT NULL DEFAULT 0,
 		allow_manual_review INTEGER NOT NULL DEFAULT 0,
+		manual_review_timeout_seconds INTEGER NOT NULL DEFAULT 30,
 		created_at TEXT NOT NULL
 	)`,
 	`ALTER TABLE command_policies ADD COLUMN llm_prompt_id TEXT`,
@@ -161,6 +162,7 @@ var migrations = []string{
 	`ALTER TABLE command_policies ADD COLUMN allow_download INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE command_policies ADD COLUMN allow_interactive INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE command_policies ADD COLUMN allow_manual_review INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE command_policies ADD COLUMN manual_review_timeout_seconds INTEGER NOT NULL DEFAULT 30`,
 	`CREATE TABLE IF NOT EXISTS policy_rules (
 		id TEXT PRIMARY KEY,
 		policy_id TEXT NOT NULL REFERENCES command_policies(id) ON DELETE CASCADE,

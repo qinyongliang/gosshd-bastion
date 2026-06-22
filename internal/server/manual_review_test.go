@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -46,17 +47,19 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	pollCh := startManualReviewPoll(ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&timeout_seconds=2")
+	waitForManualReviewPoller(t, app, org.Organization.ID)
 	resultCh := make(chan bastion.Decision, 1)
 	go func() {
 		resultCh <- app.reviewDeniedCommand(ctx, member.User.ID, storeTarget, "rm -rf /", bastion.Decision{
-			Action:            store.DecisionDeny,
-			Reason:            "llm: dangerous command",
-			AllowManualReview: true,
+			Action:                     store.DecisionDeny,
+			Reason:                     "llm: dangerous command",
+			AllowManualReview:          true,
+			ManualReviewTimeoutSeconds: 2,
 		})
 	}()
 
-	var pending apiManualReviewsResponse
-	getJSON(t, ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&timeout_seconds=2", http.StatusOK, &pending)
+	pending := readManualReviewPoll(t, pollCh, http.StatusOK)
 	if len(pending.Reviews) != 1 {
 		t.Fatalf("pending review mismatch: %+v", pending)
 	}
@@ -66,16 +69,18 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 	}
 
 	secondCh := make(chan bastion.Decision, 1)
+	knownQuery := url.QueryEscape(review.ID)
+	nextCh := startManualReviewPoll(ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&known_ids="+knownQuery+"&timeout_seconds=2")
+	waitForManualReviewPoller(t, app, org.Organization.ID)
 	go func() {
 		secondCh <- app.reviewDeniedCommand(ctx, member.User.ID, storeTarget, "dd if=/dev/zero", bastion.Decision{
-			Action:            store.DecisionDeny,
-			Reason:            "llm: destructive write",
-			AllowManualReview: true,
+			Action:                     store.DecisionDeny,
+			Reason:                     "llm: destructive write",
+			AllowManualReview:          true,
+			ManualReviewTimeoutSeconds: 2,
 		})
 	}()
-	var next apiManualReviewsResponse
-	knownQuery := url.QueryEscape(review.ID)
-	getJSON(t, ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&known_ids="+knownQuery+"&timeout_seconds=2", http.StatusOK, &next)
+	next := readManualReviewPoll(t, nextCh, http.StatusOK)
 	if len(next.Reviews) != 1 || next.Reviews[0].ID == review.ID || next.Reviews[0].Command != "dd if=/dev/zero" {
 		t.Fatalf("known_ids should return only new pending reviews: first=%+v next=%+v", review, next)
 	}
@@ -102,4 +107,72 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("manual review decision did not unblock command")
 	}
+
+	skipped := app.reviewDeniedCommand(context.Background(), member.User.ID, storeTarget, "useradd blocked", bastion.Decision{
+		Action:                     store.DecisionDeny,
+		Reason:                     "llm: blocked user change",
+		AllowManualReview:          true,
+		ManualReviewTimeoutSeconds: 1,
+	})
+	if skipped.Action != store.DecisionDeny || skipped.AllowManualReview || !strings.Contains(skipped.Reason, "no active reviewer polling") {
+		t.Fatalf("manual review should be skipped without active poller: %+v", skipped)
+	}
+	var empty apiManualReviewsResponse
+	getJSON(t, ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&timeout_seconds=0", http.StatusOK, &empty)
+	if len(empty.Reviews) != 0 {
+		t.Fatalf("skipped manual review should not create pending reviews: %+v", empty)
+	}
+}
+
+type manualReviewPollResult struct {
+	response apiManualReviewsResponse
+	status   int
+	err      error
+}
+
+func startManualReviewPoll(client *http.Client, url string) <-chan manualReviewPollResult {
+	ch := make(chan manualReviewPollResult, 1)
+	go func() {
+		resp, err := client.Get(url)
+		if err != nil {
+			ch <- manualReviewPollResult{err: err}
+			return
+		}
+		defer resp.Body.Close()
+		result := manualReviewPollResult{status: resp.StatusCode}
+		if resp.StatusCode == http.StatusOK {
+			result.err = json.NewDecoder(resp.Body).Decode(&result.response)
+		}
+		ch <- result
+	}()
+	return ch
+}
+
+func readManualReviewPoll(t *testing.T, ch <-chan manualReviewPollResult, wantStatus int) apiManualReviewsResponse {
+	t.Helper()
+	select {
+	case result := <-ch:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.status != wantStatus {
+			t.Fatalf("manual review poll status mismatch: got %d want %d", result.status, wantStatus)
+		}
+		return result.response
+	case <-time.After(3 * time.Second):
+		t.Fatal("manual review poll timed out")
+		return apiManualReviewsResponse{}
+	}
+}
+
+func waitForManualReviewPoller(t *testing.T, app *App, organizationID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if app.manualReviews.HasActivePollers(organizationID) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("manual review poller did not become active")
 }
