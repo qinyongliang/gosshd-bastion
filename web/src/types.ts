@@ -159,6 +159,7 @@ export type Policy = {
   allow_download?: boolean;
   allow_interactive?: boolean;
   allow_manual_review?: boolean;
+  manual_review_timeout_seconds?: number;
   rules?: PolicyRule[];
   target_ids?: string[];
   target_tags?: string[];

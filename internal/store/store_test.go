@@ -290,6 +290,7 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 		LLMConfigID:       llm.ID,
 		LLMPromptID:       customPrompt.ID,
 		AllowManualReview: true,
+		ManualReviewTimeoutSeconds: 45,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -331,6 +332,9 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if !policies[0].AllowManualReview {
 		t.Fatalf("policy manual review flag mismatch: %#v", policies[0])
 	}
+	if policies[0].ManualReviewTimeoutSeconds != 45 {
+		t.Fatalf("policy manual review timeout mismatch: %#v", policies[0])
+	}
 	if _, err := repo.UpdateCommandPolicy(ctx, policy.ID, UpdateCommandPolicyParams{
 		Name:              "strict edited",
 		DefaultAction:     DecisionAllow,
@@ -342,6 +346,7 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 		AllowDownload:     false,
 		AllowInteractive:  true,
 		AllowManualReview: true,
+		ManualReviewTimeoutSeconds: 12,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -414,6 +419,9 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 	if clearedPolicy.LLMConfigID != "" || clearedPolicy.LLMPromptID != "" {
 		t.Fatalf("deleted policy resources should clear references: %#v", clearedPolicy)
+	}
+	if clearedPolicy.ManualReviewTimeoutSeconds != 12 {
+		t.Fatalf("updated policy manual review timeout mismatch: %#v", clearedPolicy)
 	}
 
 	started := time.Now().UTC()

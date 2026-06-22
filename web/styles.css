@@ -2197,6 +2197,21 @@ html[data-theme="dark"] .tag-input-menu {
   gap: 10px;
 }
 
+.manual-review-policy-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 150px);
+  align-items: end;
+  gap: 10px;
+}
+
+.manual-review-policy-control .toggle-row {
+  min-height: 42px;
+}
+
+.manual-review-timeout-field input {
+  text-align: right;
+}
+
 .policy-list-stack,
 .relation-list,
 .resource-list {
@@ -4476,6 +4491,7 @@ html[data-theme="dark"] .empty-state {
   .policy-inline-form,
   .policy-relation-form,
   .policy-toggle-grid,
+  .manual-review-policy-control,
   .resource-manager,
   .resource-select-row,
   .action-grid {

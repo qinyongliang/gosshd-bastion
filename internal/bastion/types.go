@@ -8,9 +8,10 @@ type Service struct {
 }
 
 type Decision struct {
-	Action            string
-	Reason            string
-	AllowManualReview bool
+	Action                     string
+	Reason                     string
+	AllowManualReview          bool
+	ManualReviewTimeoutSeconds int
 }
 
 func NewService(repo *store.Repository) *Service {

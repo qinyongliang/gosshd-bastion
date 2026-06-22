@@ -155,7 +155,7 @@ function PolicyFormModal({ data, onClose, onSubmit }: { data: ConsoleData; onClo
       <Toggle name="allow_port_forward" label={t("policyAllowPortForward")} />
       <Toggle name="allow_upload" label={t("policyAllowUpload")} />
       <Toggle name="allow_download" label={t("policyAllowDownload")} />
-      <Toggle name="allow_manual_review" label={t("policyAllowManualReview")} />
+      <ManualReviewControl />
       <ModalActions onCancel={onClose} submit={t("commonCreate")} />
     </form>
   </Modal>;
@@ -187,7 +187,7 @@ function PolicyDrawer({ data, policy, onClose }: { data: ConsoleData; policy: Po
             <Toggle name="allow_port_forward" label={t("policyAllowPortForward")} defaultChecked={policy.allow_port_forward} />
             <Toggle name="allow_upload" label={t("policyAllowUpload")} defaultChecked={policy.allow_upload} />
             <Toggle name="allow_download" label={t("policyAllowDownload")} defaultChecked={policy.allow_download} />
-            <Toggle name="allow_manual_review" label={t("policyAllowManualReview")} defaultChecked={policy.allow_manual_review} />
+            <ManualReviewControl defaultChecked={policy.allow_manual_review} defaultSeconds={policy.manual_review_timeout_seconds} />
           </div>
           <ModalActions submit={t("save")} />
         </form>
@@ -224,6 +224,26 @@ function ResourceSelect({ label, name, value, emptyLabel, items, onCreate, onMan
       <button type="button" onClick={onManage}><Settings />{t("commonManage")}</button>
     </div>
   </label>;
+}
+
+function ManualReviewControl({ defaultChecked = false, defaultSeconds = 30 }: { defaultChecked?: boolean; defaultSeconds?: number }) {
+  const { t } = useI18n();
+  const [enabled, setEnabled] = useState(Boolean(defaultChecked));
+  const seconds = Math.max(5, Math.min(300, Number(defaultSeconds || 30)));
+  return <div className="manual-review-policy-control span-two">
+    <label className="toggle-row">
+      <input type="checkbox" name="allow_manual_review" defaultChecked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+      <span>{t("policyAllowManualReview")}</span>
+    </label>
+    {enabled ? (
+      <label className="field manual-review-timeout-field">
+        <span>{t("policyManualReviewTimeout")}</span>
+        <input name="manual_review_timeout_seconds" type="number" min="5" max="300" step="1" defaultValue={seconds} />
+      </label>
+    ) : (
+      <input type="hidden" name="manual_review_timeout_seconds" value={seconds} />
+    )}
+  </div>;
 }
 
 function PolicyRulesEditor({ policy }: { policy: Policy }) {
@@ -472,6 +492,7 @@ function policyToPayload(policy: Policy, overrides: Partial<Policy> = {}) {
     allow_upload: Boolean(policy.allow_upload),
     allow_download: Boolean(policy.allow_download),
     allow_manual_review: Boolean(policy.allow_manual_review),
+    manual_review_timeout_seconds: policy.manual_review_timeout_seconds || 30,
     ...overrides,
   };
 }

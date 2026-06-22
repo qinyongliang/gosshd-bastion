@@ -1596,31 +1596,33 @@ func (r *Repository) DeleteLLMPromptResource(ctx context.Context, id string) err
 
 func (r *Repository) CreateCommandPolicy(ctx context.Context, params CreateCommandPolicyParams) (CommandPolicy, error) {
 	policy := CommandPolicy{
-		ID:                uuid.NewString(),
-		OwnerType:         params.OwnerType,
-		OwnerID:           params.OwnerID,
-		Name:              strings.TrimSpace(params.Name),
-		DefaultAction:     normalizePolicyAction(params.DefaultAction),
-		LLMConfigID:       strings.TrimSpace(params.LLMConfigID),
-		LLMPromptID:       strings.TrimSpace(params.LLMPromptID),
-		IPAllowlist:       strings.TrimSpace(params.IPAllowlist),
-		AllowPortForward:  params.AllowPortForward,
-		AllowUpload:       params.AllowUpload,
-		AllowDownload:     params.AllowDownload,
-		AllowInteractive:  params.AllowInteractive,
-		AllowManualReview: params.AllowManualReview,
-		CreatedAt:         time.Now().UTC(),
+		ID:                         uuid.NewString(),
+		OwnerType:                  params.OwnerType,
+		OwnerID:                    params.OwnerID,
+		Name:                       strings.TrimSpace(params.Name),
+		DefaultAction:              normalizePolicyAction(params.DefaultAction),
+		LLMConfigID:                strings.TrimSpace(params.LLMConfigID),
+		LLMPromptID:                strings.TrimSpace(params.LLMPromptID),
+		IPAllowlist:                strings.TrimSpace(params.IPAllowlist),
+		AllowPortForward:           params.AllowPortForward,
+		AllowUpload:                params.AllowUpload,
+		AllowDownload:              params.AllowDownload,
+		AllowInteractive:           params.AllowInteractive,
+		AllowManualReview:          params.AllowManualReview,
+		ManualReviewTimeoutSeconds: normalizeManualReviewTimeoutSeconds(params.ManualReviewTimeoutSeconds),
+		CreatedAt:                  time.Now().UTC(),
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO command_policies (
 			id, owner_type, owner_id, name, default_action, llm_config_id, llm_prompt_id,
 			ip_allowlist, allow_port_forward, allow_upload, allow_download, allow_interactive,
-			allow_manual_review, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			allow_manual_review, manual_review_timeout_seconds, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, policy.ID, policy.OwnerType, policy.OwnerID, policy.Name, policy.DefaultAction,
 		nullableString(policy.LLMConfigID), nullableString(policy.LLMPromptID), policy.IPAllowlist,
 		boolInt(policy.AllowPortForward), boolInt(policy.AllowUpload), boolInt(policy.AllowDownload),
-		boolInt(policy.AllowInteractive), boolInt(policy.AllowManualReview), formatTime(policy.CreatedAt))
+		boolInt(policy.AllowInteractive), boolInt(policy.AllowManualReview), policy.ManualReviewTimeoutSeconds,
+		formatTime(policy.CreatedAt))
 	if err != nil {
 		return CommandPolicy{}, err
 	}
@@ -1631,7 +1633,7 @@ func (r *Repository) ListCommandPolicies(ctx context.Context, ownerType, ownerID
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, owner_type, owner_id, name, default_action, COALESCE(llm_config_id, ''),
 			COALESCE(llm_prompt_id, ''), ip_allowlist, allow_port_forward, allow_upload,
-			allow_download, allow_interactive, allow_manual_review, created_at
+			allow_download, allow_interactive, allow_manual_review, manual_review_timeout_seconds, created_at
 		FROM command_policies
 		WHERE owner_type = ? AND owner_id = ?
 		ORDER BY created_at ASC
@@ -1675,7 +1677,7 @@ func (r *Repository) GetCommandPolicy(ctx context.Context, id string) (CommandPo
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, owner_type, owner_id, name, default_action, COALESCE(llm_config_id, ''),
 			COALESCE(llm_prompt_id, ''), ip_allowlist, allow_port_forward, allow_upload,
-			allow_download, allow_interactive, allow_manual_review, created_at
+			allow_download, allow_interactive, allow_manual_review, manual_review_timeout_seconds, created_at
 		FROM command_policies
 		WHERE id = ?
 	`, id)
@@ -1707,13 +1709,14 @@ func (r *Repository) UpdateCommandPolicy(ctx context.Context, id string, params 
 		UPDATE command_policies
 		SET name = ?, default_action = ?, llm_config_id = ?, llm_prompt_id = ?,
 			ip_allowlist = ?, allow_port_forward = ?, allow_upload = ?,
-			allow_download = ?, allow_interactive = ?, allow_manual_review = ?
+			allow_download = ?, allow_interactive = ?, allow_manual_review = ?,
+			manual_review_timeout_seconds = ?
 		WHERE id = ?
 	`, strings.TrimSpace(params.Name), normalizePolicyAction(params.DefaultAction),
 		nullableString(params.LLMConfigID), nullableString(params.LLMPromptID),
 		strings.TrimSpace(params.IPAllowlist), boolInt(params.AllowPortForward),
 		boolInt(params.AllowUpload), boolInt(params.AllowDownload), boolInt(params.AllowInteractive),
-		boolInt(params.AllowManualReview), id)
+		boolInt(params.AllowManualReview), normalizeManualReviewTimeoutSeconds(params.ManualReviewTimeoutSeconds), id)
 	if err != nil {
 		return CommandPolicy{}, err
 	}
@@ -1746,31 +1749,33 @@ func (r *Repository) CopyCommandPolicy(ctx context.Context, id string, name stri
 	defer tx.Rollback()
 	now := time.Now().UTC()
 	copy := CommandPolicy{
-		ID:                uuid.NewString(),
-		OwnerType:         source.OwnerType,
-		OwnerID:           source.OwnerID,
-		Name:              strings.TrimSpace(name),
-		DefaultAction:     source.DefaultAction,
-		LLMConfigID:       source.LLMConfigID,
-		LLMPromptID:       source.LLMPromptID,
-		IPAllowlist:       source.IPAllowlist,
-		AllowPortForward:  source.AllowPortForward,
-		AllowUpload:       source.AllowUpload,
-		AllowDownload:     source.AllowDownload,
-		AllowInteractive:  source.AllowInteractive,
-		AllowManualReview: source.AllowManualReview,
-		CreatedAt:         now,
+		ID:                         uuid.NewString(),
+		OwnerType:                  source.OwnerType,
+		OwnerID:                    source.OwnerID,
+		Name:                       strings.TrimSpace(name),
+		DefaultAction:              source.DefaultAction,
+		LLMConfigID:                source.LLMConfigID,
+		LLMPromptID:                source.LLMPromptID,
+		IPAllowlist:                source.IPAllowlist,
+		AllowPortForward:           source.AllowPortForward,
+		AllowUpload:                source.AllowUpload,
+		AllowDownload:              source.AllowDownload,
+		AllowInteractive:           source.AllowInteractive,
+		AllowManualReview:          source.AllowManualReview,
+		ManualReviewTimeoutSeconds: normalizeManualReviewTimeoutSeconds(source.ManualReviewTimeoutSeconds),
+		CreatedAt:                  now,
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO command_policies (
 			id, owner_type, owner_id, name, default_action, llm_config_id, llm_prompt_id,
 			ip_allowlist, allow_port_forward, allow_upload, allow_download, allow_interactive,
-			allow_manual_review, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			allow_manual_review, manual_review_timeout_seconds, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, copy.ID, copy.OwnerType, copy.OwnerID, copy.Name, copy.DefaultAction,
 		nullableString(copy.LLMConfigID), nullableString(copy.LLMPromptID), copy.IPAllowlist,
 		boolInt(copy.AllowPortForward), boolInt(copy.AllowUpload), boolInt(copy.AllowDownload),
-		boolInt(copy.AllowInteractive), boolInt(copy.AllowManualReview), formatTime(copy.CreatedAt)); err != nil {
+		boolInt(copy.AllowInteractive), boolInt(copy.AllowManualReview), copy.ManualReviewTimeoutSeconds,
+		formatTime(copy.CreatedAt)); err != nil {
 		return CommandPolicy{}, err
 	}
 	for _, rule := range source.Rules {
@@ -1901,7 +1906,7 @@ func (r *Repository) ListPoliciesForTarget(ctx context.Context, targetID string)
 		SELECT p.id, p.owner_type, p.owner_id, p.name, p.default_action,
 			COALESCE(p.llm_config_id, ''), COALESCE(p.llm_prompt_id, ''),
 			p.ip_allowlist, p.allow_port_forward, p.allow_upload, p.allow_download,
-			p.allow_interactive, p.allow_manual_review, p.created_at
+			p.allow_interactive, p.allow_manual_review, p.manual_review_timeout_seconds, p.created_at
 		FROM command_policies p
 		WHERE EXISTS (
 			SELECT 1 FROM policy_targets pt
@@ -2046,7 +2051,7 @@ func scanCommandPolicyRows(row targetScanner) (CommandPolicy, error) {
 	var allowPortForward, allowUpload, allowDownload, allowInteractive, allowManualReview int
 	err := row.Scan(&policy.ID, &policy.OwnerType, &policy.OwnerID, &policy.Name, &policy.DefaultAction,
 		&policy.LLMConfigID, &policy.LLMPromptID, &policy.IPAllowlist, &allowPortForward,
-		&allowUpload, &allowDownload, &allowInteractive, &allowManualReview, &created)
+		&allowUpload, &allowDownload, &allowInteractive, &allowManualReview, &policy.ManualReviewTimeoutSeconds, &created)
 	if err != nil {
 		return CommandPolicy{}, err
 	}
@@ -2055,6 +2060,7 @@ func scanCommandPolicyRows(row targetScanner) (CommandPolicy, error) {
 	policy.AllowDownload = allowDownload == 1
 	policy.AllowInteractive = allowInteractive == 1
 	policy.AllowManualReview = allowManualReview == 1
+	policy.ManualReviewTimeoutSeconds = normalizeManualReviewTimeoutSeconds(policy.ManualReviewTimeoutSeconds)
 	policy.CreatedAt = parseTime(created)
 	return policy, nil
 }
@@ -2077,6 +2083,13 @@ func normalizePolicyAction(action string) string {
 		return DecisionDeny
 	}
 	return DecisionAllow
+}
+
+func normalizeManualReviewTimeoutSeconds(seconds int) int {
+	if seconds <= 0 {
+		return DefaultManualReviewTimeoutSeconds
+	}
+	return seconds
 }
 
 func (r *Repository) CreateCommandAuditLog(ctx context.Context, params CreateCommandAuditLogParams) (CommandAuditLog, error) {

@@ -795,18 +795,20 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 
 	var policy apiPolicyResponse
 	postJSON(t, client, srv.URL+"/api/policies", map[string]any{
-		"owner_type":          "organization",
-		"owner_id":            org.Organization.ID,
-		"name":                "strict",
-		"default_action":      "deny",
-		"llm_config_id":       llm.Config.ID,
-		"llm_prompt_id":       prompt.Prompt.ID,
-		"ip_allowlist":        "10.0.0.0/8",
-		"allow_interactive":   true,
-		"allow_manual_review": true,
+		"owner_type":                    "organization",
+		"owner_id":                      org.Organization.ID,
+		"name":                          "strict",
+		"default_action":                "deny",
+		"llm_config_id":                 llm.Config.ID,
+		"llm_prompt_id":                 prompt.Prompt.ID,
+		"ip_allowlist":                  "10.0.0.0/8",
+		"allow_interactive":             true,
+		"allow_manual_review":           true,
+		"manual_review_timeout_seconds": 45,
 	}, http.StatusCreated, &policy)
 	if policy.Policy.LLMConfigID != llm.Config.ID || policy.Policy.LLMPromptID != prompt.Prompt.ID ||
-		policy.Policy.IPAllowlist != "10.0.0.0/8" || !policy.Policy.AllowInteractive || !policy.Policy.AllowManualReview {
+		policy.Policy.IPAllowlist != "10.0.0.0/8" || !policy.Policy.AllowInteractive || !policy.Policy.AllowManualReview ||
+		policy.Policy.ManualReviewTimeoutSeconds != 45 {
 		t.Fatalf("policy llm config mismatch: %+v", policy)
 	}
 	postJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID+"/rules", map[string]string{
@@ -842,21 +844,22 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	}
 	var updatedPolicy apiPolicyResponse
 	patchJSON(t, client, srv.URL+"/api/policies/"+policy.Policy.ID, map[string]any{
-		"name":                "strict edited",
-		"default_action":      "allow",
-		"llm_config_id":       llm.Config.ID,
-		"llm_prompt_id":       prompt.Prompt.ID,
-		"ip_allowlist":        "private",
-		"allow_port_forward":  true,
-		"allow_upload":        true,
-		"allow_download":      false,
-		"allow_interactive":   true,
-		"allow_manual_review": true,
+		"name":                          "strict edited",
+		"default_action":                "allow",
+		"llm_config_id":                 llm.Config.ID,
+		"llm_prompt_id":                 prompt.Prompt.ID,
+		"ip_allowlist":                  "private",
+		"allow_port_forward":            true,
+		"allow_upload":                  true,
+		"allow_download":                false,
+		"allow_interactive":             true,
+		"allow_manual_review":           true,
+		"manual_review_timeout_seconds": 12,
 	}, http.StatusOK, &updatedPolicy)
 	if updatedPolicy.Policy.Name != "strict edited" || updatedPolicy.Policy.DefaultAction != "allow" ||
 		updatedPolicy.Policy.IPAllowlist != "private" || !updatedPolicy.Policy.AllowPortForward ||
 		!updatedPolicy.Policy.AllowUpload || updatedPolicy.Policy.AllowDownload || !updatedPolicy.Policy.AllowInteractive ||
-		!updatedPolicy.Policy.AllowManualReview {
+		!updatedPolicy.Policy.AllowManualReview || updatedPolicy.Policy.ManualReviewTimeoutSeconds != 12 {
 		t.Fatalf("policy update mismatch: %+v", updatedPolicy.Policy)
 	}
 	var copiedPolicy apiPolicyResponse
@@ -865,7 +868,8 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	}, http.StatusCreated, &copiedPolicy)
 	if copiedPolicy.Policy.Name != "strict copy" || len(copiedPolicy.Policy.Rules) != 1 || len(copiedPolicy.Policy.TargetIDs) != 1 ||
 		len(copiedPolicy.Policy.TargetTags) != 1 || len(copiedPolicy.Policy.UserGroupIDs) != 1 ||
-		copiedPolicy.Policy.IPAllowlist != "private" || !copiedPolicy.Policy.AllowUpload || !copiedPolicy.Policy.AllowManualReview {
+		copiedPolicy.Policy.IPAllowlist != "private" || !copiedPolicy.Policy.AllowUpload || !copiedPolicy.Policy.AllowManualReview ||
+		copiedPolicy.Policy.ManualReviewTimeoutSeconds != 12 {
 		t.Fatalf("policy copy mismatch: %+v", copiedPolicy.Policy)
 	}
 	deleteJSON(t, client, srv.URL+"/api/policies/"+copiedPolicy.Policy.ID+"/rules/"+copiedPolicy.Policy.Rules[0].ID, http.StatusOK)
