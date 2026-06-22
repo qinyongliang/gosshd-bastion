@@ -178,23 +178,24 @@ type Agent struct {
 }
 
 type CommandPolicy struct {
-	ID               string
-	OwnerType        string
-	OwnerID          string
-	Name             string
-	DefaultAction    string
-	LLMConfigID      string
-	LLMPromptID      string
-	IPAllowlist      string
-	AllowPortForward bool
-	AllowUpload      bool
-	AllowDownload    bool
-	AllowInteractive bool
-	CreatedAt        time.Time
-	Rules            []PolicyRule
-	TargetIDs        []string
-	UserGroupIDs     []string
-	TargetTags       []string
+	ID                string
+	OwnerType         string
+	OwnerID           string
+	Name              string
+	DefaultAction     string
+	LLMConfigID       string
+	LLMPromptID       string
+	IPAllowlist       string
+	AllowPortForward  bool
+	AllowUpload       bool
+	AllowDownload     bool
+	AllowInteractive  bool
+	AllowManualReview bool
+	CreatedAt         time.Time
+	Rules             []PolicyRule
+	TargetIDs         []string
+	UserGroupIDs      []string
+	TargetTags        []string
 }
 
 type PolicyRule struct {
@@ -429,29 +430,31 @@ type UpsertAgentParams struct {
 }
 
 type CreateCommandPolicyParams struct {
-	OwnerType        string
-	OwnerID          string
-	Name             string
-	DefaultAction    string
-	LLMConfigID      string
-	LLMPromptID      string
-	IPAllowlist      string
-	AllowPortForward bool
-	AllowUpload      bool
-	AllowDownload    bool
-	AllowInteractive bool
+	OwnerType         string
+	OwnerID           string
+	Name              string
+	DefaultAction     string
+	LLMConfigID       string
+	LLMPromptID       string
+	IPAllowlist       string
+	AllowPortForward  bool
+	AllowUpload       bool
+	AllowDownload     bool
+	AllowInteractive  bool
+	AllowManualReview bool
 }
 
 type UpdateCommandPolicyParams struct {
-	Name             string
-	DefaultAction    string
-	LLMConfigID      string
-	LLMPromptID      string
-	IPAllowlist      string
-	AllowPortForward bool
-	AllowUpload      bool
-	AllowDownload    bool
-	AllowInteractive bool
+	Name              string
+	DefaultAction     string
+	LLMConfigID       string
+	LLMPromptID       string
+	IPAllowlist       string
+	AllowPortForward  bool
+	AllowUpload       bool
+	AllowDownload     bool
+	AllowInteractive  bool
+	AllowManualReview bool
 }
 
 type CreatePolicyRuleParams struct {

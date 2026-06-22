@@ -137,6 +137,7 @@ function PolicyCapabilities({ policy }: { policy: Policy }) {
     policy.allow_port_forward && t("policyForward"),
     policy.allow_upload && t("policyUpload"),
     policy.allow_download && t("policyDownload"),
+    policy.allow_manual_review && t("policyManualReview"),
   ].filter(Boolean) as string[];
   return <span className="capability-row">{items.length ? items.map((item) => <span key={item}>{item}</span>) : <span>{t("policyNoExtraCapabilities")}</span>}</span>;
 }
@@ -154,6 +155,7 @@ function PolicyFormModal({ data, onClose, onSubmit }: { data: ConsoleData; onClo
       <Toggle name="allow_port_forward" label={t("policyAllowPortForward")} />
       <Toggle name="allow_upload" label={t("policyAllowUpload")} />
       <Toggle name="allow_download" label={t("policyAllowDownload")} />
+      <Toggle name="allow_manual_review" label={t("policyAllowManualReview")} />
       <ModalActions onCancel={onClose} submit={t("commonCreate")} />
     </form>
   </Modal>;
@@ -185,6 +187,7 @@ function PolicyDrawer({ data, policy, onClose }: { data: ConsoleData; policy: Po
             <Toggle name="allow_port_forward" label={t("policyAllowPortForward")} defaultChecked={policy.allow_port_forward} />
             <Toggle name="allow_upload" label={t("policyAllowUpload")} defaultChecked={policy.allow_upload} />
             <Toggle name="allow_download" label={t("policyAllowDownload")} defaultChecked={policy.allow_download} />
+            <Toggle name="allow_manual_review" label={t("policyAllowManualReview")} defaultChecked={policy.allow_manual_review} />
           </div>
           <ModalActions submit={t("save")} />
         </form>
@@ -468,6 +471,7 @@ function policyToPayload(policy: Policy, overrides: Partial<Policy> = {}) {
     allow_port_forward: Boolean(policy.allow_port_forward),
     allow_upload: Boolean(policy.allow_upload),
     allow_download: Boolean(policy.allow_download),
+    allow_manual_review: Boolean(policy.allow_manual_review),
     ...overrides,
   };
 }

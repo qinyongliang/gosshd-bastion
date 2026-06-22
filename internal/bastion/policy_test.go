@@ -40,6 +40,7 @@ func TestPolicyEvaluationWhitelistBlacklistDefaultAndUserGroups(t *testing.T) {
 	}
 	policy, err := repo.CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
 		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Name: "strict", DefaultAction: store.DecisionDeny,
+		AllowManualReview: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -62,21 +63,21 @@ func TestPolicyEvaluationWhitelistBlacklistDefaultAndUserGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Action != store.DecisionAllow {
+	if decision.Action != store.DecisionAllow || decision.AllowManualReview {
 		t.Fatalf("whoami decision mismatch: %+v", decision)
 	}
 	decision, err = svc.EvaluateCommand(ctx, user.ID, target.ID, "rm -rf /tmp/x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Action != store.DecisionDeny {
+	if decision.Action != store.DecisionDeny || !decision.AllowManualReview {
 		t.Fatalf("blacklist decision mismatch: %+v", decision)
 	}
 	decision, err = svc.EvaluateCommand(ctx, user.ID, target.ID, "hostname")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Action != store.DecisionDeny {
+	if decision.Action != store.DecisionDeny || !decision.AllowManualReview {
 		t.Fatalf("default decision mismatch: %+v", decision)
 	}
 }

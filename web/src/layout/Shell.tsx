@@ -28,7 +28,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
     ["/", t("dashboard"), LayoutDashboard],
     ["/orgs", t("orgs"), Users],
     ["/org-admin", t("members"), Users],
-    ["/keys", t("keys"), KeyRound],
+    ["/keys", t("authorization"), KeyRound],
     ["/targets", t("services"), Server],
     ["/policies", t("commandPolicy"), Shield],
     ["/audit", t("audit"), ListChecks],

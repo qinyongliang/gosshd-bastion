@@ -5,6 +5,7 @@ import type {
   AuditRecording,
   FileEntry,
   LLMConfig,
+  ManualReview,
   Member,
   MCPToken,
   MCPTokenCreateResponse,
@@ -104,6 +105,13 @@ export const api = {
   audit: (params: Record<string, unknown>) => request<{ logs: AuditLog[]; total: number; page: number; page_size: number }>(`/api/audit?${queryString(params)}`),
   auditRecording: (id: string) => request<AuditRecording>(`/api/audit/${id}/recording`),
   targetSystem: (targetID: string) => request<TargetSystemSnapshot>(`/api/targets/${targetID}/system`),
+  manualReviews: (orgID: string, timeoutSeconds = 25, knownIDs: string[] = []) =>
+    request<{ reviews: ManualReview[] }>(`/api/manual-reviews?${queryString({
+      organization_id: orgID,
+      timeout_seconds: timeoutSeconds,
+      known_ids: knownIDs.join(","),
+    })}`),
+  decideManualReview: (id: string, allow: boolean) => request<{ ok: true }>(`/api/manual-reviews/${id}/decision`, post({ allow })),
 
   adminSettings: () => request<Record<string, unknown>>("/api/admin/settings"),
   updateAuthSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/auth", put(body)),

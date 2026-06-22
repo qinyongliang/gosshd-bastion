@@ -391,17 +391,18 @@ func (a *App) newMCPServer(actor store.User) *mcp.Server {
 				return nil, apiPolicyResponse{}, err
 			}
 			policy, err := a.store.Repository().CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
-				OwnerType:        ownerType,
-				OwnerID:          ownerID,
-				Name:             in.Name,
-				DefaultAction:    in.DefaultAction,
-				LLMConfigID:      in.LLMConfigID,
-				LLMPromptID:      in.LLMPromptID,
-				IPAllowlist:      in.IPAllowlist,
-				AllowPortForward: in.AllowPortForward,
-				AllowUpload:      in.AllowUpload,
-				AllowDownload:    in.AllowDownload,
-				AllowInteractive: in.AllowInteractive,
+				OwnerType:         ownerType,
+				OwnerID:           ownerID,
+				Name:              in.Name,
+				DefaultAction:     in.DefaultAction,
+				LLMConfigID:       in.LLMConfigID,
+				LLMPromptID:       in.LLMPromptID,
+				IPAllowlist:       in.IPAllowlist,
+				AllowPortForward:  in.AllowPortForward,
+				AllowUpload:       in.AllowUpload,
+				AllowDownload:     in.AllowDownload,
+				AllowInteractive:  in.AllowInteractive,
+				AllowManualReview: in.AllowManualReview,
 			})
 			if err != nil {
 				return nil, apiPolicyResponse{}, err
@@ -632,15 +633,16 @@ type mcpLLMPromptInput struct {
 
 type mcpPolicyCreateInput struct {
 	mcpOwnerInput
-	Name             string `json:"name"`
-	DefaultAction    string `json:"default_action"`
-	LLMConfigID      string `json:"llm_config_id,omitempty"`
-	LLMPromptID      string `json:"llm_prompt_id,omitempty"`
-	IPAllowlist      string `json:"ip_allowlist,omitempty"`
-	AllowPortForward bool   `json:"allow_port_forward,omitempty"`
-	AllowUpload      bool   `json:"allow_upload,omitempty"`
-	AllowDownload    bool   `json:"allow_download,omitempty"`
-	AllowInteractive bool   `json:"allow_interactive,omitempty"`
+	Name              string `json:"name"`
+	DefaultAction     string `json:"default_action"`
+	LLMConfigID       string `json:"llm_config_id,omitempty"`
+	LLMPromptID       string `json:"llm_prompt_id,omitempty"`
+	IPAllowlist       string `json:"ip_allowlist,omitempty"`
+	AllowPortForward  bool   `json:"allow_port_forward,omitempty"`
+	AllowUpload       bool   `json:"allow_upload,omitempty"`
+	AllowDownload     bool   `json:"allow_download,omitempty"`
+	AllowInteractive  bool   `json:"allow_interactive,omitempty"`
+	AllowManualReview bool   `json:"allow_manual_review,omitempty"`
 }
 
 type mcpPolicyRuleInput struct {

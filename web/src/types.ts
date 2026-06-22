@@ -158,6 +158,7 @@ export type Policy = {
   allow_upload?: boolean;
   allow_download?: boolean;
   allow_interactive?: boolean;
+  allow_manual_review?: boolean;
   rules?: PolicyRule[];
   target_ids?: string[];
   target_tags?: string[];
@@ -190,6 +191,21 @@ export type AuditLog = {
 export type AuditRecording = {
   log: AuditLog;
   lines: unknown[];
+};
+
+export type ManualReview = {
+  id: string;
+  organization_id: string;
+  target_id: string;
+  target_name: string;
+  target_alias: string;
+  user_id: string;
+  user_email: string;
+  user_display_name: string;
+  command: string;
+  reason: string;
+  created_at: string;
+  expires_at: string;
 };
 
 export type AdminUser = User;

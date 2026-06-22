@@ -41,8 +41,9 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           <button type="button" onClick={() => remove.mutate(key.id)}>{t("commonDelete")}</button>,
         ])} /> : <Empty title={t("keysEmptyTitle")} body={t("keysEmptyBody")} />}
       </Panel>
-      <Panel title={t("mcpTokensTitle")} subtitle={t("mcpTokensBody")}>
-        <div className="resource-toolbar">
+      <section className="panel mcp-token-panel">
+        <div className="panel-head">
+          <div><h2>{t("mcpTokensTitle")}</h2><p>{t("mcpTokensBody")}</p></div>
           <button type="button" className="primary" onClick={openMCPModal}><KeyRound />{t("mcpTokenGenerate")}</button>
         </div>
         {!mcpTokens.data ? <p>{t("loading")}</p> : tokens.length ? <SimpleTable headers={[t("commonName"), t("commonCreatedAt"), t("mcpLastUsedAt"), t("commonActions")]} rows={tokens.map((token) => [
@@ -51,7 +52,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           token.last_used_at ? formatDate(token.last_used_at) : "-",
           <button type="button" onClick={() => removeMCP.mutate(token.id)}>{t("commonDelete")}</button>,
         ])} /> : <Empty title={t("mcpTokensEmptyTitle")} body={t("mcpTokensEmptyBody")} />}
-      </Panel>
+      </section>
       {modal && <Modal title={t("keysAddTitle")} onClose={() => setModal(false)} closeOnEscape={false}>
         <form className="stack" onSubmit={(event) => formSubmit(event, (body) => create.mutate({ name: body.name, authorized_key: body.authorized_key }))}>
           <Field label={t("commonTitle")} name="name" required />

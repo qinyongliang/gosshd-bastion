@@ -160,6 +160,13 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		sendExit(ch, 255)
 		return
 	}
+	if decision.Action == store.DecisionDeny && decision.AllowManualReview {
+		_, _ = ch.Stderr().Write([]byte("command pending manual review: " + decision.Reason + "\n"))
+		decision = a.reviewDeniedCommand(ctx, userID, target, command, decision)
+		if decision.Action == store.DecisionAllow {
+			_, _ = ch.Stderr().Write([]byte("manual review approved\n"))
+		}
+	}
 	if decision.Action == store.DecisionDeny {
 		_, _ = ch.Stderr().Write([]byte("command denied: " + decision.Reason + "\n"))
 		code := 126
