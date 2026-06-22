@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/bastion"
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
@@ -37,10 +39,390 @@ type terminalWSWriter struct {
 	ws *websocket.Conn
 }
 
+type apiTargetSystemUsage struct {
+	UsedBytes  int64   `json:"used_bytes"`
+	TotalBytes int64   `json:"total_bytes"`
+	Percent    float64 `json:"percent"`
+}
+
+type apiTargetSystemProcess struct {
+	RSSBytes   int64   `json:"rss_bytes"`
+	CPUPercent float64 `json:"cpu_percent"`
+	Command    string  `json:"command"`
+}
+
+type apiTargetSystemNetwork struct {
+	Interface string `json:"interface"`
+	RXBytes   int64  `json:"rx_bytes"`
+	TXBytes   int64  `json:"tx_bytes"`
+}
+
+type apiTargetSystemFilesystem struct {
+	Path       string  `json:"path"`
+	UsedBytes  int64   `json:"used_bytes"`
+	TotalBytes int64   `json:"total_bytes"`
+	Percent    float64 `json:"percent"`
+}
+
+type apiTargetSystemResponse struct {
+	OS          string                      `json:"os,omitempty"`
+	Hostname    string                      `json:"hostname,omitempty"`
+	IP          string                      `json:"ip,omitempty"`
+	Uptime      string                      `json:"uptime,omitempty"`
+	Load        string                      `json:"load,omitempty"`
+	CPUPercent  float64                     `json:"cpu_percent"`
+	Memory      apiTargetSystemUsage        `json:"memory"`
+	Swap        apiTargetSystemUsage        `json:"swap"`
+	Processes   []apiTargetSystemProcess    `json:"processes"`
+	Network     []apiTargetSystemNetwork    `json:"network"`
+	Filesystems []apiTargetSystemFilesystem `json:"filesystems"`
+	CollectedAt string                      `json:"collected_at,omitempty"`
+}
+
 func (w *terminalWSWriter) write(msg terminalWSMessage) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.ws.WriteJSON(msg)
+}
+
+func (a *App) handleTargetSystem(w http.ResponseWriter, r *http.Request, user store.User) {
+	target, err := a.targetForUser(r.Context(), r.PathValue("id"), user)
+	if err != nil {
+		writeOwnerError(w, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	snapshot, err := a.collectTargetSystem(ctx, target)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (a *App) collectTargetSystem(ctx context.Context, target store.SSHTarget) (apiTargetSystemResponse, error) {
+	linuxOut, linuxErr := a.runTargetSystemCommand(ctx, target, linuxSystemProbeCommand)
+	if snapshot, ok := parseTargetSystemProbe(linuxOut); ok && snapshot.OS != "windows" {
+		return snapshot, nil
+	}
+	winOut, winErr := a.runTargetSystemCommand(ctx, target, windowsSystemProbeCommand())
+	if snapshot, ok := parseTargetSystemProbe(winOut); ok {
+		return snapshot, nil
+	}
+	if winErr != nil {
+		return apiTargetSystemResponse{}, fmt.Errorf("collect system metrics: %v", winErr)
+	}
+	if linuxErr != nil {
+		return apiTargetSystemResponse{}, fmt.Errorf("collect system metrics: %v", linuxErr)
+	}
+	return apiTargetSystemResponse{}, fmt.Errorf("collect system metrics: unsupported probe output")
+}
+
+func (a *App) runTargetSystemCommand(ctx context.Context, target store.SSHTarget, command string) (string, error) {
+	if target.TargetType == store.TargetAgent {
+		return a.runAgentSystemCommand(ctx, target.AgentID, command)
+	}
+	client, err := a.openTargetSSHClient(ctx, target)
+	if err != nil {
+		return "", err
+	}
+	defer client.Close()
+	session, err := client.NewSession()
+	if err != nil {
+		return "", err
+	}
+	defer session.Close()
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = session.Close()
+			_ = client.Close()
+		case <-done:
+		}
+	}()
+	out, err := session.CombinedOutput(command)
+	close(done)
+	if ctx.Err() != nil {
+		return string(out), ctx.Err()
+	}
+	if len(out) > 256*1024 {
+		out = out[:256*1024]
+	}
+	return string(out), err
+}
+
+func (a *App) runAgentSystemCommand(ctx context.Context, agentID, command string) (string, error) {
+	reader, stream, err := a.openAgentStream(agentID, protocol.StreamRequest{Type: protocol.StreamExec, Command: command, Width: 100, Height: 24})
+	if err != nil {
+		return "", err
+	}
+	defer stream.Close()
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = stream.Close()
+		case <-done:
+		}
+	}()
+	var builder strings.Builder
+	exitCode := 255
+	for {
+		frame, err := protocol.ReadFrame(reader)
+		if err != nil {
+			close(done)
+			if ctx.Err() != nil {
+				return builder.String(), ctx.Err()
+			}
+			return builder.String(), err
+		}
+		switch frame.Type {
+		case protocol.FrameStdout, protocol.FrameStderr:
+			if builder.Len() < 256*1024 {
+				remaining := 256*1024 - builder.Len()
+				if len(frame.Data) > remaining {
+					frame.Data = frame.Data[:remaining]
+				}
+				builder.Write(frame.Data)
+			}
+		case protocol.FrameExit:
+			close(done)
+			exitCode = protocol.ExitCode(frame)
+			if exitCode != 0 {
+				return builder.String(), fmt.Errorf("agent command exited %d", exitCode)
+			}
+			return builder.String(), nil
+		}
+	}
+}
+
+const linuxSystemProbeCommand = `printf '__GOSSHD_SYSTEM_V1__\n'
+printf 'os=linux\n'
+printf 'hostname=%s\n' "$(hostname 2>/dev/null || uname -n 2>/dev/null)"
+ipaddr="$(hostname -I 2>/dev/null | awk '{print $1}')"
+if [ -z "$ipaddr" ]; then ipaddr="$(ip -4 addr show scope global 2>/dev/null | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}')"; fi
+printf 'ip=%s\n' "$ipaddr"
+printf 'uptime=%s\n' "$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
+printf 'load=%s\n' "$(awk '{print $1 ", " $2 ", " $3}' /proc/loadavg 2>/dev/null)"
+awk '/^cpu /{print "cpu1="$0}' /proc/stat 2>/dev/null
+sleep 1
+awk '/^cpu /{print "cpu2="$0}' /proc/stat 2>/dev/null
+awk '/MemTotal/{mt=$2}/MemAvailable/{ma=$2}/MemFree/{mf=$2}/SwapTotal/{st=$2}/SwapFree/{sf=$2} END{if(ma==0)ma=mf; printf "memory_kb=%d %d\nswap_kb=%d %d\n", mt, mt-ma, st, st-sf}' /proc/meminfo 2>/dev/null
+ps -eo rss,pcpu,comm --sort=-rss 2>/dev/null | awk 'NR>1 && NR<=6{printf "process=%s|%s|%s\n",$1,$2,$3}'
+awk -F'[: ]+' 'NR>2 && $2!="lo"{printf "net=%s|%s|%s\n",$2,$3,$11}' /proc/net/dev 2>/dev/null | head -4
+df -Pk 2>/dev/null | awk 'NR>1 && NR<=24{gsub("%","",$5); printf "disk=%s|%s|%s|%s\n",$6,$3,$2,$5}'`
+
+func windowsSystemProbeCommand() string {
+	script := `$ci = [System.Globalization.CultureInfo]::InvariantCulture
+$ErrorActionPreference = "SilentlyContinue"
+Write-Output "__GOSSHD_SYSTEM_V1__"
+Write-Output "os=windows"
+Write-Output ("hostname={0}" -f $env:COMPUTERNAME)
+$ips = Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -and $_.IPAddress } | Select-Object -First 1
+if ($ips) { Write-Output ("ip={0}" -f ($ips.IPAddress | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)) }
+$os = Get-CimInstance Win32_OperatingSystem
+if ($os) {
+  $uptime = (Get-Date) - $os.LastBootUpTime
+  Write-Output ("uptime={0} days {1:hh\:mm}" -f [int]$uptime.TotalDays, $uptime)
+  $totalKB=[int64]$os.TotalVisibleMemorySize; $freeKB=[int64]$os.FreePhysicalMemory
+  Write-Output ("memory_kb={0} {1}" -f $totalKB, ($totalKB-$freeKB))
+  $totalVirtual=[int64]$os.TotalVirtualMemorySize; $freeVirtual=[int64]$os.FreeVirtualMemory
+  Write-Output ("swap_kb={0} {1}" -f $totalVirtual, ($totalVirtual-$freeVirtual))
+}
+$cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average
+if ($cpu) { Write-Output ("cpu_percent={0}" -f ([math]::Round([double]$cpu.Average, 1)).ToString($ci)) }
+Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 | ForEach-Object { Write-Output ("process={0}|{1}|{2}" -f [int64]($_.WorkingSet64/1KB), 0, $_.ProcessName) }
+Get-NetAdapterStatistics | Select-Object -First 4 | ForEach-Object { Write-Output ("net={0}|{1}|{2}" -f $_.Name, [int64]$_.ReceivedBytes, [int64]$_.SentBytes) }
+Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object { $total=[int64]$_.Size; $free=[int64]$_.FreeSpace; if($total -gt 0){ $pct = [math]::Round(((($total-$free)/$total)*100), 0); Write-Output ("disk={0}|{1}|{2}|{3}" -f $_.DeviceID, [int64](($total-$free)/1KB), [int64]($total/1KB), $pct.ToString($ci)) } }`
+	return "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16LEBase64(script)
+}
+
+func utf16LEBase64(script string) string {
+	encoded := utf16.Encode([]rune(script))
+	data := make([]byte, len(encoded)*2)
+	for i, value := range encoded {
+		binary.LittleEndian.PutUint16(data[i*2:], value)
+	}
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+func parseTargetSystemProbe(out string) (apiTargetSystemResponse, bool) {
+	if !strings.Contains(out, "__GOSSHD_SYSTEM_V1__") {
+		return apiTargetSystemResponse{}, false
+	}
+	snapshot := apiTargetSystemResponse{CollectedAt: time.Now().UTC().Format(time.RFC3339)}
+	var cpuStart, cpuEnd string
+	for _, raw := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if line == "" || line == "__GOSSHD_SYSTEM_V1__" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		switch key {
+		case "os":
+			snapshot.OS = value
+		case "hostname":
+			snapshot.Hostname = value
+		case "ip":
+			snapshot.IP = value
+		case "uptime":
+			snapshot.Uptime = value
+		case "load":
+			snapshot.Load = value
+		case "cpu_percent":
+			snapshot.CPUPercent = parseFloat(value)
+		case "cpu1":
+			cpuStart = value
+		case "cpu2":
+			cpuEnd = value
+		case "memory_kb":
+			snapshot.Memory = parseUsageKB(value)
+		case "swap_kb":
+			snapshot.Swap = parseUsageKB(value)
+		case "process":
+			if item, ok := parseSystemProcess(value); ok {
+				snapshot.Processes = append(snapshot.Processes, item)
+			}
+		case "net":
+			if item, ok := parseSystemNetwork(value); ok {
+				snapshot.Network = append(snapshot.Network, item)
+			}
+		case "disk":
+			if item, ok := parseSystemFilesystem(value); ok {
+				snapshot.Filesystems = append(snapshot.Filesystems, item)
+			}
+		}
+	}
+	if snapshot.CPUPercent == 0 && cpuStart != "" && cpuEnd != "" {
+		snapshot.CPUPercent = parseCPUPercent(cpuStart, cpuEnd)
+	}
+	if snapshot.OS == "" {
+		snapshot.OS = "unknown"
+	}
+	return snapshot, true
+}
+
+func parseUsageKB(value string) apiTargetSystemUsage {
+	parts := strings.Fields(value)
+	if len(parts) < 2 {
+		return apiTargetSystemUsage{}
+	}
+	total := parseInt64(parts[0]) * 1024
+	used := parseInt64(parts[1]) * 1024
+	return apiTargetSystemUsage{UsedBytes: used, TotalBytes: total, Percent: percent(used, total)}
+}
+
+func parseSystemProcess(value string) (apiTargetSystemProcess, bool) {
+	parts := strings.SplitN(value, "|", 3)
+	if len(parts) != 3 {
+		return apiTargetSystemProcess{}, false
+	}
+	command := strings.TrimSpace(parts[2])
+	if command == "" {
+		return apiTargetSystemProcess{}, false
+	}
+	return apiTargetSystemProcess{
+		RSSBytes:   parseInt64(parts[0]) * 1024,
+		CPUPercent: parseFloat(parts[1]),
+		Command:    command,
+	}, true
+}
+
+func parseSystemNetwork(value string) (apiTargetSystemNetwork, bool) {
+	parts := strings.SplitN(value, "|", 3)
+	if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" {
+		return apiTargetSystemNetwork{}, false
+	}
+	return apiTargetSystemNetwork{
+		Interface: strings.TrimSpace(parts[0]),
+		RXBytes:   parseInt64(parts[1]),
+		TXBytes:   parseInt64(parts[2]),
+	}, true
+}
+
+func parseSystemFilesystem(value string) (apiTargetSystemFilesystem, bool) {
+	parts := strings.SplitN(value, "|", 4)
+	if len(parts) != 4 || strings.TrimSpace(parts[0]) == "" {
+		return apiTargetSystemFilesystem{}, false
+	}
+	used := parseInt64(parts[1]) * 1024
+	total := parseInt64(parts[2]) * 1024
+	return apiTargetSystemFilesystem{
+		Path:       strings.TrimSpace(parts[0]),
+		UsedBytes:  used,
+		TotalBytes: total,
+		Percent:    firstPositive(parseFloat(parts[3]), percent(used, total)),
+	}, true
+}
+
+func parseCPUPercent(start, end string) float64 {
+	startTotal, startIdle := parseCPULine(start)
+	endTotal, endIdle := parseCPULine(end)
+	totalDelta := endTotal - startTotal
+	idleDelta := endIdle - startIdle
+	if totalDelta <= 0 {
+		return 0
+	}
+	return clampPercent(float64(totalDelta-idleDelta) * 100 / float64(totalDelta))
+}
+
+func parseCPULine(line string) (int64, int64) {
+	fields := strings.Fields(line)
+	var total int64
+	var idle int64
+	for i, field := range fields {
+		if i == 0 && field == "cpu" {
+			continue
+		}
+		value := parseInt64(field)
+		total += value
+		if i == 4 || i == 5 {
+			idle += value
+		}
+	}
+	return total, idle
+}
+
+func parseFloat(value string) float64 {
+	parsed, _ := strconv.ParseFloat(strings.TrimSpace(strings.ReplaceAll(value, ",", "")), 64)
+	return clampPercent(parsed)
+}
+
+func parseInt64(value string) int64 {
+	parsed, _ := strconv.ParseInt(strings.TrimSpace(strings.ReplaceAll(value, ",", "")), 10, 64)
+	return parsed
+}
+
+func percent(used, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return clampPercent(float64(used) * 100 / float64(total))
+}
+
+func clampPercent(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
+}
+
+func firstPositive(values ...float64) float64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, user store.User) {

@@ -57,13 +57,13 @@ export function FileManager({ target }: { target: Target }) {
   return (
     <section className="file-manager">
       <header className="file-manager-head">
-        <div className="file-manager-path">
+        <div className="file-manager-path" title={path}>
           <HardDrive />
-          <span>{t("connectFilePath")}: <code>{path}</code></span>
+          <code>{path}</code>
         </div>
         <div className="file-manager-actions">
-          <button type="button" onClick={() => listing.refetch()} disabled={listing.isFetching}>
-            <RefreshCw />{t("commonRefresh")}
+          <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")}>
+            <RefreshCw />
           </button>
           <input
             ref={fileInputRef}
@@ -72,11 +72,11 @@ export function FileManager({ target }: { target: Target }) {
             onChange={handleFileChange}
             disabled={uploading}
           />
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} title={uploading ? t("connectFileUploading") : t("connectFileUpload")}>
             <Upload />{uploading ? t("connectFileUploading") : t("connectFileUpload")}
           </button>
           {downloadLink && (
-            <a className="button-link" href={downloadLink} download={selected?.name}>
+            <a className="button-link small" href={downloadLink} download={selected?.name} title={t("connectFileDownload")}>
               <Download />{t("connectFileDownload")}
             </a>
           )}
@@ -107,9 +107,9 @@ export function FileManager({ target }: { target: Target }) {
             {entries.map((entry) => (
               <tr key={entry.path} className={`file-row ${entry.type} ${selected?.path === entry.path ? "selected" : ""}`}>
                 <td>
-                  <button type="button" className="file-name" onClick={() => openEntry(entry)}>
+                  <button type="button" className="file-name" onClick={() => openEntry(entry)} title={entry.name}>
                     {entry.type === "dir" ? <FolderOpen /> : <HardDrive />}
-                    {entry.name}
+                    <span>{entry.name}</span>
                   </button>
                 </td>
                 <td>{entry.type === "dir" ? "-" : formatBytes(entry.size)}</td>
@@ -117,7 +117,9 @@ export function FileManager({ target }: { target: Target }) {
                 <td>{formatDate(entry.modified_at)}</td>
                 <td>
                   {entry.type === "dir" ? (
-                    <button type="button" onClick={() => openEntry(entry)}><FolderOpen />{t("connectFileOpenDir")}</button>
+                    <button type="button" className="icon-button" onClick={() => openEntry(entry)} title={t("connectFileOpenDir")}>
+                      <FolderOpen />
+                    </button>
                   ) : (
                     <a className="button-link small" href={api.downloadFile(target.id, entry.path)} download={entry.name}>
                       <Download />{t("connectFileDownload")}
@@ -148,11 +150,12 @@ function formatBytes(value: number) {
 }
 
 function formatDate(value?: string) {
-  if (!value) return "-";
+  if (!value || value === "-" || value.trim() === "") return "-";
   try {
     const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
     return date.toLocaleString();
   } catch {
-    return value;
+    return "-";
   }
 }

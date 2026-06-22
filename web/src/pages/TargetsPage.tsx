@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { Plus, TerminalSquare, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+
 import { api, type Enrollment } from "../api";
 import { CommandBox, CopyButton, Drawer, Empty, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toolbar } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -42,6 +42,15 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
     tipTimerRef.current = window.setTimeout(() => setTip(""), 1800);
   }
 
+  function openConnectWindow(id: string) {
+    const width = 1200;
+    const height = 800;
+    const left = Math.max(0, Math.round((window.screen.width - width) / 2));
+    const top = Math.max(0, Math.round((window.screen.height - height) / 2));
+    const features = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes,noopener=yes,noreferrer=yes`;
+    window.open(`/targets/${id}/connect`, `connect-${id}`, features);
+  }
+
   useEffect(() => {
     refreshTargets();
   }, [data.activeOrg.id]);
@@ -72,7 +81,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
           <TagList target={target} />,
           <span className="inline-actions">
             <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} />
-            <Link className="button-link" to={`/targets/${target.id}/connect`}><TerminalSquare />{t("connect")}</Link>
+            <button type="button" className="button-link" onClick={() => openConnectWindow(target.id)}><TerminalSquare />{t("connect")}</button>
             <button type="button" onClick={() => setDrawerTargetID(target.id)}>{t("commonEdit")}</button>
             <button type="button" className="danger" onClick={() => deleteTarget(target)} disabled={removeTarget.isPending}><Trash2 />{t("commonDelete")}</button>
           </span>,

@@ -34,19 +34,23 @@ function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[];
   if (!data) return <Fatal error={new Error("No organization available")} />;
 
   return (
-    <Shell data={data}>
-      <Routes>
-        <Route path="/" element={<DashboardPage data={data} />} />
-        <Route path="/orgs" element={<OrganizationsPage data={data} />} />
-        <Route path="/org-admin" element={<MembersPage data={data} />} />
-        <Route path="/keys" element={<KeysPage data={data} />} />
-        <Route path="/targets" element={<TargetsPage data={data} />} />
-        <Route path="/targets/:targetID/connect" element={<ConnectPage data={data} />} />
-        <Route path="/agents" element={<Navigate to="/targets" replace />} />
-        <Route path="/policies" element={<PoliciesPage data={data} />} />
-        <Route path="/audit" element={<AuditPage data={data} />} />
-        <Route path="/system-admin" element={data.user.is_system_admin ? <SystemAdminPage data={data} /> : <Navigate to="/" replace />} />
-      </Routes>
-    </Shell>
+    <Routes>
+      <Route path="/targets/:targetID/connect" element={<ConnectPage data={data} />} />
+      <Route path="*" element={
+        <Shell data={data}>
+          <Routes>
+            <Route path="/" element={<DashboardPage data={data} />} />
+            <Route path="/orgs" element={<OrganizationsPage data={data} />} />
+            <Route path="/org-admin" element={<MembersPage data={data} />} />
+            <Route path="/keys" element={<KeysPage data={data} />} />
+            <Route path="/targets" element={<TargetsPage data={data} />} />
+            <Route path="/agents" element={<Navigate to="/targets" replace />} />
+            <Route path="/policies" element={<PoliciesPage data={data} />} />
+            <Route path="/audit" element={<AuditPage data={data} />} />
+            <Route path="/system-admin" element={data.user.is_system_admin ? <SystemAdminPage data={data} /> : <Navigate to="/" replace />} />
+          </Routes>
+        </Shell>
+      } />
+    </Routes>
   );
 }

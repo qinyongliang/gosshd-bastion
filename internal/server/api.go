@@ -113,6 +113,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/targets/{id}", a.requireUser(a.handleUpdateTarget))
 	mux.HandleFunc("DELETE /api/targets/{id}", a.requireUser(a.handleDeleteTarget))
 	mux.HandleFunc("GET /api/targets/{id}/terminal/ws", a.requireUser(a.handleTargetTerminalWS))
+	mux.HandleFunc("GET /api/targets/{id}/system", a.requireUser(a.handleTargetSystem))
 	mux.HandleFunc("GET /api/targets/{id}/files", a.requireUser(a.handleTargetFiles))
 	mux.HandleFunc("GET /api/targets/{id}/files/download", a.requireUser(a.handleTargetFileDownload))
 	mux.HandleFunc("POST /api/targets/{id}/files/upload", a.requireUser(a.handleTargetFileUpload))

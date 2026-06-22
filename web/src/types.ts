@@ -84,6 +84,46 @@ export type TargetTag = {
   color: string;
 };
 
+export type TargetSystemUsage = {
+  used_bytes: number;
+  total_bytes: number;
+  percent: number;
+};
+
+export type TargetSystemProcess = {
+  rss_bytes: number;
+  cpu_percent: number;
+  command: string;
+};
+
+export type TargetSystemNetwork = {
+  interface: string;
+  rx_bytes: number;
+  tx_bytes: number;
+};
+
+export type TargetSystemFilesystem = {
+  path: string;
+  used_bytes: number;
+  total_bytes: number;
+  percent: number;
+};
+
+export type TargetSystemSnapshot = {
+  os?: string;
+  hostname?: string;
+  ip?: string;
+  uptime?: string;
+  load?: string;
+  cpu_percent: number;
+  memory: TargetSystemUsage;
+  swap: TargetSystemUsage;
+  processes: TargetSystemProcess[];
+  network: TargetSystemNetwork[];
+  filesystems: TargetSystemFilesystem[];
+  collected_at?: string;
+};
+
 export type LLMConfig = {
   id: string;
   name: string;
