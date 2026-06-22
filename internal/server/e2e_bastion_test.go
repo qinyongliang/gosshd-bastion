@@ -29,9 +29,9 @@ func TestBastionE2E(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app := NewApp(Config{
-		DatabasePath:            filepath.Join(t.TempDir(), "gosshd.db"),
-		HostKeyPath:             filepath.Join(t.TempDir(), "host_key"),
-		SessionCookieName:       "e2e_session",
+		DatabasePath:      filepath.Join(t.TempDir(), "gosshd.db"),
+		HostKeyPath:       filepath.Join(t.TempDir(), "host_key"),
+		SessionCookieName: "e2e_session",
 	})
 	enablePublicRegistrationForTest(t, app)
 	go func() {

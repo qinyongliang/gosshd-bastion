@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
-import { Drawer, Field, Modal, ModalActions, SimpleTable, UserCell } from "../components/ui";
+import { Drawer, Field, Modal, ModalActions, SimpleTable, Toggle, UserCell } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formSubmit, roleText } from "../lib/forms";
 import type { AdminOrg, AdminUser, ConsoleData } from "../types";
 
 export function SystemAdminPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
-  const [modal, setModal] = useState<"" | "users" | "orgs" | "dingtalk" | "ldap">("");
+  const [modal, setModal] = useState<"" | "users" | "orgs" | "auth" | "dingtalk" | "ldap">("");
   const adminUsers = useQuery({ queryKey: ["admin-users"], queryFn: api.adminUsers, enabled: data.user.is_system_admin && modal === "users" });
   const adminOrgs = useQuery({ queryKey: ["admin-orgs"], queryFn: api.adminOrgs, enabled: data.user.is_system_admin && modal === "orgs" });
   return (
@@ -16,6 +16,7 @@ export function SystemAdminPage({ data }: { data: ConsoleData }) {
       <section className="resource-head">
         <div><small>{t("shellProduct")}</small><h2>{t("systemAdminTitle")}</h2><p>{t("systemAdminBody")}</p></div>
         <div className="resource-actions">
+          <button type="button" onClick={() => setModal("auth")}>{t("adminAuthSettings")}</button>
           <button type="button" onClick={() => setModal("dingtalk")}>{t("adminProviderDingTalk")}</button>
           <button type="button" className="primary" onClick={() => setModal("ldap")}>{t("adminProviderLDAP")}</button>
         </div>
@@ -26,10 +27,31 @@ export function SystemAdminPage({ data }: { data: ConsoleData }) {
       </div>
       {modal === "users" && <AdminUsersModal users={adminUsers.data?.users || []} onClose={() => setModal("")} />}
       {modal === "orgs" && <AdminOrgsModal orgs={(adminOrgs.data?.organizations || []).filter((org) => !org.is_personal)} onClose={() => setModal("")} />}
+      {modal === "auth" && <AuthSettingsModal onClose={() => setModal("")} />}
       {modal === "dingtalk" && <ProviderModal title={t("adminProviderDingTalk")} action={api.updateDingTalkSettings} onClose={() => setModal("")} />}
       {modal === "ldap" && <ProviderModal title={t("adminProviderLDAP")} action={api.updateLDAPSettings} onClose={() => setModal("")} />}
     </>
   );
+}
+
+function AuthSettingsModal({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ["admin-settings"], queryFn: api.adminSettings });
+  const mutation = useMutation({
+    mutationFn: (body: Record<string, string>) => api.updateAuthSettings({ public_registration: body.public_registration === "on" }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin-settings"] });
+      onClose();
+    },
+  });
+  const auth = (settings.data?.auth || {}) as { public_registration?: boolean };
+  return <Modal title={t("adminAuthSettings")} onClose={onClose} closeOnEscape={false}>
+    {!settings.data ? <p>{t("loading")}</p> : <form className="stack" onSubmit={(event) => formSubmit(event, (body) => mutation.mutate(body))}>
+      <Toggle name="public_registration" label={t("adminPublicRegistration")} defaultChecked={Boolean(auth.public_registration)} />
+      <ModalActions onCancel={onClose} submit={t("save")} />
+    </form>}
+  </Modal>;
 }
 
 function AdminUsersModal({ users, onClose }: { users: AdminUser[]; onClose: () => void }) {

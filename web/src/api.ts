@@ -6,6 +6,8 @@ import type {
   FileEntry,
   LLMConfig,
   Member,
+  MCPToken,
+  MCPTokenCreateResponse,
   Organization,
   Owner,
   Policy,
@@ -64,6 +66,9 @@ export const api = {
   keys: () => request<{ keys: PublicKey[] }>("/api/keys"),
   createKey: (body: Record<string, unknown>) => request<{ key: PublicKey }>("/api/keys", post(body)),
   deleteKey: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
+  mcpTokens: () => request<{ tokens: MCPToken[] }>("/api/mcp-tokens"),
+  createMCPToken: (body: Record<string, unknown>) => request<MCPTokenCreateResponse>("/api/mcp-tokens", post(body)),
+  deleteMCPToken: (id: string) => request<void>(`/api/mcp-tokens/${id}`, { method: "DELETE" }),
 
   targets: (owner: Owner) => request<{ targets: Target[] }>(`/api/targets?${ownerQuery(owner)}`),
   createTarget: (body: Record<string, unknown>) => request<{ target: Target }>("/api/targets", post(body)),
@@ -99,6 +104,7 @@ export const api = {
   auditRecording: (id: string) => request<AuditRecording>(`/api/audit/${id}/recording`),
 
   adminSettings: () => request<Record<string, unknown>>("/api/admin/settings"),
+  updateAuthSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/auth", put(body)),
   updateDingTalkSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/dingtalk", put(body)),
   updateLDAPSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/ldap", put(body)),
   adminUsers: () => request<{ users: AdminUser[] }>("/api/admin/users"),
