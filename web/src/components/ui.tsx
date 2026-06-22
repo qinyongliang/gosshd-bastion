@@ -162,16 +162,16 @@ export function Tag({ tag, color }: { tag: string; color: string }) {
   return <span className={`tag-chip tag-color-${color}`} data-tag={tag}>{tag}</span>;
 }
 
-export function CopyButton({ value }: { value: string }) {
+export function CopyButton({ value, label }: { value: string; label?: string }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return <button type="button" className="copy-anchor" data-value={value} onClick={async () => { await copyText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1300); }}>
-    <Copy />{t("copyConnectionCommand")}{copied && <span className="copy-tip">{t("copied")}</span>}
+    <Copy />{label || t("copyConnectionCommand")}{copied && <span className="copy-tip">{t("copied")}</span>}
   </button>;
 }
 
-export function CommandBox({ label, value }: { label: string; value: string }) {
-  return <div className="command-box"><span>{label}</span><code>{value}</code><CopyButton value={value} /></div>;
+export function CommandBox({ label, value, copyLabel }: { label: string; value: string; copyLabel?: string }) {
+  return <div className="command-box"><span>{label}</span><code>{value}</code><CopyButton value={value} label={copyLabel} /></div>;
 }
 
 export function SelectButton({ label, items, onSelect }: { label: string; items: (readonly [string, string])[]; onSelect: (value: string) => void }) {

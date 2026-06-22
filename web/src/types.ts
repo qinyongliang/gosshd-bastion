@@ -31,6 +31,19 @@ export type PublicKey = {
   created_at: string;
 };
 
+export type MCPToken = {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used_at?: string;
+};
+
+export type MCPTokenCreateResponse = {
+  token: MCPToken;
+  token_value: string;
+  mcp_json: unknown;
+};
+
 export type Member = {
   user_id: string;
   email: string;

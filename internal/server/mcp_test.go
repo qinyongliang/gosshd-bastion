@@ -379,6 +379,74 @@ func TestMCPRequiresAuthentication(t *testing.T) {
 	}
 }
 
+func TestMCPAcceptsUserToken(t *testing.T) {
+	srv, httpClient, _ := newAPITestServer(t)
+	defer srv.Close()
+	postJSON(t, httpClient, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "admin",
+		"password": "admin-pass",
+	}, http.StatusOK, nil)
+
+	var created apiCreateMCPTokenResponse
+	postJSON(t, httpClient, srv.URL+"/api/mcp-tokens", map[string]string{
+		"name": "codex",
+	}, http.StatusCreated, &created)
+	if created.Token.ID == "" || created.TokenValue == "" || created.MCPJSON["mcpServers"] == nil {
+		t.Fatalf("mcp token create response mismatch: %+v", created)
+	}
+
+	bearerHTTPClient := &http.Client{Transport: bearerRoundTripper{token: created.TokenValue}}
+	client := mcp.NewClient(&mcp.Implementation{Name: "gosshd-token-test"}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
+		Endpoint:             srv.URL + "/mcp",
+		HTTPClient:           bearerHTTPClient,
+		DisableStandaloneSSE: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mcpHasTool(tools, "org_list") {
+		t.Fatalf("expected org_list tool with token auth, got %+v", tools.Tools)
+	}
+	_ = session.Close()
+
+	var listed apiMCPTokensResponse
+	getJSON(t, httpClient, srv.URL+"/api/mcp-tokens", http.StatusOK, &listed)
+	if len(listed.Tokens) != 1 || listed.Tokens[0].LastUsedAt == "" {
+		t.Fatalf("mcp token last_used_at was not updated: %+v", listed)
+	}
+
+	deleteJSON(t, httpClient, srv.URL+"/api/mcp-tokens/"+created.Token.ID, http.StatusNoContent)
+	session, err = client.Connect(context.Background(), &mcp.StreamableClientTransport{
+		Endpoint:             srv.URL + "/mcp",
+		HTTPClient:           bearerHTTPClient,
+		DisableStandaloneSSE: true,
+	}, nil)
+	if err == nil {
+		_ = session.Close()
+		t.Fatalf("expected deleted mcp token to be rejected")
+	}
+}
+
+type bearerRoundTripper struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (b bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := b.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	next := req.Clone(req.Context())
+	next.Header.Set("Authorization", "Bearer "+b.token)
+	return base.RoundTrip(next)
+}
+
 func mcpHasTool(tools *mcp.ListToolsResult, name string) bool {
 	for _, tool := range tools.Tools {
 		if tool.Name == name {
