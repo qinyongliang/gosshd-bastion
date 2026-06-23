@@ -120,6 +120,7 @@ type MCPToken struct {
 	UserID     string
 	Name       string
 	TokenHash  []byte
+	ToolGroups []string
 	LastUsedAt *time.Time
 	CreatedAt  time.Time
 }
@@ -370,9 +371,10 @@ type CreatePublicKeyParams struct {
 }
 
 type CreateMCPTokenParams struct {
-	UserID    string
-	Name      string
-	TokenHash []byte
+	UserID     string
+	Name       string
+	TokenHash  []byte
+	ToolGroups []string
 }
 
 type CreateSSHTargetParams struct {
@@ -497,6 +499,18 @@ type CreateCommandAuditLogParams struct {
 	RecordingDurationMS  int64
 	RecordingWidth       int
 	RecordingHeight      int
+}
+
+type CompleteCommandAuditLogParams struct {
+	ID                  string
+	ExitCode            *int
+	EndedAt             time.Time
+	RecordingPath       string
+	RecordingSize       int64
+	RecordingSHA256     string
+	RecordingDurationMS int64
+	RecordingWidth      int
+	RecordingHeight     int
 }
 
 type AuditLogFilter struct {

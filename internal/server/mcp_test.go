@@ -394,6 +394,9 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	if created.Token.ID == "" || created.TokenValue == "" || created.MCPJSON["mcpServers"] == nil {
 		t.Fatalf("mcp token create response mismatch: %+v", created)
 	}
+	if len(created.Token.ToolGroups) != 1 || created.Token.ToolGroups[0] != "session" {
+		t.Fatalf("expected mcp token to default to session tools, got %+v", created.Token.ToolGroups)
+	}
 
 	bearerHTTPClient := &http.Client{Transport: bearerRoundTripper{token: created.TokenValue}}
 	client := mcp.NewClient(&mcp.Implementation{Name: "gosshd-token-test"}, nil)
@@ -409,8 +412,11 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !mcpHasTool(tools, "org_list") {
-		t.Fatalf("expected org_list tool with token auth, got %+v", tools.Tools)
+	if !mcpHasTool(tools, "session_list") {
+		t.Fatalf("expected session_list tool with default token auth, got %+v", tools.Tools)
+	}
+	if mcpHasTool(tools, "org_list") {
+		t.Fatalf("did not expect org_list tool with default session-only token auth, got %+v", tools.Tools)
 	}
 	_ = session.Close()
 

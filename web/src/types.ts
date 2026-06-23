@@ -34,6 +34,7 @@ export type PublicKey = {
 export type MCPToken = {
   id: string;
   name: string;
+  tool_groups?: string[];
   created_at: string;
   last_used_at?: string;
 };

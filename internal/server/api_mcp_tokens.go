@@ -9,10 +9,11 @@ import (
 )
 
 type apiMCPToken struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	CreatedAt  string `json:"created_at"`
-	LastUsedAt string `json:"last_used_at,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	ToolGroups []string `json:"tool_groups"`
+	CreatedAt  string   `json:"created_at"`
+	LastUsedAt string   `json:"last_used_at,omitempty"`
 }
 
 type apiMCPTokensResponse struct {
@@ -40,7 +41,8 @@ func (a *App) handleListMCPTokens(w http.ResponseWriter, r *http.Request, user s
 
 func (a *App) handleCreateMCPToken(w http.ResponseWriter, r *http.Request, user store.User) {
 	var req struct {
-		Name string `json:"name"`
+		Name       string   `json:"name"`
+		ToolGroups []string `json:"tool_groups"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -57,9 +59,10 @@ func (a *App) handleCreateMCPToken(w http.ResponseWriter, r *http.Request, user 
 		return
 	}
 	token, err := a.store.Repository().CreateMCPToken(r.Context(), store.CreateMCPTokenParams{
-		UserID:    user.ID,
-		Name:      name,
-		TokenHash: hash,
+		UserID:     user.ID,
+		Name:       name,
+		TokenHash:  hash,
+		ToolGroups: req.ToolGroups,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -82,9 +85,10 @@ func (a *App) handleDeleteMCPToken(w http.ResponseWriter, r *http.Request, user 
 
 func apiMCPTokenFromStore(token store.MCPToken) apiMCPToken {
 	out := apiMCPToken{
-		ID:        token.ID,
-		Name:      token.Name,
-		CreatedAt: token.CreatedAt.Format(time.RFC3339),
+		ID:         token.ID,
+		Name:       token.Name,
+		ToolGroups: append([]string(nil), token.ToolGroups...),
+		CreatedAt:  token.CreatedAt.Format(time.RFC3339),
 	}
 	if token.LastUsedAt != nil {
 		out.LastUsedAt = token.LastUsedAt.Format(time.RFC3339)

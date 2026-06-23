@@ -26,9 +26,11 @@ var migrations = []string{
 		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		name TEXT NOT NULL,
 		token_hash BLOB NOT NULL UNIQUE,
+		tool_groups TEXT NOT NULL DEFAULT 'session',
 		last_used_at TEXT,
 		created_at TEXT NOT NULL
 	)`,
+	`ALTER TABLE mcp_tokens ADD COLUMN tool_groups TEXT NOT NULL DEFAULT 'session'`,
 	`CREATE TABLE IF NOT EXISTS organizations (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,

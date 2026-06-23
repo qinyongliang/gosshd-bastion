@@ -16,12 +16,14 @@ const POLL_MAX_BACKOFF_MS = 5000;
 export function ManualReviewPoller({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
   const [reviews, setReviews] = useState<ReviewState[]>([]);
+  const [dismissing, setDismissing] = useState<Set<string>>(new Set());
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const knownIDsRef = useRef<Set<string>>(new Set());
   const canReview = useMemo(() => canReviewInOrg(data), [data]);
 
   useEffect(() => {
     setReviews([]);
+    setDismissing(new Set());
     setHidden(new Set());
     knownIDsRef.current = new Set();
   }, [canReview, data.activeOrg.id]);
@@ -65,6 +67,7 @@ export function ManualReviewPoller({ data }: { data: ConsoleData }) {
           item.review.id === variables.id ? { ...item, status: variables.allow ? "allowed" : "denied" } : item
         )
       );
+      setDismissing((prev) => new Set(prev).add(variables.id));
       window.setTimeout(() => {
         setHidden((prev) => new Set(prev).add(variables.id));
       }, 1200);
@@ -81,10 +84,12 @@ export function ManualReviewPoller({ data }: { data: ConsoleData }) {
         <ReviewCard
           key={item.review.id}
           item={item}
+          dismissing={dismissing.has(item.review.id)}
           onAllow={() => decide.mutate({ id: item.review.id, allow: true })}
           onDeny={() => decide.mutate({ id: item.review.id, allow: false })}
           onExpire={() => {
             setReviews((prev) => prev.map((review) => review.review.id === item.review.id ? { ...review, status: "expired" } : review));
+            setDismissing((prev) => new Set(prev).add(item.review.id));
             window.setTimeout(() => setHidden((prev) => new Set(prev).add(item.review.id)), 1200);
           }}
           onDismiss={() => setHidden((prev) => new Set(prev).add(item.review.id))}
@@ -97,6 +102,7 @@ export function ManualReviewPoller({ data }: { data: ConsoleData }) {
 
 function ReviewCard({
   item,
+  dismissing,
   onAllow,
   onDeny,
   onExpire,
@@ -104,6 +110,7 @@ function ReviewCard({
   t,
 }: {
   item: ReviewState;
+  dismissing: boolean;
   onAllow: () => void;
   onDeny: () => void;
   onExpire: () => void;
@@ -136,7 +143,7 @@ function ReviewCard({
   const isExpired = status === "expired" || secondsLeft === 0;
 
   return (
-    <div className={`manual-review-card ${isDone ? "done" : ""} ${isExpired ? "expired" : ""}`}>
+    <div className={`manual-review-card ${isDone ? "done" : ""} ${isExpired ? "expired" : ""} ${dismissing ? "dismissing" : ""}`}>
       <div className="manual-review-header">
         <ShieldAlert />
         <strong>{t("manualReviewTitle")}</strong>
