@@ -1122,7 +1122,7 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	}
 	psBody := readBody(t, resp)
 	resp.Body.Close()
-	if !strings.Contains(psBody, "sc.exe create gosshd-agent") || !strings.Contains(psBody, "sc.exe start gosshd-agent") {
+	if !strings.Contains(psBody, "sc.exe create $serviceName") || !strings.Contains(psBody, "sc.exe start $serviceName") {
 		t.Fatalf("powershell install script missing service install flow:\n%s", psBody)
 	}
 	if !strings.Contains(psBody, ".sha256") || !strings.Contains(psBody, "Get-FileHash") {
@@ -1136,6 +1136,12 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	}
 	if !strings.Contains(psBody, `$sshPort = "22022"`) || !strings.Contains(psBody, `--ssh-port $sshPort`) {
 		t.Fatalf("powershell install script missing public ssh port hint:\n%s", psBody)
+	}
+	if strings.Contains(psBody, "Get-Service") || !strings.Contains(psBody, "Get-CimInstance -ClassName Win32_Service") {
+		t.Fatalf("powershell install script should use CIM service checks instead of Get-Service:\n%s", psBody)
+	}
+	if !strings.Contains(psBody, "failed to create $serviceName service") || !strings.Contains(psBody, "failed to start $serviceName service") {
+		t.Fatalf("powershell install script should surface sc.exe failures:\n%s", psBody)
 	}
 	if strings.Contains(shBody, "installl") || strings.Contains(psBody, "installl") {
 		t.Fatalf("install scripts should not accept misspelled install mode")

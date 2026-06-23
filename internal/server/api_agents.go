@@ -189,16 +189,29 @@ if ($isInstall) {
   New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
   Copy-Item -Force $tmp $target
   $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '" --ssh-port "' + $sshPort + '"'
-  $existing = Get-Service -Name "gosshd-agent" -ErrorAction SilentlyContinue
+  $serviceName = "gosshd-agent"
+  $existing = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
   if ($existing) {
-    sc.exe stop gosshd-agent | Out-Null
-    sc.exe delete gosshd-agent | Out-Null
+    sc.exe stop $serviceName | Out-Null
+    sc.exe delete $serviceName | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      throw "failed to delete existing $serviceName service"
+    }
     Start-Sleep -Seconds 2
   }
-  sc.exe create gosshd-agent binPath= $binPath start= auto DisplayName= "gosshd bastion agent" | Out-Null
-  sc.exe failure gosshd-agent reset= 60 actions= restart/5000/restart/5000/restart/5000 | Out-Null
-  sc.exe start gosshd-agent | Out-Null
-  Get-Service gosshd-agent
+  sc.exe create $serviceName binPath= $binPath start= auto DisplayName= "gosshd bastion agent" | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "failed to create $serviceName service"
+  }
+  sc.exe failure $serviceName reset= 60 actions= restart/5000/restart/5000/restart/5000 | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "failed to configure $serviceName recovery actions"
+  }
+  sc.exe start $serviceName | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "failed to start $serviceName service"
+  }
+  Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" | Select-Object Name, State, StartMode, PathName
   exit 0
 }
 & $tmp --server $server --enrollment-token $enrollmentToken --ssh-port $sshPort
