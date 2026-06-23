@@ -4872,6 +4872,51 @@ html[data-theme="dark"] .empty-state {
   pointer-events: auto;
 }
 
+.manual-review-notification-prompt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  width: min(560px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--ink);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.86)), var(--panel);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(18px);
+  animation: manual-review-in 220ms ease-out;
+}
+
+.manual-review-notification-prompt > svg {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+}
+
+.manual-review-notification-prompt strong {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 14px;
+}
+
+.manual-review-notification-prompt p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.manual-review-notification-prompt .primary {
+  min-height: 34px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+html[data-theme="dark"] .manual-review-notification-prompt {
+  background: linear-gradient(180deg, rgba(8, 17, 30, 0.94), rgba(5, 11, 20, 0.88)), var(--panel);
+}
+
 .manual-review-card {
   display: grid;
   gap: 12px;
@@ -5125,8 +5170,16 @@ html[data-theme="dark"] .manual-review-actions button.danger {
     width: auto;
   }
   .manual-review-card,
-  .manual-review-card.done {
+  .manual-review-card.done,
+  .manual-review-notification-prompt {
     width: 100%;
+  }
+  .manual-review-notification-prompt {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .manual-review-notification-prompt .primary {
+    grid-column: 2 / -1;
+    justify-self: start;
   }
   .workspace, .sidebar {
     padding: 18px;

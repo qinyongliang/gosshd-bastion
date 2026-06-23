@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ApiError, api } from "./api";
 import { ManualReviewPoller } from "./components/ManualReviewPoller";
 import { Fatal, Loading } from "./components/ui";
@@ -32,11 +32,14 @@ export function App() {
 
 function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[]; runtime: Runtime }) {
   const data = useConsoleData({ user, orgs, runtime });
+  const location = useLocation();
   if (!data) return <Fatal error={new Error("No organization available")} />;
+
+  const isConnectPage = /^\/targets\/[^/]+\/connect\/?$/.test(location.pathname);
 
   return (
     <>
-      <ManualReviewPoller data={data} />
+      {!isConnectPage && <ManualReviewPoller data={data} />}
       <Routes>
         <Route path="/targets/:targetID/connect" element={<ConnectPage data={data} />} />
         <Route path="*" element={
