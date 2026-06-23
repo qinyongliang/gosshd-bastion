@@ -43,8 +43,9 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
           for (const review of result.reviews) {
             knownIDsRef.current.add(review.id);
           }
-          notifyPendingReviews(result.reviews, notifiedIDsRef.current, t);
-          setReviews((prev) => mergeReviews(prev, result.reviews));
+          const activeReviews = result.reviews.filter(isReviewActive);
+          notifyPendingReviews(activeReviews, notifiedIDsRef.current, t);
+          setReviews((prev) => mergeReviews(prev, activeReviews));
           backoff = POLL_BACKOFF_MS;
           if (result.reviews.length === 0) await sleep(250);
         } catch {
@@ -302,6 +303,10 @@ function notifyPendingReviews(reviews: ManualReview[], notifiedIDs: Set<string>,
 function secondsUntil(iso: string): number {
   const delta = new Date(iso).getTime() - Date.now();
   return Math.max(0, Math.ceil(delta / 1000));
+}
+
+function isReviewActive(review: ManualReview): boolean {
+  return secondsUntil(review.expires_at) > 0;
 }
 
 function mergeReviews(prev: ReviewState[], incoming: ManualReview[]): ReviewState[] {
