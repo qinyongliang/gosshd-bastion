@@ -116,8 +116,8 @@ export function KeysPage({ data }: { data: ConsoleData }) {
               </label>
             ))}
           </fieldset>
-          <p className="muted">{t("mcpTokenEditJSONHint")}</p>
-          <CommandBox label={t("mcpJSON")} value={JSON.stringify(mcpClientJSON(t("mcpTokenPlaceholder")), null, 2)} copyLabel={t("commonCopy")} />
+          <CommandBox label={t("mcpTokenValue")} value={editingMCP.token_value || ""} copyLabel={t("commonCopy")} />
+          <CommandBox label={t("mcpJSON")} value={JSON.stringify(mcpClientJSON(editingMCP.token_value || ""), null, 2)} copyLabel={t("commonCopy")} />
           <ModalActions onCancel={() => setEditingMCP(null)} submit={t("commonSave")} />
         </form>
       </Modal>}

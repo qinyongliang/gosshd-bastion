@@ -120,6 +120,7 @@ type MCPToken struct {
 	UserID     string
 	Name       string
 	TokenHash  []byte
+	TokenValue string
 	ToolGroups []string
 	LastUsedAt *time.Time
 	CreatedAt  time.Time
@@ -374,6 +375,7 @@ type CreateMCPTokenParams struct {
 	UserID     string
 	Name       string
 	TokenHash  []byte
+	TokenValue string
 	ToolGroups []string
 }
 

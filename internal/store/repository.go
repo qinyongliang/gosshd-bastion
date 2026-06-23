@@ -241,13 +241,14 @@ func (r *Repository) CreateMCPToken(ctx context.Context, params CreateMCPTokenPa
 		UserID:     params.UserID,
 		Name:       name,
 		TokenHash:  append([]byte(nil), params.TokenHash...),
+		TokenValue: strings.TrimSpace(params.TokenValue),
 		ToolGroups: normalizeMCPToolGroups(params.ToolGroups),
 		CreatedAt:  time.Now().UTC(),
 	}
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO mcp_tokens (id, user_id, name, token_hash, tool_groups, last_used_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, token.ID, token.UserID, token.Name, token.TokenHash, encodeMCPToolGroups(token.ToolGroups), nullableTime(token.LastUsedAt), formatTime(token.CreatedAt))
+		INSERT INTO mcp_tokens (id, user_id, name, token_hash, token_value, tool_groups, last_used_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, token.ID, token.UserID, token.Name, token.TokenHash, token.TokenValue, encodeMCPToolGroups(token.ToolGroups), nullableTime(token.LastUsedAt), formatTime(token.CreatedAt))
 	if err != nil {
 		return MCPToken{}, err
 	}
@@ -256,7 +257,7 @@ func (r *Repository) CreateMCPToken(ctx context.Context, params CreateMCPTokenPa
 
 func (r *Repository) ListMCPTokensForUser(ctx context.Context, userID string) ([]MCPToken, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, user_id, name, token_hash, tool_groups, last_used_at, created_at
+		SELECT id, user_id, name, token_hash, token_value, tool_groups, last_used_at, created_at
 		FROM mcp_tokens
 		WHERE user_id = ?
 		ORDER BY created_at DESC
@@ -278,7 +279,7 @@ func (r *Repository) ListMCPTokensForUser(ctx context.Context, userID string) ([
 
 func (r *Repository) GetMCPTokenByHash(ctx context.Context, tokenHash []byte) (MCPToken, error) {
 	token, err := scanMCPTokenRows(r.db.QueryRowContext(ctx, `
-		SELECT id, user_id, name, token_hash, tool_groups, last_used_at, created_at
+		SELECT id, user_id, name, token_hash, token_value, tool_groups, last_used_at, created_at
 		FROM mcp_tokens
 		WHERE token_hash = ?
 	`, tokenHash))
@@ -307,7 +308,7 @@ func (r *Repository) UpdateMCPToken(ctx context.Context, params UpdateMCPTokenPa
 		return MCPToken{}, err
 	}
 	token, err := scanMCPTokenRows(r.db.QueryRowContext(ctx, `
-		SELECT id, user_id, name, token_hash, tool_groups, last_used_at, created_at
+		SELECT id, user_id, name, token_hash, token_value, tool_groups, last_used_at, created_at
 		FROM mcp_tokens
 		WHERE user_id = ? AND id = ?
 	`, strings.TrimSpace(params.UserID), strings.TrimSpace(params.TokenID)))
@@ -2253,7 +2254,7 @@ func scanMCPTokenRows(row targetScanner) (MCPToken, error) {
 	var lastUsed sql.NullString
 	var toolGroups string
 	var created string
-	err := row.Scan(&token.ID, &token.UserID, &token.Name, &token.TokenHash, &toolGroups, &lastUsed, &created)
+	err := row.Scan(&token.ID, &token.UserID, &token.Name, &token.TokenHash, &token.TokenValue, &toolGroups, &lastUsed, &created)
 	if err != nil {
 		return MCPToken{}, err
 	}
