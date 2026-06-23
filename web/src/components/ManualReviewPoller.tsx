@@ -19,6 +19,7 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
   const [dismissing, setDismissing] = useState<Set<string>>(new Set());
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const knownIDsRef = useRef<Set<string>>(new Set());
+  const notifiedIDsRef = useRef<Set<string>>(new Set());
   const canReview = useMemo(() => canReviewInOrg(data), [data]);
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
     setDismissing(new Set());
     setHidden(new Set());
     knownIDsRef.current = new Set();
+    notifiedIDsRef.current = new Set();
   }, [canReview, data.activeOrg.id, sessionID]);
 
   useEffect(() => {
@@ -41,6 +43,7 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
           for (const review of result.reviews) {
             knownIDsRef.current.add(review.id);
           }
+          notifyPendingReviews(result.reviews, notifiedIDsRef.current, t);
           setReviews((prev) => mergeReviews(prev, result.reviews));
           backoff = POLL_BACKOFF_MS;
           if (result.reviews.length === 0) await sleep(250);
@@ -263,6 +266,37 @@ function canReviewInOrg(data: ConsoleData): boolean {
   if (data.user.is_system_admin) return true;
   const role = data.activeOrg.role;
   return role === "owner" || role === "admin";
+}
+
+function notifyPendingReviews(reviews: ManualReview[], notifiedIDs: Set<string>, t: (key: string, fallback?: string) => string) {
+  if (!reviews.length || typeof window === "undefined" || typeof document === "undefined") return;
+  if (document.visibilityState === "visible" && document.hasFocus()) return;
+  if (!("Notification" in window)) return;
+
+  const pending = reviews.filter((review) => !notifiedIDs.has(review.id));
+  if (!pending.length) return;
+  for (const review of pending) notifiedIDs.add(review.id);
+
+  const show = () => {
+    if (Notification.permission !== "granted") return;
+    for (const review of pending) {
+      const notification = new Notification(t("manualReviewTitle"), {
+        body: `${review.target_name || review.target_alias}\n${review.command}`,
+        tag: `gosshd-manual-review-${review.id}`,
+        requireInteraction: true,
+      });
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    }
+  };
+
+  if (Notification.permission === "granted") {
+    show();
+  } else if (Notification.permission === "default") {
+    void Notification.requestPermission().then(show).catch(() => undefined);
+  }
 }
 
 function secondsUntil(iso: string): number {
