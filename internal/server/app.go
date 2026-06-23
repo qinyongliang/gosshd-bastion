@@ -29,6 +29,7 @@ type App struct {
 	authLimiter         *authRateLimiter
 	bastion             *bastion.Service
 	manualReviews       *manualReviewHub
+	terminalSessions    *terminalSessionManager
 	auditRecordingsPath string
 	initMu              sync.Mutex
 	knownHostsMu        sync.Mutex
@@ -39,10 +40,11 @@ type App struct {
 
 func NewApp(cfg Config) *App {
 	return &App{
-		cfg:           cfg,
-		registry:      NewAgentRegistry(),
-		authLimiter:   newAuthRateLimiter(),
-		manualReviews: newManualReviewHub(),
+		cfg:              cfg,
+		registry:         NewAgentRegistry(),
+		authLimiter:      newAuthRateLimiter(),
+		manualReviews:    newManualReviewHub(),
+		terminalSessions: newTerminalSessionManager(),
 	}
 }
 

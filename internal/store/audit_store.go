@@ -165,6 +165,28 @@ func (r *AuditRepository) CreateCommandAuditLog(ctx context.Context, params Crea
 	return log, nil
 }
 
+func (r *AuditRepository) CompleteCommandAuditLog(ctx context.Context, params CompleteCommandAuditLogParams) error {
+	if strings.TrimSpace(params.ID) == "" {
+		return ErrNotFound
+	}
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE command_audit_logs
+		SET exit_code = ?, ended_at = ?, recording_path = ?, recording_size = ?,
+			recording_sha256 = ?, recording_duration_ms = ?, recording_width = ?, recording_height = ?
+		WHERE id = ?
+	`, nullableInt(params.ExitCode), formatTime(params.EndedAt.UTC()), strings.TrimSpace(params.RecordingPath),
+		params.RecordingSize, strings.TrimSpace(params.RecordingSHA256), params.RecordingDurationMS,
+		params.RecordingWidth, params.RecordingHeight, strings.TrimSpace(params.ID))
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err == nil && affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (r *AuditRepository) ListCommandAuditLogs(ctx context.Context, filter AuditLogFilter) (AuditLogPage, error) {
 	where, args := auditWhere(filter)
 	totalQuery := `SELECT COUNT(*) FROM command_audit_logs` + where

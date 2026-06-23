@@ -1,15 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { Terminal } from "@xterm/xterm";
-import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Copy, Cpu, FileText, Globe, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Server, Shield, Unplug } from "lucide-react";
-import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Search, Server } from "lucide-react";
+import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
-import { CopyButton, Segmented } from "../components/ui";
+import { Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { useTheme } from "../theme";
 import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
-import { targetEndpoint } from "../utils";
+import { tagColor, targetEndpoint } from "../utils";
 import { FileManager } from "./FileManager";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
@@ -47,18 +47,51 @@ export function ConnectPage({ data }: { data: ConsoleData }) {
     );
   }
 
-  return <ConnectWorkspace data={data} target={target} />;
+  return <ConnectWorkspace target={target} targets={data.targets} />;
 }
 
-function ConnectWorkspace({ data, target }: { data: ConsoleData; target: Target }) {
+function ConnectWorkspace({ target, targets }: { target: Target; targets: Target[] }) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [hostOpen, setHostOpen] = useState(true);
+  const [filesOpen, setFilesOpen] = useState(true);
+  const [terminalFullscreen, setTerminalFullscreen] = useState(false);
+  const [hostWidth, setHostWidth] = useState(330);
+  const [filesWidth, setFilesWidth] = useState(480);
+  const bodyRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const endpoint = targetEndpoint(target);
-  const sshCommand = `ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`;
+
+  useEffect(() => {
+    document.title = `${serverTitle(target)} · gosshd Bastion`;
+  }, [target]);
+
+  const startResize = (area: "host" | "files", event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const bodyRect = bodyRef.current?.getBoundingClientRect();
+    const mainRect = mainRef.current?.getBoundingClientRect();
+    if (!bodyRect || !mainRect) return;
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (area === "host") {
+        setHostWidth(clampNumber(moveEvent.clientX - bodyRect.left, 240, Math.min(520, bodyRect.width * 0.42)));
+      } else {
+        setFilesWidth(clampNumber(mainRect.right - moveEvent.clientX, 320, Math.min(720, mainRect.width * 0.58)));
+      }
+    };
+    const onPointerUp = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      document.body.classList.remove("is-resizing-connect");
+    };
+
+    document.body.classList.add("is-resizing-connect");
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  };
 
   return (
-    <main className="connect-workspace">
+    <main className={`connect-workspace ${terminalFullscreen ? "terminal-fullscreen-active" : ""}`}>
       <header className="connect-appbar">
         <div className="connect-appbar-brand">
           <div className="connect-appbar-mark">g</div>
@@ -68,15 +101,7 @@ function ConnectWorkspace({ data, target }: { data: ConsoleData; target: Target 
           </div>
         </div>
 
-        <button
-          type="button"
-          className="icon-button connect-sidebar-toggle"
-          onClick={() => setSidebarOpen((prev) => !prev)}
-          aria-label={sidebarOpen ? t("connectCollapseSidebar") : t("connectExpandSidebar")}
-          title={sidebarOpen ? t("connectCollapseSidebar") : t("connectExpandSidebar")}
-        >
-          {sidebarOpen ? <ChevronLeft /> : <ChevronRight />}
-        </button>
+        <ServerSwitcher targets={targets} currentTargetID={target.id} />
 
         <div className="connect-appbar-host">
           <Server />
@@ -92,50 +117,83 @@ function ConnectWorkspace({ data, target }: { data: ConsoleData; target: Target 
             {target.target_type === "agent" ? <Monitor /> : <HardDrive />}
             {target.target_type === "agent" ? t("privateNode") : t("serviceDirect")}
           </span>
-          <span className="connect-appbar-auth"><Shield />{target.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword")}</span>
         </div>
 
         <div className="connect-appbar-actions">
           <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
           <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
-          <a className="button-link back" href="/targets"><ArrowLeft />{t("connectBack")}</a>
         </div>
       </header>
 
-      <section className="connect-body">
-        <aside className={`connect-host-panel ${sidebarOpen ? "" : "collapsed"}`}>
-          <section className="connect-panel compact">
-            <h3><Monitor />{t("connectHostInfo")}</h3>
-            <dl className="connect-host-list">
-              <div><dt>{t("serviceName")}</dt><dd>{target.name}</dd></div>
-              <div><dt>{t("serviceAlias")}</dt><dd><code>{target.alias}</code></dd></div>
-              <div><dt>{t("targetHost")}</dt><dd>{target.host || "-"}</dd></div>
-              <div><dt>{t("targetPort")}</dt><dd>{target.port || 22}</dd></div>
-              <div><dt>{t("serviceRemoteUser")}</dt><dd>{target.remote_username}</dd></div>
-              <div><dt>{t("serviceAuthType")}</dt><dd>{target.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword")}</dd></div>
-              <div><dt>{t("commonTag")}</dt><dd>{(target.tags || []).join(", ") || "-"}</dd></div>
-            </dl>
-          </section>
-          <section className="connect-panel compact connect-command-panel">
-            <h3><Copy />{t("copyConnectionCommand")}</h3>
-            <code className="connect-command">{sshCommand}</code>
-            <CopyButton value={sshCommand} label={t("copyConnectionCommand")} />
-          </section>
-          <SystemSnapshotPanel targetID={target.id} />
+      <section
+        ref={bodyRef}
+        className={`connect-body ${hostOpen ? "" : "host-collapsed"}`}
+        style={{ "--host-width": `${hostWidth}px` } as CSSProperties}
+      >
+        <aside className={`connect-host-panel ${hostOpen ? "" : "collapsed"}`}>
+          {hostOpen ? (
+            <>
+              <section className="connect-panel compact">
+                <header className="connect-panel-title">
+                  <h3><Monitor />{t("connectHostInfo")}</h3>
+                  <button type="button" className="icon-button" onClick={() => setHostOpen(false)} title={t("connectCollapseSidebar")}>
+                    <ChevronLeft />
+                  </button>
+                </header>
+                <dl className="connect-host-list">
+                  <div><dt>{t("serviceName")}</dt><dd>{target.name}</dd></div>
+                  <div><dt>{t("serviceAlias")}</dt><dd><code>{target.alias}</code></dd></div>
+                  <div><dt>{t("targetHost")}</dt><dd>{target.host || "-"}</dd></div>
+                  <div><dt>{t("targetPort")}</dt><dd>{target.port || 22}</dd></div>
+                  <div><dt>{t("serviceRemoteUser")}</dt><dd>{target.remote_username}</dd></div>
+                  <div><dt>{t("commonTag")}</dt><dd>{(target.tags || []).join(", ") || "-"}</dd></div>
+                </dl>
+              </section>
+              <SystemSnapshotPanel targetID={target.id} />
+            </>
+          ) : (
+            <button type="button" className="collapsed-zone-button" onClick={() => setHostOpen(true)} title={t("connectExpandSidebar")}>
+              <ChevronRight />
+              <span>{t("connectHostInfo")}</span>
+            </button>
+          )}
         </aside>
+        {hostOpen && !terminalFullscreen && (
+          <button type="button" className="connect-resizer host-resizer" onPointerDown={(event) => startResize("host", event)} aria-label={t("connectHostInfo")}>
+            <GripVertical />
+          </button>
+        )}
 
-        <section className="connect-main">
+        <section
+          ref={mainRef}
+          className={`connect-main ${filesOpen ? "" : "files-collapsed"}`}
+          style={{ "--files-width": `${filesWidth}px` } as CSSProperties}
+        >
           <div className="connect-zone terminal-zone">
-            <div className="connect-zone-head">
-              <span><Monitor />{t("connectTerminalTitle")}</span>
-            </div>
-            <TerminalPanel target={target} />
+            <TerminalPanel target={target} isFullscreen={terminalFullscreen} onFullscreenChange={setTerminalFullscreen} />
           </div>
-          <div className="connect-zone files-zone">
+          {filesOpen && !terminalFullscreen && (
+            <button type="button" className="connect-resizer files-resizer" onPointerDown={(event) => startResize("files", event)} aria-label={t("connectFilesTitle")}>
+              <GripVertical />
+            </button>
+          )}
+          <div className={`connect-zone files-zone ${filesOpen ? "" : "collapsed"}`}>
+            {filesOpen ? (
+              <>
             <div className="connect-zone-head">
-              <span><FileText />{t("connectFilesTitle")}</span>
+              <span><HardDrive />{t("connectFilesTitle")}</span>
+              <button type="button" className="icon-button" onClick={() => setFilesOpen(false)} title={t("connectCollapseSidebar")}>
+                <ChevronRight />
+              </button>
             </div>
             <FileManager target={target} />
+              </>
+            ) : (
+              <button type="button" className="collapsed-zone-button" onClick={() => setFilesOpen(true)} title={t("connectFilesTitle")}>
+                <ChevronLeft />
+                <span>{t("connectFilesTitle")}</span>
+              </button>
+            )}
           </div>
         </section>
       </section>
@@ -297,15 +355,15 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-function TerminalPanel({ target }: { target: Target }) {
+function TerminalPanel({ target, isFullscreen, onFullscreenChange }: { target: Target; isFullscreen: boolean; onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void }) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const heartbeatRef = useRef<number | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [error, setError] = useState("");
   const [dims, setDims] = useState({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS });
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const fitRetryRef = useRef<number | null>(null);
 
   const connect = () => {
@@ -327,6 +385,12 @@ function TerminalPanel({ target }: { target: Target }) {
     socket.onopen = () => {
       setStatus("connected");
       setDims({ cols, rows });
+      if (heartbeatRef.current) window.clearInterval(heartbeatRef.current);
+      heartbeatRef.current = window.setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "heartbeat" }));
+        }
+      }, 10_000);
     };
 
     socket.onmessage = (event) => {
@@ -353,6 +417,10 @@ function TerminalPanel({ target }: { target: Target }) {
     };
 
     socket.onclose = () => {
+      if (heartbeatRef.current) {
+        window.clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
       setStatus((prev) => (prev === "connected" ? "disconnected" : prev));
     };
   };
@@ -397,8 +465,19 @@ function TerminalPanel({ target }: { target: Target }) {
 
     connect();
 
+    const closeTerminalSession = () => {
+      const socket = socketRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "close" }));
+      }
+    };
+    window.addEventListener("beforeunload", closeTerminalSession);
+
     return () => {
       if (fitRetryRef.current) window.clearTimeout(fitRetryRef.current);
+      if (heartbeatRef.current) window.clearInterval(heartbeatRef.current);
+      closeTerminalSession();
+      window.removeEventListener("beforeunload", closeTerminalSession);
       resizeObserver.disconnect();
       socketRef.current?.close();
       socketRef.current = null;
@@ -424,7 +503,7 @@ function TerminalPanel({ target }: { target: Target }) {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "F11") {
         event.preventDefault();
-        setIsFullscreen((prev) => !prev);
+        onFullscreenChange((prev) => !prev);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -438,29 +517,111 @@ function TerminalPanel({ target }: { target: Target }) {
     fitRetryRef.current = window.setTimeout(() => fitTerminal(terminal), 120);
   }, [isFullscreen]);
 
-  const statusBadgeClass = status === "connected" ? "success" : status === "error" || status === "disconnected" ? "danger" : "info";
-
   return (
     <section className={`terminal-panel ${isFullscreen ? "fullscreen" : ""}`}>
-      <header className="terminal-header">
-        <div className="terminal-status">
-          <span className={`badge ${statusBadgeClass}`}>{t(`connectStatus${status.charAt(0).toUpperCase()}${status.slice(1)}` as never)}</span>
-          <span className="terminal-dims">{dims.cols}x{dims.rows}</span>
-        </div>
-        <div className="terminal-controls">
-          {status === "disconnected" || status === "error" ? (
-            <button type="button" onClick={connect}><RefreshCw />{t("connectReconnect")}</button>
-          ) : (
-            <button type="button" onClick={() => socketRef.current?.close()} disabled={status !== "connected"}><Unplug />{t("connectDisconnect")}</button>
-          )}
-          <button type="button" className="icon-button" onClick={() => setIsFullscreen((prev) => !prev)} aria-label={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")} title={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")}>
-            {isFullscreen ? <Minimize /> : <Maximize />}
-          </button>
-        </div>
-      </header>
-      {error && <div className="terminal-error">{error}</div>}
+      <button type="button" className="terminal-fullscreen-button icon-button" onClick={() => onFullscreenChange((prev) => !prev)} aria-label={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")} title={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")}>
+        {isFullscreen ? <Minimize /> : <Maximize />}
+      </button>
+      {error && <button type="button" className="terminal-reconnect-button" onClick={connect}><RefreshCw />{t("connectReconnect")}</button>}
       <div className="terminal-viewport" ref={containerRef} />
     </section>
+  );
+}
+
+function ServerSwitcher({ targets, currentTargetID }: { targets: Target[]; currentTargetID: string }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const currentTarget = targets.find((item) => item.id === currentTargetID);
+  const currentTitle = currentTarget ? serverTitle(currentTarget) : t("connectSwitchServer");
+  const filteredTargets = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    if (!text) return targets;
+    return targets.filter((item) => [
+      item.name,
+      item.alias,
+      targetEndpoint(item),
+      item.remote_username,
+      ...(item.tags || []),
+    ].join(" ").toLowerCase().includes(text));
+  }, [query, targets]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const openTarget = (target: Target) => {
+    const features = "noopener,noreferrer,width=1440,height=900";
+    window.open(`/targets/${target.id}/connect`, `connect-${target.id}`, features);
+    setOpen(false);
+    setQuery("");
+  };
+
+  return (
+    <div className="server-switcher" ref={rootRef}>
+      <button
+        type="button"
+        className={`icon-button connect-server-switcher ${open ? "active" : ""}`}
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={t("connectSwitchServer")}
+        title={currentTitle}
+      >
+        <Server />
+      </button>
+      {open && (
+        <section className="server-switcher-menu" role="menu" aria-label={t("connectSwitchServer")}>
+          <label className="server-switcher-search">
+            <Search />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("connectSwitchSearchPlaceholder")}
+            />
+          </label>
+          <div className="server-switcher-list">
+            {filteredTargets.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={`server-switcher-item ${item.id === currentTargetID ? "active" : ""}`}
+                onClick={() => openTarget(item)}
+                role="menuitem"
+                title={serverTitle(item)}
+              >
+                <span className="server-switcher-icon">{item.target_type === "agent" ? <Server /> : <HardDrive />}</span>
+                <span className="server-switcher-main">
+                  <strong>{item.name}</strong>
+                  <code>{item.alias}</code>
+                  <small>{targetEndpoint(item)}</small>
+                  <span className="server-switcher-tags">
+                    {(item.tags || []).map((tag) => (
+                      <span key={tag} className={`tag-chip tag-color-${tagColor(tag, item.tag_colors)}`}>{tag}</span>
+                    ))}
+                  </span>
+                </span>
+              </button>
+            ))}
+            {!filteredTargets.length && <div className="server-switcher-empty">{t("serviceEmptyTitle")}</div>}
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -524,8 +685,15 @@ function formatBytes(value: number) {
   return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-function clampNumber(value: number) {
-  if (!Number.isFinite(value) || value < 0) return 0;
-  if (value > 100) return 100;
+function clampNumber(value: number, min = 0, max = 100) {
+  if (!Number.isFinite(value)) return min;
+  if (value < min) return min;
+  if (value > max) return max;
   return value;
+}
+
+function serverTitle(target: Target) {
+  const endpoint = targetEndpoint(target);
+  const tags = (target.tags || []).join(", ");
+  return [target.name, target.alias, endpoint, tags].filter(Boolean).join(" · ");
 }

@@ -468,15 +468,7 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusInternalServerError, "terminal recording unavailable: "+err.Error())
 		return
 	}
-	ws, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		_, _ = recorder.Close()
-		return
-	}
-	writer := &terminalWSWriter{ws: ws}
-	exitCode := a.webTerminalOnTarget(context.Background(), target, ws, writer, cols, rows, recorder)
-	endedAt := time.Now().UTC()
-	a.recordShellAuditAsync(recorder, store.CreateCommandAuditLogParams{
+	auditLog, err := a.createAuditLog(context.Background(), store.CreateCommandAuditLogParams{
 		UserID:         user.ID,
 		TargetID:       target.ID,
 		OrganizationID: organizationIDForTarget(target),
@@ -486,82 +478,108 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 		RequestType:    store.RequestShell,
 		PolicyDecision: decision.Action,
 		PolicyReason:   decision.Reason,
-		ExitCode:       &exitCode,
 		StartedAt:      startedAt,
-		EndedAt:        &endedAt,
 		RemoteAddress:  sourceIP,
 	})
-	_ = writer.write(terminalWSMessage{Type: "exit", Code: exitCode})
-	_ = ws.Close()
-}
-
-func (a *App) webTerminalOnTarget(ctx context.Context, target store.SSHTarget, ws *websocket.Conn, writer *terminalWSWriter, cols, rows int, recorder *terminalRecorder) int {
-	if target.TargetType == store.TargetAgent {
-		return a.webAgentTerminal(target.AgentID, ws, writer, cols, rows, recorder)
-	}
-	return a.webDirectTerminal(ctx, target, ws, writer, cols, rows, recorder)
-}
-
-func (a *App) webDirectTerminal(ctx context.Context, target store.SSHTarget, ws *websocket.Conn, writer *terminalWSWriter, cols, rows int, recorder *terminalRecorder) int {
-	client, err := a.openTargetSSHClient(ctx, target)
 	if err != nil {
-		_ = writer.write(terminalWSMessage{Type: "error", Data: err.Error()})
+		_, _ = recorder.Close()
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		a.completeShellAuditAsync(recorder, auditLog.ID, 255, time.Now().UTC())
+		return
+	}
+	defer ws.Close()
+	writer := &terminalWSWriter{ws: ws}
+	session := a.terminalSessions.create(sessionID, user.ID, target, sourceIP, cols, rows, recorder)
+	session.startedAt = startedAt
+	session.auditLogID = auditLog.ID
+	session.attach(writer)
+	defer session.detach(writer)
+	a.backgroundWG.Add(1)
+	go func() {
+		defer a.backgroundWG.Done()
+		exitCode := a.webTerminalOnTarget(session)
+		endedAt := time.Now().UTC()
+		session.close("")
+		a.terminalSessions.remove(session.id)
+		a.completeShellAuditAsync(recorder, auditLog.ID, exitCode, endedAt)
+		session.mu.Lock()
+		session.broadcastLocked(terminalWSMessage{Type: "exit", Code: exitCode})
+		session.mu.Unlock()
+	}()
+	for {
+		var msg terminalWSMessage
+		if err := ws.ReadJSON(&msg); err != nil {
+			return
+		}
+		switch msg.Type {
+		case "input":
+			_ = session.writeInput(msg.Data)
+		case "resize":
+			if msg.Cols > 0 && msg.Rows > 0 {
+				session.resizeTo(msg.Cols, msg.Rows)
+			}
+		case "heartbeat":
+			session.heartbeat()
+		case "close":
+			session.close("browser closed")
+			return
+		}
+	}
+}
+
+func (a *App) webTerminalOnTarget(session *terminalSession) int {
+	if session.target.TargetType == store.TargetAgent {
+		return a.webAgentTerminal(session)
+	}
+	return a.webDirectTerminal(session)
+}
+
+func (a *App) webDirectTerminal(terminalSession *terminalSession) int {
+	client, err := a.openTargetSSHClient(terminalSession.ctx, terminalSession.target)
+	if err != nil {
+		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
 	defer client.Close()
 	session, err := client.NewSession()
 	if err != nil {
-		_ = writer.write(terminalWSMessage{Type: "error", Data: err.Error()})
+		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
 	defer session.Close()
 	stdin, err := session.StdinPipe()
 	if err != nil {
-		_ = writer.write(terminalWSMessage{Type: "error", Data: err.Error()})
+		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
 	stdout, err := session.StdoutPipe()
 	if err != nil {
-		_ = writer.write(terminalWSMessage{Type: "error", Data: err.Error()})
+		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
 	stderr, err := session.StderrPipe()
 	if err != nil {
-		_ = writer.write(terminalWSMessage{Type: "error", Data: err.Error()})
+		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
-	if err := session.RequestPty("xterm-256color", rows, cols, gossh.TerminalModes{}); err != nil {
-		_ = writer.write(terminalWSMessage{Type: "error", Data: err.Error()})
+	if err := session.RequestPty("xterm-256color", terminalSession.rows, terminalSession.cols, gossh.TerminalModes{}); err != nil {
+		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
 	if err := session.Shell(); err != nil {
-		_ = writer.write(terminalWSMessage{Type: "error", Data: err.Error()})
+		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
-
-	go func() {
-		for {
-			var msg terminalWSMessage
-			if err := ws.ReadJSON(&msg); err != nil {
-				_ = closeWriter(stdin)
-				_ = session.Close()
-				return
-			}
-			switch msg.Type {
-			case "input":
-				_, _ = io.WriteString(stdin, msg.Data)
-			case "resize":
-				if msg.Cols > 0 && msg.Rows > 0 {
-					_ = session.WindowChange(msg.Rows, msg.Cols)
-				}
-			}
-		}
-	}()
+	terminalSession.setDirectInput(stdin, session)
 
 	var outputWG sync.WaitGroup
 	outputWG.Add(2)
-	go copyReaderToTerminalWS(&outputWG, writer, "output", stdout, recorder)
-	go copyReaderToTerminalWS(&outputWG, writer, "error", stderr, recorder)
+	go copyReaderToTerminalSession(&outputWG, terminalSession, "output", stdout)
+	go copyReaderToTerminalSession(&outputWG, terminalSession, "error", stderr)
 	err = session.Wait()
 	_ = closeWriter(stdin)
 	outputWG.Wait()
@@ -574,33 +592,14 @@ func (a *App) webDirectTerminal(ctx context.Context, target store.SSHTarget, ws 
 	return 255
 }
 
-func (a *App) webAgentTerminal(agentID string, ws *websocket.Conn, writer *terminalWSWriter, cols, rows int, recorder *terminalRecorder) int {
-	reader, stream, err := a.openAgentStream(agentID, protocol.StreamRequest{Type: protocol.StreamShell, Width: cols, Height: rows})
+func (a *App) webAgentTerminal(session *terminalSession) int {
+	reader, stream, err := a.openAgentStream(session.target.AgentID, protocol.StreamRequest{Type: protocol.StreamShell, Width: session.cols, Height: session.rows})
 	if err != nil {
-		_ = writer.write(terminalWSMessage{Type: "error", Data: err.Error()})
+		session.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
 	defer stream.Close()
-	go func() {
-		for {
-			var msg terminalWSMessage
-			if err := ws.ReadJSON(&msg); err != nil {
-				_ = stream.Close()
-				return
-			}
-			switch msg.Type {
-			case "input":
-				_ = protocol.WriteFrame(stream, protocol.Frame{Type: protocol.FrameStdin, Data: []byte(msg.Data)})
-			case "resize":
-				if msg.Cols > 0 && msg.Rows > 0 {
-					var data [8]byte
-					binary.BigEndian.PutUint32(data[0:4], uint32(msg.Cols))
-					binary.BigEndian.PutUint32(data[4:8], uint32(msg.Rows))
-					_ = protocol.WriteFrame(stream, protocol.Frame{Type: protocol.FrameResize, Data: data[:]})
-				}
-			}
-		}
-	}()
+	session.setAgentInput(stream)
 	exitCode := 255
 	for {
 		frame, err := protocol.ReadFrame(reader)
@@ -609,11 +608,9 @@ func (a *App) webAgentTerminal(agentID string, ws *websocket.Conn, writer *termi
 		}
 		switch frame.Type {
 		case protocol.FrameStdout:
-			recorder.WriteOutput(frame.Data)
-			_ = writer.write(terminalWSMessage{Type: "output", Data: string(frame.Data)})
+			session.writeOutput("output", frame.Data)
 		case protocol.FrameStderr:
-			recorder.WriteOutput(frame.Data)
-			_ = writer.write(terminalWSMessage{Type: "error", Data: string(frame.Data)})
+			session.writeOutput("error", frame.Data)
 		case protocol.FrameExit:
 			exitCode = protocol.ExitCode(frame)
 			return exitCode
@@ -622,15 +619,14 @@ func (a *App) webAgentTerminal(agentID string, ws *websocket.Conn, writer *termi
 	return exitCode
 }
 
-func copyReaderToTerminalWS(wg *sync.WaitGroup, writer *terminalWSWriter, typ string, reader io.Reader, recorder *terminalRecorder) {
+func copyReaderToTerminalSession(wg *sync.WaitGroup, session *terminalSession, typ string, reader io.Reader) {
 	defer wg.Done()
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := reader.Read(buf)
 		if n > 0 {
 			chunk := append([]byte(nil), buf[:n]...)
-			recorder.WriteOutput(chunk)
-			_ = writer.write(terminalWSMessage{Type: typ, Data: string(chunk)})
+			session.writeOutput(typ, chunk)
 		}
 		if err != nil {
 			return

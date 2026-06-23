@@ -15,41 +15,46 @@ type mcpOK struct {
 	OK bool `json:"ok"`
 }
 
+type mcpActor struct {
+	User       store.User
+	ToolGroups map[string]bool
+}
+
 func (a *App) mcpHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, err := a.userForMCPRequest(r)
+		actor, err := a.actorForMCPRequest(r)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
 		handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
-			return a.newMCPServer(user)
+			return a.newMCPServer(actor)
 		}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 		handler.ServeHTTP(w, r)
 	})
 }
 
-func (a *App) userForMCPRequest(r *http.Request) (store.User, error) {
+func (a *App) actorForMCPRequest(r *http.Request) (mcpActor, error) {
 	if user, err := a.userForRequest(r); err == nil {
-		return user, nil
+		return mcpActor{User: user, ToolGroups: allMCPToolGroups()}, nil
 	}
 	tokenValue := bearerToken(r)
 	if tokenValue == "" {
-		return store.User{}, store.ErrNotFound
+		return mcpActor{}, store.ErrNotFound
 	}
 	if err := a.ensureServices(r.Context()); err != nil {
-		return store.User{}, err
+		return mcpActor{}, err
 	}
 	token, err := a.store.Repository().GetMCPTokenByHash(r.Context(), codeHash(tokenValue))
 	if err != nil {
-		return store.User{}, err
+		return mcpActor{}, err
 	}
 	user, err := a.store.Repository().GetUser(r.Context(), token.UserID)
 	if err != nil {
-		return store.User{}, err
+		return mcpActor{}, err
 	}
 	_ = a.store.Repository().TouchMCPToken(r.Context(), token.ID, time.Now().UTC())
-	return user, nil
+	return mcpActor{User: user, ToolGroups: mcpToolGroupSet(token.ToolGroups)}, nil
 }
 
 func bearerToken(r *http.Request) string {
@@ -61,8 +66,167 @@ func bearerToken(r *http.Request) string {
 	return strings.TrimSpace(header[len(prefix):])
 }
 
-func (a *App) newMCPServer(actor store.User) *mcp.Server {
+func allMCPToolGroups() map[string]bool {
+	return map[string]bool{
+		"session": true,
+		"auth":    true,
+		"member":  true,
+		"target":  true,
+		"policy":  true,
+		"audit":   true,
+	}
+}
+
+func mcpToolGroupSet(groups []string) map[string]bool {
+	out := map[string]bool{}
+	for _, group := range groups {
+		group = strings.TrimSpace(strings.ToLower(group))
+		if group != "" {
+			out[group] = true
+		}
+	}
+	if len(out) == 0 {
+		out["session"] = true
+	}
+	return out
+}
+
+func mcpToolGroupAllowed(groups map[string]bool, group string) bool {
+	return groups["*"] || groups[group]
+}
+
+func mcpAnyManagementToolGroupAllowed(groups map[string]bool) bool {
+	for _, group := range []string{"auth", "member", "target", "policy", "audit"} {
+		if mcpToolGroupAllowed(groups, group) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
+	mcp.AddTool(s, &mcp.Tool{Name: "session_list", Description: "List active web terminal sessions for the authenticated user."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ mcpSessionListInput) (*mcp.CallToolResult, mcpSessionListOutput, error) {
+			if err := a.ensureServices(ctx); err != nil {
+				return nil, mcpSessionListOutput{}, err
+			}
+			var out mcpSessionListOutput
+			for _, item := range a.terminalSessions.listForUser(actor.ID) {
+				out.Sessions = append(out.Sessions, mcpSessionInfo{
+					ID:                item.ID,
+					TargetID:          item.TargetID,
+					TargetName:        item.TargetName,
+					TargetAlias:       item.TargetAlias,
+					Endpoint:          item.Endpoint,
+					StartedAt:         item.StartedAt.Format(time.RFC3339),
+					LastHeartbeatAt:   item.LastHeartbeat.Format(time.RFC3339),
+					HeartbeatTimeoutS: int(terminalSessionHeartbeatTimeout.Seconds()),
+				})
+			}
+			return nil, out, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "session_send_command", Description: "Send a command to an active web terminal session after applying command safety policy."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionCommandInput) (*mcp.CallToolResult, mcpSessionCommandOutput, error) {
+			if err := a.ensureServices(ctx); err != nil {
+				return nil, mcpSessionCommandOutput{}, err
+			}
+			session, err := a.terminalSessions.getForUser(actor.ID, in.SessionID)
+			if err != nil {
+				return nil, mcpSessionCommandOutput{}, err
+			}
+			decision, err := a.bastion.EvaluateCommandForSource(ctx, actor.ID, session.target.ID, in.Command, session.sourceIP)
+			if err != nil {
+				return nil, mcpSessionCommandOutput{}, err
+			}
+			if decision.Action == store.DecisionDeny && decision.AllowManualReview {
+				decision = a.reviewDeniedCommand(ctx, actor.ID, session.target, in.Command, decision)
+			}
+			started := time.Now().UTC()
+			if decision.Action == store.DecisionDeny {
+				msg := "command denied: " + decision.Reason + "\r\n"
+				session.writeOutput("error", []byte(msg))
+				code := 126
+				ended := time.Now().UTC()
+				_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
+					UserID:         actor.ID,
+					TargetID:       session.target.ID,
+					OrganizationID: organizationIDForTarget(session.target),
+					PublicKeyName:  "MCP session",
+					SessionID:      session.id,
+					Command:        in.Command,
+					RequestType:    store.RequestExec,
+					PolicyDecision: store.DecisionDeny,
+					PolicyReason:   decision.Reason,
+					ExitCode:       &code,
+					StartedAt:      started,
+					EndedAt:        &ended,
+					RemoteAddress:  session.sourceIP,
+				})
+				return nil, mcpSessionCommandOutput{Allowed: false, PolicyReason: decision.Reason, Output: msg}, nil
+			}
+			output, err := session.sendCommand(in.Command)
+			ended := time.Now().UTC()
+			code := 0
+			_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
+				UserID:         actor.ID,
+				TargetID:       session.target.ID,
+				OrganizationID: organizationIDForTarget(session.target),
+				PublicKeyName:  "MCP session",
+				SessionID:      session.id,
+				Command:        in.Command,
+				RequestType:    store.RequestExec,
+				PolicyDecision: decision.Action,
+				PolicyReason:   decision.Reason,
+				ExitCode:       &code,
+				StartedAt:      started,
+				EndedAt:        &ended,
+				RemoteAddress:  session.sourceIP,
+			})
+			if err != nil {
+				return nil, mcpSessionCommandOutput{}, err
+			}
+			return nil, mcpSessionCommandOutput{Allowed: true, PolicyReason: decision.Reason, Output: output}, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "session_interrupt", Description: "Send Ctrl+C to an active web terminal session."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionInput) (*mcp.CallToolResult, mcpOK, error) {
+			if err := a.ensureServices(ctx); err != nil {
+				return nil, mcpOK{}, err
+			}
+			session, err := a.terminalSessions.getForUser(actor.ID, in.SessionID)
+			if err != nil {
+				return nil, mcpOK{}, err
+			}
+			if err := session.interrupt(); err != nil {
+				return nil, mcpOK{}, err
+			}
+			return nil, mcpOK{OK: true}, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "session_screen", Description: "Return the current visible terminal screen for an active web terminal session."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionInput) (*mcp.CallToolResult, mcpSessionScreenOutput, error) {
+			if err := a.ensureServices(ctx); err != nil {
+				return nil, mcpSessionScreenOutput{}, err
+			}
+			session, err := a.terminalSessions.getForUser(actor.ID, in.SessionID)
+			if err != nil {
+				return nil, mcpSessionScreenOutput{}, err
+			}
+			return nil, mcpSessionScreenOutput{SessionID: session.id, Screen: session.currentScreen()}, nil
+		})
+}
+
+func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
+	actor := actorCtx.User
 	s := mcp.NewServer(&mcp.Implementation{Name: "gosshd-bastion", Version: a.cfg.version()}, nil)
+
+	if mcpToolGroupAllowed(actorCtx.ToolGroups, "session") {
+		a.addMCPSessionTools(s, actor)
+	}
+	if !mcpAnyManagementToolGroupAllowed(actorCtx.ToolGroups) {
+		return s
+	}
 
 	mcp.AddTool(s, &mcp.Tool{Name: "auth_register", Description: "Register a user and create their personal organization."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpRegisterInput) (*mcp.CallToolResult, apiUserResponse, error) {
@@ -550,6 +714,43 @@ type mcpRegisterInput struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 	Password    string `json:"password"`
+}
+
+type mcpSessionListInput struct{}
+
+type mcpSessionInput struct {
+	SessionID string `json:"session_id"`
+}
+
+type mcpSessionCommandInput struct {
+	SessionID string `json:"session_id"`
+	Command   string `json:"command"`
+}
+
+type mcpSessionListOutput struct {
+	Sessions []mcpSessionInfo `json:"sessions"`
+}
+
+type mcpSessionInfo struct {
+	ID                string `json:"id"`
+	TargetID          string `json:"target_id"`
+	TargetName        string `json:"target_name"`
+	TargetAlias       string `json:"target_alias"`
+	Endpoint          string `json:"endpoint"`
+	StartedAt         string `json:"started_at"`
+	LastHeartbeatAt   string `json:"last_heartbeat_at"`
+	HeartbeatTimeoutS int    `json:"heartbeat_timeout_seconds"`
+}
+
+type mcpSessionCommandOutput struct {
+	Allowed      bool   `json:"allowed"`
+	PolicyReason string `json:"policy_reason"`
+	Output       string `json:"output"`
+}
+
+type mcpSessionScreenOutput struct {
+	SessionID string `json:"session_id"`
+	Screen    string `json:"screen"`
 }
 
 type mcpUserInput struct {

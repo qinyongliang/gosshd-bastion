@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FolderOpen, HardDrive, RefreshCw, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useI18n } from "../i18n";
 import type { FileEntry, Target } from "../types";
@@ -9,9 +9,14 @@ export function FileManager({ target }: { target: Target }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [path, setPath] = useState(".");
+  const [pathDraft, setPathDraft] = useState(".");
   const [selected, setSelected] = useState<FileEntry | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setPathDraft(path);
+  }, [path]);
 
   const listing = useQuery({
     queryKey: ["target-files", target.id, path],
@@ -45,6 +50,16 @@ export function FileManager({ target }: { target: Target }) {
     }
   };
 
+  const submitPath = () => {
+    const nextPath = pathDraft.trim();
+    if (!nextPath || nextPath === path) {
+      setPathDraft(path);
+      return;
+    }
+    setPath(nextPath);
+    setSelected(null);
+  };
+
   const parentPath = () => {
     const trimmed = path.replace(/\/$/, "");
     const index = trimmed.lastIndexOf("/");
@@ -59,7 +74,20 @@ export function FileManager({ target }: { target: Target }) {
       <header className="file-manager-head">
         <div className="file-manager-path" title={path}>
           <HardDrive />
-          <code>{path}</code>
+          <input
+            value={pathDraft}
+            onChange={(event) => setPathDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                submitPath();
+              } else if (event.key === "Escape") {
+                setPathDraft(path);
+              }
+            }}
+            onBlur={() => setPathDraft(path)}
+            aria-label="File path"
+          />
         </div>
         <div className="file-manager-actions">
           <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")}>

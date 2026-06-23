@@ -284,6 +284,28 @@ func (a *App) recordShellAuditAsync(recorder *terminalRecorder, params store.Cre
 	}()
 }
 
+func (a *App) completeShellAuditAsync(recorder *terminalRecorder, auditLogID string, exitCode int, endedAt time.Time) {
+	a.backgroundWG.Add(1)
+	go func() {
+		defer a.backgroundWG.Done()
+		params := store.CompleteCommandAuditLogParams{
+			ID:       auditLogID,
+			ExitCode: &exitCode,
+			EndedAt:  endedAt,
+		}
+		meta, err := recorder.Close()
+		if err == nil {
+			params.RecordingPath = meta.RelativePath
+			params.RecordingSize = meta.Size
+			params.RecordingSHA256 = meta.SHA256
+			params.RecordingDurationMS = meta.DurationMS
+			params.RecordingWidth = meta.Width
+			params.RecordingHeight = meta.Height
+		}
+		_ = a.audit.Repository().CompleteCommandAuditLog(context.Background(), params)
+	}()
+}
+
 func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target store.SSHTarget, ch gossh.Channel, sourceIP string) {
 	ctx := context.Background()
 	sessionID := newAuditSessionID()

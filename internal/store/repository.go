@@ -237,16 +237,17 @@ func (r *Repository) CreateMCPToken(ctx context.Context, params CreateMCPTokenPa
 		return MCPToken{}, errors.New("token hash is required")
 	}
 	token := MCPToken{
-		ID:        uuid.NewString(),
-		UserID:    params.UserID,
-		Name:      name,
-		TokenHash: append([]byte(nil), params.TokenHash...),
-		CreatedAt: time.Now().UTC(),
+		ID:         uuid.NewString(),
+		UserID:     params.UserID,
+		Name:       name,
+		TokenHash:  append([]byte(nil), params.TokenHash...),
+		ToolGroups: normalizeMCPToolGroups(params.ToolGroups),
+		CreatedAt:  time.Now().UTC(),
 	}
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO mcp_tokens (id, user_id, name, token_hash, last_used_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, token.ID, token.UserID, token.Name, token.TokenHash, nullableTime(token.LastUsedAt), formatTime(token.CreatedAt))
+		INSERT INTO mcp_tokens (id, user_id, name, token_hash, tool_groups, last_used_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, token.ID, token.UserID, token.Name, token.TokenHash, encodeMCPToolGroups(token.ToolGroups), nullableTime(token.LastUsedAt), formatTime(token.CreatedAt))
 	if err != nil {
 		return MCPToken{}, err
 	}
@@ -255,7 +256,7 @@ func (r *Repository) CreateMCPToken(ctx context.Context, params CreateMCPTokenPa
 
 func (r *Repository) ListMCPTokensForUser(ctx context.Context, userID string) ([]MCPToken, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, user_id, name, token_hash, last_used_at, created_at
+		SELECT id, user_id, name, token_hash, tool_groups, last_used_at, created_at
 		FROM mcp_tokens
 		WHERE user_id = ?
 		ORDER BY created_at DESC
@@ -277,7 +278,7 @@ func (r *Repository) ListMCPTokensForUser(ctx context.Context, userID string) ([
 
 func (r *Repository) GetMCPTokenByHash(ctx context.Context, tokenHash []byte) (MCPToken, error) {
 	token, err := scanMCPTokenRows(r.db.QueryRowContext(ctx, `
-		SELECT id, user_id, name, token_hash, last_used_at, created_at
+		SELECT id, user_id, name, token_hash, tool_groups, last_used_at, created_at
 		FROM mcp_tokens
 		WHERE token_hash = ?
 	`, tokenHash))
@@ -2228,17 +2229,51 @@ func scanExternalIdentity(row targetScanner) (ExternalIdentity, error) {
 func scanMCPTokenRows(row targetScanner) (MCPToken, error) {
 	var token MCPToken
 	var lastUsed sql.NullString
+	var toolGroups string
 	var created string
-	err := row.Scan(&token.ID, &token.UserID, &token.Name, &token.TokenHash, &lastUsed, &created)
+	err := row.Scan(&token.ID, &token.UserID, &token.Name, &token.TokenHash, &toolGroups, &lastUsed, &created)
 	if err != nil {
 		return MCPToken{}, err
 	}
+	token.ToolGroups = decodeMCPToolGroups(toolGroups)
 	if lastUsed.Valid {
 		v := parseTime(lastUsed.String)
 		token.LastUsedAt = &v
 	}
 	token.CreatedAt = parseTime(created)
 	return token, nil
+}
+
+func normalizeMCPToolGroups(groups []string) []string {
+	allowed := map[string]bool{
+		"session": true,
+		"auth":    true,
+		"member":  true,
+		"target":  true,
+		"policy":  true,
+		"audit":   true,
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, group := range groups {
+		group = strings.TrimSpace(strings.ToLower(group))
+		if allowed[group] && !seen[group] {
+			seen[group] = true
+			out = append(out, group)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"session"}
+	}
+	return out
+}
+
+func encodeMCPToolGroups(groups []string) string {
+	return strings.Join(normalizeMCPToolGroups(groups), ",")
+}
+
+func decodeMCPToolGroups(raw string) []string {
+	return normalizeMCPToolGroups(strings.Split(raw, ","))
 }
 
 func scanTarget(row *sql.Row) (SSHTarget, error) {
