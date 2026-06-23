@@ -48,7 +48,9 @@ type terminalSession struct {
 	screen         *terminalScreenBuffer
 	lastHeartbeat  time.Time
 	closed         bool
-	commandWaiters []chan string
+	commandMu      sync.Mutex
+	commandWaiters []*terminalCommandWaiter
+	oscBuffer      string
 }
 
 type terminalScreenBuffer struct {
@@ -227,61 +229,109 @@ func (s *terminalSession) interrupt() error {
 	return s.writeInput("\x03")
 }
 
-func (s *terminalSession) sendCommand(command string) (string, error) {
-	command = strings.TrimRight(command, "\r\n")
-	if strings.TrimSpace(command) == "" {
-		return "", errors.New("command is required")
-	}
-	ch := make(chan string, 64)
-	s.mu.Lock()
-	s.commandWaiters = append(s.commandWaiters, ch)
-	s.mu.Unlock()
-	defer s.removeCommandWaiter(ch)
-	if err := s.writeInput(command + "\n"); err != nil {
-		return "", err
-	}
-	return collectCommandOutput(ch, 5*time.Second, 550*time.Millisecond), nil
+type terminalCommandResult struct {
+	Output   string
+	ExitCode int
 }
 
-func (s *terminalSession) removeCommandWaiter(ch chan string) {
+type terminalCommandWaiter struct {
+	id     string
+	output chan string
+	done   chan int
+}
+
+type terminalIntegrationEvent struct {
+	Kind     string
+	ID       string
+	ExitCode int
+}
+
+func (s *terminalSession) sendCommand(ctx context.Context, command string) (terminalCommandResult, error) {
+	command = strings.TrimRight(command, "\r\n")
+	if strings.TrimSpace(command) == "" {
+		return terminalCommandResult{}, errors.New("command is required")
+	}
+	s.commandMu.Lock()
+	defer s.commandMu.Unlock()
+
+	commandID := "gosshd-mcp-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	waiter := &terminalCommandWaiter{
+		id:     commandID,
+		output: make(chan string, 64),
+		done:   make(chan int, 1),
+	}
+	s.mu.Lock()
+	s.commandWaiters = append(s.commandWaiters, waiter)
+	s.mu.Unlock()
+	defer s.removeCommandWaiter(waiter)
+	if err := s.writeInput(buildSessionCommandEnvelope(command, commandID)); err != nil {
+		return terminalCommandResult{}, err
+	}
+	return collectCommandOutput(ctx, s.ctx, waiter)
+}
+
+func buildSessionCommandEnvelope(command, commandID string) string {
+	var script strings.Builder
+	script.WriteString("printf '\\033]633;E;")
+	script.WriteString(shellSingleQuote(commandID))
+	script.WriteString("\\007'\n")
+	script.WriteString("printf '\\033]633;C;")
+	script.WriteString(shellSingleQuote(commandID))
+	script.WriteString("\\007'\n")
+	script.WriteString("__gosshd_mcp_errexit=0\n")
+	script.WriteString("case $- in *e*) __gosshd_mcp_errexit=1; set +e;; esac\n")
+	script.WriteString(command)
+	script.WriteString("\n__gosshd_mcp_rc=$?\n")
+	script.WriteString("if [ \"$__gosshd_mcp_errexit\" = 1 ]; then set -e; fi\n")
+	script.WriteString("printf '\\033]633;D;")
+	script.WriteString(shellSingleQuote(commandID))
+	script.WriteString(";%s\\007' \"$__gosshd_mcp_rc\"\n")
+	script.WriteString("unset __gosshd_mcp_errexit __gosshd_mcp_rc\n")
+	return script.String()
+}
+
+func shellSingleQuote(value string) string {
+	return strings.ReplaceAll(value, "'", "'\\''")
+}
+
+func (s *terminalSession) removeCommandWaiter(waiter *terminalCommandWaiter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i, waiter := range s.commandWaiters {
-		if waiter == ch {
+	for i, item := range s.commandWaiters {
+		if item == waiter {
 			s.commandWaiters = append(s.commandWaiters[:i], s.commandWaiters[i+1:]...)
-			close(ch)
+			close(waiter.output)
 			return
 		}
 	}
 }
 
-func collectCommandOutput(ch <-chan string, maxWait, quietWait time.Duration) string {
+func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalCommandWaiter) (terminalCommandResult, error) {
 	var out strings.Builder
-	timer := time.NewTimer(maxWait)
-	quiet := time.NewTimer(quietWait)
-	defer timer.Stop()
-	defer quiet.Stop()
 	for {
 		select {
-		case chunk, ok := <-ch:
+		case chunk, ok := <-waiter.output:
 			if !ok {
-				return out.String()
+				return terminalCommandResult{Output: out.String(), ExitCode: 255}, errors.New("session command output closed before completion")
 			}
 			out.WriteString(chunk)
-			if !quiet.Stop() {
+		case code := <-waiter.done:
+			for {
 				select {
-				case <-quiet.C:
+				case chunk, ok := <-waiter.output:
+					if ok {
+						out.WriteString(chunk)
+						continue
+					}
 				default:
 				}
+				break
 			}
-			quiet.Reset(quietWait)
-		case <-quiet.C:
-			if out.Len() > 0 {
-				return out.String()
-			}
-			quiet.Reset(quietWait)
-		case <-timer.C:
-			return out.String()
+			return terminalCommandResult{Output: out.String(), ExitCode: code}, nil
+		case <-ctx.Done():
+			return terminalCommandResult{Output: out.String(), ExitCode: 255}, ctx.Err()
+		case <-sessionCtx.Done():
+			return terminalCommandResult{Output: out.String(), ExitCode: 255}, errors.New("session closed before command completed")
 		}
 	}
 }
@@ -290,27 +340,125 @@ func (s *terminalSession) writeOutput(typ string, data []byte) {
 	if len(data) == 0 {
 		return
 	}
-	if s.recorder != nil {
-		s.recorder.WriteOutput(data)
-	}
-	text := string(data)
 	s.mu.Lock()
-	if s.output.Len() < 256*1024 {
+	cleanText, events := s.consumeTerminalIntegration(string(data))
+	if cleanText == "" && len(events) == 0 {
+		s.mu.Unlock()
+		return
+	}
+	cleanData := []byte(cleanText)
+	if cleanText != "" && s.recorder != nil {
+		s.recorder.WriteOutput(cleanData)
+	}
+	if cleanText != "" && s.output.Len() < 256*1024 {
+		storeText := cleanText
 		remaining := 256*1024 - s.output.Len()
-		if len(text) > remaining {
-			text = text[:remaining]
+		if len(storeText) > remaining {
+			storeText = storeText[:remaining]
 		}
-		s.output.WriteString(text)
+		s.output.WriteString(storeText)
 	}
-	s.screen.write(data)
+	s.screen.write(cleanData)
 	for _, waiter := range s.commandWaiters {
-		select {
-		case waiter <- string(data):
-		default:
+		if cleanText != "" {
+			select {
+			case waiter.output <- cleanText:
+			default:
+			}
+		}
+		for _, event := range events {
+			if event.Kind == "D" && event.ID == waiter.id {
+				select {
+				case waiter.done <- event.ExitCode:
+				default:
+				}
+			}
 		}
 	}
-	s.broadcastLocked(terminalWSMessage{Type: typ, Data: string(data)})
+	if cleanText != "" {
+		s.broadcastLocked(terminalWSMessage{Type: typ, Data: cleanText})
+	}
 	s.mu.Unlock()
+}
+
+func (s *terminalSession) consumeTerminalIntegration(text string) (string, []terminalIntegrationEvent) {
+	input := s.oscBuffer + text
+	s.oscBuffer = ""
+	var clean strings.Builder
+	var events []terminalIntegrationEvent
+	for len(input) > 0 {
+		start := strings.Index(input, "\x1b]633;")
+		if start < 0 {
+			clean.WriteString(input)
+			break
+		}
+		clean.WriteString(input[:start])
+		remaining := input[start:]
+		end, termLen := terminalOSCSequenceEnd(remaining)
+		if end < 0 {
+			s.oscBuffer = remaining
+			if len(s.oscBuffer) > 4096 {
+				clean.WriteString(s.oscBuffer)
+				s.oscBuffer = ""
+			}
+			break
+		}
+		payload := remaining[len("\x1b]633;"):end]
+		if event, ok := parseTerminalIntegrationEvent(payload); ok {
+			events = append(events, event)
+		}
+		input = remaining[end+termLen:]
+	}
+	return clean.String(), events
+}
+
+func terminalOSCSequenceEnd(input string) (int, int) {
+	bel := strings.IndexByte(input, '\a')
+	st := strings.Index(input, "\x1b\\")
+	switch {
+	case bel < 0 && st < 0:
+		return -1, 0
+	case bel >= 0 && (st < 0 || bel < st):
+		return bel, 1
+	default:
+		return st, 2
+	}
+}
+
+func parseTerminalIntegrationEvent(payload string) (terminalIntegrationEvent, bool) {
+	parts := strings.Split(payload, ";")
+	if len(parts) == 0 || parts[0] == "" {
+		return terminalIntegrationEvent{}, false
+	}
+	event := terminalIntegrationEvent{Kind: parts[0]}
+	switch event.Kind {
+	case "C", "E":
+		if len(parts) >= 2 {
+			event.ID = parts[1]
+		}
+		return event, true
+	case "D":
+		if len(parts) >= 3 {
+			event.ID = parts[1]
+			code, err := strconv.Atoi(strings.TrimSpace(parts[2]))
+			if err != nil {
+				code = 255
+			}
+			event.ExitCode = code
+			return event, true
+		}
+		if len(parts) >= 2 {
+			code, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+			if err != nil {
+				code = 255
+			}
+			event.ExitCode = code
+			return event, true
+		}
+	case "P":
+		return event, true
+	}
+	return terminalIntegrationEvent{}, false
 }
 
 func (s *terminalSession) broadcastLocked(msg terminalWSMessage) {
