@@ -92,6 +92,20 @@ func TestCollectCommandOutputWaitsForCompletionEvent(t *testing.T) {
 	}
 }
 
+func TestTerminalScreenBufferPreservesCRLFLines(t *testing.T) {
+	buffer := newTerminalScreenBuffer(8)
+
+	buffer.write([]byte("line one\r\nline two\r\n[root@host ~]# "))
+
+	screen := buffer.String()
+	if !strings.Contains(screen, "line one") || !strings.Contains(screen, "line two") {
+		t.Fatalf("screen lost CRLF output lines: %q", screen)
+	}
+	if !strings.Contains(screen, "[root@host ~]# ") {
+		t.Fatalf("screen lost current prompt: %q", screen)
+	}
+}
+
 func TestBashShellIntegrationCommandInstallsHooks(t *testing.T) {
 	script := bashShellIntegrationCommand()
 	if strings.Contains(script, "__gosshd_mcp_rc") || strings.Contains(script, "GOSSHD_MCP_DONE") {

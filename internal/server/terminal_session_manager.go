@@ -545,9 +545,14 @@ func (b *terminalScreenBuffer) setRows(rows int) {
 
 func (b *terminalScreenBuffer) write(data []byte) {
 	text := stripANSI(string(bytes.ToValidUTF8(data, []byte{})))
-	for _, r := range text {
+	runes := []rune(text)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
 		switch r {
 		case '\r':
+			if i+1 < len(runes) && runes[i+1] == '\n' {
+				continue
+			}
 			b.cur = ""
 		case '\n':
 			b.pushLine(b.cur)
