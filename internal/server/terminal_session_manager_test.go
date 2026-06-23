@@ -92,15 +92,15 @@ func TestCollectCommandOutputWaitsForCompletionEvent(t *testing.T) {
 	}
 }
 
-func TestBuildSessionCommandEnvelopeUsesOSCCompletion(t *testing.T) {
-	script := buildSessionCommandEnvelope("false", "cmd-4")
-	if !strings.Contains(script, "\\033]633;C;cmd-4\\007") {
-		t.Fatalf("script missing command-start OSC: %q", script)
+func TestBashShellIntegrationCommandInstallsHooks(t *testing.T) {
+	script := bashShellIntegrationCommand()
+	if strings.Contains(script, "__gosshd_mcp_rc") || strings.Contains(script, "GOSSHD_MCP_DONE") {
+		t.Fatalf("script should not include the old command wrapper: %q", script)
 	}
-	if !strings.Contains(script, "\\033]633;D;cmd-4;%s\\007") {
+	if !strings.Contains(script, "trap '__gosshd_preexec' DEBUG") {
+		t.Fatalf("script missing DEBUG preexec hook: %q", script)
+	}
+	if !strings.Contains(script, "printf '\\033]633;D;%s\\007'") {
 		t.Fatalf("script missing command-finish OSC: %q", script)
-	}
-	if !strings.Contains(script, "__gosshd_mcp_rc=$?") {
-		t.Fatalf("script must capture exit status before emitting completion: %q", script)
 	}
 }
