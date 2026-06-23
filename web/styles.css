@@ -3466,8 +3466,8 @@ html[data-theme="dark"] .connect-workspace {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
-  width: min(440px, calc(100vw - 24px));
-  max-height: min(620px, calc(100dvh - 84px));
+  width: min(500px, calc(100vw - 24px));
+  max-height: min(720px, calc(100dvh - 84px));
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 12px;
@@ -3523,8 +3523,9 @@ html[data-theme="dark"] .server-switcher-search {
 }
 
 .server-switcher-list {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   min-height: 0;
   overflow: auto;
   padding-right: 4px;
@@ -3532,14 +3533,14 @@ html[data-theme="dark"] .server-switcher-search {
 
 .server-switcher-item {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  min-height: 0;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 88px;
   width: 100%;
   border: 1px solid transparent;
   border-radius: 8px;
-  padding: 10px;
+  padding: 11px 12px;
   text-align: left;
   color: var(--ink);
   background: #ffffff;
@@ -3571,8 +3572,9 @@ html[data-theme="dark"] .server-switcher-item {
 
 .server-switcher-main {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
+  line-height: 1.25;
 }
 
 .server-switcher-main strong,
@@ -3585,19 +3587,24 @@ html[data-theme="dark"] .server-switcher-item {
 
 .server-switcher-main strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.25;
 }
 
 .server-switcher-main code,
 .server-switcher-main small {
   color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .server-switcher-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  min-height: 0;
+  min-height: 22px;
+  max-height: 24px;
+  overflow: hidden;
 }
 
 .server-switcher-empty {
