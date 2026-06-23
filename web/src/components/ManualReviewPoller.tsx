@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Check, Clock, Server, ShieldAlert, UserRound, X } from "lucide-react";
+import { BellRing, Check, Clock, Server, ShieldAlert, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { useI18n } from "../i18n";
@@ -18,6 +18,8 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
   const [reviews, setReviews] = useState<ReviewState[]>([]);
   const [dismissing, setDismissing] = useState<Set<string>>(new Set());
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(() => getNotificationPermission());
+  const [notificationPromptHidden, setNotificationPromptHidden] = useState(false);
   const knownIDsRef = useRef<Set<string>>(new Set());
   const notifiedIDsRef = useRef<Set<string>>(new Set());
   const canReview = useMemo(() => canReviewInOrg(data), [data]);
@@ -26,9 +28,14 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
     setReviews([]);
     setDismissing(new Set());
     setHidden(new Set());
+    setNotificationPromptHidden(false);
     knownIDsRef.current = new Set();
     notifiedIDsRef.current = new Set();
   }, [canReview, data.activeOrg.id, sessionID]);
+
+  useEffect(() => {
+    setNotificationPermission(getNotificationPermission());
+  }, []);
 
   useEffect(() => {
     if (!canReview) return;
@@ -79,11 +86,22 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
   });
 
   const visible = reviews.filter((item) => !hidden.has(item.review.id));
+  const showNotificationPrompt = canReview && notificationPermission === "default" && !notificationPromptHidden;
 
-  if (!visible.length) return null;
+  if (!visible.length && !showNotificationPrompt) return null;
 
   return (
     <div className="manual-review-toasts" aria-live="polite" aria-atomic="false">
+      {showNotificationPrompt && (
+        <NotificationPermissionPrompt
+          t={t}
+          onEnable={async () => {
+            const permission = await requestNotificationPermission();
+            setNotificationPermission(permission);
+          }}
+          onDismiss={() => setNotificationPromptHidden(true)}
+        />
+      )}
       {visible.map((item) => (
         <ReviewCard
           key={item.review.id}
@@ -100,6 +118,32 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
           t={t}
         />
       ))}
+    </div>
+  );
+}
+
+function NotificationPermissionPrompt({
+  onEnable,
+  onDismiss,
+  t,
+}: {
+  onEnable: () => Promise<void>;
+  onDismiss: () => void;
+  t: (key: string, fallback?: string) => string;
+}) {
+  return (
+    <div className="manual-review-notification-prompt">
+      <BellRing />
+      <div>
+        <strong>{t("manualReviewNotificationTitle")}</strong>
+        <p>{t("manualReviewNotificationBody")}</p>
+      </div>
+      <button type="button" className="primary" onClick={() => void onEnable()}>
+        {t("manualReviewNotificationEnable")}
+      </button>
+      <button type="button" className="manual-review-close" onClick={onDismiss} aria-label={t("close")}>
+        <X />
+      </button>
     </div>
   );
 }
@@ -273,31 +317,33 @@ function notifyPendingReviews(reviews: ManualReview[], notifiedIDs: Set<string>,
   if (!reviews.length || typeof window === "undefined" || typeof document === "undefined") return;
   if (document.visibilityState === "visible" && document.hasFocus()) return;
   if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
 
   const pending = reviews.filter((review) => !notifiedIDs.has(review.id));
   if (!pending.length) return;
-  for (const review of pending) notifiedIDs.add(review.id);
 
-  const show = () => {
-    if (Notification.permission !== "granted") return;
-    for (const review of pending) {
-      const notification = new Notification(t("manualReviewTitle"), {
-        body: `${review.target_name || review.target_alias}\n${review.command}`,
-        tag: `gosshd-manual-review-${review.id}`,
-        requireInteraction: true,
-      });
-      notification.onclick = () => {
-        window.focus();
-        notification.close();
-      };
-    }
-  };
-
-  if (Notification.permission === "granted") {
-    show();
-  } else if (Notification.permission === "default") {
-    void Notification.requestPermission().then(show).catch(() => undefined);
+  for (const review of pending) {
+    notifiedIDs.add(review.id);
+    const notification = new Notification(t("manualReviewTitle"), {
+      body: `${review.target_name || review.target_alias}\n${review.command}`,
+      tag: `gosshd-manual-review-${review.id}`,
+      requireInteraction: true,
+    });
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
   }
+}
+
+function getNotificationPermission(): NotificationPermission | "unsupported" {
+  if (typeof window === "undefined" || !("Notification" in window) || !window.isSecureContext) return "unsupported";
+  return Notification.permission;
+}
+
+async function requestNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
+  if (typeof window === "undefined" || !("Notification" in window) || !window.isSecureContext) return "unsupported";
+  return Notification.requestPermission();
 }
 
 function secondsUntil(iso: string): number {
