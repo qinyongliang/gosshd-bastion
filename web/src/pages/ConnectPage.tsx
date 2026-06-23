@@ -488,9 +488,8 @@ function TerminalPanel({ target, isFullscreen, onFullscreenChange }: { target: T
 
   const fitTerminal = (terminal: Terminal) => {
     if (!containerRef.current) return;
-    const padding = 20;
-    const width = containerRef.current.clientWidth - padding;
-    const height = containerRef.current.clientHeight - padding;
+    const width = containerRef.current.clientWidth;
+    const height = containerRef.current.clientHeight;
     if (width <= 0 || height <= 0) return;
 
     const dims = estimateTerminalDimensions(width, height, terminal.options.fontSize || 13);
