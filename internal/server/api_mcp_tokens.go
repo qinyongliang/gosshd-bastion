@@ -11,6 +11,7 @@ import (
 type apiMCPToken struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
+	TokenValue string   `json:"token_value,omitempty"`
 	ToolGroups []string `json:"tool_groups"`
 	CreatedAt  string   `json:"created_at"`
 	LastUsedAt string   `json:"last_used_at,omitempty"`
@@ -62,6 +63,7 @@ func (a *App) handleCreateMCPToken(w http.ResponseWriter, r *http.Request, user 
 		UserID:     user.ID,
 		Name:       name,
 		TokenHash:  hash,
+		TokenValue: value,
 		ToolGroups: req.ToolGroups,
 	})
 	if err != nil {
@@ -109,6 +111,7 @@ func apiMCPTokenFromStore(token store.MCPToken) apiMCPToken {
 	out := apiMCPToken{
 		ID:         token.ID,
 		Name:       token.Name,
+		TokenValue: token.TokenValue,
 		ToolGroups: append([]string(nil), token.ToolGroups...),
 		CreatedAt:  token.CreatedAt.Format(time.RFC3339),
 	}

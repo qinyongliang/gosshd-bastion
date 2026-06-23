@@ -394,6 +394,9 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	if created.Token.ID == "" || created.TokenValue == "" || created.MCPJSON["mcpServers"] == nil {
 		t.Fatalf("mcp token create response mismatch: %+v", created)
 	}
+	if created.Token.TokenValue != created.TokenValue {
+		t.Fatalf("expected created token response to include token value, got token=%q value=%q", created.Token.TokenValue, created.TokenValue)
+	}
 	if len(created.Token.ToolGroups) != 1 || created.Token.ToolGroups[0] != "session" {
 		t.Fatalf("expected mcp token to default to session tools, got %+v", created.Token.ToolGroups)
 	}
@@ -425,6 +428,9 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	if len(listed.Tokens) != 1 || listed.Tokens[0].LastUsedAt == "" {
 		t.Fatalf("mcp token last_used_at was not updated: %+v", listed)
 	}
+	if listed.Tokens[0].TokenValue != created.TokenValue {
+		t.Fatalf("mcp token list did not expose token value: %+v", listed.Tokens[0])
+	}
 	var updated struct {
 		Token apiMCPToken `json:"token"`
 	}
@@ -433,6 +439,9 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	}, http.StatusOK, &updated)
 	if len(updated.Token.ToolGroups) != 2 || updated.Token.ToolGroups[0] != "session" || updated.Token.ToolGroups[1] != "audit" {
 		t.Fatalf("mcp token tool groups were not updated: %+v", updated.Token.ToolGroups)
+	}
+	if updated.Token.TokenValue != created.TokenValue {
+		t.Fatalf("mcp token update did not expose token value: %+v", updated.Token)
 	}
 	getJSON(t, httpClient, srv.URL+"/api/mcp-tokens", http.StatusOK, &listed)
 	if len(listed.Tokens) != 1 || len(listed.Tokens[0].ToolGroups) != 2 || listed.Tokens[0].ToolGroups[1] != "audit" {

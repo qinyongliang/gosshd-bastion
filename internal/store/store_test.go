@@ -147,9 +147,10 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 		t.Fatalf("public key user mismatch")
 	}
 	mcpToken, err := repo.CreateMCPToken(ctx, CreateMCPTokenParams{
-		UserID:    user.ID,
-		Name:      "agent",
-		TokenHash: []byte("mcp-token-hash"),
+		UserID:     user.ID,
+		Name:       "agent",
+		TokenHash:  []byte("mcp-token-hash"),
+		TokenValue: "gosshd_mcp_test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +165,7 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tokens) != 1 || tokens[0].LastUsedAt == nil {
+	if len(tokens) != 1 || tokens[0].LastUsedAt == nil || tokens[0].TokenValue != "gosshd_mcp_test" {
 		t.Fatalf("mcp token list mismatch: %#v", tokens)
 	}
 	if err := repo.DeleteMCPToken(ctx, user.ID, mcpToken.ID); err != nil {
@@ -283,13 +284,13 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 	}
 
 	policy, err := repo.CreateCommandPolicy(ctx, CreateCommandPolicyParams{
-		OwnerType:         OwnerOrganization,
-		OwnerID:           personal.ID,
-		Name:              "strict",
-		DefaultAction:     DecisionDeny,
-		LLMConfigID:       llm.ID,
-		LLMPromptID:       customPrompt.ID,
-		AllowManualReview: true,
+		OwnerType:                  OwnerOrganization,
+		OwnerID:                    personal.ID,
+		Name:                       "strict",
+		DefaultAction:              DecisionDeny,
+		LLMConfigID:                llm.ID,
+		LLMPromptID:                customPrompt.ID,
+		AllowManualReview:          true,
 		ManualReviewTimeoutSeconds: 45,
 	})
 	if err != nil {
@@ -336,16 +337,16 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 		t.Fatalf("policy manual review timeout mismatch: %#v", policies[0])
 	}
 	if _, err := repo.UpdateCommandPolicy(ctx, policy.ID, UpdateCommandPolicyParams{
-		Name:              "strict edited",
-		DefaultAction:     DecisionAllow,
-		LLMConfigID:       llm.ID,
-		LLMPromptID:       customPrompt.ID,
-		IPAllowlist:       "private",
-		AllowPortForward:  true,
-		AllowUpload:       true,
-		AllowDownload:     false,
-		AllowInteractive:  true,
-		AllowManualReview: true,
+		Name:                       "strict edited",
+		DefaultAction:              DecisionAllow,
+		LLMConfigID:                llm.ID,
+		LLMPromptID:                customPrompt.ID,
+		IPAllowlist:                "private",
+		AllowPortForward:           true,
+		AllowUpload:                true,
+		AllowDownload:              false,
+		AllowInteractive:           true,
+		AllowManualReview:          true,
 		ManualReviewTimeoutSeconds: 12,
 	}); err != nil {
 		t.Fatal(err)
