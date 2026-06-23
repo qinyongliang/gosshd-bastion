@@ -116,7 +116,7 @@ func (a *App) ensureAgentBinary(goos, goarch, name string) (string, error) {
 
 	assetName := a.agentAssetName(goos, goarch)
 	checksumURL := a.releaseChecksumsURL()
-	expectedSHA256, err := fetchReleaseChecksum(checksumURL, assetName)
+	expectedSHA256, err := a.fetchReleaseChecksumWithProxy(checksumURL, assetName)
 	if err != nil {
 		return "", fmt.Errorf("fetch release checksum: %w", err)
 	}
@@ -131,16 +131,27 @@ func (a *App) ensureAgentBinary(goos, goarch, name string) (string, error) {
 	if proxyURL == directURL {
 		return "", fmt.Errorf("direct download failed and no proxy URL configured")
 	}
-	proxyChecksumURL := a.proxyReleaseURL(checksumURL)
-	if proxyChecksumURL != checksumURL {
-		if checksum, err := fetchReleaseChecksum(proxyChecksumURL, assetName); err == nil {
-			expectedSHA256 = checksum
-		}
-	}
 	if err := downloadAgentFile(proxyURL, cachePath, false, expectedSHA256); err != nil {
 		return "", err
 	}
 	return cachePath, nil
+}
+
+func (a *App) fetchReleaseChecksumWithProxy(checksumURL, assetName string) (string, error) {
+	checksum, err := fetchReleaseChecksum(checksumURL, assetName)
+	if err == nil {
+		return checksum, nil
+	}
+	proxyChecksumURL := a.proxyReleaseURL(checksumURL)
+	if proxyChecksumURL == checksumURL {
+		return "", err
+	}
+	log.Printf("direct release checksum fetch failed from %s: %v", checksumURL, err)
+	if checksum, proxyErr := fetchReleaseChecksum(proxyChecksumURL, assetName); proxyErr == nil {
+		return checksum, nil
+	} else {
+		return "", fmt.Errorf("%w; proxy checksum fetch failed: %v", err, proxyErr)
+	}
 }
 
 func (a *App) agentCachePath(goos, goarch, name string) string {

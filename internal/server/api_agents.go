@@ -138,6 +138,7 @@ if [ "$mode" = "install" ]; then
     exit 1
   fi
   install -m 0755 "$tmp" /usr/local/bin/gosshd-agent
+  mkdir -p /var/lib/gosshd
   cat >/etc/systemd/system/gosshd-agent.service <<'SERVICE'
 [Unit]
 Description=gosshd bastion agent
@@ -146,7 +147,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gosshd-agent --server "%s" --enrollment-token %q --ssh-port %q
+ExecStart=/usr/local/bin/gosshd-agent --server "%s" --enrollment-token %q --ssh-port %q --id-file "/var/lib/gosshd/agent.json" --root "/root"
 Restart=always
 RestartSec=5
 
