@@ -107,6 +107,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/keys/{id}", a.requireUser(a.handleDeletePublicKey))
 	mux.HandleFunc("GET /api/mcp-tokens", a.requireUser(a.handleListMCPTokens))
 	mux.HandleFunc("POST /api/mcp-tokens", a.requireUser(a.handleCreateMCPToken))
+	mux.HandleFunc("PATCH /api/mcp-tokens/{id}", a.requireUser(a.handleUpdateMCPToken))
 	mux.HandleFunc("DELETE /api/mcp-tokens/{id}", a.requireUser(a.handleDeleteMCPToken))
 	mux.HandleFunc("GET /api/targets", a.requireUser(a.handleListTargets))
 	mux.HandleFunc("POST /api/targets", a.requireUser(a.handleCreateTarget))

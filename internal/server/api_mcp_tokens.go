@@ -83,6 +83,28 @@ func (a *App) handleDeleteMCPToken(w http.ResponseWriter, r *http.Request, user 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (a *App) handleUpdateMCPToken(w http.ResponseWriter, r *http.Request, user store.User) {
+	var req struct {
+		ToolGroups []string `json:"tool_groups"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	token, err := a.store.Repository().UpdateMCPToken(r.Context(), store.UpdateMCPTokenParams{
+		UserID:     user.ID,
+		TokenID:    r.PathValue("id"),
+		ToolGroups: req.ToolGroups,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Token apiMCPToken `json:"token"`
+	}{Token: apiMCPTokenFromStore(token)})
+}
+
 func apiMCPTokenFromStore(token store.MCPToken) apiMCPToken {
 	out := apiMCPToken{
 		ID:         token.ID,

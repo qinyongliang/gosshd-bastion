@@ -377,6 +377,12 @@ type CreateMCPTokenParams struct {
 	ToolGroups []string
 }
 
+type UpdateMCPTokenParams struct {
+	UserID     string
+	TokenID    string
+	ToolGroups []string
+}
+
 type CreateSSHTargetParams struct {
 	OwnerType       string
 	OwnerID         string

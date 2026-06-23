@@ -70,6 +70,7 @@ export const api = {
   deleteKey: (id: string) => request<void>(`/api/keys/${id}`, { method: "DELETE" }),
   mcpTokens: () => request<{ tokens: MCPToken[] }>("/api/mcp-tokens"),
   createMCPToken: (body: Record<string, unknown>) => request<MCPTokenCreateResponse>("/api/mcp-tokens", post(body)),
+  updateMCPToken: (id: string, body: Record<string, unknown>) => request<{ token: MCPToken }>(`/api/mcp-tokens/${id}`, patch(body)),
   deleteMCPToken: (id: string) => request<void>(`/api/mcp-tokens/${id}`, { method: "DELETE" }),
 
   targets: (owner: Owner) => request<{ targets: Target[] }>(`/api/targets?${ownerQuery(owner)}`),

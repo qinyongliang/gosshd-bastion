@@ -425,6 +425,19 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	if len(listed.Tokens) != 1 || listed.Tokens[0].LastUsedAt == "" {
 		t.Fatalf("mcp token last_used_at was not updated: %+v", listed)
 	}
+	var updated struct {
+		Token apiMCPToken `json:"token"`
+	}
+	patchJSON(t, httpClient, srv.URL+"/api/mcp-tokens/"+created.Token.ID, map[string]any{
+		"tool_groups": []string{"session", "audit"},
+	}, http.StatusOK, &updated)
+	if len(updated.Token.ToolGroups) != 2 || updated.Token.ToolGroups[0] != "session" || updated.Token.ToolGroups[1] != "audit" {
+		t.Fatalf("mcp token tool groups were not updated: %+v", updated.Token.ToolGroups)
+	}
+	getJSON(t, httpClient, srv.URL+"/api/mcp-tokens", http.StatusOK, &listed)
+	if len(listed.Tokens) != 1 || len(listed.Tokens[0].ToolGroups) != 2 || listed.Tokens[0].ToolGroups[1] != "audit" {
+		t.Fatalf("mcp token list did not reflect updated tool groups: %+v", listed)
+	}
 
 	deleteJSON(t, httpClient, srv.URL+"/api/mcp-tokens/"+created.Token.ID, http.StatusNoContent)
 	session, err = client.Connect(context.Background(), &mcp.StreamableClientTransport{

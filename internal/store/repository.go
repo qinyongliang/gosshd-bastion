@@ -295,6 +295,28 @@ func (r *Repository) TouchMCPToken(ctx context.Context, tokenID string, usedAt t
 	return err
 }
 
+func (r *Repository) UpdateMCPToken(ctx context.Context, params UpdateMCPTokenParams) (MCPToken, error) {
+	groups := normalizeMCPToolGroups(params.ToolGroups)
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE mcp_tokens SET tool_groups = ? WHERE user_id = ? AND id = ?
+	`, encodeMCPToolGroups(groups), strings.TrimSpace(params.UserID), strings.TrimSpace(params.TokenID))
+	if err != nil {
+		return MCPToken{}, err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return MCPToken{}, err
+	}
+	token, err := scanMCPTokenRows(r.db.QueryRowContext(ctx, `
+		SELECT id, user_id, name, token_hash, tool_groups, last_used_at, created_at
+		FROM mcp_tokens
+		WHERE user_id = ? AND id = ?
+	`, strings.TrimSpace(params.UserID), strings.TrimSpace(params.TokenID)))
+	if err != nil {
+		return MCPToken{}, wrapScanErr(err)
+	}
+	return token, nil
+}
+
 func (r *Repository) DeleteMCPToken(ctx context.Context, userID, tokenID string) error {
 	res, err := r.db.ExecContext(ctx, `
 		DELETE FROM mcp_tokens WHERE user_id = ? AND id = ?
