@@ -675,7 +675,14 @@ func (a *App) handleTargetFiles(w http.ResponseWriter, r *http.Request, user sto
 	}
 	out := apiTargetFilesResponse{Path: dir}
 	for _, info := range infos {
-		out.Entries = append(out.Entries, apiFileEntry(dir, info))
+		entryPath := remoteJoin(dir, info.Name())
+		var targetInfo fs.FileInfo
+		if info.Mode()&fs.ModeSymlink != 0 {
+			if stat, err := client.Stat(entryPath); err == nil {
+				targetInfo = stat
+			}
+		}
+		out.Entries = append(out.Entries, apiFileEntry(dir, info, targetInfo))
 	}
 	a.auditWebSFTP(r.Context(), user, target, decision, "sftp list "+dir, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r))
 	writeJSON(w, http.StatusOK, out)
@@ -849,9 +856,11 @@ func (a *App) targetForUser(ctx context.Context, targetID string, user store.Use
 	return target, nil
 }
 
-func apiFileEntry(dir string, info fs.FileInfo) apiTargetFileEntry {
+func apiFileEntry(dir string, info fs.FileInfo, targetInfo fs.FileInfo) apiTargetFileEntry {
 	typ := "file"
 	if info.IsDir() {
+		typ = "dir"
+	} else if targetInfo != nil && targetInfo.IsDir() {
 		typ = "dir"
 	} else if info.Mode()&fs.ModeSymlink != 0 {
 		typ = "symlink"

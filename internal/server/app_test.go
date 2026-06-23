@@ -1,8 +1,10 @@
 package server
 
 import (
+	"io/fs"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestStartupHTTPBaseUsesPublicHost(t *testing.T) {
@@ -43,3 +45,33 @@ func TestRuntimeInfoUsesPublicSSHPortOverride(t *testing.T) {
 		t.Fatalf("runtimeInfo mismatch: %+v", got)
 	}
 }
+
+func TestAPIFileEntryUsesSymlinkDirectoryTarget(t *testing.T) {
+	entry := apiFileEntry("/srv", fakeFileInfo{name: "current", mode: fs.ModeSymlink | 0o777}, fakeFileInfo{name: "release", mode: fs.ModeDir | 0o755})
+	if entry.Type != "dir" {
+		t.Fatalf("symlink to directory should render as dir: %+v", entry)
+	}
+	if entry.Path != "/srv/current" {
+		t.Fatalf("entry path mismatch: %s", entry.Path)
+	}
+}
+
+func TestAPIFileEntryKeepsNonDirectorySymlink(t *testing.T) {
+	entry := apiFileEntry("/srv", fakeFileInfo{name: "latest.log", mode: fs.ModeSymlink | 0o777}, fakeFileInfo{name: "app.log", mode: 0o644})
+	if entry.Type != "symlink" {
+		t.Fatalf("symlink to non-directory should stay symlink: %+v", entry)
+	}
+}
+
+type fakeFileInfo struct {
+	name string
+	mode fs.FileMode
+	size int64
+}
+
+func (f fakeFileInfo) Name() string       { return f.name }
+func (f fakeFileInfo) Size() int64        { return f.size }
+func (f fakeFileInfo) Mode() fs.FileMode  { return f.mode }
+func (f fakeFileInfo) ModTime() time.Time { return time.Unix(0, 0).UTC() }
+func (f fakeFileInfo) IsDir() bool        { return f.mode.IsDir() }
+func (f fakeFileInfo) Sys() any           { return nil }
