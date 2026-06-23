@@ -1,16 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus } from "lucide-react";
+import { KeyRound, Pencil, Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { CommandBox, Empty, Field, Modal, ModalActions, Panel, SimpleTable } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formSubmit, formatDate } from "../lib/forms";
-import type { ConsoleData, MCPTokenCreateResponse } from "../types";
+import type { ConsoleData, MCPToken, MCPTokenCreateResponse } from "../types";
 
 export function KeysPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
   const [modal, setModal] = useState(false);
   const [mcpModal, setMCPModal] = useState(false);
+  const [editingMCP, setEditingMCP] = useState<MCPToken | null>(null);
   const [mcpToolGroups, setMCPToolGroups] = useState<string[]>(["session"]);
   const [createdMCP, setCreatedMCP] = useState<MCPTokenCreateResponse | null>(null);
   const queryClient = useQueryClient();
@@ -18,6 +19,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
   const remove = useMutation({ mutationFn: api.deleteKey, onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["keys"] }) });
   const mcpTokens = useQuery({ queryKey: ["mcp-tokens"], queryFn: api.mcpTokens });
   const createMCP = useMutation({ mutationFn: api.createMCPToken, onSuccess: async (out) => { setCreatedMCP(out); await queryClient.invalidateQueries({ queryKey: ["mcp-tokens"] }); } });
+  const updateMCP = useMutation({ mutationFn: ({ id, tool_groups }: { id: string; tool_groups: string[] }) => api.updateMCPToken(id, { tool_groups }), onSuccess: async () => { setEditingMCP(null); await queryClient.invalidateQueries({ queryKey: ["mcp-tokens"] }); } });
   const removeMCP = useMutation({ mutationFn: api.deleteMCPToken, onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["mcp-tokens"] }) });
   const closeMCPModal = () => {
     setMCPModal(false);
@@ -28,6 +30,10 @@ export function KeysPage({ data }: { data: ConsoleData }) {
     setMCPToolGroups(["session"]);
     setMCPModal(true);
   };
+  const openEditMCP = (token: MCPToken) => {
+    setEditingMCP(token);
+    setMCPToolGroups(token.tool_groups?.length ? token.tool_groups : ["session"]);
+  };
   const toggleMCPToolGroup = (group: string) => {
     setMCPToolGroups((current) => {
       const next = current.includes(group) ? current.filter((item) => item !== group) : [...current, group];
@@ -36,6 +42,10 @@ export function KeysPage({ data }: { data: ConsoleData }) {
   };
   const submitMCP = (body: Record<string, string>) => {
     createMCP.mutate({ name: body.name, tool_groups: mcpToolGroups });
+  };
+  const submitMCPGroups = () => {
+    if (!editingMCP) return;
+    updateMCP.mutate({ id: editingMCP.id, tool_groups: mcpToolGroups });
   };
   const tokens = mcpTokens.data?.tokens || [];
   return (
@@ -62,7 +72,10 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           <span className="mcp-group-list">{(token.tool_groups || ["session"]).map((group) => <code key={group}>{toolGroupLabel(t, group)}</code>)}</span>,
           formatDate(token.created_at),
           token.last_used_at ? formatDate(token.last_used_at) : "-",
-          <button type="button" onClick={() => removeMCP.mutate(token.id)}>{t("commonDelete")}</button>,
+          <span className="row-actions">
+            <button type="button" onClick={() => openEditMCP(token)}><Pencil />{t("commonEdit")}</button>
+            <button type="button" onClick={() => removeMCP.mutate(token.id)}>{t("commonDelete")}</button>
+          </span>,
         ])} /> : <Empty title={t("mcpTokensEmptyTitle")} body={t("mcpTokensEmptyBody")} />}
       </section>
       {modal && <Modal title={t("keysAddTitle")} onClose={() => setModal(false)} closeOnEscape={false}>
@@ -90,6 +103,21 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           </fieldset>
           <ModalActions onCancel={closeMCPModal} submit={t("mcpTokenGenerate")} />
         </form>}
+      </Modal>}
+      {editingMCP && <Modal title={t("mcpTokenEditTitle")} onClose={() => setEditingMCP(null)} wide>
+        <form className="stack" onSubmit={(event) => { event.preventDefault(); submitMCPGroups(); }}>
+          <p className="muted">{editingMCP.name}</p>
+          <fieldset className="mcp-tool-groups">
+            <legend>{t("mcpToolGroups")}</legend>
+            {["session", "auth", "member", "target", "policy", "audit"].map((group) => (
+              <label key={group} className="checkbox-row">
+                <input type="checkbox" checked={mcpToolGroups.includes(group)} onChange={() => toggleMCPToolGroup(group)} />
+                <span>{toolGroupLabel(t, group)}</span>
+              </label>
+            ))}
+          </fieldset>
+          <ModalActions onCancel={() => setEditingMCP(null)} submit={t("commonSave")} />
+        </form>
       </Modal>}
     </>
   );
