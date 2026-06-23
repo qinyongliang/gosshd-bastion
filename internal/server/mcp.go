@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ type mcpOK struct {
 type mcpActor struct {
 	User       store.User
 	ToolGroups map[string]bool
+	Runtime    apiRuntime
 }
 
 func (a *App) mcpHandler() http.Handler {
@@ -36,7 +38,7 @@ func (a *App) mcpHandler() http.Handler {
 
 func (a *App) actorForMCPRequest(r *http.Request) (mcpActor, error) {
 	if user, err := a.userForRequest(r); err == nil {
-		return mcpActor{User: user, ToolGroups: allMCPToolGroups()}, nil
+		return mcpActor{User: user, ToolGroups: allMCPToolGroups(), Runtime: a.runtimeInfo(r)}, nil
 	}
 	tokenValue := bearerToken(r)
 	if tokenValue == "" {
@@ -54,7 +56,7 @@ func (a *App) actorForMCPRequest(r *http.Request) (mcpActor, error) {
 		return mcpActor{}, err
 	}
 	_ = a.store.Repository().TouchMCPToken(r.Context(), token.ID, time.Now().UTC())
-	return mcpActor{User: user, ToolGroups: mcpToolGroupSet(token.ToolGroups)}, nil
+	return mcpActor{User: user, ToolGroups: mcpToolGroupSet(token.ToolGroups), Runtime: a.runtimeInfo(r)}, nil
 }
 
 func bearerToken(r *http.Request) string {
@@ -102,6 +104,52 @@ func mcpAnyManagementToolGroupAllowed(groups map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+func (a *App) mcpListTargets(ctx context.Context, actor store.User, userID string, in mcpTargetListInput) ([]store.SSHTarget, error) {
+	if strings.TrimSpace(in.OwnerType) != "" || strings.TrimSpace(in.OwnerID) != "" {
+		ownerType, ownerID, err := a.resolveOwner(ctx, in.OwnerType, in.OwnerID, userID)
+		if err != nil {
+			return nil, err
+		}
+		return a.store.Repository().ListSSHTargetsFiltered(ctx, store.SSHTargetFilter{
+			OwnerType: ownerType,
+			OwnerID:   ownerID,
+			Tags:      in.Tags,
+		})
+	}
+	if actor.IsSystemAdmin && strings.TrimSpace(in.UserID) == "" {
+		return a.store.Repository().ListSSHTargetsFiltered(ctx, store.SSHTargetFilter{Tags: in.Tags})
+	}
+	orgs, err := a.store.Repository().ListOrganizationsForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.SSHTarget
+	for _, org := range orgs {
+		targets, err := a.store.Repository().ListSSHTargetsFiltered(ctx, store.SSHTargetFilter{
+			OwnerType: store.OwnerOrganization,
+			OwnerID:   org.ID,
+			Tags:      in.Tags,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, targets...)
+	}
+	return out, nil
+}
+
+func targetConnectionCommand(runtime apiRuntime, target store.SSHTarget) string {
+	host := strings.TrimSpace(runtime.SSHHost)
+	if host == "" {
+		host = "public-ip"
+	}
+	port := runtime.SSHPort
+	if port <= 0 {
+		port = 22
+	}
+	return fmt.Sprintf("ssh -p %d %s@%s", port, target.Alias, host)
 }
 
 func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
@@ -163,11 +211,11 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 					EndedAt:        &ended,
 					RemoteAddress:  session.sourceIP,
 				})
-				return nil, mcpSessionCommandOutput{Allowed: false, PolicyReason: decision.Reason, Output: msg}, nil
+				return nil, mcpSessionCommandOutput{Allowed: false, PolicyReason: decision.Reason, Output: msg, ExitCode: code}, nil
 			}
-			output, err := session.sendCommand(in.Command)
+			result, err := session.sendCommand(ctx, in.Command)
 			ended := time.Now().UTC()
-			code := 0
+			code := result.ExitCode
 			_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
 				UserID:         actor.ID,
 				TargetID:       session.target.ID,
@@ -186,7 +234,7 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 			if err != nil {
 				return nil, mcpSessionCommandOutput{}, err
 			}
-			return nil, mcpSessionCommandOutput{Allowed: true, PolicyReason: decision.Reason, Output: output}, nil
+			return nil, mcpSessionCommandOutput{Allowed: true, PolicyReason: decision.Reason, Output: result.Output, ExitCode: result.ExitCode}, nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "session_interrupt", Description: "Send Ctrl+C to an active web terminal session."},
@@ -379,6 +427,29 @@ func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 				return nil, apiPublicKeyResponse{}, err
 			}
 			return nil, apiPublicKeyResponse{Key: apiPublicKeyFromStore(key)}, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "target_list", Description: "List SSH targets visible to the user, including bastion SSH connection commands."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpTargetListInput) (*mcp.CallToolResult, mcpTargetListOutput, error) {
+			if err := a.ensureServices(ctx); err != nil {
+				return nil, mcpTargetListOutput{}, err
+			}
+			userID, err := mcpUserID(actor, in.UserID)
+			if err != nil {
+				return nil, mcpTargetListOutput{}, err
+			}
+			targets, err := a.mcpListTargets(ctx, actor, userID, in)
+			if err != nil {
+				return nil, mcpTargetListOutput{}, err
+			}
+			out := mcpTargetListOutput{}
+			for _, target := range targets {
+				out.Targets = append(out.Targets, mcpTargetInfo{
+					Target:            apiTargetFromStore(target),
+					ConnectionCommand: targetConnectionCommand(actorCtx.Runtime, target),
+				})
+			}
+			return nil, out, nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "target_create", Description: "Create a direct or agent-backed SSH target."},
@@ -746,6 +817,7 @@ type mcpSessionCommandOutput struct {
 	Allowed      bool   `json:"allowed"`
 	PolicyReason string `json:"policy_reason"`
 	Output       string `json:"output"`
+	ExitCode     int    `json:"exit_code"`
 }
 
 type mcpSessionScreenOutput struct {
@@ -804,6 +876,20 @@ type mcpTargetCreateInput struct {
 	AgentID        string   `json:"agent_id,omitempty"`
 	ProxyTargetID  string   `json:"proxy_target_id,omitempty"`
 	Tags           []string `json:"tags,omitempty"`
+}
+
+type mcpTargetListInput struct {
+	mcpOwnerInput
+	Tags []string `json:"tags,omitempty"`
+}
+
+type mcpTargetListOutput struct {
+	Targets []mcpTargetInfo `json:"targets"`
+}
+
+type mcpTargetInfo struct {
+	Target            apiTarget `json:"target"`
+	ConnectionCommand string    `json:"connection_command"`
 }
 
 type mcpTargetDeleteInput struct {

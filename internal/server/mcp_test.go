@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -203,6 +204,20 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 		t.Fatalf("target name mismatch: %q in %#v", name, target.StructuredContent)
 	}
 	targetID := stringField(t, target.StructuredContent, "target", "id")
+	listedTargets, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "target_list",
+		Arguments: map[string]any{
+			"user_id":    userID,
+			"owner_type": "organization",
+			"owner_id":   orgID,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command := targetConnectionCommandFromStructured(listedTargets.StructuredContent, targetID); !strings.HasPrefix(command, "ssh -p 22 test2@") {
+		t.Fatalf("target_list connection command mismatch: %q in %#v", command, listedTargets.StructuredContent)
+	}
 	llmConfig, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "llm_config_create",
 		Arguments: map[string]any{
@@ -521,6 +536,32 @@ func containsStructuredField(v any, listKey, field, value string) bool {
 		}
 	}
 	return false
+}
+
+func targetConnectionCommandFromStructured(v any, targetID string) string {
+	root, ok := v.(map[string]any)
+	if !ok {
+		return ""
+	}
+	items, ok := root["targets"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		target, ok := m["target"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if got, _ := target["id"].(string); got == targetID {
+			command, _ := m["connection_command"].(string)
+			return command
+		}
+	}
+	return ""
 }
 
 func testMCPSigner(t *testing.T) gossh.Signer {
