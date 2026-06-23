@@ -3445,7 +3445,7 @@ html[data-theme="dark"] .connect-workspace {
 
 .server-switcher {
   position: relative;
-  z-index: 121;
+  z-index: 200;
   flex: 0 0 auto;
 }
 
@@ -3462,17 +3462,23 @@ html[data-theme="dark"] .connect-workspace {
   position: absolute;
   top: calc(100% + 10px);
   left: 0;
-  z-index: 140;
+  z-index: 1;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   width: min(440px, calc(100vw - 24px));
   max-height: min(620px, calc(100dvh - 84px));
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px;
-  background: color-mix(in srgb, var(--panel-strong) 94%, transparent);
-  box-shadow: 0 24px 70px rgba(5, 16, 30, 0.24);
-  backdrop-filter: blur(18px);
+  border-radius: 10px;
+  padding: 12px;
+  color: var(--ink);
+  background: #f7fbff;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+}
+
+html[data-theme="dark"] .server-switcher-menu {
+  color: var(--ink);
+  background: #0b1626;
 }
 
 .server-switcher-search {
@@ -3483,11 +3489,17 @@ html[data-theme="dark"] .connect-workspace {
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   padding: 0 10px;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.78);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
 html[data-theme="dark"] .server-switcher-search {
-  background: rgba(2, 6, 12, 0.64);
+  background: rgba(3, 10, 20, 0.74);
+}
+
+.server-switcher-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line-soft));
+  box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.12);
 }
 
 .server-switcher-search svg {
@@ -3500,7 +3512,13 @@ html[data-theme="dark"] .server-switcher-search {
   border: 0;
   border-radius: 0;
   padding: 0;
+  color: var(--ink);
   background: transparent;
+  box-shadow: none;
+}
+
+.server-switcher-search input:focus {
+  border-color: transparent;
   box-shadow: none;
 }
 
@@ -3509,6 +3527,7 @@ html[data-theme="dark"] .server-switcher-search {
   gap: 6px;
   min-height: 0;
   overflow: auto;
+  padding-right: 4px;
 }
 
 .server-switcher-item {
@@ -3518,14 +3537,17 @@ html[data-theme="dark"] .server-switcher-search {
   gap: 10px;
   min-height: 0;
   width: 100%;
-  border-color: var(--line-soft);
+  border: 1px solid transparent;
+  border-radius: 8px;
   padding: 10px;
   text-align: left;
-  background: rgba(255, 255, 255, 0.58);
+  color: var(--ink);
+  background: #ffffff;
 }
 
 html[data-theme="dark"] .server-switcher-item {
-  background: rgba(2, 6, 12, 0.38);
+  color: var(--ink);
+  background: #101d31;
 }
 
 .server-switcher-item:hover,
