@@ -188,7 +188,7 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 				return nil, mcpSessionCommandOutput{}, err
 			}
 			if decision.Action == store.DecisionDeny && decision.AllowManualReview {
-				decision = a.reviewDeniedCommand(ctx, actor.ID, session.target, in.Command, decision)
+				decision = a.reviewDeniedCommandForSession(ctx, actor.ID, session.target, in.Command, decision, session.id)
 			}
 			started := time.Now().UTC()
 			if decision.Action == store.DecisionDeny {

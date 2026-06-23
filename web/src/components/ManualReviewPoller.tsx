@@ -13,7 +13,7 @@ type ReviewState = {
 const POLL_BACKOFF_MS = 500;
 const POLL_MAX_BACKOFF_MS = 5000;
 
-export function ManualReviewPoller({ data }: { data: ConsoleData }) {
+export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData; sessionID?: string }) {
   const { t } = useI18n();
   const [reviews, setReviews] = useState<ReviewState[]>([]);
   const [dismissing, setDismissing] = useState<Set<string>>(new Set());
@@ -26,7 +26,7 @@ export function ManualReviewPoller({ data }: { data: ConsoleData }) {
     setDismissing(new Set());
     setHidden(new Set());
     knownIDsRef.current = new Set();
-  }, [canReview, data.activeOrg.id]);
+  }, [canReview, data.activeOrg.id, sessionID]);
 
   useEffect(() => {
     if (!canReview) return;
@@ -36,7 +36,7 @@ export function ManualReviewPoller({ data }: { data: ConsoleData }) {
     const run = async () => {
       while (!cancelled) {
         try {
-          const result = await api.manualReviews(data.activeOrg.id, 25, Array.from(knownIDsRef.current));
+          const result = await api.manualReviews(data.activeOrg.id, 25, Array.from(knownIDsRef.current), sessionID);
           if (cancelled) return;
           for (const review of result.reviews) {
             knownIDsRef.current.add(review.id);
@@ -57,7 +57,7 @@ export function ManualReviewPoller({ data }: { data: ConsoleData }) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [canReview, data.activeOrg.id]);
+  }, [canReview, data.activeOrg.id, sessionID]);
 
   const decide = useMutation({
     mutationFn: ({ id, allow }: { id: string; allow: boolean }) => api.decideManualReview(id, allow),

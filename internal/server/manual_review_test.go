@@ -122,6 +122,36 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 	if len(empty.Reviews) != 0 {
 		t.Fatalf("skipped manual review should not create pending reviews: %+v", empty)
 	}
+
+	sessionPollCh := startManualReviewPoll(ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&session_id=session-1&timeout_seconds=2")
+	waitForManualReviewPoller(t, app, org.Organization.ID, "session-1")
+	sessionResultCh := make(chan bastion.Decision, 1)
+	go func() {
+		sessionResultCh <- app.reviewDeniedCommandForSession(ctx, member.User.ID, storeTarget, "systemctl restart redis", bastion.Decision{
+			Action:                     store.DecisionDeny,
+			Reason:                     "llm: service restart",
+			AllowManualReview:          true,
+			ManualReviewTimeoutSeconds: 2,
+		}, "session-1")
+	}()
+	var orgOnly apiManualReviewsResponse
+	getJSON(t, ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&timeout_seconds=0", http.StatusOK, &orgOnly)
+	if len(orgOnly.Reviews) != 0 {
+		t.Fatalf("session-scoped review leaked into organization poll: %+v", orgOnly)
+	}
+	sessionPending := readManualReviewPoll(t, sessionPollCh, http.StatusOK)
+	if len(sessionPending.Reviews) != 1 || sessionPending.Reviews[0].SessionID != "session-1" {
+		t.Fatalf("session scoped pending review mismatch: %+v", sessionPending)
+	}
+	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+sessionPending.Reviews[0].ID+"/decision", map[string]bool{"allow": true}, http.StatusOK, nil)
+	select {
+	case decision := <-sessionResultCh:
+		if decision.Action != store.DecisionAllow || !strings.Contains(decision.Reason, "manual approved by") {
+			t.Fatalf("session review approval mismatch: %+v", decision)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("session review decision did not unblock command")
+	}
 }
 
 type manualReviewPollResult struct {
@@ -165,11 +195,15 @@ func readManualReviewPoll(t *testing.T, ch <-chan manualReviewPollResult, wantSt
 	}
 }
 
-func waitForManualReviewPoller(t *testing.T, app *App, organizationID string) {
+func waitForManualReviewPoller(t *testing.T, app *App, organizationID string, sessionID ...string) {
 	t.Helper()
+	scope := ""
+	if len(sessionID) > 0 {
+		scope = sessionID[0]
+	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if app.manualReviews.HasActivePollers(organizationID) {
+		if app.manualReviews.HasActivePollers(organizationID, scope) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

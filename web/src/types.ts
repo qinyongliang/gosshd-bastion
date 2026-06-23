@@ -199,6 +199,7 @@ export type AuditRecording = {
 export type ManualReview = {
   id: string;
   organization_id: string;
+  session_id?: string;
   target_id: string;
   target_name: string;
   target_alias: string;
