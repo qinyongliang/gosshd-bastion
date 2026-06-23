@@ -53,8 +53,9 @@ export function ConnectPage({ data }: { data: ConsoleData }) {
 function ConnectWorkspace({ target, targets }: { target: Target; targets: Target[] }) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
-  const [hostOpen, setHostOpen] = useState(true);
-  const [filesOpen, setFilesOpen] = useState(true);
+  const terminalFocusedByDefault = shouldFocusTerminalByDefault();
+  const [hostOpen, setHostOpen] = useState(() => !terminalFocusedByDefault);
+  const [filesOpen, setFilesOpen] = useState(() => !terminalFocusedByDefault);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const [hostWidth, setHostWidth] = useState(330);
   const [filesWidth, setFilesWidth] = useState(480);
@@ -563,7 +564,7 @@ function ServerSwitcher({ targets, currentTargetID }: { targets: Target[]; curre
   }, [open]);
 
   const openTarget = (target: Target) => {
-    const features = "noopener,noreferrer,width=1440,height=900";
+    const features = connectPopupFeatures();
     window.open(`/targets/${target.id}/connect`, `connect-${target.id}`, features);
     setOpen(false);
     setQuery("");
@@ -631,6 +632,30 @@ function estimateTerminalDimensions(width: number, height: number, fontSize: num
     cols: Math.max(20, Math.floor(width / charWidth)),
     rows: Math.max(8, Math.floor(height / charHeight)),
   };
+}
+
+function shouldFocusTerminalByDefault() {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth < 1680;
+}
+
+function connectPopupFeatures() {
+  if (typeof window === "undefined") {
+    return "noopener,noreferrer,resizable=yes,scrollbars=no,width=1440,height=900";
+  }
+  const width = Math.max(1024, window.screen.availWidth || window.outerWidth || 1440);
+  const height = Math.max(720, window.screen.availHeight || window.outerHeight || 900);
+  return [
+    "noopener",
+    "noreferrer",
+    "popup=yes",
+    "resizable=yes",
+    "scrollbars=no",
+    "left=0",
+    "top=0",
+    `width=${Math.round(width)}`,
+    `height=${Math.round(height)}`,
+  ].join(",");
 }
 
 function snapshotToSample(snapshot: TargetSystemSnapshot): MetricSample {
