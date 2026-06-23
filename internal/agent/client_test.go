@@ -132,3 +132,17 @@ func TestExplicitShellIsPreserved(t *testing.T) {
 		t.Fatalf("shell mismatch:\n got: %s\nwant: %s", got, want)
 	}
 }
+
+func TestCommandEnvironmentAddsDefaultTERM(t *testing.T) {
+	env := commandEnvironment([]string{"PATH=/usr/bin"})
+	if got, want := env[len(env)-1], "TERM=xterm-256color"; got != want {
+		t.Fatalf("TERM mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestCommandEnvironmentPreservesExistingTERM(t *testing.T) {
+	env := commandEnvironment([]string{"TERM=vt100", "PATH=/usr/bin"})
+	if len(env) != 2 || env[0] != "TERM=vt100" {
+		t.Fatalf("existing TERM should be preserved: %#v", env)
+	}
+}
