@@ -93,3 +93,38 @@ func TestEnsureAgentBinaryFallsBackToProxyChecksum(t *testing.T) {
 		t.Fatalf("cached agent mismatch: %q", got)
 	}
 }
+
+func TestAgentDownloadSHA256FallsBackToReleaseChecksum(t *testing.T) {
+	agentBytes := []byte("agent-binary")
+	agentSHA := fmt.Sprintf("%x", sha256.Sum256(agentBytes))
+	assetName := "gosshd-agent-v1.2.3-linux-amd64"
+
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "direct unavailable", http.StatusInternalServerError)
+	}))
+	t.Cleanup(direct.Close)
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/checksums.txt") {
+			_, _ = fmt.Fprintf(w, "%s  %s\n", agentSHA, assetName)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(proxy.Close)
+
+	app := NewApp(Config{
+		Version:         "v1.2.3",
+		ReleaseBaseURL:  direct.URL,
+		ReleaseProxyURL: proxy.URL,
+		AgentCachePath:  filepath.Join(t.TempDir(), "cache"),
+	})
+
+	got, err := app.agentDownloadSHA256("linux", "amd64")
+	if err != nil {
+		t.Fatalf("agentDownloadSHA256 failed: %v", err)
+	}
+	if got != agentSHA {
+		t.Fatalf("sha mismatch: got %s want %s", got, agentSHA)
+	}
+}

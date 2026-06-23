@@ -508,7 +508,10 @@ func (a *App) agentDownloadSHA256(goos, goarch string) (string, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	return "", errors.New("agent binary is not cached")
+	if a.cfg.version() == DefaultVersion {
+		return "", errors.New("agent binary is not cached")
+	}
+	return a.fetchReleaseChecksumWithProxy(a.releaseChecksumsURL(), a.agentAssetName(goos, goarch))
 }
 
 func requestOriginAllowed(r *http.Request) bool {
