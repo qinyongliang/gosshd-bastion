@@ -138,20 +138,19 @@ func (a *App) ensureAgentBinary(goos, goarch, name string) (string, error) {
 }
 
 func (a *App) fetchReleaseChecksumWithProxy(checksumURL, assetName string) (string, error) {
+	proxyChecksumURL := a.proxyReleaseURL(checksumURL)
+	if proxyChecksumURL != checksumURL {
+		if checksum, err := fetchReleaseChecksum(proxyChecksumURL, assetName); err == nil {
+			return checksum, nil
+		} else {
+			log.Printf("proxy release checksum fetch failed from %s: %v", proxyChecksumURL, err)
+		}
+	}
 	checksum, err := fetchReleaseChecksum(checksumURL, assetName)
 	if err == nil {
 		return checksum, nil
 	}
-	proxyChecksumURL := a.proxyReleaseURL(checksumURL)
-	if proxyChecksumURL == checksumURL {
-		return "", err
-	}
-	log.Printf("direct release checksum fetch failed from %s: %v", checksumURL, err)
-	if checksum, proxyErr := fetchReleaseChecksum(proxyChecksumURL, assetName); proxyErr == nil {
-		return checksum, nil
-	} else {
-		return "", fmt.Errorf("%w; proxy checksum fetch failed: %v", err, proxyErr)
-	}
+	return "", err
 }
 
 func (a *App) agentCachePath(goos, goarch, name string) string {
