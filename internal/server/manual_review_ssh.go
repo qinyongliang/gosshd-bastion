@@ -9,11 +9,15 @@ import (
 )
 
 func (a *App) reviewDeniedCommand(ctx context.Context, userID string, target store.SSHTarget, command string, decision bastion.Decision) bastion.Decision {
+	return a.reviewDeniedCommandForSession(ctx, userID, target, command, decision, "")
+}
+
+func (a *App) reviewDeniedCommandForSession(ctx context.Context, userID string, target store.SSHTarget, command string, decision bastion.Decision, sessionID string) bastion.Decision {
 	if !decision.AllowManualReview {
 		return decision
 	}
 	organizationID := organizationIDForTarget(target)
-	if !a.manualReviews.HasActivePollers(organizationID) {
+	if !a.manualReviews.HasActivePollers(organizationID, sessionID) {
 		decision.AllowManualReview = false
 		decision.Reason = "manual review skipped: no active reviewer polling: " + decision.Reason
 		return decision
@@ -25,6 +29,7 @@ func (a *App) reviewDeniedCommand(ctx context.Context, userID string, target sto
 	timeout := time.Duration(decision.ManualReviewTimeoutSeconds) * time.Second
 	review, decided := a.manualReviews.Create(manualReviewRequest{
 		OrganizationID:  organizationID,
+		SessionID:       sessionID,
 		TargetID:        target.ID,
 		TargetName:      target.Name,
 		TargetAlias:     target.Alias,

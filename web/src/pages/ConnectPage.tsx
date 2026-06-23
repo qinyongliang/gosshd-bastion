@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
+import { ManualReviewPoller } from "../components/ManualReviewPoller";
 import { Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { useTheme } from "../theme";
@@ -47,10 +48,10 @@ export function ConnectPage({ data }: { data: ConsoleData }) {
     );
   }
 
-  return <ConnectWorkspace target={target} targets={data.targets} />;
+  return <ConnectWorkspace data={data} target={target} targets={data.targets} />;
 }
 
-function ConnectWorkspace({ target, targets }: { target: Target; targets: Target[] }) {
+function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target: Target; targets: Target[] }) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const terminalFocusedByDefault = shouldFocusTerminalByDefault();
@@ -171,7 +172,7 @@ function ConnectWorkspace({ target, targets }: { target: Target; targets: Target
           style={{ "--files-width": `${filesWidth}px` } as CSSProperties}
         >
           <div className="connect-zone terminal-zone">
-            <TerminalPanel target={target} isFullscreen={terminalFullscreen} onFullscreenChange={setTerminalFullscreen} />
+            <TerminalPanel data={data} target={target} isFullscreen={terminalFullscreen} onFullscreenChange={setTerminalFullscreen} />
           </div>
           {filesOpen && !terminalFullscreen && (
             <button type="button" className="connect-resizer files-resizer" onPointerDown={(event) => startResize("files", event)} aria-label={t("connectFilesTitle")}>
@@ -356,7 +357,7 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-function TerminalPanel({ target, isFullscreen, onFullscreenChange }: { target: Target; isFullscreen: boolean; onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void }) {
+function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { data: ConsoleData; target: Target; isFullscreen: boolean; onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void }) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -365,6 +366,7 @@ function TerminalPanel({ target, isFullscreen, onFullscreenChange }: { target: T
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [error, setError] = useState("");
   const [dims, setDims] = useState({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS });
+  const [sessionID, setSessionID] = useState("");
   const fitRetryRef = useRef<number | null>(null);
 
   const connect = () => {
@@ -374,6 +376,7 @@ function TerminalPanel({ target, isFullscreen, onFullscreenChange }: { target: T
     }
     setStatus("connecting");
     setError("");
+    setSessionID("");
     const terminal = terminalRef.current;
     if (!terminal) return;
 
@@ -396,7 +399,7 @@ function TerminalPanel({ target, isFullscreen, onFullscreenChange }: { target: T
 
     socket.onmessage = (event) => {
       try {
-        const message = JSON.parse(event.data) as { type: string; data?: string; code?: number; cols?: number; rows?: number };
+        const message = JSON.parse(event.data) as { type: string; data?: string; code?: number; cols?: number; rows?: number; session_id?: string };
         if (message.type === "output" && message.data !== undefined) {
           terminal.write(message.data);
         } else if (message.type === "error" && message.data !== undefined) {
@@ -406,6 +409,8 @@ function TerminalPanel({ target, isFullscreen, onFullscreenChange }: { target: T
         } else if (message.type === "exit") {
           terminal.write(`\r\n\x1b[2;37mSession ended (exit ${message.code ?? "-"})\x1b[0m\r\n`);
           setStatus("disconnected");
+        } else if (message.type === "session" && message.session_id) {
+          setSessionID(message.session_id);
         }
       } catch {
         terminal.write(event.data);
@@ -423,6 +428,7 @@ function TerminalPanel({ target, isFullscreen, onFullscreenChange }: { target: T
         heartbeatRef.current = null;
       }
       setStatus((prev) => (prev === "connected" ? "disconnected" : prev));
+      setSessionID("");
     };
   };
 
@@ -519,6 +525,7 @@ function TerminalPanel({ target, isFullscreen, onFullscreenChange }: { target: T
 
   return (
     <section className={`terminal-panel ${isFullscreen ? "fullscreen" : ""}`}>
+      {sessionID && <ManualReviewPoller data={data} sessionID={sessionID} />}
       <button type="button" className="terminal-fullscreen-button icon-button" onClick={() => onFullscreenChange((prev) => !prev)} aria-label={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")} title={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")}>
         {isFullscreen ? <Minimize /> : <Maximize />}
       </button>

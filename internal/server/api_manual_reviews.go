@@ -13,6 +13,7 @@ import (
 type apiManualReview struct {
 	ID              string `json:"id"`
 	OrganizationID  string `json:"organization_id"`
+	SessionID       string `json:"session_id,omitempty"`
 	TargetID        string `json:"target_id"`
 	TargetName      string `json:"target_name"`
 	TargetAlias     string `json:"target_alias"`
@@ -39,7 +40,8 @@ func (a *App) handleListManualReviews(w http.ResponseWriter, r *http.Request, us
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
-	reviews, err := a.manualReviews.List(r.Context(), orgID, manualReviewPollTimeout(r), manualReviewKnownIDs(r))
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	reviews, err := a.manualReviews.List(r.Context(), orgID, sessionID, manualReviewPollTimeout(r), manualReviewKnownIDs(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -113,6 +115,7 @@ func apiManualReviewFromSnapshot(review manualReviewSnapshot) apiManualReview {
 	return apiManualReview{
 		ID:              review.ID,
 		OrganizationID:  review.OrganizationID,
+		SessionID:       review.SessionID,
 		TargetID:        review.TargetID,
 		TargetName:      review.TargetName,
 		TargetAlias:     review.TargetAlias,

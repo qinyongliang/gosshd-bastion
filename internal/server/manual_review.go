@@ -22,6 +22,7 @@ type manualReviewHub struct {
 type manualReviewRequest struct {
 	ID              string
 	OrganizationID  string
+	SessionID       string
 	TargetID        string
 	TargetName      string
 	TargetAlias     string
@@ -45,6 +46,7 @@ type manualReviewDecision struct {
 type manualReviewSnapshot struct {
 	ID              string
 	OrganizationID  string
+	SessionID       string
 	TargetID        string
 	TargetName      string
 	TargetAlias     string
@@ -81,17 +83,18 @@ func (h *manualReviewHub) Create(req manualReviewRequest, timeout time.Duration)
 	return snapshotManualReview(&req), req.decision
 }
 
-func (h *manualReviewHub) List(ctx context.Context, organizationID string, timeout time.Duration, knownIDs map[string]struct{}) ([]manualReviewSnapshot, error) {
+func (h *manualReviewHub) List(ctx context.Context, organizationID, sessionID string, timeout time.Duration, knownIDs map[string]struct{}) ([]manualReviewSnapshot, error) {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	registered := false
+	pollerKey := manualReviewPollerKey(organizationID, sessionID)
 	defer func() {
 		if registered {
-			h.unregisterPoller(organizationID)
+			h.unregisterPoller(pollerKey)
 		}
 	}()
 	for {
-		reviews, notify, didRegister := h.listOrNotify(organizationID, knownIDs, timeout > 0 && !registered)
+		reviews, notify, didRegister := h.listOrNotify(organizationID, sessionID, knownIDs, timeout > 0 && !registered)
 		if didRegister {
 			registered = true
 		}
@@ -108,10 +111,10 @@ func (h *manualReviewHub) List(ctx context.Context, organizationID string, timeo
 	}
 }
 
-func (h *manualReviewHub) HasActivePollers(organizationID string) bool {
+func (h *manualReviewHub) HasActivePollers(organizationID, sessionID string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.activePollers[organizationID] > 0
+	return h.activePollers[manualReviewPollerKey(organizationID, sessionID)] > 0
 }
 
 func (h *manualReviewHub) Get(id string) (manualReviewSnapshot, bool) {
@@ -151,23 +154,23 @@ func (h *manualReviewHub) Expire(id string) {
 	}
 }
 
-func (h *manualReviewHub) listOrNotify(organizationID string, knownIDs map[string]struct{}, registerPoller bool) ([]manualReviewSnapshot, <-chan struct{}, bool) {
+func (h *manualReviewHub) listOrNotify(organizationID, sessionID string, knownIDs map[string]struct{}, registerPoller bool) ([]manualReviewSnapshot, <-chan struct{}, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.expireLocked(time.Now().UTC())
-	reviews := h.listLocked(organizationID, knownIDs)
+	reviews := h.listLocked(organizationID, sessionID, knownIDs)
 	registered := false
 	if registerPoller && len(reviews) == 0 {
-		h.activePollers[organizationID]++
+		h.activePollers[manualReviewPollerKey(organizationID, sessionID)]++
 		registered = true
 	}
 	return reviews, h.notify, registered
 }
 
-func (h *manualReviewHub) listLocked(organizationID string, knownIDs map[string]struct{}) []manualReviewSnapshot {
+func (h *manualReviewHub) listLocked(organizationID, sessionID string, knownIDs map[string]struct{}) []manualReviewSnapshot {
 	out := []manualReviewSnapshot{}
 	for _, req := range h.pending {
-		if req.OrganizationID == organizationID && !knownManualReviewID(req.ID, knownIDs) {
+		if req.OrganizationID == organizationID && req.SessionID == sessionID && !knownManualReviewID(req.ID, knownIDs) {
 			out = append(out, snapshotManualReview(req))
 		}
 	}
@@ -193,20 +196,21 @@ func (h *manualReviewHub) signalLocked() {
 	h.notify = make(chan struct{})
 }
 
-func (h *manualReviewHub) unregisterPoller(organizationID string) {
+func (h *manualReviewHub) unregisterPoller(pollerKey string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.activePollers[organizationID] <= 1 {
-		delete(h.activePollers, organizationID)
+	if h.activePollers[pollerKey] <= 1 {
+		delete(h.activePollers, pollerKey)
 		return
 	}
-	h.activePollers[organizationID]--
+	h.activePollers[pollerKey]--
 }
 
 func snapshotManualReview(req *manualReviewRequest) manualReviewSnapshot {
 	return manualReviewSnapshot{
 		ID:              req.ID,
 		OrganizationID:  req.OrganizationID,
+		SessionID:       req.SessionID,
 		TargetID:        req.TargetID,
 		TargetName:      req.TargetName,
 		TargetAlias:     req.TargetAlias,
@@ -218,6 +222,13 @@ func snapshotManualReview(req *manualReviewRequest) manualReviewSnapshot {
 		CreatedAt:       req.CreatedAt,
 		ExpiresAt:       req.ExpiresAt,
 	}
+}
+
+func manualReviewPollerKey(organizationID, sessionID string) string {
+	if sessionID == "" {
+		return organizationID
+	}
+	return organizationID + "\x00" + sessionID
 }
 
 func knownManualReviewID(id string, knownIDs map[string]struct{}) bool {

@@ -27,11 +27,12 @@ import (
 const webConsolePublicKeyName = "Web console"
 
 type terminalWSMessage struct {
-	Type string `json:"type"`
-	Data string `json:"data,omitempty"`
-	Code int    `json:"code,omitempty"`
-	Cols int    `json:"cols,omitempty"`
-	Rows int    `json:"rows,omitempty"`
+	Type      string `json:"type"`
+	Data      string `json:"data,omitempty"`
+	Code      int    `json:"code,omitempty"`
+	Cols      int    `json:"cols,omitempty"`
+	Rows      int    `json:"rows,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 type terminalWSWriter struct {
@@ -497,6 +498,7 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 	session.startedAt = startedAt
 	session.auditLogID = auditLog.ID
 	session.attach(writer)
+	_ = writer.write(terminalWSMessage{Type: "session", SessionID: session.id})
 	defer session.detach(writer)
 	a.backgroundWG.Add(1)
 	go func() {
