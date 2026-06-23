@@ -4277,6 +4277,15 @@ body.is-resizing-connect {
   height: 100%;
 }
 
+.terminal-viewport .xterm-viewport {
+  scrollbar-width: none;
+}
+
+.terminal-viewport .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 .terminal-viewport > .xterm .xterm-screen {
   height: 100% !important;
 }
