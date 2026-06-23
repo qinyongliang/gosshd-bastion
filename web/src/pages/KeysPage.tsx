@@ -116,6 +116,8 @@ export function KeysPage({ data }: { data: ConsoleData }) {
               </label>
             ))}
           </fieldset>
+          <p className="muted">{t("mcpTokenEditJSONHint")}</p>
+          <CommandBox label={t("mcpJSON")} value={JSON.stringify(mcpClientJSON(t("mcpTokenPlaceholder")), null, 2)} copyLabel={t("commonCopy")} />
           <ModalActions onCancel={() => setEditingMCP(null)} submit={t("commonSave")} />
         </form>
       </Modal>}
@@ -126,4 +128,18 @@ export function KeysPage({ data }: { data: ConsoleData }) {
 function toolGroupLabel(t: (key: string, fallback?: string) => string, group: string) {
   const key = `mcpToolGroup${group.charAt(0).toUpperCase()}${group.slice(1)}`;
   return t(key, group);
+}
+
+function mcpClientJSON(token: string) {
+  const baseURL = typeof window === "undefined" ? "" : window.location.origin;
+  return {
+    mcpServers: {
+      "gosshd-bastion": {
+        url: `${baseURL}/mcp`,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    },
+  };
 }
