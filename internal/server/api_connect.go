@@ -570,7 +570,7 @@ func (a *App) webDirectTerminal(terminalSession *terminalSession) int {
 		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
-	if err := session.Shell(); err != nil {
+	if err := session.Start(bashShellIntegrationCommand()); err != nil {
 		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}

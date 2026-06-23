@@ -246,6 +246,48 @@ type terminalIntegrationEvent struct {
 	ExitCode int
 }
 
+func bashShellIntegrationCommand() string {
+	return `if command -v bash >/dev/null 2>&1; then
+  __gosshd_rc="${TMPDIR:-/tmp}/gosshd-bashrc.$$"
+  cat > "$__gosshd_rc" <<'__GOSSHD_BASHRC__'
+if [ -r "$HOME/.bashrc" ]; then
+  . "$HOME/.bashrc"
+fi
+if [ -n "$GOSSHD_BASHRC" ]; then
+  rm -f "$GOSSHD_BASHRC"
+  unset GOSSHD_BASHRC
+fi
+__gosshd_command_running=0
+__gosshd_original_prompt_command=${PROMPT_COMMAND-}
+__gosshd_preexec() {
+  if [ "$__gosshd_command_running" = 0 ]; then
+    __gosshd_command_running=1
+    printf '\033]633;C\007'
+  fi
+}
+__gosshd_precmd() {
+  local __gosshd_rc=$?
+  trap - DEBUG
+  if [ "$__gosshd_command_running" = 1 ]; then
+    printf '\033]633;D;%s\007' "$__gosshd_rc"
+    __gosshd_command_running=0
+  fi
+  printf '\033]633;A\007'
+  if [ -n "$__gosshd_original_prompt_command" ]; then
+    eval "$__gosshd_original_prompt_command"
+  fi
+  trap '__gosshd_preexec' DEBUG
+  return "$__gosshd_rc"
+}
+PROMPT_COMMAND='__gosshd_precmd'
+trap '__gosshd_preexec' DEBUG
+__GOSSHD_BASHRC__
+  GOSSHD_BASHRC="$__gosshd_rc" exec bash --rcfile "$__gosshd_rc" -i
+fi
+exec "${SHELL:-/bin/sh}" -i
+`
+}
+
 func (s *terminalSession) sendCommand(ctx context.Context, command string) (terminalCommandResult, error) {
 	command = strings.TrimRight(command, "\r\n")
 	if strings.TrimSpace(command) == "" {
@@ -254,9 +296,7 @@ func (s *terminalSession) sendCommand(ctx context.Context, command string) (term
 	s.commandMu.Lock()
 	defer s.commandMu.Unlock()
 
-	commandID := "gosshd-mcp-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	waiter := &terminalCommandWaiter{
-		id:     commandID,
 		output: make(chan string, 64),
 		done:   make(chan int, 1),
 	}
@@ -264,34 +304,10 @@ func (s *terminalSession) sendCommand(ctx context.Context, command string) (term
 	s.commandWaiters = append(s.commandWaiters, waiter)
 	s.mu.Unlock()
 	defer s.removeCommandWaiter(waiter)
-	if err := s.writeInput(buildSessionCommandEnvelope(command, commandID)); err != nil {
+	if err := s.writeInput(command + "\n"); err != nil {
 		return terminalCommandResult{}, err
 	}
 	return collectCommandOutput(ctx, s.ctx, waiter)
-}
-
-func buildSessionCommandEnvelope(command, commandID string) string {
-	var script strings.Builder
-	script.WriteString("printf '\\033]633;E;")
-	script.WriteString(shellSingleQuote(commandID))
-	script.WriteString("\\007'\n")
-	script.WriteString("printf '\\033]633;C;")
-	script.WriteString(shellSingleQuote(commandID))
-	script.WriteString("\\007'\n")
-	script.WriteString("__gosshd_mcp_errexit=0\n")
-	script.WriteString("case $- in *e*) __gosshd_mcp_errexit=1; set +e;; esac\n")
-	script.WriteString(command)
-	script.WriteString("\n__gosshd_mcp_rc=$?\n")
-	script.WriteString("if [ \"$__gosshd_mcp_errexit\" = 1 ]; then set -e; fi\n")
-	script.WriteString("printf '\\033]633;D;")
-	script.WriteString(shellSingleQuote(commandID))
-	script.WriteString(";%s\\007' \"$__gosshd_mcp_rc\"\n")
-	script.WriteString("unset __gosshd_mcp_errexit __gosshd_mcp_rc\n")
-	return script.String()
-}
-
-func shellSingleQuote(value string) string {
-	return strings.ReplaceAll(value, "'", "'\\''")
 }
 
 func (s *terminalSession) removeCommandWaiter(waiter *terminalCommandWaiter) {
@@ -367,7 +383,7 @@ func (s *terminalSession) writeOutput(typ string, data []byte) {
 			}
 		}
 		for _, event := range events {
-			if event.Kind == "D" && event.ID == waiter.id {
+			if event.Kind == "D" && (waiter.id == "" || event.ID == "" || event.ID == waiter.id) {
 				select {
 				case waiter.done <- event.ExitCode:
 				default:
