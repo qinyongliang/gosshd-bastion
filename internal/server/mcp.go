@@ -153,7 +153,7 @@ func targetConnectionCommand(runtime apiRuntime, target store.SSHTarget) string 
 }
 
 func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
-	mcp.AddTool(s, &mcp.Tool{Name: "session_list", Description: "List active web terminal sessions for the authenticated user."},
+	mcp.AddTool(s, &mcp.Tool{Name: "session_list", Description: "Preferred entry point for remote server operations: list active bastion web terminal sessions first, then use session_send_command/session_screen/session_interrupt on the selected session."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ mcpSessionListInput) (*mcp.CallToolResult, mcpSessionListOutput, error) {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpSessionListOutput{}, err
@@ -174,7 +174,7 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 			return nil, out, nil
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "session_send_command", Description: "Send a command to an active web terminal session after applying command safety policy."},
+	mcp.AddTool(s, &mcp.Tool{Name: "session_send_command", Description: "Preferred tool for running commands on remote servers through an existing bastion terminal session. Commands are policy-checked, audited, shown in the web terminal, and wait for terminal completion."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionCommandInput) (*mcp.CallToolResult, mcpSessionCommandOutput, error) {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpSessionCommandOutput{}, err
@@ -237,7 +237,7 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 			return nil, mcpSessionCommandOutput{Allowed: true, PolicyReason: decision.Reason, Output: result.Output, ExitCode: result.ExitCode}, nil
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "session_interrupt", Description: "Send Ctrl+C to an active web terminal session."},
+	mcp.AddTool(s, &mcp.Tool{Name: "session_interrupt", Description: "Send Ctrl+C to an active bastion terminal session; use this to stop a long-running session_send_command."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionInput) (*mcp.CallToolResult, mcpOK, error) {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpOK{}, err
@@ -252,7 +252,7 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 			return nil, mcpOK{OK: true}, nil
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "session_screen", Description: "Return the current visible terminal screen for an active web terminal session."},
+	mcp.AddTool(s, &mcp.Tool{Name: "session_screen", Description: "Return the current visible terminal screen for an active bastion session; use after session_send_command to inspect terminal state."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionInput) (*mcp.CallToolResult, mcpSessionScreenOutput, error) {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpSessionScreenOutput{}, err
@@ -267,7 +267,9 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 
 func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 	actor := actorCtx.User
-	s := mcp.NewServer(&mcp.Implementation{Name: "gosshd-bastion", Version: a.cfg.version()}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "gosshd-bastion", Version: a.cfg.version()}, &mcp.ServerOptions{
+		Instructions: "When operating remote servers, prefer the session tool group. First call session_list to find an active bastion terminal session, then use session_send_command to run commands, session_screen to inspect the terminal, and session_interrupt to stop long-running commands. These tools preserve web-terminal replay, audit logs, command policy checks, and manual approval flow.",
+	})
 
 	if mcpToolGroupAllowed(actorCtx.ToolGroups, "session") {
 		a.addMCPSessionTools(s, actor)

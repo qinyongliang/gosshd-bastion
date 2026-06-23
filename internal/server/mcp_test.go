@@ -426,12 +426,18 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if init := session.InitializeResult(); init == nil || !strings.Contains(init.Instructions, "prefer the session tool group") {
+		t.Fatalf("expected MCP instructions to prefer session tools, got %+v", init)
+	}
 	tools, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !mcpHasTool(tools, "session_list") {
 		t.Fatalf("expected session_list tool with default token auth, got %+v", tools.Tools)
+	}
+	if description := mcpToolDescription(tools, "session_send_command"); !strings.Contains(description, "Preferred tool for running commands on remote servers") {
+		t.Fatalf("expected session_send_command to prefer session use, got %q", description)
 	}
 	if mcpHasTool(tools, "org_list") {
 		t.Fatalf("did not expect org_list tool with default session-only token auth, got %+v", tools.Tools)
@@ -497,6 +503,15 @@ func mcpHasTool(tools *mcp.ListToolsResult, name string) bool {
 		}
 	}
 	return false
+}
+
+func mcpToolDescription(tools *mcp.ListToolsResult, name string) string {
+	for _, tool := range tools.Tools {
+		if tool.Name == name {
+			return tool.Description
+		}
+	}
+	return ""
 }
 
 func stringField(t *testing.T, v any, keys ...string) string {
