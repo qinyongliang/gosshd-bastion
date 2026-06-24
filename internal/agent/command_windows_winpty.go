@@ -110,7 +110,15 @@ func windowsCommandLine(command string) string {
 	if command == "" {
 		return "cmd.exe"
 	}
-	return quoteWindowsArg(command)
+	args := windowsInteractiveShellArgs(command)
+	if len(args) == 0 {
+		return quoteWindowsArg(command)
+	}
+	parts := []string{quoteWindowsArg(command)}
+	for _, arg := range args {
+		parts = append(parts, quoteWindowsArg(arg))
+	}
+	return strings.Join(parts, " ")
 }
 
 func quoteWindowsArg(arg string) string {
