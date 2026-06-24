@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
+	"golang.org/x/text/transform"
 )
 
 func TestWindowsShellUsesConPTYForInteractiveInput(t *testing.T) {
@@ -78,13 +79,13 @@ func TestWindowsShellUsesConPTYForInteractiveInput(t *testing.T) {
 	}
 }
 
-func TestWindowsInteractiveShellArgsUseUTF8(t *testing.T) {
-	if got, want := windowsInteractiveShellArgs("cmd.exe"), []string{"/D", "/Q", "/K", "chcp 65001 >NUL"}; !reflect.DeepEqual(got, want) {
+func TestWindowsInteractiveShellArgsKeepInteractiveEcho(t *testing.T) {
+	if got, want := windowsInteractiveShellArgs("cmd.exe"), []string{"/D", "/K"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("cmd args mismatch:\n got: %#v\nwant: %#v", got, want)
 	}
 	got := windowsCommandLine("cmd.exe")
-	if !strings.Contains(got, "chcp 65001") {
-		t.Fatalf("winpty command line should initialize UTF-8 code page: %q", got)
+	if strings.Contains(got, " /Q ") {
+		t.Fatalf("interactive cmd should not disable echo: %q", got)
 	}
 }
 
@@ -92,6 +93,17 @@ func TestNormalizePipeInputExpandsBareCarriageReturn(t *testing.T) {
 	got := string(normalizePipeInput([]byte("echo ok\rnext\r\n")))
 	if want := "echo ok\r\nnext\r\n"; got != want {
 		t.Fatalf("normalized input mismatch:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestWindowsConsoleEncodingDecodesCP936(t *testing.T) {
+	decoder := windowsConsoleEncodingForCodePage(936).NewDecoder()
+	got, _, err := transform.String(decoder, "\xc7\xfd\xb6\xaf\xc6\xf7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "驱动器" {
+		t.Fatalf("CP936 decode mismatch: %q", got)
 	}
 }
 
