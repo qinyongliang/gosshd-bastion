@@ -28,6 +28,13 @@ import (
 
 const minDirectDownloadBytesPerSecond = 100 * 1024
 
+const (
+	winPTYVersion = "0.4.3"
+	winPTYZipName = "winpty-0.4.3-msvc2015.zip"
+	winPTYZipSHA  = "35a48ece2ff4acdcbc8299d4920de53eb86b1fb41e64d2fe5ae7898931bcee89"
+	winPTYURL     = "https://github.com/rprichard/winpty/releases/download/0.4.3/winpty-0.4.3-msvc2015.zip"
+)
+
 var upgrader = websocket.Upgrader{
 	HandshakeTimeout: 10 * time.Second,
 	CheckOrigin: func(r *http.Request) bool {
@@ -42,9 +49,41 @@ func (a *App) routes(mux *http.ServeMux) {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("/download/agent/", a.downloadAgent)
+	mux.HandleFunc("/download/winpty/", a.downloadWinPTY)
 	mux.HandleFunc(protocol.WebSocketPath, a.agentWS)
 	mux.Handle("/mcp", a.mcpHandler())
 	mux.HandleFunc("/", a.serveWeb)
+}
+
+func (a *App) downloadWinPTY(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/download/winpty/")
+	parts := strings.Split(rest, "/")
+	if len(parts) != 2 || parts[0] != "windows" || parts[1] == "" {
+		http.Error(w, "expected /download/winpty/windows/{goarch}", http.StatusBadRequest)
+		return
+	}
+	goarch := parts[1]
+	checksumOnly := false
+	if strings.HasSuffix(goarch, ".sha256") {
+		checksumOnly = true
+		goarch = strings.TrimSuffix(goarch, ".sha256")
+	}
+	if goarch != "amd64" && goarch != "386" {
+		http.Error(w, "unsupported winpty platform", http.StatusBadRequest)
+		return
+	}
+	if checksumOnly {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = fmt.Fprintln(w, winPTYZipSHA)
+		return
+	}
+	path, err := a.ensureWinPTYZip()
+	if err != nil {
+		log.Printf("winpty download failed: %v", err)
+		http.Error(w, "winpty unavailable", http.StatusBadGateway)
+		return
+	}
+	http.ServeFile(w, r, path)
 }
 
 func (a *App) downloadAgent(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +129,40 @@ func (a *App) downloadAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 var agentDownloadLocks sync.Map
+
+func (a *App) ensureWinPTYZip() (string, error) {
+	root := a.cfg.AgentCachePath
+	if root == "" {
+		root = filepath.Join(os.TempDir(), "gosshd-agent-cache")
+	}
+	cachePath := filepath.Join(root, "winpty", winPTYVersion, winPTYZipName)
+	if _, err := os.Stat(cachePath); err == nil {
+		return cachePath, nil
+	}
+	lockAny, _ := agentDownloadLocks.LoadOrStore("winpty/"+winPTYVersion, &sync.Mutex{})
+	lock := lockAny.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+	if _, err := os.Stat(cachePath); err == nil {
+		return cachePath, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+		return "", err
+	}
+	if err := downloadAgentFile(winPTYURL, cachePath, true, winPTYZipSHA); err == nil {
+		return cachePath, nil
+	} else {
+		log.Printf("direct winpty download failed or slow from %s: %v", winPTYURL, err)
+	}
+	proxyURL := a.proxyReleaseURL(winPTYURL)
+	if proxyURL == winPTYURL {
+		return "", fmt.Errorf("direct winpty download failed and no proxy URL configured")
+	}
+	if err := downloadAgentFile(proxyURL, cachePath, false, winPTYZipSHA); err != nil {
+		return "", err
+	}
+	return cachePath, nil
+}
 
 func (a *App) ensureAgentBinary(goos, goarch, name string) (string, error) {
 	if a.cfg.version() == DefaultVersion {
