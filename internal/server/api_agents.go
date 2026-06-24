@@ -210,6 +210,18 @@ function Invoke-ScChecked {
   }
 }
 
+function Invoke-ServiceCreateChecked {
+  param(
+    [Parameter(Mandatory=$true)][string]$ServiceName,
+    [Parameter(Mandatory=$true)][string]$BinaryPath
+  )
+  try {
+    New-Service -Name $ServiceName -BinaryPathName $BinaryPath -DisplayName "gosshd bastion agent" -StartupType Automatic | Out-Null
+  } catch {
+    throw "failed to create $ServiceName service failed: $($_.Exception.Message)"
+  }
+}
+
 function Install-WinPty {
   param([Parameter(Mandatory=$true)][string]$Destination)
 
@@ -273,7 +285,7 @@ if ($isInstall) {
       throw "existing $serviceName service is still present after delete; reboot Windows or stop the service process before reinstalling"
     }
   }
-  Invoke-ScChecked -Action "failed to create $serviceName service" -Command { sc.exe create $serviceName binPath= $binPath start= auto DisplayName= "gosshd bastion agent" }
+  Invoke-ServiceCreateChecked -ServiceName $serviceName -BinaryPath $binPath
   Invoke-ScChecked -Action "failed to configure $serviceName recovery actions" -Command { sc.exe failure $serviceName reset= 60 actions= restart/5000/restart/5000/restart/5000 }
   Invoke-ScChecked -Action "failed to start $serviceName service" -Command { sc.exe start $serviceName }
   Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" | Select-Object Name, State, StartMode, PathName

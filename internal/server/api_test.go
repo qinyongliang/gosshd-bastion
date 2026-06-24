@@ -1125,7 +1125,7 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	}
 	psBody := readBody(t, resp)
 	resp.Body.Close()
-	if !strings.Contains(psBody, "sc.exe create $serviceName") || !strings.Contains(psBody, "sc.exe start $serviceName") {
+	if !strings.Contains(psBody, "New-Service -Name $ServiceName") || !strings.Contains(psBody, "sc.exe start $serviceName") {
 		t.Fatalf("powershell install script missing service install flow:\n%s", psBody)
 	}
 	if !strings.Contains(psBody, ".sha256") || !strings.Contains(psBody, "Get-FileHash") {
@@ -1143,8 +1143,8 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	if strings.Contains(psBody, "Get-Service") || !strings.Contains(psBody, "Get-CimInstance -ClassName Win32_Service") {
 		t.Fatalf("powershell install script should use CIM service checks instead of Get-Service:\n%s", psBody)
 	}
-	if !strings.Contains(psBody, "failed to create $serviceName service") || !strings.Contains(psBody, "failed to start $serviceName service") {
-		t.Fatalf("powershell install script should surface sc.exe failures:\n%s", psBody)
+	if !strings.Contains(psBody, "failed to create $ServiceName service") || !strings.Contains(psBody, "failed to start $serviceName service") {
+		t.Fatalf("powershell install script should surface service failures:\n%s", psBody)
 	}
 	if !strings.Contains(psBody, "/download/winpty/windows/amd64") {
 		t.Fatalf("powershell install script should download winpty through gosshd server:\n%s", psBody)
