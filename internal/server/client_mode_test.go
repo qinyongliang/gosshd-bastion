@@ -35,8 +35,19 @@ func TestClientModeMeUsesBuiltInUserWithoutCookie(t *testing.T) {
 	if !me.Runtime.ClientMode {
 		t.Fatalf("runtime should report client mode: %+v", me.Runtime)
 	}
+	if me.Runtime.LocalTerminalTargetID == "" {
+		t.Fatalf("runtime should expose local terminal target id: %+v", me.Runtime)
+	}
 	if len(me.Organizations) != 1 || !me.Organizations[0].IsPersonal {
 		t.Fatalf("client mode should expose one internal owner scope: %+v", me.Organizations)
+	}
+	if _, err := app.Registry().Get(localAgentID); err != nil {
+		t.Fatalf("embedded local agent should be online: %v", err)
+	}
+	var targets apiTargetsResponse
+	getJSON(t, apiClient(t), srv.URL+"/api/targets?owner_type=organization&owner_id="+me.Organizations[0].ID, http.StatusOK, &targets)
+	if len(targets.Targets) != 1 || targets.Targets[0].ID != me.Runtime.LocalTerminalTargetID || targets.Targets[0].AgentID != localAgentID {
+		t.Fatalf("client mode local terminal target mismatch: %+v runtime=%+v", targets.Targets, me.Runtime)
 	}
 }
 

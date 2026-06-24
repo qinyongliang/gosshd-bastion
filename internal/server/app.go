@@ -31,6 +31,8 @@ type App struct {
 	manualReviews       *manualReviewHub
 	terminalSessions    *terminalSessionManager
 	auditRecordingsPath string
+	localAgentCancel    context.CancelFunc
+	localTargetID       string
 	initMu              sync.Mutex
 	knownHostsMu        sync.Mutex
 	backgroundWG        sync.WaitGroup
@@ -53,6 +55,10 @@ func (a *App) Registry() *AgentRegistry {
 }
 
 func (a *App) Close() error {
+	if a.localAgentCancel != nil {
+		a.localAgentCancel()
+		a.localAgentCancel = nil
+	}
 	a.backgroundWG.Wait()
 	a.initMu.Lock()
 	defer a.initMu.Unlock()
@@ -96,6 +102,9 @@ func (a *App) ensureServices(ctx context.Context) error {
 	if a.cfg.ClientMode {
 		user, err := st.Repository().EnsureClientUser(ctx)
 		if err != nil {
+			return err
+		}
+		if err := a.ensureClientLocalAgent(ctx, user); err != nil {
 			return err
 		}
 		log.Printf("client mode account ready: email=%s", user.Email)
@@ -284,9 +293,10 @@ func hostFromListenAddress(listen string) string {
 
 func (a *App) runtimeInfo(r *http.Request) apiRuntime {
 	return apiRuntime{
-		SSHHost:    publicSSHHost(a.cfg.PublicHost, r.Host),
-		SSHPort:    publicSSHPort(a.cfg.PublicSSHPort, a.cfg.SSHListen),
-		ClientMode: a.cfg.ClientMode,
+		SSHHost:               publicSSHHost(a.cfg.PublicHost, r.Host),
+		SSHPort:               publicSSHPort(a.cfg.PublicSSHPort, a.cfg.SSHListen),
+		ClientMode:            a.cfg.ClientMode,
+		LocalTerminalTargetID: a.localTargetID,
 	}
 }
 

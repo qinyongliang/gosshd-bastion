@@ -49,9 +49,10 @@ type apiMeResponse struct {
 }
 
 type apiRuntime struct {
-	SSHHost    string `json:"ssh_host"`
-	SSHPort    int    `json:"ssh_port"`
-	ClientMode bool   `json:"client_mode"`
+	SSHHost               string `json:"ssh_host"`
+	SSHPort               int    `json:"ssh_port"`
+	ClientMode            bool   `json:"client_mode"`
+	LocalTerminalTargetID string `json:"local_terminal_target_id,omitempty"`
 }
 
 type apiOrganizationResponse struct {
@@ -115,12 +116,17 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/targets", a.requireUser(a.handleCreateTarget))
 	mux.HandleFunc("PATCH /api/targets/{id}", a.requireUser(a.handleUpdateTarget))
 	mux.HandleFunc("DELETE /api/targets/{id}", a.requireUser(a.handleDeleteTarget))
-	mux.HandleFunc("GET /api/local-terminal/ws", a.requireUser(a.handleLocalTerminalWS))
 	mux.HandleFunc("GET /api/targets/{id}/terminal/ws", a.requireUser(a.handleTargetTerminalWS))
 	mux.HandleFunc("GET /api/targets/{id}/system", a.requireUser(a.handleTargetSystem))
 	mux.HandleFunc("GET /api/targets/{id}/files", a.requireUser(a.handleTargetFiles))
 	mux.HandleFunc("GET /api/targets/{id}/files/download", a.requireUser(a.handleTargetFileDownload))
+	mux.HandleFunc("POST /api/targets/{id}/files/open", a.requireUser(a.handleTargetFileOpen))
 	mux.HandleFunc("POST /api/targets/{id}/files/upload", a.requireUser(a.handleTargetFileUpload))
+	mux.HandleFunc("GET /api/targets/{id}/files/stat", a.requireUser(a.handleTargetFileStat))
+	mux.HandleFunc("POST /api/targets/{id}/files/mkdir", a.requireUser(a.handleTargetFileMkdir))
+	mux.HandleFunc("POST /api/targets/{id}/files/delete", a.requireUser(a.handleTargetFileDelete))
+	mux.HandleFunc("POST /api/targets/{id}/files/move", a.requireUser(a.handleTargetFileMove))
+	mux.HandleFunc("POST /api/targets/{id}/files/copy", a.requireUser(a.handleTargetFileCopy))
 	mux.HandleFunc("PATCH /api/target-tags", a.requireUser(a.handleUpdateTargetTagColor))
 	mux.HandleFunc("POST /api/agent-enrollments", a.requireUser(a.handleCreateAgentEnrollment))
 	mux.HandleFunc("GET /api/llm-configs", a.requireUser(a.handleListLLMConfigs))

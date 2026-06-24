@@ -9,6 +9,8 @@ import type { ConsoleData, MCPToken, MCPTokenCreateResponse } from "../types";
 
 export function KeysPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
+  const isClientMode = Boolean(data.runtime.client_mode);
+  const availableMCPToolGroups = mcpToolGroupsForMode(isClientMode);
   const [modal, setModal] = useState(false);
   const [mcpModal, setMCPModal] = useState(false);
   const [editingMCP, setEditingMCP] = useState<MCPToken | null>(null);
@@ -32,7 +34,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
   };
   const openEditMCP = (token: MCPToken) => {
     setEditingMCP(token);
-    setMCPToolGroups(token.tool_groups?.length ? token.tool_groups : ["session"]);
+    setMCPToolGroups(normalizeMCPToolGroups(token.tool_groups, availableMCPToolGroups));
   };
   const toggleMCPToolGroup = (group: string) => {
     setMCPToolGroups((current) => {
@@ -41,27 +43,33 @@ export function KeysPage({ data }: { data: ConsoleData }) {
     });
   };
   const submitMCP = (body: Record<string, string>) => {
-    createMCP.mutate({ name: body.name, tool_groups: mcpToolGroups });
+    createMCP.mutate({ name: body.name, tool_groups: normalizeMCPToolGroups(mcpToolGroups, availableMCPToolGroups) });
   };
   const submitMCPGroups = () => {
     if (!editingMCP) return;
-    updateMCP.mutate({ id: editingMCP.id, tool_groups: mcpToolGroups });
+    updateMCP.mutate({ id: editingMCP.id, tool_groups: normalizeMCPToolGroups(mcpToolGroups, availableMCPToolGroups) });
   };
   const tokens = mcpTokens.data?.tokens || [];
   return (
     <>
       <section className="resource-head">
-        <div><small>{t("keysPageEyebrow")}</small><h2>{t("keys")}</h2><p>{t("keysPageBody")}</p></div>
-        <button type="button" className="primary" onClick={() => setModal(true)}><Plus />{t("addPublicKey")}</button>
+        <div>
+          <small>{isClientMode ? "MCP" : t("keysPageEyebrow")}</small>
+          <h2>{isClientMode ? t("mcpServiceConfigTitle") : t("keys")}</h2>
+          <p>{isClientMode ? t("mcpServiceConfigBody") : t("keysPageBody")}</p>
+        </div>
+        {!isClientMode && <button type="button" className="primary" onClick={() => setModal(true)}><Plus />{t("addPublicKey")}</button>}
       </section>
-      <Panel title={t("keysListTitle")} subtitle={t("keysListBody")}>
-        {data.keys.length ? <SimpleTable headers={[t("commonName"), t("keysFingerprint"), t("commonCreatedAt"), t("commonActions")]} rows={data.keys.map((key) => [
-          <strong>{key.name}</strong>,
-          <code>{key.fingerprint}</code>,
-          formatDate(key.created_at),
-          <button type="button" onClick={() => remove.mutate(key.id)}>{t("commonDelete")}</button>,
-        ])} /> : <Empty title={t("keysEmptyTitle")} body={t("keysEmptyBody")} />}
-      </Panel>
+      {!isClientMode && (
+        <Panel title={t("keysListTitle")} subtitle={t("keysListBody")}>
+          {data.keys.length ? <SimpleTable headers={[t("commonName"), t("keysFingerprint"), t("commonCreatedAt"), t("commonActions")]} rows={data.keys.map((key) => [
+            <strong>{key.name}</strong>,
+            <code>{key.fingerprint}</code>,
+            formatDate(key.created_at),
+            <button type="button" onClick={() => remove.mutate(key.id)}>{t("commonDelete")}</button>,
+          ])} /> : <Empty title={t("keysEmptyTitle")} body={t("keysEmptyBody")} />}
+        </Panel>
+      )}
       <section className="panel mcp-token-panel">
         <div className="panel-head">
           <div><h2>{t("mcpTokensTitle")}</h2><p>{t("mcpTokensBody")}</p></div>
@@ -69,7 +77,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
         </div>
         {!mcpTokens.data ? <p>{t("loading")}</p> : tokens.length ? <SimpleTable headers={[t("commonName"), t("mcpToolGroups"), t("commonCreatedAt"), t("mcpLastUsedAt"), t("commonActions")]} rows={tokens.map((token) => [
           <strong>{token.name}</strong>,
-          <span className="mcp-group-list">{(token.tool_groups || ["session"]).map((group) => <code key={group}>{toolGroupLabel(t, group)}</code>)}</span>,
+          <span className="mcp-group-list">{normalizeMCPToolGroups(token.tool_groups, availableMCPToolGroups).map((group) => <code key={group}>{toolGroupLabel(t, group)}</code>)}</span>,
           formatDate(token.created_at),
           token.last_used_at ? formatDate(token.last_used_at) : "-",
           <span className="row-actions">
@@ -78,7 +86,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           </span>,
         ])} /> : <Empty title={t("mcpTokensEmptyTitle")} body={t("mcpTokensEmptyBody")} />}
       </section>
-      {modal && <Modal title={t("keysAddTitle")} onClose={() => setModal(false)} closeOnEscape={false}>
+      {!isClientMode && modal && <Modal title={t("keysAddTitle")} onClose={() => setModal(false)} closeOnEscape={false}>
         <form className="stack" onSubmit={(event) => formSubmit(event, (body) => create.mutate({ name: body.name, authorized_key: body.authorized_key }))}>
           <Field label={t("commonTitle")} name="name" required />
           <label className="field"><span>{t("keysTableKey")}</span><textarea name="authorized_key" placeholder="ssh-ed25519 AAAA..." required /></label>
@@ -94,7 +102,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           <Field label={t("commonName")} name="name" placeholder="Codex" />
           <fieldset className="mcp-tool-groups">
             <legend>{t("mcpToolGroups")}</legend>
-            {["session", "auth", "member", "target", "policy", "audit"].map((group) => (
+            {availableMCPToolGroups.map((group) => (
               <label key={group} className="checkbox-row">
                 <input type="checkbox" checked={mcpToolGroups.includes(group)} onChange={() => toggleMCPToolGroup(group)} />
                 <span>{toolGroupLabel(t, group)}</span>
@@ -109,7 +117,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           <p className="muted">{editingMCP.name}</p>
           <fieldset className="mcp-tool-groups">
             <legend>{t("mcpToolGroups")}</legend>
-            {["session", "auth", "member", "target", "policy", "audit"].map((group) => (
+            {availableMCPToolGroups.map((group) => (
               <label key={group} className="checkbox-row">
                 <input type="checkbox" checked={mcpToolGroups.includes(group)} onChange={() => toggleMCPToolGroup(group)} />
                 <span>{toolGroupLabel(t, group)}</span>
@@ -128,6 +136,17 @@ export function KeysPage({ data }: { data: ConsoleData }) {
 function toolGroupLabel(t: (key: string, fallback?: string) => string, group: string) {
   const key = `mcpToolGroup${group.charAt(0).toUpperCase()}${group.slice(1)}`;
   return t(key, group);
+}
+
+function mcpToolGroupsForMode(clientMode: boolean) {
+  const groups = ["session", "auth", "member", "target", "policy", "audit"];
+  return clientMode ? groups.filter((group) => group !== "member") : groups;
+}
+
+function normalizeMCPToolGroups(groups: string[] | undefined, availableGroups: string[]) {
+  const allowed = new Set(availableGroups);
+  const next = (groups || ["session"]).filter((group) => allowed.has(group));
+  return next.length ? next : ["session"];
 }
 
 function mcpClientJSON(token: string) {

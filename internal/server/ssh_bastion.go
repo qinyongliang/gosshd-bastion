@@ -833,7 +833,7 @@ func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSH
 			_ = stream.Close()
 			return nil, errors.New(resp.Error)
 		}
-		conn, chans, reqs, err := gossh.NewClientConn(readWriteConn{Reader: reader, Writer: stream, Closer: stream}, addr, cfg)
+		conn, chans, reqs, err := gossh.NewClientConn(readWriteConn{Reader: reader, Writer: stream, Closer: stream, remoteAddr: dummyAddr(addr)}, addr, cfg)
 		if err != nil {
 			_ = stream.Close()
 			return nil, err
@@ -1056,10 +1056,16 @@ type readWriteConn struct {
 	io.Reader
 	io.Writer
 	io.Closer
+	remoteAddr net.Addr
 }
 
-func (c readWriteConn) LocalAddr() net.Addr              { return dummyAddr("local") }
-func (c readWriteConn) RemoteAddr() net.Addr             { return dummyAddr("remote") }
+func (c readWriteConn) LocalAddr() net.Addr { return dummyAddr("local:0") }
+func (c readWriteConn) RemoteAddr() net.Addr {
+	if c.remoteAddr != nil {
+		return c.remoteAddr
+	}
+	return dummyAddr("remote:0")
+}
 func (c readWriteConn) SetDeadline(time.Time) error      { return nil }
 func (c readWriteConn) SetReadDeadline(time.Time) error  { return nil }
 func (c readWriteConn) SetWriteDeadline(time.Time) error { return nil }

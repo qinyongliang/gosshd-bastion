@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -255,6 +256,9 @@ func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 		t.Fatalf("rename mismatch: %+v", renamed)
 	}
 	attachAllowPolicyForTarget(t, app, personal.ID, renamed.ID, false)
+	if err := os.WriteFile(app.knownHostsPath(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	out, err := runBastionSSHCommand(sshAddr, "agentbox", userSigner, "echo agent-ok")
 	if err != nil {

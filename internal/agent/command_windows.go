@@ -62,6 +62,7 @@ func (c *Client) handlePipeCommand(stream io.ReadWriteCloser, reader *bufio.Read
 	cmd := exec.Command(c.cfg.Shell, args...)
 	cmd.Dir = c.cfg.Root
 	cmd.Env = os.Environ()
+	cmd.SysProcAttr = hiddenWindowSysProcAttr()
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: err.Error()})
@@ -242,6 +243,10 @@ func startConPTYProcess(shell, root string, console windows.Handle) (windows.Han
 	}
 	_ = windows.CloseHandle(processInfo.Thread)
 	return processInfo.Process, processInfo.ProcessId, attributeList, nil
+}
+
+func hiddenWindowSysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW, HideWindow: true}
 }
 
 func copyFramesToWriter(w io.WriteCloser, reader *bufio.Reader) {
