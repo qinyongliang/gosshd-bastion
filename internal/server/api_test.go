@@ -1140,6 +1140,12 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	if !strings.Contains(psBody, `$sshPort = "22022"`) || !strings.Contains(psBody, `--ssh-port $sshPort`) {
 		t.Fatalf("powershell install script missing public ssh port hint:\n%s", psBody)
 	}
+	if !strings.Contains(psBody, `$serviceIDFile = Join-Path $targetDir "agent.json"`) ||
+		!strings.Contains(psBody, "--id-file \"' + $serviceIDFile + '\" --root \"") ||
+		!strings.Contains(psBody, "obj= LocalSystem") ||
+		!strings.Contains(psBody, "StartName") {
+		t.Fatalf("powershell service install should run independently from the login session:\n%s", psBody)
+	}
 	if strings.Contains(psBody, "Get-Service") || !strings.Contains(psBody, "Get-CimInstance -ClassName Win32_Service") {
 		t.Fatalf("powershell install script should use CIM service checks instead of Get-Service:\n%s", psBody)
 	}
