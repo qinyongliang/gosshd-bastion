@@ -435,6 +435,7 @@ type CreateAgentEnrollmentParams struct {
 }
 
 type UpsertAgentParams struct {
+	ID               string
 	OwnerType        string
 	OwnerID          string
 	EnrollmentID     string

@@ -462,20 +462,9 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close()
 		return
 	}
-	agent, err := a.store.Repository().UpsertAgent(r.Context(), store.UpsertAgentParams{
-		OwnerType:        enrollment.OwnerType,
-		OwnerID:          enrollment.OwnerID,
-		EnrollmentID:     enrollment.ID,
-		Label:            enrollment.Label,
-		CurrentRuntimeID: hello.ID,
-	})
+	agent, target, err := a.enrollAgentConnection(r.Context(), enrollment, hello)
 	if err != nil {
 		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "agent enrollment failed"})
-		_ = conn.Close()
-		return
-	}
-	if err := a.ensureAgentTarget(r.Context(), enrollment, agent); err != nil {
-		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "agent target creation failed"})
 		_ = conn.Close()
 		return
 	}
@@ -492,7 +481,15 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("agent checksum unavailable for %s/%s: %v", goos, goarch, err)
 	}
-	if err := protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: true, ServerVersion: a.cfg.version(), AgentDownloadURL: downloadURL, AgentDownloadSHA256: downloadSHA256}); err != nil {
+	if err := protocol.WriteJSONLine(conn, protocol.StreamResponse{
+		OK:                  true,
+		ServerVersion:       a.cfg.version(),
+		AgentDownloadURL:    downloadURL,
+		AgentDownloadSHA256: downloadSHA256,
+		AssignedAgentID:     agent.ID,
+		TargetID:            target.ID,
+		TargetAlias:         target.Alias,
+	}); err != nil {
 		_ = conn.Close()
 		return
 	}
@@ -511,40 +508,91 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
-func (a *App) ensureAgentTarget(ctx context.Context, enrollment store.AgentEnrollment, agent store.Agent) error {
+func (a *App) enrollAgentConnection(ctx context.Context, enrollment store.AgentEnrollment, hello protocol.AgentHello) (store.Agent, store.SSHTarget, error) {
+	agentID := strings.TrimSpace(hello.AssignedAgentID)
+	if agentID != "" {
+		agent, err := a.store.Repository().GetAgent(ctx, agentID)
+		if err == nil && agent.EnrollmentID == enrollment.ID && agent.OwnerType == enrollment.OwnerType && agent.OwnerID == enrollment.OwnerID {
+			if _, err := a.registry.Get(agent.ID); err == nil {
+				return a.createAgentConnection(ctx, enrollment, hello.ID, true)
+			}
+			updated, err := a.store.Repository().UpsertAgent(ctx, store.UpsertAgentParams{
+				ID:               agent.ID,
+				OwnerType:        enrollment.OwnerType,
+				OwnerID:          enrollment.OwnerID,
+				EnrollmentID:     enrollment.ID,
+				Label:            enrollment.Label,
+				CurrentRuntimeID: hello.ID,
+			})
+			if err != nil {
+				return store.Agent{}, store.SSHTarget{}, err
+			}
+			target, err := a.ensureAgentTarget(ctx, enrollment, updated, false)
+			return updated, target, err
+		}
+	}
+	return a.createAgentConnection(ctx, enrollment, hello.ID, false)
+}
+
+func (a *App) createAgentConnection(ctx context.Context, enrollment store.AgentEnrollment, runtimeID string, forceNewTarget bool) (store.Agent, store.SSHTarget, error) {
+	agent, err := a.store.Repository().UpsertAgent(ctx, store.UpsertAgentParams{
+		OwnerType:        enrollment.OwnerType,
+		OwnerID:          enrollment.OwnerID,
+		EnrollmentID:     enrollment.ID,
+		Label:            enrollment.Label,
+		CurrentRuntimeID: runtimeID,
+	})
+	if err != nil {
+		return store.Agent{}, store.SSHTarget{}, err
+	}
+	target, err := a.ensureAgentTarget(ctx, enrollment, agent, forceNewTarget)
+	if err != nil {
+		return store.Agent{}, store.SSHTarget{}, err
+	}
+	return agent, target, nil
+}
+
+func (a *App) ensureAgentTarget(ctx context.Context, enrollment store.AgentEnrollment, agent store.Agent, forceNew bool) (store.SSHTarget, error) {
 	targets, err := a.store.Repository().ListSSHTargets(ctx, enrollment.OwnerType, enrollment.OwnerID)
 	if err != nil {
-		return err
+		return store.SSHTarget{}, err
 	}
-	for _, target := range targets {
-		if target.TargetType == store.TargetAgent && target.AgentID == agent.ID {
-			_, err := a.store.Repository().UpdateSSHTarget(ctx, target.ID, store.UpdateSSHTargetParams{
-				Host:           enrollment.DefaultHost,
-				Port:           enrollment.DefaultPort,
-				RemoteUsername: target.RemoteUsername,
-				AuthType:       target.AuthType,
-				AgentID:        agent.ID,
-			})
-			return err
+	if !forceNew {
+		for _, target := range targets {
+			if target.TargetType == store.TargetAgent && target.AgentID == agent.ID {
+				return a.store.Repository().UpdateSSHTarget(ctx, target.ID, store.UpdateSSHTargetParams{
+					Host:           enrollment.DefaultHost,
+					Port:           enrollment.DefaultPort,
+					RemoteUsername: target.RemoteUsername,
+					AuthType:       target.AuthType,
+					AgentID:        agent.ID,
+				})
+			}
 		}
 	}
-	alias := enrollment.Label
-	if strings.TrimSpace(alias) == "" {
-		alias = "agent-" + agent.ID[:8]
-	}
-	for _, target := range targets {
-		if target.TargetType == store.TargetAgent && target.Alias == alias {
-			_, err := a.store.Repository().UpdateSSHTarget(ctx, target.ID, store.UpdateSSHTargetParams{
-				Host:           enrollment.DefaultHost,
-				Port:           enrollment.DefaultPort,
-				RemoteUsername: target.RemoteUsername,
-				AuthType:       target.AuthType,
-				AgentID:        agent.ID,
-			})
-			return err
+	template := firstAgentTargetForEnrollment(ctx, a, enrollment)
+	if !forceNew {
+		alias := baseAgentAlias(enrollment, agent)
+		for _, target := range targets {
+			if target.TargetType == store.TargetAgent && target.Alias == alias {
+				return a.store.Repository().UpdateSSHTarget(ctx, target.ID, store.UpdateSSHTargetParams{
+					Host:           enrollment.DefaultHost,
+					Port:           enrollment.DefaultPort,
+					RemoteUsername: target.RemoteUsername,
+					AuthType:       target.AuthType,
+					AgentID:        agent.ID,
+				})
+			}
 		}
 	}
-	_, err = a.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+	base := baseAgentAlias(enrollment, agent)
+	numberedSequence := forceNew
+	if template != nil {
+		base = numberedAliasBase(template.Alias, base)
+		numberedSequence = numberedSequence || template.Alias != base
+	}
+	alias := nextAgentAlias(base, targets, numberedSequence)
+	params := store.CreateSSHTargetParams{
 		OwnerType:      enrollment.OwnerType,
 		OwnerID:        enrollment.OwnerID,
 		Name:           alias,
@@ -556,8 +604,98 @@ func (a *App) ensureAgentTarget(ctx context.Context, enrollment store.AgentEnrol
 		AuthType:       store.AuthPassword,
 		AgentID:        agent.ID,
 		CreatedBy:      enrollment.CreatedBy,
-	})
-	return err
+	}
+	if template != nil {
+		params.RemoteUsername = template.RemoteUsername
+		params.AuthType = template.AuthType
+		params.EncryptedSecret = template.EncryptedSecret
+		params.ProxyTargetID = template.ProxyTargetID
+		params.Tags = template.Tags
+	}
+	target, err := a.store.Repository().CreateSSHTarget(ctx, params)
+	if err != nil {
+		return store.SSHTarget{}, err
+	}
+	if template != nil {
+		if err := a.store.Repository().CopyPolicyTargetBindings(ctx, template.ID, target.ID); err != nil {
+			return store.SSHTarget{}, err
+		}
+		target, err = a.store.Repository().GetSSHTarget(ctx, target.ID)
+	}
+	return target, err
+}
+
+func firstAgentTargetForEnrollment(ctx context.Context, a *App, enrollment store.AgentEnrollment) *store.SSHTarget {
+	agents, err := a.store.Repository().ListAgentsByEnrollment(ctx, enrollment.ID)
+	if err != nil || len(agents) == 0 {
+		return nil
+	}
+	agentIDs := make(map[string]struct{}, len(agents))
+	for _, agent := range agents {
+		agentIDs[agent.ID] = struct{}{}
+	}
+	targets, err := a.store.Repository().ListSSHTargets(ctx, enrollment.OwnerType, enrollment.OwnerID)
+	if err != nil {
+		return nil
+	}
+	for _, target := range targets {
+		if target.TargetType == store.TargetAgent {
+			if _, ok := agentIDs[target.AgentID]; ok {
+				copy := target
+				return &copy
+			}
+		}
+	}
+	return nil
+}
+
+func baseAgentAlias(enrollment store.AgentEnrollment, agent store.Agent) string {
+	alias := strings.TrimSpace(enrollment.Label)
+	if alias == "" && agent.ID != "" {
+		alias = "agent-" + agent.ID[:8]
+	}
+	if alias == "" {
+		alias = "agent"
+	}
+	return alias
+}
+
+func nextAgentAlias(base string, targets []store.SSHTarget, forceNumbered bool) string {
+	used := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		if target.TargetType == store.TargetAgent {
+			used[target.Alias] = struct{}{}
+			used[target.Name] = struct{}{}
+		}
+	}
+	if !forceNumbered {
+		if _, ok := used[base]; !ok {
+			return base
+		}
+	}
+	for index := 1; ; index++ {
+		candidate := fmt.Sprintf("%s_%d", base, index)
+		if _, ok := used[candidate]; !ok {
+			return candidate
+		}
+	}
+}
+
+func numberedAliasBase(alias, fallback string) string {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return fallback
+	}
+	index := strings.LastIndex(alias, "_")
+	if index <= 0 || index == len(alias)-1 {
+		return alias
+	}
+	for _, char := range alias[index+1:] {
+		if char < '0' || char > '9' {
+			return alias
+		}
+	}
+	return alias[:index]
 }
 
 func publicBaseURL(r *http.Request, configuredHost string) string {

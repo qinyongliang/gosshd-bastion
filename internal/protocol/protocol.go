@@ -36,6 +36,7 @@ const (
 
 type AgentHello struct {
 	ID              string `json:"id"`
+	AssignedAgentID string `json:"assigned_agent_id,omitempty"`
 	EnrollmentToken string `json:"enrollment_token,omitempty"`
 	Version         string `json:"version,omitempty"`
 	GOOS            string `json:"goos,omitempty"`
@@ -57,6 +58,9 @@ type StreamResponse struct {
 	ServerVersion       string `json:"server_version,omitempty"`
 	AgentDownloadURL    string `json:"agent_download_url,omitempty"`
 	AgentDownloadSHA256 string `json:"agent_download_sha256,omitempty"`
+	AssignedAgentID     string `json:"assigned_agent_id,omitempty"`
+	TargetID            string `json:"target_id,omitempty"`
+	TargetAlias         string `json:"target_alias,omitempty"`
 }
 
 type Frame struct {
@@ -77,8 +81,12 @@ type ForwardResult struct {
 }
 
 type AgentIDFile struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID              string    `json:"id"`
+	AssignedAgentID string    `json:"assigned_agent_id,omitempty"`
+	TargetID        string    `json:"target_id,omitempty"`
+	TargetAlias     string    `json:"target_alias,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at,omitempty"`
 }
 
 func DefaultIDFile() (string, error) {
@@ -89,35 +97,84 @@ func DefaultIDFile() (string, error) {
 	return filepath.Join(home, ".gosshd", "agent.json"), nil
 }
 
+func ResolveIDFilePath(path string) (string, error) {
+	if path != "" {
+		return path, nil
+	}
+	return DefaultIDFile()
+}
+
 func LoadOrCreateID(path string) (string, error) {
-	if path == "" {
-		var err error
-		path, err = DefaultIDFile()
-		if err != nil {
-			return "", err
-		}
+	stored, err := LoadOrCreateAgentIDFile(path)
+	if err != nil {
+		return "", err
+	}
+	return stored.ID, nil
+}
+
+func LoadOrCreateAgentIDFile(path string) (AgentIDFile, error) {
+	path, err := ResolveIDFilePath(path)
+	if err != nil {
+		return AgentIDFile{}, err
 	}
 	if data, err := os.ReadFile(path); err == nil {
 		var stored AgentIDFile
 		if json.Unmarshal(data, &stored) == nil && IsValidID(stored.ID) {
-			return stored.ID, nil
+			return stored, nil
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
+		return AgentIDFile{}, err
 	}
 
 	id := uuid.NewString()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
+	stored := AgentIDFile{ID: id, CreatedAt: time.Now().UTC()}
+	if err := SaveAgentIDFile(path, stored); err != nil {
+		return AgentIDFile{}, err
 	}
-	data, err := json.MarshalIndent(AgentIDFile{ID: id, CreatedAt: time.Now().UTC()}, "", "  ")
+	return stored, nil
+}
+
+func SaveAgentAssignment(path string, assignment AgentIDFile) error {
+	path, err := ResolveIDFilePath(path)
 	if err != nil {
-		return "", err
+		return err
+	}
+	current, err := LoadOrCreateAgentIDFile(path)
+	if err != nil {
+		return err
+	}
+	if assignment.AssignedAgentID != "" {
+		current.AssignedAgentID = assignment.AssignedAgentID
+	}
+	if assignment.TargetID != "" {
+		current.TargetID = assignment.TargetID
+	}
+	if assignment.TargetAlias != "" {
+		current.TargetAlias = assignment.TargetAlias
+	}
+	current.UpdatedAt = time.Now().UTC()
+	return SaveAgentIDFile(path, current)
+}
+
+func SaveAgentIDFile(path string, stored AgentIDFile) error {
+	path, err := ResolveIDFilePath(path)
+	if err != nil {
+		return err
+	}
+	if stored.CreatedAt.IsZero() {
+		stored.CreatedAt = time.Now().UTC()
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(stored, "", "  ")
+	if err != nil {
+		return err
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", err
+		return err
 	}
-	return id, nil
+	return nil
 }
 
 func IsValidID(id string) bool {

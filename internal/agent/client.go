@@ -21,8 +21,9 @@ import (
 )
 
 type Client struct {
-	cfg Config
-	id  string
+	cfg             Config
+	id              string
+	assignedAgentID string
 }
 
 var errServerRequired = errors.New("server is required")
@@ -32,7 +33,7 @@ func New(cfg Config) (*Client, error) {
 	if cfg.Server == "" {
 		return nil, errServerRequired
 	}
-	id, err := protocol.LoadOrCreateID(cfg.IDFile)
+	idFile, err := protocol.LoadOrCreateAgentIDFile(cfg.IDFile)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func New(cfg Config) (*Client, error) {
 	if cfg.SSHPort == "" {
 		cfg.SSHPort = os.Getenv("GOSSHD_SSH_PORT")
 	}
-	return &Client{cfg: cfg, id: id}, nil
+	return &Client{cfg: cfg, id: idFile.ID, assignedAgentID: idFile.AssignedAgentID}, nil
 }
 
 func (c *Client) ID() string {
@@ -153,6 +154,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 	}()
 	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
 		ID:              c.id,
+		AssignedAgentID: c.assignedAgentID,
 		EnrollmentToken: c.cfg.EnrollmentToken,
 		Version:         c.cfg.Version,
 		GOOS:            runtime.GOOS,
@@ -167,6 +169,16 @@ func (c *Client) runOnce(ctx context.Context) error {
 	}
 	if !resp.OK {
 		return fmt.Errorf("server rejected agent: %s", resp.Error)
+	}
+	if resp.AssignedAgentID != "" {
+		c.assignedAgentID = resp.AssignedAgentID
+		if err := protocol.SaveAgentAssignment(c.cfg.IDFile, protocol.AgentIDFile{
+			AssignedAgentID: resp.AssignedAgentID,
+			TargetID:        resp.TargetID,
+			TargetAlias:     resp.TargetAlias,
+		}); err != nil {
+			log.Printf("agent assignment save failed: %v", err)
+		}
 	}
 	if err := c.maybeUpdateAndRestart(ctx, resp); err != nil {
 		return err
