@@ -83,9 +83,21 @@ func TestWindowsInteractiveShellArgsKeepInteractiveEcho(t *testing.T) {
 	if got, want := windowsInteractiveShellArgs("cmd.exe"), []string{"/D", "/K"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("cmd args mismatch:\n got: %#v\nwant: %#v", got, want)
 	}
+	if got, want := windowsInteractiveShellArgs(`C:\Windows\system32\cmd.exe`), []string{"/D", "/K"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("cmd path args mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
 	got := windowsCommandLine("cmd.exe")
 	if strings.Contains(got, " /Q ") {
 		t.Fatalf("interactive cmd should not disable echo: %q", got)
+	}
+}
+
+func TestWindowsShellBaseNameDetectsFullPaths(t *testing.T) {
+	if !isCmdShell(`C:\Windows\system32\cmd.exe`) {
+		t.Fatal("cmd full path should be detected")
+	}
+	if !isPowerShell(`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`) {
+		t.Fatal("powershell full path should be detected")
 	}
 }
 

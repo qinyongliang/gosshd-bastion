@@ -10,7 +10,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -463,11 +465,25 @@ func waitHandleExitCode(process uintptr) int {
 }
 
 func isPowerShell(shell string) bool {
-	return shell == "powershell.exe" || shell == "pwsh.exe" || shell == "powershell" || shell == "pwsh"
+	switch windowsShellBaseName(shell) {
+	case "powershell.exe", "pwsh.exe", "powershell", "pwsh":
+		return true
+	default:
+		return false
+	}
 }
 
 func isCmdShell(shell string) bool {
-	return shell == "cmd.exe" || shell == "cmd"
+	switch windowsShellBaseName(shell) {
+	case "cmd.exe", "cmd":
+		return true
+	default:
+		return false
+	}
+}
+
+func windowsShellBaseName(shell string) string {
+	return strings.ToLower(filepath.Base(strings.TrimSpace(shell)))
 }
 
 func windowsInteractiveShellArgs(shell string) []string {
