@@ -164,6 +164,89 @@ func TestAgentWSEnrollmentCreatesPersistedAgent(t *testing.T) {
 	}
 }
 
+func TestEnsureAgentTargetReplacesExistingAgentTargetWithSameAlias(t *testing.T) {
+	ctx := context.Background()
+	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	if err := app.ensureServices(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if app.store != nil {
+			_ = app.Close()
+		}
+	})
+	user, err := app.store.Repository().CreateUser(ctx, store.CreateUserParams{Email: "replace-agent@example.com", DisplayName: "Replace Agent", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEnrollment, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
+		OwnerType:   store.OwnerOrganization,
+		OwnerID:     personal.ID,
+		TokenHash:   codeHash("first-token"),
+		Label:       "laptop",
+		DefaultHost: "127.0.0.1",
+		DefaultPort: 22,
+		CreatedBy:   user.ID,
+		ExpiresAt:   time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstAgent, err := app.store.Repository().UpsertAgent(ctx, store.UpsertAgentParams{
+		OwnerType:        firstEnrollment.OwnerType,
+		OwnerID:          firstEnrollment.OwnerID,
+		EnrollmentID:     firstEnrollment.ID,
+		Label:            firstEnrollment.Label,
+		CurrentRuntimeID: "11111111-1111-4111-8111-111111111111",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.ensureAgentTarget(ctx, firstEnrollment, firstAgent); err != nil {
+		t.Fatal(err)
+	}
+	secondEnrollment, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
+		OwnerType:   store.OwnerOrganization,
+		OwnerID:     personal.ID,
+		TokenHash:   codeHash("second-token"),
+		Label:       "laptop",
+		DefaultHost: "127.0.0.1",
+		DefaultPort: 2222,
+		CreatedBy:   user.ID,
+		ExpiresAt:   time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondAgent, err := app.store.Repository().UpsertAgent(ctx, store.UpsertAgentParams{
+		OwnerType:        secondEnrollment.OwnerType,
+		OwnerID:          secondEnrollment.OwnerID,
+		EnrollmentID:     secondEnrollment.ID,
+		Label:            secondEnrollment.Label,
+		CurrentRuntimeID: "22222222-2222-4222-8222-222222222222",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.ensureAgentTarget(ctx, secondEnrollment, secondAgent); err != nil {
+		t.Fatal(err)
+	}
+	targets, err := app.store.Repository().ListSSHTargets(ctx, store.OwnerOrganization, personal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected replacement to reuse target, got %+v", targets)
+	}
+	if targets[0].AgentID != secondAgent.ID || targets[0].Alias != "laptop" || targets[0].Port != 2222 {
+		t.Fatalf("replacement target mismatch: %+v", targets[0])
+	}
+}
+
 func TestAgentWSRejectsMissingEnrollmentToken(t *testing.T) {
 	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
 	t.Cleanup(func() {
