@@ -499,7 +499,11 @@ func (s *terminalSession) setDirectInput(stdin io.WriteCloser, session *gossh.Se
 	s.resize = func(cols, rows int) {
 		_ = session.WindowChange(rows, cols)
 	}
+	cols, rows := s.cols, s.rows
 	s.mu.Unlock()
+	if cols > 0 && rows > 0 {
+		_ = session.WindowChange(rows, cols)
+	}
 }
 
 func (s *terminalSession) setAgentInput(stream io.WriteCloser) {
@@ -512,7 +516,14 @@ func (s *terminalSession) setAgentInput(stream io.WriteCloser) {
 		binary.BigEndian.PutUint32(data[4:8], uint32(rows))
 		_ = protocol.WriteFrame(stream, protocol.Frame{Type: protocol.FrameResize, Data: data[:]})
 	}
+	cols, rows := s.cols, s.rows
 	s.mu.Unlock()
+	if cols > 0 && rows > 0 {
+		var data [8]byte
+		binary.BigEndian.PutUint32(data[0:4], uint32(cols))
+		binary.BigEndian.PutUint32(data[4:8], uint32(rows))
+		_ = protocol.WriteFrame(stream, protocol.Frame{Type: protocol.FrameResize, Data: data[:]})
+	}
 }
 
 type agentSessionInput struct {

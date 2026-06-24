@@ -115,6 +115,7 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
             window.setTimeout(() => setHidden((prev) => new Set(prev).add(item.review.id)), 1200);
           }}
           onDismiss={() => setHidden((prev) => new Set(prev).add(item.review.id))}
+          compact={Boolean(data.runtime.client_mode)}
           t={t}
         />
       ))}
@@ -155,6 +156,7 @@ function ReviewCard({
   onDeny,
   onExpire,
   onDismiss,
+  compact,
   t,
 }: {
   item: ReviewState;
@@ -163,6 +165,7 @@ function ReviewCard({
   onDeny: () => void;
   onExpire: () => void;
   onDismiss: () => void;
+  compact?: boolean;
   t: (key: string, fallback?: string) => string;
 }) {
   const { review, status } = item;
@@ -209,11 +212,11 @@ function ReviewCard({
           <strong>{review.target_name}</strong>
           <code>{review.target_alias}</code>
         </div>
-        <div className="manual-review-row">
+        {!compact && <div className="manual-review-row">
           <span className="manual-review-label"><UserRound />{t("manualReviewUser")}</span>
           <strong>{review.user_display_name || review.user_email}</strong>
           <span className="muted">{review.user_email}</span>
-        </div>
+        </div>}
         <div className="manual-review-command">
           <span className="manual-review-label">{t("manualReviewCommand")}</span>
           <HighlightedCommand command={review.command} />

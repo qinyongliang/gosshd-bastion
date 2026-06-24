@@ -379,6 +379,7 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
     setSessionID("");
     const terminal = terminalRef.current;
     if (!terminal) return;
+    fitTerminal(terminal);
 
     const cols = terminal.cols || DEFAULT_COLS;
     const rows = terminal.rows || DEFAULT_ROWS;
@@ -388,7 +389,10 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
 
     socket.onopen = () => {
       setStatus("connected");
-      setDims({ cols, rows });
+      const currentCols = terminal.cols || cols;
+      const currentRows = terminal.rows || rows;
+      setDims({ cols: currentCols, rows: currentRows });
+      socket.send(JSON.stringify({ type: "resize", cols: currentCols, rows: currentRows }));
       if (heartbeatRef.current) window.clearInterval(heartbeatRef.current);
       heartbeatRef.current = window.setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
@@ -469,6 +473,7 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
       fitTerminal(terminal);
     });
     resizeObserver.observe(container);
+    fitTerminal(terminal);
 
     connect();
 

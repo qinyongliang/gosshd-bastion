@@ -9,16 +9,17 @@ import (
 )
 
 var spaRoutes = map[string]bool{
-	"":             true,
-	"dashboard":    true,
-	"orgs":         true,
-	"org-admin":    true,
-	"keys":         true,
-	"targets":      true,
-	"agents":       true,
-	"policies":     true,
-	"audit":        true,
-	"system-admin": true,
+	"":               true,
+	"dashboard":      true,
+	"orgs":           true,
+	"org-admin":      true,
+	"keys":           true,
+	"local-terminal": true,
+	"targets":        true,
+	"agents":         true,
+	"policies":       true,
+	"audit":          true,
+	"system-admin":   true,
 }
 
 func (a *App) serveWeb(w http.ResponseWriter, r *http.Request) {

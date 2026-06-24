@@ -152,6 +152,31 @@ func (r *Repository) EnsureBootstrapAdmin(ctx context.Context, password string) 
 	return user, password, nil
 }
 
+func (r *Repository) EnsureClientUser(ctx context.Context) (User, error) {
+	if existing, err := r.GetUserByEmail(ctx, "user"); err == nil {
+		if existing.IsSystemAdmin {
+			if err := r.UpdateUserSystemAdmin(ctx, existing.ID, false); err != nil {
+				return User{}, err
+			}
+			existing.IsSystemAdmin = false
+		}
+		return existing, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return User{}, err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(uuid.NewString()), bcrypt.DefaultCost)
+	if err != nil {
+		return User{}, err
+	}
+	return r.CreateUser(ctx, CreateUserParams{
+		Email:         "user",
+		DisplayName:   "user",
+		PasswordHash:  hash,
+		IsSystemAdmin: false,
+		AuthProvider:  defaultAuthProvider,
+	})
+}
+
 func (r *Repository) CreateSession(ctx context.Context, userID string, tokenHash []byte, expiresAt time.Time) (Session, error) {
 	session := Session{
 		ID:        uuid.NewString(),

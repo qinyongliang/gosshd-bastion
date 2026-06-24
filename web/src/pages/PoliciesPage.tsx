@@ -117,9 +117,10 @@ function PolicyResourceBadges({ policy, data }: { policy: Policy; data: ConsoleD
 
 function PolicyBindingSummary({ policy, data }: { policy: Policy; data: ConsoleData }) {
   const { t } = useI18n();
+  const isClientMode = Boolean(data.runtime.client_mode);
   const targetIDs = policy.target_ids || [];
   const targets = targetIDs.map((id) => data.targets.find((target) => target.id === id)).filter(Boolean) as Target[];
-  const groups = (policy.user_group_ids || []).map((id) => data.groups.find((group) => group.id === id)).filter(Boolean) as UserGroup[];
+  const groups = isClientMode ? [] : (policy.user_group_ids || []).map((id) => data.groups.find((group) => group.id === id)).filter(Boolean) as UserGroup[];
   const tags = policy.target_tags || [];
   const hasBindings = targets.length || tags.length || groups.length;
   return <span className="policy-binding-summary">
@@ -173,7 +174,7 @@ function PolicyDrawer({ data, policy, onClose }: { data: ConsoleData; policy: Po
   };
 
   return <div className="policy-drawer-host">
-    <DrawerShell title={policy.name} subtitle={t("policyEditBody")} onClose={onClose}>
+    <DrawerShell title={policy.name} subtitle={t(data.runtime.client_mode ? "policyClientEditBody" : "policyEditBody")} onClose={onClose}>
       <section className="section-block embedded">
         <div className="policy-section-title"><div><h3>{t("commonBaseConfig")}</h3><p>{t("policyBaseConfigBody")}</p></div></div>
         <form className="policy-editor-form" onSubmit={(event) => formSubmit(event, (body) => update.mutate(policyPayload(body)))}>
@@ -278,6 +279,7 @@ function RuleRow({ rule, onDelete }: { rule: PolicyRule; onDelete: () => void })
 
 function PolicyBindingsEditor({ data, policy }: { data: ConsoleData; policy: Policy }) {
   const { t } = useI18n();
+  const isClientMode = Boolean(data.runtime.client_mode);
   const queryClient = useQueryClient();
   const invalidate = async () => queryClient.invalidateQueries();
   const bindTarget = useMutation({ mutationFn: (id: string) => api.bindTarget(policy.id, id), onSuccess: invalidate });
@@ -289,11 +291,11 @@ function PolicyBindingsEditor({ data, policy }: { data: ConsoleData; policy: Pol
   const targetIDs = policy.target_ids || [];
   const boundTargets = targetIDs.map((id) => data.targets.find((target) => target.id === id)).filter(Boolean) as Target[];
   const boundTags = policy.target_tags || [];
-  const boundGroups = (policy.user_group_ids || []).map((id) => data.groups.find((group) => group.id === id)).filter(Boolean) as UserGroup[];
+  const boundGroups = isClientMode ? [] : (policy.user_group_ids || []).map((id) => data.groups.find((group) => group.id === id)).filter(Boolean) as UserGroup[];
   const allTags = useMemo(() => [...new Set(data.targets.flatMap((item) => item.tags || []))].sort(), [data.targets]);
 
   return <section className="section-block embedded">
-    <div className="policy-section-title"><div><h3>{t("commonBind")}</h3><p>{t("policyBindingsBody")}</p></div></div>
+    <div className="policy-section-title"><div><h3>{t("commonBind")}</h3><p>{t(isClientMode ? "policyClientBindingsBody" : "policyBindingsBody")}</p></div></div>
     <div className="policy-binding-grid">
       <RelationBlock
         title={t("policyBindService")}
@@ -309,13 +311,13 @@ function PolicyBindingsEditor({ data, policy }: { data: ConsoleData; policy: Pol
         onAdd={(tag) => bindTag.mutate(tag)}
         items={boundTags.map((tag) => <RemovableItem key={tag} title={<Tag tag={tag} color={tagColor(tag, tagColorMap(data.targets))} />} onRemove={() => unbindTag.mutate(tag)} />)}
       />
-      <RelationBlock
+      {!isClientMode && <RelationBlock
         title={t("policyBindGroup")}
         empty={t("policyNoBoundGroups")}
         options={data.groups.filter((group) => !(policy.user_group_ids || []).includes(group.id)).map((group): [string, string] => [group.id, group.name])}
         onAdd={(id) => bindGroup.mutate(id)}
         items={boundGroups.map((group) => <RemovableItem key={group.id} title={group.name} detail={group.is_default ? t("membersGroups") : group.slug} onRemove={() => unbindGroup.mutate(group.id)} />)}
-      />
+      />}
     </div>
   </section>;
 }

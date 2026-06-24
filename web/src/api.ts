@@ -128,6 +128,7 @@ export const api = {
     request<void>(`/api/admin/orgs/${orgID}/members/${userID}`, patch(body)),
   adminTransferOrgOwner: (orgID: string, userID: string) => request<void>(`/api/admin/orgs/${orgID}/transfer-owner`, post({ user_id: userID })),
 
+  localTerminalURL: (cols: number, rows: number) => terminalURL("/api/local-terminal/ws", cols, rows),
   targetTerminalURL: (targetID: string, cols: number, rows: number) => terminalURL(`/api/targets/${targetID}/terminal/ws`, cols, rows),
   listFiles: (targetID: string, path: string) => request<{ path: string; entries: FileEntry[] }>(`/api/targets/${targetID}/files?${queryString({ path })}`),
   downloadFile: (targetID: string, path: string) => `/api/targets/${targetID}/files/download?${queryString({ path })}`,

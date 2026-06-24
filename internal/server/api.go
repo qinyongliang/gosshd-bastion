@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -48,8 +49,9 @@ type apiMeResponse struct {
 }
 
 type apiRuntime struct {
-	SSHHost string `json:"ssh_host"`
-	SSHPort int    `json:"ssh_port"`
+	SSHHost    string `json:"ssh_host"`
+	SSHPort    int    `json:"ssh_port"`
+	ClientMode bool   `json:"client_mode"`
 }
 
 type apiOrganizationResponse struct {
@@ -113,6 +115,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/targets", a.requireUser(a.handleCreateTarget))
 	mux.HandleFunc("PATCH /api/targets/{id}", a.requireUser(a.handleUpdateTarget))
 	mux.HandleFunc("DELETE /api/targets/{id}", a.requireUser(a.handleDeleteTarget))
+	mux.HandleFunc("GET /api/local-terminal/ws", a.requireUser(a.handleLocalTerminalWS))
 	mux.HandleFunc("GET /api/targets/{id}/terminal/ws", a.requireUser(a.handleTargetTerminalWS))
 	mux.HandleFunc("GET /api/targets/{id}/system", a.requireUser(a.handleTargetSystem))
 	mux.HandleFunc("GET /api/targets/{id}/files", a.requireUser(a.handleTargetFiles))
@@ -201,11 +204,23 @@ func (a *App) userForRequest(r *http.Request) (store.User, error) {
 	if err := a.ensureServices(r.Context()); err != nil {
 		return store.User{}, err
 	}
+	if a.cfg.ClientMode && isLoopbackRequest(r) {
+		return a.store.Repository().EnsureClientUser(r.Context())
+	}
 	cookie, err := r.Cookie(a.sessionCookieName())
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
 		return store.User{}, store.ErrNotFound
 	}
 	return a.auth.UserForSession(r.Context(), cookie.Value)
+}
+
+func isLoopbackRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 func readJSON(r *http.Request, dst any) error {
