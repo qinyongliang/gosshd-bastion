@@ -459,6 +459,18 @@ func (a *App) ensureAgentTarget(ctx context.Context, enrollment store.AgentEnrol
 	if strings.TrimSpace(alias) == "" {
 		alias = "agent-" + agent.ID[:8]
 	}
+	for _, target := range targets {
+		if target.TargetType == store.TargetAgent && target.Alias == alias {
+			_, err := a.store.Repository().UpdateSSHTarget(ctx, target.ID, store.UpdateSSHTargetParams{
+				Host:           enrollment.DefaultHost,
+				Port:           enrollment.DefaultPort,
+				RemoteUsername: target.RemoteUsername,
+				AuthType:       target.AuthType,
+				AgentID:        agent.ID,
+			})
+			return err
+		}
+	}
 	_, err = a.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
 		OwnerType:      enrollment.OwnerType,
 		OwnerID:        enrollment.OwnerID,
