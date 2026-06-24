@@ -58,6 +58,8 @@ func (c *Client) handlePipeCommand(stream io.ReadWriteCloser, reader *bufio.Read
 		} else {
 			args = []string{"/C", req.Command}
 		}
+	} else if req.Type == protocol.StreamShell {
+		args = windowsInteractiveShellArgs(c.cfg.Shell)
 	}
 	cmd := exec.Command(c.cfg.Shell, args...)
 	cmd.Dir = c.cfg.Root
@@ -257,9 +259,24 @@ func copyFramesToWriter(w io.WriteCloser, reader *bufio.Reader) {
 			return
 		}
 		if frame.Type == protocol.FrameStdin {
-			_, _ = w.Write(frame.Data)
+			_, _ = w.Write(normalizePipeInput(frame.Data))
 		}
 	}
+}
+
+func normalizePipeInput(data []byte) []byte {
+	if len(data) == 0 {
+		return data
+	}
+	out := make([]byte, 0, len(data)+4)
+	for i, b := range data {
+		if b == '\r' && (i+1 >= len(data) || data[i+1] != '\n') {
+			out = append(out, '\r', '\n')
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 func copyFramesToConPTY(w io.WriteCloser, reader *bufio.Reader, console windows.Handle, processID uint32) {
@@ -443,4 +460,24 @@ func waitHandleExitCode(process uintptr) int {
 
 func isPowerShell(shell string) bool {
 	return shell == "powershell.exe" || shell == "pwsh.exe" || shell == "powershell" || shell == "pwsh"
+}
+
+func isCmdShell(shell string) bool {
+	return shell == "cmd.exe" || shell == "cmd"
+}
+
+func windowsInteractiveShellArgs(shell string) []string {
+	if isPowerShell(shell) {
+		return []string{
+			"-NoLogo",
+			"-NoProfile",
+			"-NoExit",
+			"-Command",
+			"[Console]::InputEncoding=[Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)",
+		}
+	}
+	if isCmdShell(shell) {
+		return []string{"/D", "/Q", "/K", "chcp 65001 >NUL"}
+	}
+	return nil
 }

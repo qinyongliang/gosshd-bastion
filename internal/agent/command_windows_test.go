@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"net"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,23 @@ func TestWindowsShellUsesConPTYForInteractiveInput(t *testing.T) {
 	}
 	if code := readExitCode(t, reader); code != 0 && code != 0xC000013A {
 		t.Fatalf("exit code mismatch: got %d want 0 or CTRL_C_EVENT", code)
+	}
+}
+
+func TestWindowsInteractiveShellArgsUseUTF8(t *testing.T) {
+	if got, want := windowsInteractiveShellArgs("cmd.exe"), []string{"/D", "/Q", "/K", "chcp 65001 >NUL"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("cmd args mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+	got := windowsCommandLine("cmd.exe")
+	if !strings.Contains(got, "chcp 65001") {
+		t.Fatalf("winpty command line should initialize UTF-8 code page: %q", got)
+	}
+}
+
+func TestNormalizePipeInputExpandsBareCarriageReturn(t *testing.T) {
+	got := string(normalizePipeInput([]byte("echo ok\rnext\r\n")))
+	if want := "echo ok\r\nnext\r\n"; got != want {
+		t.Fatalf("normalized input mismatch:\n got: %q\nwant: %q", got, want)
 	}
 }
 
