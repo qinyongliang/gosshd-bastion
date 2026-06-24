@@ -263,12 +263,13 @@ if ($actualSha -ne $expectedSha) {
 }
 $targetDir = Join-Path $env:ProgramData "gosshd"
 $target = Join-Path $targetDir "gosshd-agent.exe"
+$serviceIDFile = Join-Path $targetDir "agent.json"
 if ($isInstall) {
   Assert-Administrator
   New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
   Copy-Item -Force $tmp $target
   Install-WinPty -Destination $targetDir
-  $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '" --ssh-port "' + $sshPort + '"'
+  $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '" --ssh-port "' + $sshPort + '" --id-file "' + $serviceIDFile + '" --root "' + $targetDir + '"'
   $serviceName = "gosshd-agent"
   $existing = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
   if ($existing) {
@@ -286,9 +287,10 @@ if ($isInstall) {
     }
   }
   Invoke-ServiceCreateChecked -ServiceName $serviceName -BinaryPath $binPath
+  Invoke-ScChecked -Action "failed to configure $serviceName account" -Command { sc.exe config $serviceName obj= LocalSystem }
   Invoke-ScChecked -Action "failed to configure $serviceName recovery actions" -Command { sc.exe failure $serviceName reset= 60 actions= restart/5000/restart/5000/restart/5000 }
   Invoke-ScChecked -Action "failed to start $serviceName service" -Command { sc.exe start $serviceName }
-  Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" | Select-Object Name, State, StartMode, PathName
+  Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" | Select-Object Name, State, StartMode, StartName, PathName
   exit 0
 }
 Install-WinPty -Destination $runtimeDir
