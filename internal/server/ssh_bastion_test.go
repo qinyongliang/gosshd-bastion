@@ -118,6 +118,19 @@ func TestSSHExecRoutesAliasToPrivateKeyTarget(t *testing.T) {
 	}
 }
 
+func TestPasswordTargetOffersKeyboardInteractiveFallback(t *testing.T) {
+	auth, err := targetAuthMethods(store.SSHTarget{
+		AuthType:        store.AuthPassword,
+		EncryptedSecret: []byte("correct-password"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(auth) != 2 {
+		t.Fatalf("password target should offer password and keyboard-interactive auth, got %d methods", len(auth))
+	}
+}
+
 func TestSSHDeniesBlacklistedExecAndAudits(t *testing.T) {
 	app, _, sshAddr, stop := startBastionTestApp(t)
 	defer stop()

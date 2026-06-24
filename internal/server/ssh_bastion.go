@@ -771,13 +771,13 @@ func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSH
 	if depth > 3 {
 		return nil, errors.New("ssh proxy chain is too deep")
 	}
-	auth, err := targetAuthMethod(target)
+	auth, err := targetAuthMethods(target)
 	if err != nil {
 		return nil, err
 	}
 	cfg := &gossh.ClientConfig{
 		User:            target.RemoteUsername,
-		Auth:            []gossh.AuthMethod{auth},
+		Auth:            auth,
 		HostKeyCallback: a.targetHostKeyCallback(),
 		Timeout:         5 * time.Second,
 	}
@@ -858,16 +858,26 @@ func (c closeChainConn) Close() error {
 	return err
 }
 
-func targetAuthMethod(target store.SSHTarget) (gossh.AuthMethod, error) {
+func targetAuthMethods(target store.SSHTarget) ([]gossh.AuthMethod, error) {
 	switch target.AuthType {
 	case store.AuthPrivateKey:
 		signer, err := gossh.ParsePrivateKey(target.EncryptedSecret)
 		if err != nil {
 			return nil, fmt.Errorf("parse target private key: %w", err)
 		}
-		return gossh.PublicKeys(signer), nil
+		return []gossh.AuthMethod{gossh.PublicKeys(signer)}, nil
 	case store.AuthPassword, "":
-		return gossh.Password(string(target.EncryptedSecret)), nil
+		password := string(target.EncryptedSecret)
+		return []gossh.AuthMethod{
+			gossh.Password(password),
+			gossh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
+				answers := make([]string, len(questions))
+				for i := range answers {
+					answers[i] = password
+				}
+				return answers, nil
+			}),
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported target auth type %q", target.AuthType)
 	}
