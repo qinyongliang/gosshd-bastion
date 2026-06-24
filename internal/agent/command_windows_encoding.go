@@ -15,7 +15,7 @@ import (
 	"golang.org/x/text/transform"
 )
 
-func windowsConsoleOutputReader(r io.Reader, shell string) io.Reader {
+func windowsPipeOutputReader(r io.Reader, shell string) io.Reader {
 	if !isCmdShell(shell) {
 		return r
 	}
