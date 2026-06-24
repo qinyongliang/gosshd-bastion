@@ -1,13 +1,8 @@
 package main
 
 import (
-	"context"
 	"flag"
-	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/agent"
 )
@@ -26,15 +21,7 @@ func main() {
 	flag.StringVar(&cfg.SSHPort, "ssh-port", "", "public SSH port shown in connection hints")
 	flag.Parse()
 
-	client, err := agent.New(cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(client.SSHAddress())
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := client.Run(ctx); err != nil {
+	if err := runAgent(cfg); err != nil {
 		log.Fatal(err)
 	}
 }
