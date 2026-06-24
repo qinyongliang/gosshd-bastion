@@ -88,8 +88,8 @@ func (c *Client) handlePipeCommand(stream io.ReadWriteCloser, reader *bufio.Read
 		return
 	}
 	go copyFramesToWriter(stdin, reader)
-	go copyReaderToFrame(stream, protocol.FrameStdout, stdout)
-	go copyReaderToFrame(stream, protocol.FrameStderr, stderr)
+	go copyWindowsConsoleReaderToFrame(stream, protocol.FrameStdout, stdout, c.cfg.Shell)
+	go copyWindowsConsoleReaderToFrame(stream, protocol.FrameStderr, stderr, c.cfg.Shell)
 	code := waitExitCode(cmd)
 	_ = stdin.Close()
 	_ = protocol.WriteFrame(stream, protocol.ExitFrame(code))
@@ -432,6 +432,10 @@ func copyReaderToFrame(w io.Writer, typ byte, r io.Reader) {
 	}
 }
 
+func copyWindowsConsoleReaderToFrame(w io.Writer, typ byte, r io.Reader, shell string) {
+	copyReaderToFrame(w, typ, windowsConsoleOutputReader(r, shell))
+}
+
 func waitExitCode(cmd *exec.Cmd) int {
 	if err := cmd.Wait(); err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
@@ -477,7 +481,7 @@ func windowsInteractiveShellArgs(shell string) []string {
 		}
 	}
 	if isCmdShell(shell) {
-		return []string{"/D", "/Q", "/K", "chcp 65001 >NUL"}
+		return []string{"/D", "/K"}
 	}
 	return nil
 }

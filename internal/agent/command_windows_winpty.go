@@ -46,7 +46,7 @@ func (c *Client) handleWinPTYShell(stream io.ReadWriteCloser, reader *bufio.Read
 	}
 
 	go copyFramesToWinPTY(pty, reader)
-	go copyReaderToFrame(stream, protocol.FrameStdout, pty.StdOut)
+	go copyWindowsConsoleReaderToFrame(stream, protocol.FrameStdout, pty.StdOut, c.cfg.Shell)
 
 	code := waitHandleExitCode(pty.GetProcHandle())
 	_ = protocol.WriteFrame(stream, protocol.ExitFrame(code))
