@@ -55,6 +55,14 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 	if !mcpHasTool(tools, "target_create") || !mcpHasTool(tools, "target_delete") || !mcpHasTool(tools, "policy_create") || !mcpHasTool(tools, "policy_bind_target_tag") || !mcpHasTool(tools, "llm_prompt_create") {
 		t.Fatalf("expected bastion tools, got %+v", tools.Tools)
 	}
+	for _, field := range []string{"user_id", "owner_type", "owner_id"} {
+		if mcpToolRequires(tools, "target_list", field) {
+			t.Fatalf("target_list should not require %s: %+v", field, mcpToolSchema(tools, "target_list"))
+		}
+	}
+	if mcpToolRequires(tools, "org_list", "user_id") {
+		t.Fatalf("org_list should not require user_id: %+v", mcpToolSchema(tools, "org_list"))
+	}
 
 	reg, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "auth_register",
@@ -217,6 +225,16 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 	}
 	if command := targetConnectionCommandFromStructured(listedTargets.StructuredContent, targetID); !strings.HasPrefix(command, "ssh -p 22 test2@") {
 		t.Fatalf("target_list connection command mismatch: %q in %#v", command, listedTargets.StructuredContent)
+	}
+	listedTargetsForActor, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "target_list",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command := targetConnectionCommandFromStructured(listedTargetsForActor.StructuredContent, targetID); !strings.HasPrefix(command, "ssh -p 22 test2@") {
+		t.Fatalf("target_list without user_id should include visible targets: %q in %#v", command, listedTargetsForActor.StructuredContent)
 	}
 	llmConfig, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "llm_config_create",
@@ -512,6 +530,32 @@ func mcpToolDescription(tools *mcp.ListToolsResult, name string) string {
 		}
 	}
 	return ""
+}
+
+func mcpToolSchema(tools *mcp.ListToolsResult, name string) any {
+	for _, tool := range tools.Tools {
+		if tool.Name == name {
+			return tool.InputSchema
+		}
+	}
+	return nil
+}
+
+func mcpToolRequires(tools *mcp.ListToolsResult, name, field string) bool {
+	schema, ok := mcpToolSchema(tools, name).(map[string]any)
+	if !ok {
+		return false
+	}
+	required, ok := schema["required"].([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range required {
+		if item == field {
+			return true
+		}
+	}
+	return false
 }
 
 func stringField(t *testing.T, v any, keys ...string) string {
