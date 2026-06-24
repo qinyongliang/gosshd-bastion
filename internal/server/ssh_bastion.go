@@ -791,6 +791,18 @@ func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSH
 			if err != nil {
 				return nil, fmt.Errorf("load proxy target: %w", err)
 			}
+			if proxyTarget.TargetType == store.TargetAgent {
+				conn, err := a.openAgentTCPConn(proxyTarget.AgentID, addr)
+				if err != nil {
+					return nil, fmt.Errorf("connect proxy target: %w", err)
+				}
+				clientConn, chans, reqs, err := gossh.NewClientConn(conn, addr, cfg)
+				if err != nil {
+					_ = conn.Close()
+					return nil, err
+				}
+				return gossh.NewClient(clientConn, chans, reqs), nil
+			}
 			proxyClient, err := a.openTargetSSHClientWithDepth(ctx, proxyTarget, depth+1)
 			if err != nil {
 				return nil, fmt.Errorf("connect proxy target: %w", err)
@@ -811,36 +823,44 @@ func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSH
 		return gossh.Dial("tcp", addr, cfg)
 	}
 	if target.TargetType == store.TargetAgent {
-		session, err := a.registry.Get(target.AgentID)
+		tcpConn, err := a.openAgentTCPConn(target.AgentID, addr)
 		if err != nil {
 			return nil, err
 		}
-		stream, err := session.Open()
+		conn, chans, reqs, err := gossh.NewClientConn(tcpConn, addr, cfg)
 		if err != nil {
-			return nil, err
-		}
-		if err := protocol.WriteJSONLine(stream, protocol.StreamRequest{Type: protocol.StreamTCP, Target: addr}); err != nil {
-			_ = stream.Close()
-			return nil, err
-		}
-		reader := bufio.NewReader(stream)
-		resp, err := protocol.ReadJSONLine[protocol.StreamResponse](reader)
-		if err != nil {
-			_ = stream.Close()
-			return nil, err
-		}
-		if !resp.OK {
-			_ = stream.Close()
-			return nil, errors.New(resp.Error)
-		}
-		conn, chans, reqs, err := gossh.NewClientConn(readWriteConn{Reader: reader, Writer: stream, Closer: stream, remoteAddr: dummyAddr(addr)}, addr, cfg)
-		if err != nil {
-			_ = stream.Close()
+			_ = tcpConn.Close()
 			return nil, err
 		}
 		return gossh.NewClient(conn, chans, reqs), nil
 	}
 	return nil, fmt.Errorf("unsupported target type %q", target.TargetType)
+}
+
+func (a *App) openAgentTCPConn(agentID, addr string) (net.Conn, error) {
+	session, err := a.registry.Get(agentID)
+	if err != nil {
+		return nil, err
+	}
+	stream, err := session.Open()
+	if err != nil {
+		return nil, err
+	}
+	if err := protocol.WriteJSONLine(stream, protocol.StreamRequest{Type: protocol.StreamTCP, Target: addr}); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	reader := bufio.NewReader(stream)
+	resp, err := protocol.ReadJSONLine[protocol.StreamResponse](reader)
+	if err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	if !resp.OK {
+		_ = stream.Close()
+		return nil, errors.New(resp.Error)
+	}
+	return readWriteConn{Reader: reader, Writer: stream, Closer: stream, remoteAddr: dummyAddr(addr)}, nil
 }
 
 type closeChainConn struct {
