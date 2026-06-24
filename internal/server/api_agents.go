@@ -167,6 +167,10 @@ func (a *App) handleInstallPS1(w http.ResponseWriter, r *http.Request, token str
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	base := publicBaseURL(r, a.cfg.publicHost())
 	sshPort := strconv.Itoa(publicSSHPort(a.cfg.PublicSSHPort, a.cfg.SSHListen))
+	expectedAgentSHA := ""
+	if sha, err := a.agentDownloadSHA256("windows", "amd64"); err == nil {
+		expectedAgentSHA = sha
+	}
 	fmt.Fprintf(w, `param(
   [switch]$Install
 )
@@ -180,6 +184,7 @@ $shaUrl = "$url.sha256"
 $server = "%s"
 $enrollmentToken = "%s"
 $sshPort = "%s"
+$expectedSha = "%s"
 
 function Assert-Administrator {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -237,7 +242,9 @@ function Install-WinPty {
 }
 
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp
-$expectedSha = (Invoke-WebRequest -UseBasicParsing -Uri $shaUrl).Content.Trim().ToLowerInvariant()
+if ([string]::IsNullOrWhiteSpace($expectedSha)) {
+  $expectedSha = (Invoke-WebRequest -UseBasicParsing -Uri $shaUrl).Content.Trim().ToLowerInvariant()
+}
 $actualSha = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLowerInvariant()
 if ($actualSha -ne $expectedSha) {
   throw "sha256 mismatch: $actualSha != $expectedSha"
@@ -274,5 +281,5 @@ if ($isInstall) {
 }
 Install-WinPty -Destination $runtimeDir
 & $tmp --server $server --enrollment-token $enrollmentToken --ssh-port $sshPort
-`, base, base, token, sshPort)
+`, base, base, token, sshPort, expectedAgentSHA)
 }
