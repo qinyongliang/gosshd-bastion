@@ -21,7 +21,7 @@ func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, 
 		cmd = exec.Command(c.cfg.Shell, "-lc", req.Command)
 	}
 	cmd.Dir = c.cfg.Root
-	cmd.Env = commandEnvironment(os.Environ())
+	cmd.Env = commandEnvironment(os.Environ(), c.cfg.Root)
 	if err := protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: true}); err != nil {
 		return
 	}
