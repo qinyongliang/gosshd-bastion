@@ -1146,6 +1146,15 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	if !strings.Contains(psBody, "failed to create $serviceName service") || !strings.Contains(psBody, "failed to start $serviceName service") {
 		t.Fatalf("powershell install script should surface sc.exe failures:\n%s", psBody)
 	}
+	if !strings.Contains(psBody, "/download/winpty/windows/amd64") {
+		t.Fatalf("powershell install script should download winpty through gosshd server:\n%s", psBody)
+	}
+	if strings.Contains(psBody, "github.com/rprichard/winpty/releases/download") {
+		t.Fatalf("powershell install script should not require direct GitHub access for winpty:\n%s", psBody)
+	}
+	if strings.Contains(psBody, "winpty install skipped") {
+		t.Fatalf("powershell install script should fail visibly when winpty install fails:\n%s", psBody)
+	}
 	if strings.Contains(shBody, "installl") || strings.Contains(psBody, "installl") {
 		t.Fatalf("install scripts should not accept misspelled install mode")
 	}

@@ -51,6 +51,36 @@ func TestAgentCachePathUsesVersionUnderConfiguredRoot(t *testing.T) {
 	}
 }
 
+func TestDownloadWinPTYServesCachedZip(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "cache")
+	app := NewApp(Config{Version: "v1.2.3", AgentCachePath: root})
+	cachePath := filepath.Join(root, "winpty", winPTYVersion, winPTYZipName)
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("winpty-zip")
+	if err := os.WriteFile(cachePath, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/download/winpty/windows/amd64", nil)
+	rec := httptest.NewRecorder()
+	app.downloadWinPTY(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != string(body) {
+		t.Fatalf("body mismatch: %q", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/download/winpty/windows/amd64.sha256", nil)
+	rec = httptest.NewRecorder()
+	app.downloadWinPTY(rec, req)
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != winPTYZipSHA {
+		t.Fatalf("sha response mismatch: code=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestEnsureAgentBinaryFallsBackToProxyChecksum(t *testing.T) {
 	agentBytes := []byte("agent-binary")
 	agentSHA := fmt.Sprintf("%x", sha256.Sum256(agentBytes))

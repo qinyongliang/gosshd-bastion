@@ -214,7 +214,7 @@ function Install-WinPty {
   param([Parameter(Mandatory=$true)][string]$Destination)
 
   try {
-    $winptyUrl = "https://github.com/rprichard/winpty/releases/download/0.4.3/winpty-0.4.3-msvc2015.zip"
+    $winptyUrl = "%s/download/winpty/windows/amd64"
     $winptySha = "35a48ece2ff4acdcbc8299d4920de53eb86b1fb41e64d2fe5ae7898931bcee89"
     $zipPath = Join-Path $env:TEMP "gosshd-winpty-0.4.3.zip"
     $extractDir = Join-Path $env:TEMP "gosshd-winpty-0.4.3"
@@ -237,7 +237,7 @@ function Install-WinPty {
     Copy-Item -Force (Join-Path $binDir "winpty.dll") (Join-Path $Destination "winpty.dll")
     Copy-Item -Force (Join-Path $binDir "winpty-agent.exe") (Join-Path $Destination "winpty-agent.exe")
   } catch {
-    Write-Warning "winpty install skipped: $($_.Exception.Message). Old Windows versions will fall back to pipe mode."
+    throw "winpty install failed: $($_.Exception.Message)"
   }
 }
 
@@ -281,5 +281,5 @@ if ($isInstall) {
 }
 Install-WinPty -Destination $runtimeDir
 & $tmp --server $server --enrollment-token $enrollmentToken --ssh-port $sshPort
-`, base, base, token, sshPort, expectedAgentSHA)
+`, base, base, token, sshPort, expectedAgentSHA, base)
 }
