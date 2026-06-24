@@ -97,6 +97,39 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 }
 
+func NewEmbedded(cfg Config, id string) (*Client, error) {
+	var err error
+	if cfg.Root == "" {
+		cfg.Root, err = os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if cfg.Shell == "" {
+		cfg.Shell = protocol.DefaultShell()
+	}
+	return &Client{cfg: cfg, id: id}, nil
+}
+
+func (c *Client) ServeSession(ctx context.Context, session *yamux.Session) error {
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = session.Close()
+		case <-done:
+		}
+	}()
+	for {
+		stream, err := session.Accept()
+		if err != nil {
+			return err
+		}
+		go c.handleStream(stream)
+	}
+}
+
 func (c *Client) runOnce(ctx context.Context) error {
 	wsURL, err := c.wsURL()
 	if err != nil {
@@ -145,13 +178,7 @@ func (c *Client) runOnce(ctx context.Context) error {
 	}
 	defer session.Close()
 	log.Printf("agent online: %s", c.SSHAddress())
-	for {
-		stream, err := session.Accept()
-		if err != nil {
-			return err
-		}
-		go c.handleStream(stream)
-	}
+	return c.ServeSession(ctx, session)
 }
 
 func (c *Client) wsURL() (string, error) {

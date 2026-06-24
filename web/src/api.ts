@@ -4,6 +4,7 @@ import type {
   AuditLog,
   AuditRecording,
   FileEntry,
+  FileProperties,
   LLMConfig,
   ManualReview,
   Member,
@@ -128,10 +129,15 @@ export const api = {
     request<void>(`/api/admin/orgs/${orgID}/members/${userID}`, patch(body)),
   adminTransferOrgOwner: (orgID: string, userID: string) => request<void>(`/api/admin/orgs/${orgID}/transfer-owner`, post({ user_id: userID })),
 
-  localTerminalURL: (cols: number, rows: number) => terminalURL("/api/local-terminal/ws", cols, rows),
   targetTerminalURL: (targetID: string, cols: number, rows: number) => terminalURL(`/api/targets/${targetID}/terminal/ws`, cols, rows),
   listFiles: (targetID: string, path: string) => request<{ path: string; entries: FileEntry[] }>(`/api/targets/${targetID}/files?${queryString({ path })}`),
+  fileProperties: (targetID: string, path: string) => request<FileProperties>(`/api/targets/${targetID}/files/stat?${queryString({ path })}`),
   downloadFile: (targetID: string, path: string) => `/api/targets/${targetID}/files/download?${queryString({ path })}`,
+  openFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/open?${queryString({ path })}`, post({})),
+  mkdirFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/mkdir`, post({ path })),
+  deleteFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/delete`, post({ path })),
+  moveFile: (targetID: string, source: string, destination: string) => request<{ source: string; destination: string }>(`/api/targets/${targetID}/files/move`, post({ source, destination })),
+  copyFile: (targetID: string, source: string, destination: string) => request<{ source: string; destination: string }>(`/api/targets/${targetID}/files/copy`, post({ source, destination })),
   uploadFile: (targetID: string, path: string, file: File) => {
     const body = new FormData();
     body.append("file", file);

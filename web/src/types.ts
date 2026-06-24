@@ -23,6 +23,7 @@ export type Runtime = {
   ssh_host: string;
   ssh_port: number;
   client_mode?: boolean;
+  local_terminal_target_id?: string;
 };
 
 export type PublicKey = {
@@ -248,4 +249,9 @@ export type FileEntry = {
   size: number;
   mode: string;
   modified_at?: string;
+};
+
+export type FileProperties = FileEntry & {
+  disk_usage: number;
+  items: number;
 };

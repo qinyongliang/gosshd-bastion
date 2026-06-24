@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Terminal } from "@xterm/xterm";
-import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Search, Server } from "lucide-react";
+import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Search, Server, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { ManualReviewPoller } from "../components/ManualReviewPoller";
 import { Segmented } from "../components/ui";
@@ -21,12 +21,21 @@ type MetricSample = {
   swap: number;
   rx: number;
   tx: number;
+  network: Record<string, { rx: number; tx: number }>;
 };
 
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 const SYSTEM_REFRESH_MS = 5000;
 const MAX_SYSTEM_SAMPLES = 60;
+type TerminalPanelProps = {
+  data: ConsoleData;
+  target: Target;
+  active?: boolean;
+  isFullscreen: boolean;
+  onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
+  manualReview?: boolean;
+};
 
 export function ConnectPage({ data }: { data: ConsoleData }) {
   const { targetID } = useParams<{ targetID: string }>();
@@ -51,22 +60,77 @@ export function ConnectPage({ data }: { data: ConsoleData }) {
   return <ConnectWorkspace data={data} target={target} targets={data.targets} />;
 }
 
-function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target: Target; targets: Target[] }) {
+export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target: Target; targets: Target[] }) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
+  const navigate = useNavigate();
   const terminalFocusedByDefault = shouldFocusTerminalByDefault();
   const [hostOpen, setHostOpen] = useState(() => !terminalFocusedByDefault);
   const [filesOpen, setFilesOpen] = useState(() => !terminalFocusedByDefault);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
-  const [hostWidth, setHostWidth] = useState(330);
-  const [filesWidth, setFilesWidth] = useState(480);
+  const [hostWidth, setHostWidth] = useState(248);
+  const [filesWidth, setFilesWidth] = useState(330);
+  const [tabs, setTabs] = useState<string[]>(() => [target.id]);
+  const [activeTargetID, setActiveTargetID] = useState(target.id);
+  const [tabMenu, setTabMenu] = useState<{ targetID: string; x: number; y: number } | null>(null);
   const bodyRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const endpoint = targetEndpoint(target);
+  const activeTarget = targets.find((item) => item.id === activeTargetID) || target;
+  const openTabs = tabs.map((id) => targets.find((item) => item.id === id)).filter((item): item is Target => Boolean(item));
+  const endpoint = targetEndpoint(activeTarget);
 
   useEffect(() => {
-    document.title = `${serverTitle(target)} · gosshd Bastion`;
-  }, [target]);
+    setActiveTargetID(target.id);
+    setTabs((current) => current.includes(target.id) ? current : [...current, target.id]);
+  }, [target.id]);
+
+  useEffect(() => {
+    document.title = `${serverTitle(activeTarget)} · gosshd Bastion`;
+  }, [activeTarget]);
+
+  useEffect(() => {
+    const onPointerDown = () => setTabMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setTabMenu(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  const activateTarget = (nextTargetID: string) => {
+    setTabs((current) => current.includes(nextTargetID) ? current : [...current, nextTargetID]);
+    setActiveTargetID(nextTargetID);
+    navigate(`/targets/${nextTargetID}/connect`, { replace: true });
+  };
+
+  const closeTabs = (mode: "one" | "left" | "right" | "others" | "all", targetID: string) => {
+    setTabMenu(null);
+    setTabs((current) => {
+      const index = current.indexOf(targetID);
+      if (index < 0) return current;
+      let next = current;
+      if (mode === "one") next = current.filter((id) => id !== targetID);
+      if (mode === "left") next = current.slice(index);
+      if (mode === "right") next = current.slice(0, index + 1);
+      if (mode === "others") next = [targetID];
+      if (mode === "all") next = [];
+
+      if (!next.length) {
+        window.setTimeout(() => navigate("/targets", { replace: true }), 0);
+        return next;
+      }
+      if (!next.includes(activeTargetID)) {
+        const fallback = next[Math.min(index, next.length - 1)];
+        setActiveTargetID(fallback);
+        window.setTimeout(() => navigate(`/targets/${fallback}/connect`, { replace: true }), 0);
+      }
+      return next;
+    });
+  };
 
   const startResize = (area: "host" | "files", event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -76,9 +140,9 @@ function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       if (area === "host") {
-        setHostWidth(clampNumber(moveEvent.clientX - bodyRect.left, 240, Math.min(520, bodyRect.width * 0.42)));
+        setHostWidth(clampNumber(moveEvent.clientX - bodyRect.left, 190, Math.min(360, bodyRect.width * 0.28)));
       } else {
-        setFilesWidth(clampNumber(mainRect.right - moveEvent.clientX, 320, Math.min(720, mainRect.width * 0.58)));
+        setFilesWidth(clampNumber(mainRect.right - moveEvent.clientX, 260, Math.min(480, mainRect.width * 0.38)));
       }
     };
     const onPointerUp = () => {
@@ -103,21 +167,21 @@ function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target
           </div>
         </div>
 
-        <ServerSwitcher targets={targets} currentTargetID={target.id} />
+        <ServerSwitcher targets={targets} currentTargetID={activeTarget.id} onOpenTarget={activateTarget} />
 
         <div className="connect-appbar-host">
           <Server />
           <div>
-            <strong>{target.name}</strong>
-            <code>{target.alias}</code>
+            <strong>{activeTarget.name}</strong>
+            <code>{activeTarget.alias}</code>
           </div>
         </div>
 
         <div className="connect-appbar-meta">
           <span className="connect-appbar-endpoint"><Globe />{endpoint}</span>
           <span className="connect-appbar-type">
-            {target.target_type === "agent" ? <Monitor /> : <HardDrive />}
-            {target.target_type === "agent" ? t("privateNode") : t("serviceDirect")}
+            {activeTarget.target_type === "agent" ? <Monitor /> : <HardDrive />}
+            {activeTarget.target_type === "agent" ? t("privateNode") : t("serviceDirect")}
           </span>
         </div>
 
@@ -126,6 +190,15 @@ function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target
           <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
         </div>
       </header>
+      <ConnectionTabs
+        tabs={openTabs}
+        activeTargetID={activeTarget.id}
+        menu={tabMenu}
+        onActivate={activateTarget}
+        onClose={(targetID) => closeTabs("one", targetID)}
+        onMenu={(targetID, point) => setTabMenu({ targetID, ...point })}
+        onMenuAction={closeTabs}
+      />
 
       <section
         ref={bodyRef}
@@ -143,15 +216,15 @@ function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target
                   </button>
                 </header>
                 <dl className="connect-host-list">
-                  <div><dt>{t("serviceName")}</dt><dd>{target.name}</dd></div>
-                  <div><dt>{t("serviceAlias")}</dt><dd><code>{target.alias}</code></dd></div>
-                  <div><dt>{t("targetHost")}</dt><dd>{target.host || "-"}</dd></div>
-                  <div><dt>{t("targetPort")}</dt><dd>{target.port || 22}</dd></div>
-                  <div><dt>{t("serviceRemoteUser")}</dt><dd>{target.remote_username}</dd></div>
-                  <div><dt>{t("commonTag")}</dt><dd>{(target.tags || []).join(", ") || "-"}</dd></div>
+                  <div><dt>{t("serviceName")}</dt><dd>{activeTarget.name}</dd></div>
+                  <div><dt>{t("serviceAlias")}</dt><dd><code>{activeTarget.alias}</code></dd></div>
+                  <div><dt>{t("targetHost")}</dt><dd>{activeTarget.host || "-"}</dd></div>
+                  <div><dt>{t("targetPort")}</dt><dd>{activeTarget.port || 22}</dd></div>
+                  <div><dt>{t("serviceRemoteUser")}</dt><dd>{activeTarget.remote_username}</dd></div>
+                  <div><dt>{t("commonTag")}</dt><dd>{(activeTarget.tags || []).join(", ") || "-"}</dd></div>
                 </dl>
               </section>
-              <SystemSnapshotPanel targetID={target.id} />
+              <SystemSnapshotPanel targetID={activeTarget.id} />
             </>
           ) : (
             <button type="button" className="collapsed-zone-button" onClick={() => setHostOpen(true)} title={t("connectExpandSidebar")}>
@@ -172,7 +245,18 @@ function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target
           style={{ "--files-width": `${filesWidth}px` } as CSSProperties}
         >
           <div className="connect-zone terminal-zone">
-            <TerminalPanel data={data} target={target} isFullscreen={terminalFullscreen} onFullscreenChange={setTerminalFullscreen} />
+            <div className="terminal-tab-stack">
+              {openTabs.map((tabTarget) => (
+                <TerminalPanel
+                  key={tabTarget.id}
+                  data={data}
+                  target={tabTarget}
+                  active={tabTarget.id === activeTarget.id}
+                  isFullscreen={terminalFullscreen && tabTarget.id === activeTarget.id}
+                  onFullscreenChange={setTerminalFullscreen}
+                />
+              ))}
+            </div>
           </div>
           {filesOpen && !terminalFullscreen && (
             <button type="button" className="connect-resizer files-resizer" onPointerDown={(event) => startResize("files", event)} aria-label={t("connectFilesTitle")}>
@@ -188,7 +272,7 @@ function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target
                 <ChevronRight />
               </button>
             </div>
-            <FileManager target={target} />
+            <FileManager target={activeTarget} nativeOpen={Boolean(data.runtime.client_mode)} />
               </>
             ) : (
               <button type="button" className="collapsed-zone-button" onClick={() => setFilesOpen(true)} title={t("connectFilesTitle")}>
@@ -200,6 +284,70 @@ function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target
         </section>
       </section>
     </main>
+  );
+}
+
+function ConnectionTabs({
+  tabs,
+  activeTargetID,
+  menu,
+  onActivate,
+  onClose,
+  onMenu,
+  onMenuAction,
+}: {
+  tabs: Target[];
+  activeTargetID: string;
+  menu: { targetID: string; x: number; y: number } | null;
+  onActivate: (targetID: string) => void;
+  onClose: (targetID: string) => void;
+  onMenu: (targetID: string, point: { x: number; y: number }) => void;
+  onMenuAction: (mode: "one" | "left" | "right" | "others" | "all", targetID: string) => void;
+}) {
+  const tabsRef = useRef<HTMLElement>(null);
+  if (!tabs.length) return null;
+  const menuTarget = menu ? tabs.find((item) => item.id === menu.targetID) : null;
+  return (
+    <section ref={tabsRef} className="connection-tabs" aria-label="Connection tabs">
+      <div className="connection-tabs-scroll">
+        {tabs.map((target) => (
+          <div
+            key={target.id}
+            className={`connection-tab ${target.id === activeTargetID ? "active" : ""}`}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onMenu(target.id, contextMenuPointInTabs(event.clientX, event.clientY, tabsRef.current));
+            }}
+            title={serverTitle(target)}
+          >
+            <button type="button" className="connection-tab-main" onClick={() => onActivate(target.id)}>
+              {target.target_type === "agent" ? <Server /> : <HardDrive />}
+              <span>
+                <strong>{target.name}</strong>
+                <code>{target.alias}</code>
+              </span>
+            </button>
+            <button type="button" className="connection-tab-close" aria-label="Close tab" onClick={() => onClose(target.id)}>
+              <X />
+            </button>
+          </div>
+        ))}
+      </div>
+      {menu && menuTarget && (
+        <div
+          className="connection-tab-menu"
+          style={{ left: menu.x, top: menu.y } as CSSProperties}
+          onPointerDown={(event) => event.stopPropagation()}
+          role="menu"
+        >
+          <button type="button" role="menuitem" onClick={() => onMenuAction("one", menuTarget.id)}>关闭当前</button>
+          <button type="button" role="menuitem" onClick={() => onMenuAction("left", menuTarget.id)}>关闭左侧</button>
+          <button type="button" role="menuitem" onClick={() => onMenuAction("right", menuTarget.id)}>关闭右侧</button>
+          <button type="button" role="menuitem" onClick={() => onMenuAction("others", menuTarget.id)}>关闭其他</button>
+          <button type="button" role="menuitem" onClick={() => onMenuAction("all", menuTarget.id)}>关闭全部</button>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -215,6 +363,7 @@ function SystemSnapshotPanel({ targetID }: { targetID: string }) {
   });
   const snapshot = system.data;
   const networkTrend = buildNetworkRates(samples);
+  const interfaceRates = buildInterfaceNetworkRates(samples);
 
   useEffect(() => {
     setSamples([]);
@@ -238,7 +387,7 @@ function SystemSnapshotPanel({ targetID }: { targetID: string }) {
       {!snapshot && (
         <div className="telemetry-empty">
           <strong>{system.isLoading ? t("loading") : t("connectSystemUnavailable")}</strong>
-          {system.error ? <span>{String((system.error as Error).message || "")}</span> : <span>{t("connectSystemHint")}</span>}
+          {system.error && <span>{String((system.error as Error).message || "")}</span>}
         </div>
       )}
 
@@ -288,9 +437,9 @@ function SystemSnapshotPanel({ targetID }: { targetID: string }) {
             <div className="telemetry-network-list">
               {(snapshot.network || []).slice(0, 4).map((item) => (
                 <div className="telemetry-network" key={item.interface}>
-                  <strong title={item.interface}>{item.interface}</strong>
-                  <span>↓ {formatBytes(item.rx_bytes)}</span>
-                  <span>↑ {formatBytes(item.tx_bytes)}</span>
+                  <strong title={networkInterfaceName(item.interface)}>{networkInterfaceName(item.interface)}</strong>
+                  <span><b>↓</b>{formatBytesPerSecond(interfaceRates[item.interface]?.rx)}</span>
+                  <span><b>↑</b>{formatBytesPerSecond(interfaceRates[item.interface]?.tx)}</span>
                 </div>
               ))}
               {!snapshot.network?.length && <p>{t("connectSystemNoData")}</p>}
@@ -357,7 +506,7 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { data: ConsoleData; target: Target; isFullscreen: boolean; onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void }) {
+export function TerminalPanel({ data, target, active = true, isFullscreen, onFullscreenChange, manualReview = true }: TerminalPanelProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -368,6 +517,12 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
   const [dims, setDims] = useState({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS });
   const [sessionID, setSessionID] = useState("");
   const fitRetryRef = useRef<number | null>(null);
+  const fitFrameRef = useRef<number | null>(null);
+  const activeRef = useRef(active);
+
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
 
   const connect = () => {
     if (socketRef.current) {
@@ -386,9 +541,12 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
     const url = api.targetTerminalURL(target.id, cols, rows);
     const socket = new WebSocket(url);
     socketRef.current = socket;
+    const isCurrentSocket = () => socketRef.current === socket;
 
     socket.onopen = () => {
+      if (!isCurrentSocket()) return;
       setStatus("connected");
+      terminal.focus();
       const currentCols = terminal.cols || cols;
       const currentRows = terminal.rows || rows;
       setDims({ cols: currentCols, rows: currentRows });
@@ -402,6 +560,7 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
     };
 
     socket.onmessage = (event) => {
+      if (!isCurrentSocket()) return;
       try {
         const message = JSON.parse(event.data) as { type: string; data?: string; code?: number; cols?: number; rows?: number; session_id?: string };
         if (message.type === "output" && message.data !== undefined) {
@@ -422,11 +581,13 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
     };
 
     socket.onerror = () => {
+      if (!isCurrentSocket()) return;
       setStatus("error");
       setError(t("connectStatusError"));
     };
 
     socket.onclose = () => {
+      if (!isCurrentSocket()) return;
       if (heartbeatRef.current) {
         window.clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
@@ -453,6 +614,9 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
     });
     terminal.open(container);
     terminalRef.current = terminal;
+    const focusTerminal = () => terminal.focus();
+    if (activeRef.current) terminal.focus();
+    container.addEventListener("pointerdown", focusTerminal);
 
     terminal.onData((value) => {
       const socket = socketRef.current;
@@ -470,10 +634,10 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      fitTerminal(terminal);
+      scheduleTerminalFit(terminal);
     });
     resizeObserver.observe(container);
-    fitTerminal(terminal);
+    scheduleTerminalFit(terminal);
 
     connect();
 
@@ -483,14 +647,21 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
         socket.send(JSON.stringify({ type: "close" }));
       }
     };
+    const focusTerminalOnWindowFocus = () => {
+      if (activeRef.current) terminal.focus();
+    };
     window.addEventListener("beforeunload", closeTerminalSession);
+    window.addEventListener("focus", focusTerminalOnWindowFocus);
 
     return () => {
       if (fitRetryRef.current) window.clearTimeout(fitRetryRef.current);
+      if (fitFrameRef.current) window.cancelAnimationFrame(fitFrameRef.current);
       if (heartbeatRef.current) window.clearInterval(heartbeatRef.current);
       closeTerminalSession();
       window.removeEventListener("beforeunload", closeTerminalSession);
+      window.removeEventListener("focus", focusTerminalOnWindowFocus);
       resizeObserver.disconnect();
+      container.removeEventListener("pointerdown", focusTerminal);
       socketRef.current?.close();
       socketRef.current = null;
       terminalRef.current = null;
@@ -498,13 +669,32 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
     };
   }, [target.id]);
 
+  const scheduleTerminalFit = (terminal: Terminal) => {
+    if (fitFrameRef.current) window.cancelAnimationFrame(fitFrameRef.current);
+    fitFrameRef.current = window.requestAnimationFrame(() => {
+      fitFrameRef.current = null;
+      fitTerminal(terminal);
+    });
+  };
+
   const fitTerminal = (terminal: Terminal) => {
     if (!containerRef.current) return;
-    const width = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight;
+    const container = containerRef.current;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
     if (width <= 0 || height <= 0) return;
 
-    const dims = estimateTerminalDimensions(width, height, terminal.options.fontSize || 13);
+    if (terminal.element) {
+      terminal.element.style.width = `${width}px`;
+      terminal.element.style.height = `${height}px`;
+      const screen = terminal.element.querySelector<HTMLElement>(".xterm-screen");
+      const viewport = terminal.element.querySelector<HTMLElement>(".xterm-viewport");
+      const rows = terminal.element.querySelector<HTMLElement>(".xterm-rows");
+      if (screen) screen.style.height = `${height}px`;
+      if (viewport) viewport.style.height = `${height}px`;
+      if (rows) rows.style.height = `${height}px`;
+    }
+    const dims = estimateTerminalDimensions(container, width, height, terminal);
     if (dims.cols >= 20 && dims.rows >= 8 && (dims.cols !== terminal.cols || dims.rows !== terminal.rows)) {
       terminal.resize(dims.cols, dims.rows);
     }
@@ -525,12 +715,14 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
     const terminal = terminalRef.current;
     if (!terminal) return;
     if (fitRetryRef.current) window.clearTimeout(fitRetryRef.current);
-    fitRetryRef.current = window.setTimeout(() => fitTerminal(terminal), 120);
-  }, [isFullscreen]);
+    scheduleTerminalFit(terminal);
+    fitRetryRef.current = window.setTimeout(() => scheduleTerminalFit(terminal), 120);
+    if (active) terminal.focus();
+  }, [active, isFullscreen, target.id]);
 
   return (
-    <section className={`terminal-panel ${isFullscreen ? "fullscreen" : ""}`}>
-      {sessionID && <ManualReviewPoller data={data} sessionID={sessionID} />}
+    <section className={`terminal-panel ${active ? "active" : "inactive"} ${isFullscreen ? "fullscreen" : ""}`} aria-hidden={!active}>
+      {manualReview && sessionID && <ManualReviewPoller data={data} sessionID={sessionID} />}
       <button type="button" className="terminal-fullscreen-button icon-button" onClick={() => onFullscreenChange((prev) => !prev)} aria-label={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")} title={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")}>
         {isFullscreen ? <Minimize /> : <Maximize />}
       </button>
@@ -540,7 +732,7 @@ function TerminalPanel({ data, target, isFullscreen, onFullscreenChange }: { dat
   );
 }
 
-function ServerSwitcher({ targets, currentTargetID }: { targets: Target[]; currentTargetID: string }) {
+function ServerSwitcher({ targets, currentTargetID, onOpenTarget }: { targets: Target[]; currentTargetID: string; onOpenTarget: (targetID: string) => void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -576,8 +768,7 @@ function ServerSwitcher({ targets, currentTargetID }: { targets: Target[]; curre
   }, [open]);
 
   const openTarget = (target: Target) => {
-    const features = connectPopupFeatures();
-    window.open(`/targets/${target.id}/connect`, `connect-${target.id}`, features);
+    onOpenTarget(target.id);
     setOpen(false);
     setQuery("");
   };
@@ -637,37 +828,54 @@ function ServerSwitcher({ targets, currentTargetID }: { targets: Target[]; curre
   );
 }
 
-function estimateTerminalDimensions(width: number, height: number, fontSize: number) {
-  const charWidth = Math.ceil(fontSize * 0.601);
-  const charHeight = Math.ceil(fontSize * 1.23);
+function contextMenuPointInTabs(clientX: number, clientY: number, container: HTMLElement | null) {
+  const menuWidth = 150;
+  const menuHeight = 166;
+  const margin = 4;
+  if (!container) return { x: clientX, y: clientY };
+  const rect = container.getBoundingClientRect();
+  return {
+    x: clampNumber(clientX - rect.left - 2, margin, Math.max(margin, rect.width - menuWidth - margin)),
+    y: clampNumber(clientY - rect.top + 2, margin, Math.max(margin, rect.height - menuHeight - margin)),
+  };
+}
+
+function estimateTerminalDimensions(container: HTMLElement, width: number, height: number, terminal: Terminal) {
+  const { charWidth, charHeight } = measureTerminalCell(container, terminal);
   return {
     cols: Math.max(20, Math.floor(width / charWidth)),
     rows: Math.max(8, Math.floor(height / charHeight)),
   };
 }
 
+function measureTerminalCell(container: HTMLElement, terminal: Terminal) {
+  const fontSize = terminal.options.fontSize || 13;
+  const row = terminal.element?.querySelector<HTMLElement>(".xterm-rows > div");
+  const rowRect = row?.getBoundingClientRect();
+  const helper = terminal.element?.querySelector<HTMLElement>(".xterm-helper-textarea");
+  const helperStyle = helper ? window.getComputedStyle(helper) : null;
+  const helperLineHeight = helperStyle ? Number.parseFloat(helperStyle.lineHeight) : 0;
+  const probe = document.createElement("span");
+  probe.textContent = "W".repeat(40);
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  probe.style.pointerEvents = "none";
+  probe.style.whiteSpace = "pre";
+  probe.style.fontFamily = '"SFMono-Regular", Consolas, "Liberation Mono", monospace';
+  probe.style.fontSize = `${fontSize}px`;
+  probe.style.lineHeight = String(terminal.options.lineHeight || 1);
+  container.appendChild(probe);
+  const rect = probe.getBoundingClientRect();
+  probe.remove();
+  return {
+    charWidth: Math.max(1, rect.width / 40),
+    charHeight: Math.max(1, rowRect?.height || helperLineHeight || fontSize * Number(terminal.options.lineHeight || 1)),
+  };
+}
+
 function shouldFocusTerminalByDefault() {
   if (typeof window === "undefined") return false;
   return window.innerWidth < 1680;
-}
-
-function connectPopupFeatures() {
-  if (typeof window === "undefined") {
-    return "noopener,noreferrer,resizable=yes,scrollbars=no,width=1440,height=900";
-  }
-  const width = Math.max(1024, window.screen.availWidth || window.outerWidth || 1440);
-  const height = Math.max(720, window.screen.availHeight || window.outerHeight || 900);
-  return [
-    "noopener",
-    "noreferrer",
-    "popup=yes",
-    "resizable=yes",
-    "scrollbars=no",
-    "left=0",
-    "top=0",
-    `width=${Math.round(width)}`,
-    `height=${Math.round(height)}`,
-  ].join(",");
 }
 
 function snapshotToSample(snapshot: TargetSystemSnapshot): MetricSample {
@@ -679,6 +887,10 @@ function snapshotToSample(snapshot: TargetSystemSnapshot): MetricSample {
     swap: clampNumber(snapshot.swap?.percent || 0),
     rx: network.rx,
     tx: network.tx,
+    network: Object.fromEntries((snapshot.network || []).map((item) => [
+      item.interface,
+      { rx: Math.max(0, item.rx_bytes || 0), tx: Math.max(0, item.tx_bytes || 0) },
+    ])),
   };
 }
 
@@ -702,6 +914,23 @@ function buildNetworkRates(samples: MetricSample[]) {
   return { rx, tx };
 }
 
+function buildInterfaceNetworkRates(samples: MetricSample[]) {
+  if (samples.length < 2) return {};
+  const previous = samples[samples.length - 2];
+  const current = samples[samples.length - 1];
+  const seconds = Math.max(1, (current.at - previous.at) / 1000);
+  const rates: Record<string, { rx: number; tx: number }> = {};
+  for (const [name, currentCounters] of Object.entries(current.network)) {
+    const previousCounters = previous.network[name];
+    if (!previousCounters) continue;
+    rates[name] = {
+      rx: Math.max(0, currentCounters.rx - previousCounters.rx) / seconds,
+      tx: Math.max(0, currentCounters.tx - previousCounters.tx) / seconds,
+    };
+  }
+  return rates;
+}
+
 function sparklinePoints(values: number[], fixedMax?: number) {
   if (!values.length) return "0,28 100,28";
   const items = values.length === 1 ? [values[0], values[0]] : values.slice(-MAX_SYSTEM_SAMPLES);
@@ -719,6 +948,16 @@ function formatBytes(value: number) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
   return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function formatBytesPerSecond(value?: number) {
+  if (value === undefined) return "-";
+  return `${formatBytes(value)}/s`;
+}
+
+function networkInterfaceName(value: string) {
+  if (!value || /^\d+$/.test(value)) return "网卡";
+  return value;
 }
 
 function clampNumber(value: number, min = 0, max = 100) {

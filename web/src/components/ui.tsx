@@ -22,15 +22,15 @@ export function AuditTable({ logs, onReplay, compact = false }: { logs: AuditLog
     setDetail({ title, value: trimmed, mono });
   };
   return <>
-    <div className="audit-table-compact"><SimpleTable headers={headers} rows={logs.map((log) => {
+    <div className={clsx("audit-table-compact", compact ? "audit-table-client" : "audit-table-full")}><SimpleTable headers={headers} rows={logs.map((log) => {
       const userPrimary = log.user_display_name || log.user_email || "-";
       const userSecondary = log.user_email && log.user_email !== userPrimary ? log.user_email : "";
       const row: ReactNode[] = compact ? [
         <AuditTextCell title={t("auditTableTarget")} primary={log.target_name || log.target_alias || "-"} secondary={log.target_endpoint || ""} onOpen={openDetail} />,
-        <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono lines={2} onOpen={openDetail} />,
         log.request_type,
         <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
-        <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} lines={2} onOpen={openDetail} />,
         String(log.exit_code ?? ""),
         formatDate(log.started_at),
       ] : [

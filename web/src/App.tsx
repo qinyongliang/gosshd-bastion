@@ -46,7 +46,7 @@ function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[];
       {!isConnectPage && !isClientTerminalPage && <ManualReviewPoller data={data} />}
       <Routes>
         <Route path="/targets/:targetID/connect" element={<ConnectPage data={data} />} />
-        {isClientMode && <Route path="/local-terminal" element={<LocalTerminalPage />} />}
+        {isClientMode && <Route path="/local-terminal" element={<LocalTerminalPage data={data} />} />}
         <Route path="*" element={isClientMode ? (
           <ClientDesktopFrame>
             <ClientRoutes data={data} />
@@ -69,10 +69,11 @@ function ClientRoutes({ data }: { data: ConsoleData }) {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/local-terminal" replace />} />
-      <Route path="/local-terminal" element={<LocalTerminalPage />} />
+      <Route path="/local-terminal" element={<LocalTerminalPage data={data} />} />
       <Route path="/targets" element={<TargetsPage data={data} />} />
       <Route path="/agents" element={<Navigate to="/targets" replace />} />
       <Route path="/policies" element={<PoliciesPage data={data} />} />
+      <Route path="/keys" element={<KeysPage data={data} />} />
       <Route path="/audit" element={<AuditPage data={data} />} />
       <Route path="*" element={<Navigate to="/targets" replace />} />
     </Routes>
