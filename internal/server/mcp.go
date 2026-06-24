@@ -828,39 +828,39 @@ type mcpSessionScreenOutput struct {
 }
 
 type mcpUserInput struct {
-	UserID string `json:"user_id"`
+	UserID string `json:"user_id,omitempty"`
 }
 
 type mcpOrgCreateInput struct {
-	UserID string `json:"user_id"`
+	UserID string `json:"user_id,omitempty"`
 	Name   string `json:"name"`
 	Slug   string `json:"slug"`
 }
 
 type mcpOrgInviteInput struct {
-	UserID         string `json:"user_id"`
+	UserID         string `json:"user_id,omitempty"`
 	OrganizationID string `json:"organization_id"`
 	Role           string `json:"role,omitempty"`
 }
 
 type mcpJoinInput struct {
-	UserID string `json:"user_id"`
+	UserID string `json:"user_id,omitempty"`
 	Code   string `json:"code"`
 }
 
 type mcpOrgMemberInput struct {
-	UserID         string `json:"user_id"`
+	UserID         string `json:"user_id,omitempty"`
 	OrganizationID string `json:"organization_id"`
 }
 
 type mcpPublicKeyInput struct {
-	UserID        string `json:"user_id"`
+	UserID        string `json:"user_id,omitempty"`
 	Name          string `json:"name"`
 	AuthorizedKey string `json:"authorized_key"`
 }
 
 type mcpOwnerInput struct {
-	UserID    string `json:"user_id"`
+	UserID    string `json:"user_id,omitempty"`
 	OwnerType string `json:"owner_type"`
 	OwnerID   string `json:"owner_id"`
 }
@@ -881,8 +881,10 @@ type mcpTargetCreateInput struct {
 }
 
 type mcpTargetListInput struct {
-	mcpOwnerInput
-	Tags []string `json:"tags,omitempty"`
+	UserID    string   `json:"user_id,omitempty"`
+	OwnerType string   `json:"owner_type,omitempty"`
+	OwnerID   string   `json:"owner_id,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
 }
 
 type mcpTargetListOutput struct {
@@ -895,7 +897,7 @@ type mcpTargetInfo struct {
 }
 
 type mcpTargetDeleteInput struct {
-	UserID   string `json:"user_id"`
+	UserID   string `json:"user_id,omitempty"`
 	TargetID string `json:"target_id"`
 }
 
