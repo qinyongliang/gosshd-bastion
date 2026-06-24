@@ -5516,6 +5516,8 @@ html[data-theme="dark"] .empty-state {
   justify-items: end;
   gap: 14px;
   width: min(620px, calc(100vw - 40px));
+  max-height: calc(100dvh - 48px);
+  overflow: visible;
   pointer-events: none;
 }
 
@@ -5572,6 +5574,7 @@ html[data-theme="dark"] .manual-review-notification-prompt {
   display: grid;
   gap: 12px;
   width: min(560px, 100%);
+  max-height: min(620px, calc(100dvh - 48px));
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
@@ -5650,6 +5653,8 @@ html[data-theme="dark"] .manual-review-card {
 .manual-review-body {
   display: grid;
   gap: 10px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .manual-review-row {
@@ -5679,6 +5684,8 @@ html[data-theme="dark"] .manual-review-card {
 }
 
 .manual-review-command-code {
+  max-height: min(240px, 34dvh);
+  overflow: auto;
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: pre-wrap;

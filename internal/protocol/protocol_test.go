@@ -50,3 +50,28 @@ func TestLoadOrCreateIDRegeneratesInvalidFile(t *testing.T) {
 		t.Fatalf("stored file not refreshed correctly: %+v", stored)
 	}
 }
+
+func TestSaveAgentAssignmentPreservesRuntimeID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.json")
+	id, err := LoadOrCreateID(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveAgentAssignment(path, AgentIDFile{
+		AssignedAgentID: "11111111-1111-4111-8111-111111111111",
+		TargetID:        "target-1",
+		TargetAlias:     "tmp_1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := LoadOrCreateAgentIDFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ID != id || stored.AssignedAgentID != "11111111-1111-4111-8111-111111111111" || stored.TargetID != "target-1" || stored.TargetAlias != "tmp_1" {
+		t.Fatalf("assignment mismatch: %+v", stored)
+	}
+	if stored.UpdatedAt.IsZero() {
+		t.Fatalf("updated_at should be set: %+v", stored)
+	}
+}

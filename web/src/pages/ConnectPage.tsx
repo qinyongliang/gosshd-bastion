@@ -519,17 +519,23 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   const fitRetryRef = useRef<number | null>(null);
   const fitFrameRef = useRef<number | null>(null);
   const activeRef = useRef(active);
+  const statusRef = useRef<ConnectionStatus>("connecting");
 
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  const updateStatus = (next: ConnectionStatus) => {
+    statusRef.current = next;
+    setStatus(next);
+  };
 
   const connect = () => {
     if (socketRef.current) {
       socketRef.current.close();
       socketRef.current = null;
     }
-    setStatus("connecting");
+    updateStatus("connecting");
     setError("");
     setSessionID("");
     const terminal = terminalRef.current;
@@ -545,7 +551,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
 
     socket.onopen = () => {
       if (!isCurrentSocket()) return;
-      setStatus("connected");
+      updateStatus("connected");
       terminal.focus();
       const currentCols = terminal.cols || cols;
       const currentRows = terminal.rows || rows;
@@ -567,11 +573,13 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
           terminal.write(message.data);
         } else if (message.type === "error" && message.data !== undefined) {
           terminal.write(`\r\n\x1b[1;31m${message.data}\x1b[0m\r\n`);
-          setStatus("error");
+          updateStatus("error");
           setError(message.data);
         } else if (message.type === "exit") {
           terminal.write(`\r\n\x1b[2;37mSession ended (exit ${message.code ?? "-"})\x1b[0m\r\n`);
-          setStatus("disconnected");
+          updateStatus("disconnected");
+          setSessionID("");
+          socket.close();
         } else if (message.type === "session" && message.session_id) {
           setSessionID(message.session_id);
         }
@@ -582,7 +590,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
 
     socket.onerror = () => {
       if (!isCurrentSocket()) return;
-      setStatus("error");
+      updateStatus("error");
       setError(t("connectStatusError"));
     };
 
@@ -592,7 +600,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
         window.clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
       }
-      setStatus((prev) => (prev === "connected" ? "disconnected" : prev));
+      updateStatus(statusRef.current === "connected" ? "disconnected" : statusRef.current);
       setSessionID("");
     };
   };
@@ -622,6 +630,8 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
       const socket = socketRef.current;
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data: value }));
+      } else if ((value === "\r" || value === "\n") && (statusRef.current === "disconnected" || statusRef.current === "error")) {
+        connect();
       }
     });
 
@@ -726,7 +736,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
       <button type="button" className="terminal-fullscreen-button icon-button" onClick={() => onFullscreenChange((prev) => !prev)} aria-label={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")} title={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")}>
         {isFullscreen ? <Minimize /> : <Maximize />}
       </button>
-      {error && <button type="button" className="terminal-reconnect-button" onClick={connect}><RefreshCw />{t("connectReconnect")}</button>}
+      {(status === "disconnected" || status === "error") && <button type="button" className="terminal-reconnect-button" onClick={connect}><RefreshCw />{t("connectReconnect")}</button>}
       <div className="terminal-viewport" ref={containerRef} />
     </section>
   );
