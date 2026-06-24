@@ -172,12 +172,70 @@ func (a *App) handleInstallPS1(w http.ResponseWriter, r *http.Request, token str
 )
 $ErrorActionPreference = "Stop"
 $isInstall = $Install
-$tmp = Join-Path $env:TEMP "gosshd-agent.exe"
+$runtimeDir = Join-Path $env:TEMP "gosshd-agent"
+New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
+$tmp = Join-Path $runtimeDir "gosshd-agent.exe"
 $url = "%s/download/agent/windows/amd64"
 $shaUrl = "$url.sha256"
 $server = "%s"
 $enrollmentToken = "%s"
 $sshPort = "%s"
+
+function Assert-Administrator {
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+  if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw "Administrator privileges are required to install gosshd-agent service. Re-run PowerShell as Administrator."
+  }
+}
+
+function Invoke-ScChecked {
+  param(
+    [Parameter(Mandatory=$true)][string]$Action,
+    [Parameter(Mandatory=$true)][scriptblock]$Command
+  )
+  $output = & $Command 2>&1
+  $exitCode = $LASTEXITCODE
+  if ($output) {
+    $output | ForEach-Object { Write-Host $_ }
+  }
+  if ($exitCode -ne 0) {
+    $detail = ($output | Out-String).Trim()
+    throw "$Action failed (exit $exitCode): $detail"
+  }
+}
+
+function Install-WinPty {
+  param([Parameter(Mandatory=$true)][string]$Destination)
+
+  try {
+    $winptyUrl = "https://github.com/rprichard/winpty/releases/download/0.4.3/winpty-0.4.3-msvc2015.zip"
+    $winptySha = "35a48ece2ff4acdcbc8299d4920de53eb86b1fb41e64d2fe5ae7898931bcee89"
+    $zipPath = Join-Path $env:TEMP "gosshd-winpty-0.4.3.zip"
+    $extractDir = Join-Path $env:TEMP "gosshd-winpty-0.4.3"
+    Invoke-WebRequest -UseBasicParsing -Uri $winptyUrl -OutFile $zipPath
+    $actualWinptySha = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLowerInvariant()
+    if ($actualWinptySha -ne $winptySha) {
+      throw "winpty sha256 mismatch: $actualWinptySha != $winptySha"
+    }
+    if (Test-Path $extractDir) {
+      Remove-Item -Recurse -Force $extractDir
+    }
+    New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractDir)
+    $archDir = "ia32_xp"
+    if (($env:PROCESSOR_ARCHITECTURE -match "64") -or ($env:PROCESSOR_ARCHITEW6432 -match "64")) {
+      $archDir = "x64_xp"
+    }
+    $binDir = Join-Path (Join-Path $extractDir $archDir) "bin"
+    Copy-Item -Force (Join-Path $binDir "winpty.dll") (Join-Path $Destination "winpty.dll")
+    Copy-Item -Force (Join-Path $binDir "winpty-agent.exe") (Join-Path $Destination "winpty-agent.exe")
+  } catch {
+    Write-Warning "winpty install skipped: $($_.Exception.Message). Old Windows versions will fall back to pipe mode."
+  }
+}
+
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp
 $expectedSha = (Invoke-WebRequest -UseBasicParsing -Uri $shaUrl).Content.Trim().ToLowerInvariant()
 $actualSha = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLowerInvariant()
@@ -187,34 +245,34 @@ if ($actualSha -ne $expectedSha) {
 $targetDir = Join-Path $env:ProgramData "gosshd"
 $target = Join-Path $targetDir "gosshd-agent.exe"
 if ($isInstall) {
+  Assert-Administrator
   New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
   Copy-Item -Force $tmp $target
+  Install-WinPty -Destination $targetDir
   $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '" --ssh-port "' + $sshPort + '"'
   $serviceName = "gosshd-agent"
   $existing = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
   if ($existing) {
     sc.exe stop $serviceName | Out-Null
-    sc.exe delete $serviceName | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-      throw "failed to delete existing $serviceName service"
+    Invoke-ScChecked -Action "delete existing $serviceName service" -Command { sc.exe delete $serviceName }
+    for ($i = 0; $i -lt 20; $i++) {
+      Start-Sleep -Milliseconds 500
+      $existing = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
+      if (-not $existing) {
+        break
+      }
     }
-    Start-Sleep -Seconds 2
+    if ($existing) {
+      throw "existing $serviceName service is still present after delete; reboot Windows or stop the service process before reinstalling"
+    }
   }
-  sc.exe create $serviceName binPath= $binPath start= auto DisplayName= "gosshd bastion agent" | Out-Null
-  if ($LASTEXITCODE -ne 0) {
-    throw "failed to create $serviceName service"
-  }
-  sc.exe failure $serviceName reset= 60 actions= restart/5000/restart/5000/restart/5000 | Out-Null
-  if ($LASTEXITCODE -ne 0) {
-    throw "failed to configure $serviceName recovery actions"
-  }
-  sc.exe start $serviceName | Out-Null
-  if ($LASTEXITCODE -ne 0) {
-    throw "failed to start $serviceName service"
-  }
+  Invoke-ScChecked -Action "failed to create $serviceName service" -Command { sc.exe create $serviceName binPath= $binPath start= auto DisplayName= "gosshd bastion agent" }
+  Invoke-ScChecked -Action "failed to configure $serviceName recovery actions" -Command { sc.exe failure $serviceName reset= 60 actions= restart/5000/restart/5000/restart/5000 }
+  Invoke-ScChecked -Action "failed to start $serviceName service" -Command { sc.exe start $serviceName }
   Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" | Select-Object Name, State, StartMode, PathName
   exit 0
 }
+Install-WinPty -Destination $runtimeDir
 & $tmp --server $server --enrollment-token $enrollmentToken --ssh-port $sshPort
 `, base, base, token, sshPort)
 }

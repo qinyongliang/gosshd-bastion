@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -42,10 +43,14 @@ func init() {
 
 func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) {
 	if req.Type == protocol.StreamShell {
-		c.handleShell(stream, reader, req)
+		c.handleShellWithFallback(stream, reader, req)
 		return
 	}
 
+	c.handlePipeCommand(stream, reader, req)
+}
+
+func (c *Client) handlePipeCommand(stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) {
 	args := []string{}
 	if req.Type == protocol.StreamExec {
 		if isPowerShell(c.cfg.Shell) {
@@ -87,11 +92,30 @@ func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, 
 	_ = protocol.WriteFrame(stream, protocol.ExitFrame(code))
 }
 
-func (c *Client) handleShell(stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) {
+func (c *Client) handleShellWithFallback(stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) {
+	if err := c.handleConPTYShell(stream, reader, req); err == nil {
+		return
+	} else {
+		log.Printf("conpty shell unavailable, falling back to winpty: %v", err)
+	}
+	if err := c.handleWinPTYShell(stream, reader, req); err == nil {
+		return
+	} else {
+		log.Printf("winpty shell unavailable, falling back to pipe shell: %v", err)
+	}
+	c.handlePipeCommand(stream, reader, req)
+}
+
+func (c *Client) handleConPTYShell(stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("conpty unavailable: %v", recovered)
+		}
+	}()
+
 	inRead, inWrite, outRead, outWrite, err := createConPTYPipes()
 	if err != nil {
-		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: err.Error()})
-		return
+		return err
 	}
 
 	consoleSize := windows.Coord{X: int16(req.Width), Y: int16(req.Height)}
@@ -108,8 +132,7 @@ func (c *Client) handleShell(stream io.ReadWriteCloser, reader *bufio.Reader, re
 		windows.CloseHandle(inWrite)
 		windows.CloseHandle(outRead)
 		windows.CloseHandle(outWrite)
-		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: err.Error()})
-		return
+		return err
 	}
 	_ = windows.CloseHandle(inRead)
 	_ = windows.CloseHandle(outWrite)
@@ -122,14 +145,13 @@ func (c *Client) handleShell(stream io.ReadWriteCloser, reader *bufio.Reader, re
 
 	process, processID, attributeList, err := startConPTYProcess(c.cfg.Shell, c.cfg.Root, console)
 	if err != nil {
-		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: err.Error()})
-		return
+		return err
 	}
 	defer attributeList.Delete()
 	defer windows.CloseHandle(process)
 
 	if err := protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: true}); err != nil {
-		return
+		return err
 	}
 
 	go copyFramesToConPTY(input, reader, console, processID)
@@ -137,6 +159,7 @@ func (c *Client) handleShell(stream io.ReadWriteCloser, reader *bufio.Reader, re
 
 	code := waitProcessExitCode(process)
 	_ = protocol.WriteFrame(stream, protocol.ExitFrame(code))
+	return nil
 }
 
 func createConPTYPipes() (windows.Handle, windows.Handle, windows.Handle, windows.Handle, error) {
@@ -404,6 +427,13 @@ func waitProcessExitCode(process windows.Handle) int {
 		return 255
 	}
 	return int(code)
+}
+
+func waitHandleExitCode(process uintptr) int {
+	if process == 0 {
+		return 255
+	}
+	return waitProcessExitCode(windows.Handle(process))
 }
 
 func isPowerShell(shell string) bool {
