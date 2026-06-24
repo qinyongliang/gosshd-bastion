@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
@@ -16,7 +18,7 @@ import (
 )
 
 func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) {
-	cmd := exec.Command(c.cfg.Shell)
+	cmd := agentShellCommand(c.cfg.Shell, req.Type)
 	if req.Type == protocol.StreamExec {
 		cmd = exec.Command(c.cfg.Shell, "-lc", req.Command)
 	}
@@ -24,6 +26,13 @@ func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, 
 	cmd.Env = commandEnvironment(os.Environ(), c.cfg.Root)
 	if err := protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: true}); err != nil {
 		return
+	}
+	if req.Type == protocol.StreamShell && shellBaseName(c.cfg.Shell) == "bash" {
+		if err := ensureAgentBashRC(); err != nil {
+			_ = protocol.WriteFrame(stream, protocol.Frame{Type: protocol.FrameStderr, Data: []byte(err.Error())})
+			_ = protocol.WriteFrame(stream, protocol.ExitFrame(255))
+			return
+		}
 	}
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(req.Width), Rows: uint16(req.Height)})
 	if err != nil {
@@ -47,6 +56,74 @@ func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, 
 	}
 	code := waitExitCode(cmd)
 	_ = protocol.WriteFrame(stream, protocol.ExitFrame(code))
+}
+
+func agentShellCommand(shell string, streamType string) *exec.Cmd {
+	if streamType != protocol.StreamShell {
+		return exec.Command(shell)
+	}
+	if shellBaseName(shell) == "bash" {
+		return exec.Command(shell, "--rcfile", agentBashRCPath(), "-i")
+	}
+	return exec.Command(shell, "-l")
+}
+
+func agentBashRCPath() string {
+	return filepath.Join(os.TempDir(), "gosshd-agent-bashrc")
+}
+
+func ensureAgentBashRC() error {
+	path := agentBashRCPath()
+	return os.WriteFile(path, []byte(agentBashRC()), 0600)
+}
+
+func agentBashRC() string {
+	return `if [ -r /etc/motd ]; then
+  cat /etc/motd
+fi
+if [ -r /etc/profile ]; then
+  . /etc/profile
+fi
+if [ -r "$HOME/.bash_profile" ]; then
+  . "$HOME/.bash_profile"
+elif [ -r "$HOME/.bash_login" ]; then
+  . "$HOME/.bash_login"
+elif [ -r "$HOME/.profile" ]; then
+  . "$HOME/.profile"
+fi
+if [ -r "$HOME/.bashrc" ]; then
+  . "$HOME/.bashrc"
+fi
+__gosshd_command_running=0
+__gosshd_original_prompt_command=${PROMPT_COMMAND-}
+__gosshd_preexec() {
+  if [ "$__gosshd_command_running" = 0 ]; then
+    __gosshd_command_running=1
+    printf '\033]633;C\007'
+  fi
+}
+__gosshd_precmd() {
+  local __gosshd_rc=$?
+  trap - DEBUG
+  if [ "$__gosshd_command_running" = 1 ]; then
+    printf '\033]633;D;%s\007' "$__gosshd_rc"
+    __gosshd_command_running=0
+  fi
+  printf '\033]633;A\007'
+  if [ -n "$__gosshd_original_prompt_command" ]; then
+    eval "$__gosshd_original_prompt_command"
+  fi
+  trap '__gosshd_preexec' DEBUG
+  return "$__gosshd_rc"
+}
+PROMPT_COMMAND='__gosshd_precmd'
+trap '__gosshd_preexec' DEBUG
+`
+}
+
+func shellBaseName(shell string) string {
+	base := filepath.Base(strings.TrimSpace(shell))
+	return strings.TrimPrefix(base, "-")
 }
 
 func copyFramesToWriter(w io.Writer, reader *bufio.Reader) {
