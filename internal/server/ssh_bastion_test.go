@@ -282,6 +282,80 @@ func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 	}
 }
 
+func TestSSHDirectTargetRoutesThroughAgentProxyWithoutProxyCredentials(t *testing.T) {
+	app, httpAddr, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner := testSSHSigner(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestSSHServerWithPassword(t, "secret")
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token := "agent-proxy-token"
+	if _, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
+		OwnerType:   store.OwnerOrganization,
+		OwnerID:     personal.ID,
+		TokenHash:   codeHash(token),
+		Label:       "proxy-agent",
+		DefaultHost: "127.0.0.1",
+		DefaultPort: 22,
+		CreatedBy:   user.ID,
+		ExpiresAt:   time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	agentClient, err := agent.New(agent.Config{
+		Server:          "http://" + httpAddr,
+		EnrollmentToken: token,
+		IDFile:          filepath.Join(t.TempDir(), "agent.json"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentCtx, cancelAgent := context.WithCancel(ctx)
+	defer cancelAgent()
+	go func() {
+		if err := agentClient.Run(agentCtx); err != nil {
+			t.Logf("agent stopped: %v", err)
+		}
+	}()
+	proxyTarget := waitForAgentTarget(t, app, personal.ID)
+	if len(proxyTarget.EncryptedSecret) != 0 {
+		t.Fatalf("agent proxy target should not need credentials")
+	}
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:       store.OwnerOrganization,
+		OwnerID:         personal.ID,
+		Alias:           "proxiedbox",
+		TargetType:      store.TargetDirect,
+		Host:            host,
+		Port:            port,
+		RemoteUsername:  "remote",
+		AuthType:        store.AuthPassword,
+		EncryptedSecret: []byte("secret"),
+		ProxyTargetID:   proxyTarget.ID,
+		CreatedBy:       user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachAllowPolicyForTarget(t, app, personal.ID, target.ID, false)
+
+	out, err := runBastionSSHCommand(sshAddr, "proxiedbox", userSigner, "whoami")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "remote" {
+		t.Fatalf("unexpected proxied output %q", out)
+	}
+}
+
 func TestSSHInteractiveShellReturnsAfterRemoteExitWithoutClientEOF(t *testing.T) {
 	app, _, sshAddr, stop := startBastionTestApp(t)
 	defer stop()
@@ -460,6 +534,39 @@ func runBastionSSHCommand(addr, alias string, signer gossh.Signer, command strin
 func startTestSSHServer(t *testing.T) (string, func()) {
 	t.Helper()
 	return startTestSSHServerWithAuthorizedKey(t, nil)
+}
+
+func startTestSSHServerWithPassword(t *testing.T, password string) (string, func()) {
+	t.Helper()
+	hostSigner := testSSHSigner(t)
+	cfg := &gossh.ServerConfig{
+		PasswordCallback: func(meta gossh.ConnMetadata, supplied []byte) (*gossh.Permissions, error) {
+			if meta.User() == "remote" && string(supplied) == password {
+				return nil, nil
+			}
+			return nil, errors.New("unauthorized")
+		},
+	}
+	cfg.AddHostKey(hostSigner)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			raw, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go handleTestSSHConn(raw, cfg)
+		}
+	}()
+	return ln.Addr().String(), func() {
+		_ = ln.Close()
+		<-done
+	}
 }
 
 func startTestShellExitServer(t *testing.T) (string, func()) {
