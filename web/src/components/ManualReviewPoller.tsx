@@ -8,6 +8,8 @@ import type { ConsoleData, ManualReview } from "../types";
 type ReviewState = {
   review: ManualReview;
   status: "pending" | "allowed" | "denied" | "expired";
+  submitting?: "allow" | "deny";
+  error?: string;
 };
 
 const POLL_BACKOFF_MS = 500;
@@ -72,16 +74,36 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
 
   const decide = useMutation({
     mutationFn: ({ id, allow }: { id: string; allow: boolean }) => api.decideManualReview(id, allow),
+    onMutate: (variables) => {
+      setReviews((prev) =>
+        prev.map((item) =>
+          item.review.id === variables.id
+            ? { ...item, submitting: variables.allow ? "allow" : "deny", error: undefined }
+            : item
+        )
+      );
+    },
     onSuccess: (_data, variables) => {
       setReviews((prev) =>
         prev.map((item) =>
-          item.review.id === variables.id ? { ...item, status: variables.allow ? "allowed" : "denied" } : item
+          item.review.id === variables.id
+            ? { ...item, status: variables.allow ? "allowed" : "denied", submitting: undefined, error: undefined }
+            : item
         )
       );
       setDismissing((prev) => new Set(prev).add(variables.id));
       window.setTimeout(() => {
         setHidden((prev) => new Set(prev).add(variables.id));
       }, 1200);
+    },
+    onError: (error, variables) => {
+      setReviews((prev) =>
+        prev.map((item) =>
+          item.review.id === variables.id
+            ? { ...item, submitting: undefined, error: error instanceof Error ? error.message : t("manualReviewSubmitFailed") }
+            : item
+        )
+      );
     },
   });
 
@@ -107,8 +129,12 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
           key={item.review.id}
           item={item}
           dismissing={dismissing.has(item.review.id)}
-          onAllow={() => decide.mutate({ id: item.review.id, allow: true })}
-          onDeny={() => decide.mutate({ id: item.review.id, allow: false })}
+          onAllow={() => {
+            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: true });
+          }}
+          onDeny={() => {
+            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: false });
+          }}
           onExpire={() => {
             setReviews((prev) => prev.map((review) => review.review.id === item.review.id ? { ...review, status: "expired" } : review));
             setDismissing((prev) => new Set(prev).add(item.review.id));
@@ -169,6 +195,7 @@ function ReviewCard({
   t: (key: string, fallback?: string) => string;
 }) {
   const { review, status } = item;
+  const isSubmitting = Boolean(item.submitting);
   const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(review.expires_at));
   const intervalRef = useRef<number | null>(null);
 
@@ -225,15 +252,16 @@ function ReviewCard({
           <span className="manual-review-label">{t("manualReviewReason")}</span>
           <p>{review.reason}</p>
         </div>
+        {item.error && <div className="manual-review-result denied">{item.error}</div>}
       </div>
       <div className="manual-review-actions">
         {!isDone ? (
           <>
-            <button type="button" className="primary" onClick={onAllow} disabled={status !== "pending"}>
-              <Check />{t("manualReviewAllow")}
+            <button type="button" className="primary" onClick={onAllow} disabled={status !== "pending" || isSubmitting}>
+              <Check />{item.submitting === "allow" ? t("manualReviewSubmitting") : t("manualReviewAllow")}
             </button>
-            <button type="button" className="danger" onClick={onDeny} disabled={status !== "pending"}>
-              <X />{t("manualReviewDeny")}
+            <button type="button" className="danger" onClick={onDeny} disabled={status !== "pending" || isSubmitting}>
+              <X />{item.submitting === "deny" ? t("manualReviewSubmitting") : t("manualReviewDeny")}
             </button>
           </>
         ) : (
