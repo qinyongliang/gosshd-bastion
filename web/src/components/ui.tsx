@@ -9,10 +9,12 @@ import { formatDate } from "../lib/forms";
 
 const modalStack: symbol[] = [];
 
-export function AuditTable({ logs, onReplay }: { logs: AuditLog[]; onReplay?: (log: AuditLog) => void }) {
+export function AuditTable({ logs, onReplay, compact = false }: { logs: AuditLog[]; onReplay?: (log: AuditLog) => void; compact?: boolean }) {
   const { t } = useI18n();
   const [detail, setDetail] = useState<{ title: string; value: string; mono?: boolean } | null>(null);
-  const headers = [t("auditTableUser"), t("auditTableKey"), t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableStarted")];
+  const headers = compact
+    ? [t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableStarted")]
+    : [t("auditTableUser"), t("auditTableKey"), t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableStarted")];
   if (onReplay) headers.push(t("commonActions"));
   const openDetail = (title: string, value: string, mono = false) => {
     const trimmed = value.trim();
@@ -23,7 +25,15 @@ export function AuditTable({ logs, onReplay }: { logs: AuditLog[]; onReplay?: (l
     <div className="audit-table-compact"><SimpleTable headers={headers} rows={logs.map((log) => {
       const userPrimary = log.user_display_name || log.user_email || "-";
       const userSecondary = log.user_email && log.user_email !== userPrimary ? log.user_email : "";
-      const row: ReactNode[] = [
+      const row: ReactNode[] = compact ? [
+        <AuditTextCell title={t("auditTableTarget")} primary={log.target_name || log.target_alias || "-"} secondary={log.target_endpoint || ""} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono onOpen={openDetail} />,
+        log.request_type,
+        <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
+        <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} onOpen={openDetail} />,
+        String(log.exit_code ?? ""),
+        formatDate(log.started_at),
+      ] : [
         <AuditTextCell title={t("auditTableUser")} primary={userPrimary} secondary={userSecondary} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableKey")} primary={log.public_key_name || "-"} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableTarget")} primary={log.target_name || log.target_alias || "-"} secondary={log.target_endpoint || ""} onOpen={openDetail} />,

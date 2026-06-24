@@ -10,17 +10,18 @@ export function useConsoleData({ user, orgs, runtime }: { user: User; orgs: Orga
   const [activeOrgID, setActiveOrgIDState] = useState(() => window.localStorage.getItem(activeOrgStorage) || "");
   const activeOrg = orgs.find((org) => org.id === activeOrgID) || orgs[0];
   const owner = ownerFromOrg(activeOrg);
+  const isClientMode = Boolean(runtime.client_mode);
   const queryClient = useQueryClient();
   const keys = useQuery({ queryKey: ["keys"], queryFn: api.keys });
   const targets = useQuery({ queryKey: ["targets", owner], queryFn: () => api.targets(owner!), enabled: Boolean(owner) });
-  const members = useQuery({ queryKey: ["members", activeOrg?.id], queryFn: () => api.orgMembers(activeOrg.id), enabled: Boolean(activeOrg) });
-  const groups = useQuery({ queryKey: ["groups", activeOrg?.id], queryFn: () => api.groups(activeOrg.id), enabled: Boolean(activeOrg) });
+  const members = useQuery({ queryKey: ["members", activeOrg?.id], queryFn: () => api.orgMembers(activeOrg.id), enabled: Boolean(activeOrg) && !isClientMode });
+  const groups = useQuery({ queryKey: ["groups", activeOrg?.id], queryFn: () => api.groups(activeOrg.id), enabled: Boolean(activeOrg) && !isClientMode });
   const policies = useQuery({ queryKey: ["policies", owner], queryFn: () => api.policies(owner!), enabled: Boolean(owner) });
   const llms = useQuery({ queryKey: ["llms", owner], queryFn: () => api.llmConfigs(owner!), enabled: Boolean(owner) });
   const prompts = useQuery({ queryKey: ["prompts", owner], queryFn: () => api.prompts(owner!), enabled: Boolean(owner) });
   const audit = useQuery({
-    queryKey: ["audit", activeOrg?.id],
-    queryFn: () => api.audit({ organization_id: activeOrg.id, page: 1, page_size: 20 }),
+    queryKey: ["audit", activeOrg?.id, isClientMode],
+    queryFn: () => api.audit(isClientMode ? { page: 1, page_size: 20 } : { organization_id: activeOrg.id, page: 1, page_size: 20 }),
     enabled: Boolean(activeOrg),
   });
 

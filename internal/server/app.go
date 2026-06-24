@@ -93,6 +93,14 @@ func (a *App) ensureServices(ctx context.Context) error {
 	a.auditRecordingsPath = a.auditRecordingPath()
 	a.auth = auth.NewService(st.Repository())
 	a.bastion = bastion.NewService(st.Repository())
+	if a.cfg.ClientMode {
+		user, err := st.Repository().EnsureClientUser(ctx)
+		if err != nil {
+			return err
+		}
+		log.Printf("client mode account ready: email=%s", user.Email)
+		return nil
+	}
 	password := strings.TrimSpace(a.cfg.BootstrapAdminPassword)
 	if password == "" {
 		password = strings.TrimSpace(os.Getenv("GOSSHD_BOOTSTRAP_ADMIN_PASSWORD"))
@@ -228,7 +236,11 @@ func (a *App) Run(ctx context.Context) error {
 
 func (a *App) logStartupInstructions() {
 	base := a.startupHTTPBase()
-	log.Printf("gosshd-server ready")
+	if a.cfg.ClientMode {
+		log.Printf("gosshd-server ready in client mode")
+	} else {
+		log.Printf("gosshd-server ready")
+	}
 	log.Printf("http listening on %s", a.cfg.HTTPListen)
 	log.Printf("ssh listening on %s", a.cfg.SSHListen)
 	log.Printf("health check: curl %s/healthz", base)
@@ -272,8 +284,9 @@ func hostFromListenAddress(listen string) string {
 
 func (a *App) runtimeInfo(r *http.Request) apiRuntime {
 	return apiRuntime{
-		SSHHost: publicSSHHost(a.cfg.PublicHost, r.Host),
-		SSHPort: publicSSHPort(a.cfg.PublicSSHPort, a.cfg.SSHListen),
+		SSHHost:    publicSSHHost(a.cfg.PublicHost, r.Host),
+		SSHPort:    publicSSHPort(a.cfg.PublicSSHPort, a.cfg.SSHListen),
+		ClientMode: a.cfg.ClientMode,
 	}
 }
 

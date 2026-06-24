@@ -16,6 +16,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isClientMode = Boolean(data.runtime.client_mode);
   const logout = useMutation({
     mutationFn: api.logout,
     onSuccess: async () => {
@@ -24,16 +25,22 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
       window.location.reload();
     },
   });
-  const nav: Array<[string, string, ComponentType<{ className?: string }>]> = [
-    ["/", t("dashboard"), LayoutDashboard],
-    ["/orgs", t("orgs"), Users],
-    ["/org-admin", t("members"), Users],
-    ["/keys", t("authorization"), KeyRound],
-    ["/targets", t("services"), Server],
-    ["/policies", t("commandPolicy"), Shield],
-    ["/audit", t("audit"), ListChecks],
-  ];
-  if (data.user.is_system_admin) nav.push(["/system-admin", t("settings"), Settings]);
+  const nav: Array<[string, string, ComponentType<{ className?: string }>]> = isClientMode
+    ? [
+        ["/targets", t("services"), Server],
+        ["/policies", t("commandPolicy"), Shield],
+        ["/audit", t("audit"), ListChecks],
+      ]
+    : [
+        ["/", t("dashboard"), LayoutDashboard],
+        ["/orgs", t("orgs"), Users],
+        ["/org-admin", t("members"), Users],
+        ["/keys", t("authorization"), KeyRound],
+        ["/targets", t("services"), Server],
+        ["/policies", t("commandPolicy"), Shield],
+        ["/audit", t("audit"), ListChecks],
+      ];
+  if (!isClientMode && data.user.is_system_admin) nav.push(["/system-admin", t("settings"), Settings]);
 
   return (
     <section className={clsx("console", sidebarOpen && "sidebar-open")}>
@@ -43,16 +50,16 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
           <strong>gosshd</strong>
           <button className="mobile-sidebar-close icon-button" type="button" aria-label={t("close")} onClick={() => setSidebarOpen(false)}><X /></button>
         </div>
-        <div className="user-block">
+        {!isClientMode && <div className="user-block">
           <strong>{data.user.display_name || data.user.email}</strong>
           <span>{data.user.email}</span>
           {data.user.is_system_admin && <span className="pill">{t("admin")}</span>}
-        </div>
+        </div>}
         <nav className="side-nav">
           {nav.map(([to, label, Icon]) => <NavButton key={to} to={to} label={label} icon={<Icon />} onClick={() => setSidebarOpen(false)} />)}
         </nav>
-        <OrgSwitcher data={data} />
-        <button type="button" className="logout-button" onClick={() => logout.mutate()}><LockKeyhole />{t("logout")}</button>
+        {!isClientMode && <OrgSwitcher data={data} />}
+        {!isClientMode && <button type="button" className="logout-button" onClick={() => logout.mutate()}><LockKeyhole />{t("logout")}</button>}
       </aside>
       <button className="sidebar-scrim" aria-label={t("close")} onClick={() => setSidebarOpen(false)} />
       <section className="workspace">
@@ -61,7 +68,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
           <div>
             <small>{t("shellProduct")}</small>
             <h1>{pageTitle(t)}</h1>
-            <span className="context-line">{data.activeOrg.name}</span>
+            {!isClientMode && <span className="context-line">{data.activeOrg.name}</span>}
           </div>
           <div className="top-actions">
             <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />

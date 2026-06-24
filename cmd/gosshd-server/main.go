@@ -15,6 +15,7 @@ var version = server.DefaultVersion
 
 func main() {
 	var cfg server.Config
+	flag.BoolVar(&cfg.ClientMode, "client-mode", false, "run as a local single-user client backend")
 	flag.StringVar(&cfg.HTTPListen, "http-listen", ":80", "HTTP listen address")
 	flag.StringVar(&cfg.SSHListen, "ssh-listen", ":22", "SSH listen address")
 	flag.StringVar(&cfg.HostKeyPath, "host-key-path", "gosshd_host_key", "SSH host private key path; generated if missing")

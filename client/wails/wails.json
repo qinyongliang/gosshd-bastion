@@ -1,0 +1,13 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "GOSSHD",
+  "outputfilename": "GOSSHD",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "powershell -NoProfile -ExecutionPolicy Bypass -File sync-wails-bindings.ps1",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "GOSSHD"
+  }
+}

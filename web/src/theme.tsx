@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useMemo, useState } from "react";
+import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 
 type Theme = "light" | "dark";
 const storageKey = "gosshd_theme";
@@ -10,22 +10,39 @@ type ThemeValue = {
 
 const ThemeContext = createContext<ThemeValue | null>(null);
 
+function systemTheme(): Theme {
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, updateTheme] = useState<Theme>(() => {
     const stored = window.localStorage.getItem(storageKey);
-    return stored === "dark" ? "dark" : "light";
+    return stored === "dark" || stored === "light" ? stored : systemTheme();
   });
+
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!media) return;
+    const onChange = () => {
+      const stored = window.localStorage.getItem(storageKey);
+      if (stored !== "dark" && stored !== "light") updateTheme(systemTheme());
+    };
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   const value = useMemo<ThemeValue>(() => ({
     theme,
     setTheme(next) {
       window.localStorage.setItem(storageKey, next);
-      document.documentElement.dataset.theme = next;
       updateTheme(next);
     },
   }), [theme]);
 
-  document.documentElement.dataset.theme = theme;
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

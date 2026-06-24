@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { Plus, TerminalSquare, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { api, type Enrollment } from "../api";
 import { CommandBox, CopyButton, Drawer, Empty, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toolbar } from "../components/ui";
@@ -13,6 +14,7 @@ import { splitTags, tagColor, targetEndpoint } from "../utils";
 export function TargetsPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState(false);
   const [drawerTargetID, setDrawerTargetID] = useState("");
@@ -43,17 +45,28 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   }
 
   function openConnectWindow(id: string) {
+    const path = `/targets/${id}/connect`;
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: "gosshd-open-connect", path, targetID: id }, "*");
+      return;
+    }
     const width = 1200;
     const height = 800;
     const left = Math.max(0, Math.round((window.screen.width - width) / 2));
     const top = Math.max(0, Math.round((window.screen.height - height) / 2));
     const features = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes,noopener=yes,noreferrer=yes`;
-    window.open(`/targets/${id}/connect`, `connect-${id}`, features);
+    window.open(path, `connect-${id}`, features);
   }
 
   useEffect(() => {
     refreshTargets();
   }, [data.activeOrg.id]);
+
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    setModal(true);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => () => {
     if (tipTimerRef.current) window.clearTimeout(tipTimerRef.current);
@@ -63,14 +76,14 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
     <>
       <section className="resource-head">
         <div><small>{t("shellProduct")}</small><h2>{t("services")}</h2><p>{t("servicePageBody")}</p></div>
-        <button type="button" className="primary" onClick={() => setModal(true)}><Plus />{t("addService")}</button>
+        {!data.runtime.client_mode && <button type="button" className="primary" onClick={() => setModal(true)}><Plus />{t("addService")}</button>}
       </section>
-      <div className="metrics">
+      {!data.runtime.client_mode && <div className="metrics">
         <Metric label={t("serviceTotal")} value={data.targets.length} />
         <Metric label={t("serviceDirect")} value={data.targets.filter((item) => item.target_type === "direct").length} />
         <Metric label={t("privateNode")} value={data.targets.filter((item) => item.target_type === "agent").length} />
         <Metric label={t("commonTag")} value={new Set(data.targets.flatMap((item) => item.tags || [])).size} />
-      </div>
+      </div>}
       <Toolbar query={query} setQuery={setQuery} />
       <Panel title={t("serviceTableService")} subtitle="">
         {filtered.length ? <SimpleTable headers={[t("serviceTableService"), t("serviceTableAlias"), t("commonEndpoint"), t("commonAuth"), t("commonTag"), t("commonActions")]} rows={filtered.map((target) => [

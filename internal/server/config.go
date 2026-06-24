@@ -3,6 +3,7 @@ package server
 const DefaultVersion = "dev"
 
 type Config struct {
+	ClientMode             bool
 	HTTPListen             string
 	SSHListen              string
 	HostKeyPath            string

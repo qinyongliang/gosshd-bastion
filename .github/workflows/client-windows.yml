@@ -1,0 +1,87 @@
+name: Windows Client
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - client/windows/**
+      - web/**
+      - internal/**
+      - cmd/**
+      - go.mod
+      - go.sum
+      - package.json
+      - pnpm-lock.yaml
+      - build-client-windows.ps1
+      - .github/workflows/client-windows.yml
+  pull_request:
+    paths:
+      - client/windows/**
+      - web/**
+      - internal/**
+      - cmd/**
+      - go.mod
+      - go.sum
+      - package.json
+      - pnpm-lock.yaml
+      - build-client-windows.ps1
+      - .github/workflows/client-windows.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version label used in client archive names
+        required: false
+        default: manual
+
+permissions:
+  contents: read
+
+jobs:
+  build-client:
+    name: Build WebView2 client
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Set up pnpm
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.0.7 --activate
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Test backend
+        shell: pwsh
+        run: go test ./internal/server ./internal/store ./internal/auth
+
+      - name: Build Windows client package
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ inputs.version }}"
+          }
+          .\build-client-windows.ps1 -Version $version -Runtime win-x64
+
+      - name: Upload client package
+        uses: actions/upload-artifact@v4
+        with:
+          name: gosshd-client-win-x64
+          path: package/gosshd-client-win-x64-*.zip

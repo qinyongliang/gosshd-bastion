@@ -10,11 +10,12 @@ import type { AuditLog, AuditRecording, ConsoleData } from "../types";
 
 export function AuditPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
+  const isClientMode = Boolean(data.runtime.client_mode);
   const [filters, setFilters] = useState({ query: "", decision: "", request_type: "", started_from: "", started_to: "", page: 1, page_size: 20 });
   const [replayID, setReplayID] = useState("");
   const audit = useQuery({
-    queryKey: ["audit-page", data.activeOrg.id, filters],
-    queryFn: () => api.audit({ ...filters, organization_id: data.activeOrg.id }),
+    queryKey: ["audit-page", data.activeOrg.id, isClientMode, filters],
+    queryFn: () => api.audit(isClientMode ? filters : { ...filters, organization_id: data.activeOrg.id }),
   });
   const replay = useQuery({ queryKey: ["audit-recording", replayID], queryFn: () => api.auditRecording(replayID), enabled: Boolean(replayID) });
   const logs = audit.data?.logs || data.auditPage.logs;
@@ -33,7 +34,7 @@ export function AuditPage({ data }: { data: ConsoleData }) {
         page_size: 20,
       }))}>
         <Search />
-        <input name="query" defaultValue={filters.query} placeholder={t("auditSearchPlaceholder")} />
+        <input name="query" defaultValue={filters.query} placeholder={t(isClientMode ? "auditClientSearchPlaceholder" : "auditSearchPlaceholder")} />
         <select name="decision" defaultValue={filters.decision} aria-label={t("auditDecisionFilter")}>
           <option value="">{t("commonAll")}</option>
           <option value="allow">{t("commonAllow")}</option>
@@ -53,7 +54,7 @@ export function AuditPage({ data }: { data: ConsoleData }) {
         </button>
       </form>
       <Panel title={t("auditList")} subtitle="">
-        {logs.length ? <AuditTable logs={logs} onReplay={(log) => setReplayID(log.id)} /> : <Empty title={t("auditEmptyTitle")} body={t("auditEmptyBody")} />}
+        {logs.length ? <AuditTable logs={logs} compact={isClientMode} onReplay={(log) => setReplayID(log.id)} /> : <Empty title={t("auditEmptyTitle")} body={t("auditEmptyBody")} />}
       </Panel>
       <div className="pager">
         <button type="button" disabled={filters.page <= 1} onClick={() => setFilters({ ...filters, page: filters.page - 1 })}>{t("commonPrevious")}</button>

@@ -22,6 +22,7 @@ export type Organization = {
 export type Runtime = {
   ssh_host: string;
   ssh_port: number;
+  client_mode?: boolean;
 };
 
 export type PublicKey = {
