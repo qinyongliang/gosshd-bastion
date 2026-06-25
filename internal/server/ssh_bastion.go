@@ -336,12 +336,15 @@ func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target stor
 	ctx := context.Background()
 	sessionID := newAuditSessionID()
 	startedAt := time.Now().UTC()
+	log.Printf("sftp request started: target=%s alias=%s type=%s source=%s", target.ID, target.Alias, target.TargetType, sourceIP)
 	decision, allowUpload, allowDownload, err := a.bastion.EvaluateSFTPAccess(ctx, userID, target.ID, sourceIP)
 	if err != nil {
+		log.Printf("sftp access evaluation failed: target=%s alias=%s err=%v", target.ID, target.Alias, err)
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 		sendExit(ch, 255)
 		return
 	}
+	log.Printf("sftp access decision: target=%s alias=%s decision=%s upload=%t download=%t reason=%q", target.ID, target.Alias, decision.Action, allowUpload, allowDownload, decision.Reason)
 	if decision.Action == store.DecisionDeny {
 		code := 126
 		endedAt := time.Now().UTC()
@@ -364,6 +367,7 @@ func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target stor
 		return
 	}
 	exitCode := a.sftpOnTarget(ctx, target, ch, allowUpload, allowDownload)
+	log.Printf("sftp request finished: target=%s alias=%s exit=%d", target.ID, target.Alias, exitCode)
 	endedAt := time.Now().UTC()
 	if _, err := a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
 		UserID:               userID,
