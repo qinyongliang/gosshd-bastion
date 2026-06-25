@@ -583,32 +583,40 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 	}
 	defer runner.close()
 
-	var wg sync.WaitGroup
 	var closeOnce sync.Once
-	closeBoth := func() {
+	closeRunner := func() {
 		closeOnce.Do(func() {
-			_ = ch.CloseWrite()
 			_ = runner.close()
 		})
 	}
-	wg.Add(3)
 	go func() {
-		defer wg.Done()
 		_ = proxySFTPPackets(ch, runner.stdin, allowUpload, allowDownload)
-		closeBoth()
+		closeRunner()
 	}()
+
+	var outputWG sync.WaitGroup
+	outputWG.Add(2)
 	go func() {
-		defer wg.Done()
+		defer outputWG.Done()
 		_, _ = io.Copy(ch, runner.stdout)
-		closeBoth()
+		closeRunner()
 	}()
 	go func() {
-		defer wg.Done()
+		defer outputWG.Done()
 		_, _ = io.Copy(ch.Stderr(), runner.stderr)
 	}()
 	result := <-runner.wait
-	closeBoth()
-	wg.Wait()
+	closeRunner()
+	outputDone := make(chan struct{})
+	go func() {
+		outputWG.Wait()
+		close(outputDone)
+	}()
+	select {
+	case <-outputDone:
+	case <-time.After(5 * time.Second):
+		log.Printf("sftp output drain timed out: target=%s alias=%s", target.ID, target.Alias)
+	}
 	if result.err != nil {
 		log.Printf("sftp remote failed: target=%s alias=%s exit=%d err=%v", target.ID, target.Alias, result.exitCode, result.err)
 	}
@@ -802,26 +810,23 @@ func (a *App) agentSFTP(agentID string, ch gossh.Channel, allowUpload, allowDown
 	}
 	defer stream.Close()
 
-	var wg sync.WaitGroup
 	var closeOnce sync.Once
-	closeBoth := func() {
+	closeStream := func() {
 		closeOnce.Do(func() {
-			_ = ch.CloseWrite()
 			_ = stream.Close()
 		})
 	}
-	wg.Add(2)
 	go func() {
-		defer wg.Done()
 		_ = proxySFTPPackets(ch, stream, allowUpload, allowDownload)
-		closeBoth()
+		closeStream()
 	}()
+	outputDone := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(outputDone)
 		_, _ = io.Copy(ch, reader)
-		closeBoth()
+		closeStream()
 	}()
-	wg.Wait()
+	<-outputDone
 	return 0
 }
 
