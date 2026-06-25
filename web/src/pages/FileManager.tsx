@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Copy, Download, ExternalLink, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Trash2, Upload } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "../api";
 import { Modal, ModalActions } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -18,11 +18,22 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
   const [mkdirModal, setMkdirModal] = useState(false);
   const [transfer, setTransfer] = useState<{ action: "move" | "copy"; entry: FileEntry } | null>(null);
   const [properties, setProperties] = useState<FileProperties | null>(null);
+  const [contextMenuPoint, setContextMenuPoint] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ left: number; top: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPathDraft(path);
   }, [path]);
+
+  useLayoutEffect(() => {
+    if (!contextMenuPoint) return;
+    const menu = contextMenuRef.current;
+    if (!menu) return;
+    const rect = menu.getBoundingClientRect();
+    setContextMenuPosition(contextMenuPositionInViewport(contextMenuPoint.x, contextMenuPoint.y, rect.width, rect.height));
+  }, [contextMenuPoint, selected?.path, selected?.type, uploading, nativeOpen]);
 
   const listing = useQuery({
     queryKey: ["target-files", target.id, path],
@@ -166,9 +177,18 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
     return trimmed.slice(0, index) || "/";
   };
 
+  const menuStyle: CSSProperties | undefined = contextMenuPoint
+    ? {
+      left: contextMenuPosition?.left ?? contextMenuPoint.x,
+      top: contextMenuPosition?.top ?? contextMenuPoint.y,
+      transform: "none",
+      visibility: contextMenuPosition ? "visible" : "hidden",
+    }
+    : undefined;
+
   const fileMenu = (entry: FileEntry | null) => (
     <ContextMenu.Portal>
-      <ContextMenu.Content className="file-context-menu" collisionPadding={8}>
+      <ContextMenu.Content ref={contextMenuRef} className="file-context-menu" collisionPadding={8} style={menuStyle}>
         {entry?.type === "dir" && (
           <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("open", entry)}>
             <FolderOpen />{t("connectFileOpenDir")}
@@ -219,8 +239,26 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
   );
 
   const withFileMenu = (entry: FileEntry | null, children: ReactNode, key?: string) => (
-    <ContextMenu.Root key={key} onOpenChange={(open) => { if (open) setSelected(entry); }}>
-      <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
+    <ContextMenu.Root
+      key={key}
+      onOpenChange={(open) => {
+        if (open) {
+          setSelected(entry);
+        } else {
+          setContextMenuPoint(null);
+          setContextMenuPosition(null);
+        }
+      }}
+    >
+      <ContextMenu.Trigger
+        asChild
+        onContextMenu={(event) => {
+          setContextMenuPoint({ x: event.clientX, y: event.clientY });
+          setContextMenuPosition(null);
+        }}
+      >
+        {children}
+      </ContextMenu.Trigger>
       {fileMenu(entry)}
     </ContextMenu.Root>
   );
@@ -368,6 +406,18 @@ function formatDate(value?: string) {
   } catch {
     return "-";
   }
+}
+
+function contextMenuPositionInViewport(x: number, y: number, width: number, height: number) {
+  const margin = 8;
+  return {
+    left: clampNumber(x, margin, Math.max(margin, window.innerWidth - width - margin)),
+    top: clampNumber(y, margin, Math.max(margin, window.innerHeight - height - margin)),
+  };
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function remoteJoin(dir: string, name: string) {
