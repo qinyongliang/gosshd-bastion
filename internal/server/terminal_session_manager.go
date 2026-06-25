@@ -48,6 +48,7 @@ type terminalSession struct {
 	screen         *terminalScreenBuffer
 	lastHeartbeat  time.Time
 	closed         bool
+	shellBusy      bool
 	commandMu      sync.Mutex
 	commandWaiters []*terminalCommandWaiter
 	oscBuffer      string
@@ -145,6 +146,7 @@ func (m *terminalSessionManager) earliestOnlineForUserTarget(userID, targetID st
 			!session.closed &&
 			session.input != nil &&
 			len(session.clients) > 0 &&
+			!session.shellBusy &&
 			time.Since(session.lastHeartbeat) <= terminalSessionHeartbeatTimeout
 		startedAt := session.startedAt
 		session.mu.Unlock()
@@ -428,6 +430,14 @@ func (s *terminalSession) writeOutput(typ string, data []byte) {
 		s.output.WriteString(storeText)
 	}
 	s.screen.write(cleanData)
+	for _, event := range events {
+		switch event.Kind {
+		case "C":
+			s.shellBusy = true
+		case "D":
+			s.shellBusy = false
+		}
+	}
 	for _, waiter := range s.commandWaiters {
 		if cleanText != "" {
 			select {

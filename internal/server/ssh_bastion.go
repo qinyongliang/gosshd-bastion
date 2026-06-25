@@ -518,38 +518,44 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 		return 255
 	}
 	defer client.Close()
-	session, err := client.NewSession()
+	runner, err := newTargetSFTPRunner(client, func(session *gossh.Session) error {
+		return session.RequestSubsystem("sftp")
+	})
 	if err != nil {
-		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
-		return 255
+		runner, err = newTargetSFTPRunner(client, func(session *gossh.Session) error {
+			return session.Start(directSFTPServerCommand)
+		})
+		if err != nil {
+			_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
+			return 255
+		}
+	} else if runner.exitedBefore(200 * time.Millisecond) {
+		_ = runner.close()
+		runner, err = newTargetSFTPRunner(client, func(session *gossh.Session) error {
+			return session.Start(directSFTPServerCommand)
+		})
+		if err != nil {
+			_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
+			return 255
+		}
 	}
-	defer session.Close()
-	stdin, err := session.StdinPipe()
-	if err != nil {
-		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
-		return 255
-	}
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
-		return 255
-	}
-	if err := session.RequestSubsystem("sftp"); err != nil {
-		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
-		return 255
-	}
+	defer runner.close()
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		_ = proxySFTPPackets(ch, stdin, allowUpload, allowDownload)
-		_ = closeWriter(stdin)
+		_ = proxySFTPPackets(ch, runner.stdin, allowUpload, allowDownload)
+		_ = closeWriter(runner.stdin)
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(ch, stdout)
+		_, _ = io.Copy(ch, runner.stdout)
 	}()
-	err = session.Wait()
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(ch.Stderr(), runner.stderr)
+	}()
+	err = <-runner.wait
 	_ = ch.CloseWrite()
 	wg.Wait()
 	if err == nil {
@@ -559,6 +565,60 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 		return exit.ExitStatus()
 	}
 	return 255
+}
+
+type targetSFTPRunner struct {
+	session *gossh.Session
+	stdin   io.WriteCloser
+	stdout  io.Reader
+	stderr  io.Reader
+	wait    chan error
+}
+
+func newTargetSFTPRunner(client *gossh.Client, start func(*gossh.Session) error) (*targetSFTPRunner, error) {
+	session, err := client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	runner := &targetSFTPRunner{session: session, wait: make(chan error, 1)}
+	runner.stdin, err = session.StdinPipe()
+	if err != nil {
+		_ = session.Close()
+		return nil, err
+	}
+	runner.stdout, err = session.StdoutPipe()
+	if err != nil {
+		_ = session.Close()
+		return nil, err
+	}
+	runner.stderr, err = session.StderrPipe()
+	if err != nil {
+		_ = session.Close()
+		return nil, err
+	}
+	if err := start(session); err != nil {
+		_ = session.Close()
+		return nil, err
+	}
+	go func() {
+		runner.wait <- session.Wait()
+	}()
+	return runner, nil
+}
+
+func (r *targetSFTPRunner) exitedBefore(timeout time.Duration) bool {
+	select {
+	case err := <-r.wait:
+		r.wait <- err
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func (r *targetSFTPRunner) close() error {
+	_ = closeWriter(r.stdin)
+	return r.session.Close()
 }
 
 func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.StreamRequest, recorder *terminalRecorder) int {
@@ -623,7 +683,7 @@ func (a *App) agentSFTP(agentID string, ch gossh.Channel, allowUpload, allowDown
 	var closeOnce sync.Once
 	closeBoth := func() {
 		closeOnce.Do(func() {
-			_ = ch.Close()
+			_ = ch.CloseWrite()
 			_ = stream.Close()
 		})
 	}
@@ -989,6 +1049,8 @@ const (
 	sftpOpenTrunc        = 0x00000010
 	sftpOpenExcl         = 0x00000020
 )
+
+const directSFTPServerCommand = `sh -c 'for p in /usr/lib/openssh/sftp-server /usr/libexec/sftp-server /usr/lib/ssh/sftp-server; do if [ -x "$p" ]; then exec "$p"; fi; done; exec sftp-server'`
 
 func proxySFTPPackets(client io.ReadWriter, target io.Writer, allowUpload, allowDownload bool) error {
 	for {
