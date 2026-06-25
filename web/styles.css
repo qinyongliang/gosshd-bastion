@@ -4545,6 +4545,28 @@ body.is-resizing-connect {
   overflow: hidden;
 }
 
+.connect-zone-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 100%;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.connect-zone-empty strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.connect-zone-empty span {
+  max-width: 320px;
+  line-height: 1.5;
+}
+
 .files-zone.collapsed {
   grid-template-rows: minmax(0, 1fr);
   padding: 0;
@@ -4974,9 +4996,13 @@ body.is-resizing-connect {
   width: 100%;
   outline: none;
   border-radius: 6px;
+  border: 0;
   padding: 0 9px;
   color: var(--ink);
   font-size: 12px;
+  font: inherit;
+  text-align: left;
+  background: transparent;
   cursor: default;
   user-select: none;
 }
@@ -4986,17 +5012,19 @@ body.is-resizing-connect {
   height: 14px;
 }
 
-.file-context-menu-item[data-highlighted] {
+.file-context-menu-item:hover,
+.file-context-menu-item:focus-visible {
   color: var(--ink);
   background: rgba(103, 232, 249, 0.14);
 }
 
-.file-context-menu-item[data-disabled] {
+.file-context-menu-item:disabled {
   opacity: 0.45;
   pointer-events: none;
 }
 
-.file-context-menu-item.danger[data-highlighted] {
+.file-context-menu-item.danger:hover,
+.file-context-menu-item.danger:focus-visible {
   color: var(--danger);
   background: rgba(255, 107, 154, 0.12);
 }

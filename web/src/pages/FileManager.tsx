@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Copy, Download, ExternalLink, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Trash2, Upload } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api";
 import { Modal, ModalActions } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -18,8 +18,7 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
   const [mkdirModal, setMkdirModal] = useState(false);
   const [transfer, setTransfer] = useState<{ action: "move" | "copy"; entry: FileEntry } | null>(null);
   const [properties, setProperties] = useState<FileProperties | null>(null);
-  const [contextMenuPoint, setContextMenuPoint] = useState<{ x: number; y: number } | null>(null);
-  const [contextMenuPosition, setContextMenuPosition] = useState<{ left: number; top: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ entry: FileEntry | null; x: number; y: number; left: number; top: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
@@ -28,12 +27,32 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
   }, [path]);
 
   useLayoutEffect(() => {
-    if (!contextMenuPoint) return;
+    if (!contextMenu) return;
     const menu = contextMenuRef.current;
     if (!menu) return;
     const rect = menu.getBoundingClientRect();
-    setContextMenuPosition(contextMenuPositionInViewport(contextMenuPoint.x, contextMenuPoint.y, rect.width, rect.height));
-  }, [contextMenuPoint, selected?.path, selected?.type, uploading, nativeOpen]);
+    const next = contextMenuPositionInViewport(contextMenu.x, contextMenu.y, rect.width, rect.height);
+    if (next.left === contextMenu.left && next.top === contextMenu.top) return;
+    setContextMenu((current) => current && current.x === contextMenu.x && current.y === contextMenu.y ? { ...current, ...next } : current);
+  }, [contextMenu, selected?.path, selected?.type, uploading, nativeOpen]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [contextMenu]);
 
   const listing = useQuery({
     queryKey: ["target-files", target.id, path],
@@ -142,6 +161,18 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
     }
   };
 
+  const openFileMenu = (entry: FileEntry | null, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelected(entry);
+    setContextMenu({ entry, x: event.clientX, y: event.clientY, left: event.clientX, top: event.clientY });
+  };
+
+  const runMenuAction = (action: "open" | "download" | "copy-path" | "refresh" | "upload" | "mkdir" | "delete" | "properties" | "move" | "copy", entry: FileEntry | null) => {
+    setContextMenu(null);
+    void handleMenuAction(action, entry);
+  };
+
   const submitMkdir = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -177,91 +208,66 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
     return trimmed.slice(0, index) || "/";
   };
 
-  const menuStyle: CSSProperties | undefined = contextMenuPoint
-    ? {
-      left: contextMenuPosition?.left ?? contextMenuPoint.x,
-      top: contextMenuPosition?.top ?? contextMenuPoint.y,
-      transform: "none",
-      visibility: contextMenuPosition ? "visible" : "hidden",
-    }
-    : undefined;
-
-  const fileMenu = (entry: FileEntry | null) => (
-    <ContextMenu.Portal>
-      <ContextMenu.Content ref={contextMenuRef} className="file-context-menu" collisionPadding={8} style={menuStyle}>
-        {entry?.type === "dir" && (
-          <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("open", entry)}>
-            <FolderOpen />{t("connectFileOpenDir")}
-          </ContextMenu.Item>
-        )}
-        {entry?.type === "file" && nativeOpen && (
-          <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("open", entry)}>
-            <ExternalLink />{t("connectFileOpenDir")}
-          </ContextMenu.Item>
-        )}
-        {entry?.type === "file" && (
-          <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("download", entry)}>
-            <Download />{t("connectFileDownload")}
-          </ContextMenu.Item>
-        )}
-        <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("mkdir", entry)}>
-          <FolderPlus />{t("connectFileNewFolder")}
-        </ContextMenu.Item>
-        {entry && (
-          <>
-            <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("move", entry)}>
-              <Move />{t("connectFileMove")}
-            </ContextMenu.Item>
-            <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("copy", entry)}>
-              <Copy />{t("connectFileCopy")}
-            </ContextMenu.Item>
-            <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("properties", entry)}>
-              <Info />{t("connectFileProperties")}
-            </ContextMenu.Item>
-            <ContextMenu.Item className="file-context-menu-item danger" onSelect={() => void handleMenuAction("delete", entry)}>
-              <Trash2 />{t("commonDelete")}
-            </ContextMenu.Item>
-            <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("copy-path", entry)}>
-              <Copy />{t("connectFileCopyPath")}
-            </ContextMenu.Item>
-          </>
-        )}
-        <ContextMenu.Item className="file-context-menu-item" onSelect={() => void handleMenuAction("refresh", entry)}>
-          <RefreshCw />{t("commonRefresh")}
-        </ContextMenu.Item>
-        {!entry && (
-          <ContextMenu.Item className="file-context-menu-item" disabled={uploading} onSelect={() => void handleMenuAction("upload", entry)}>
-            <Upload />{uploading ? t("connectFileUploading") : t("connectFileUpload")}
-          </ContextMenu.Item>
-        )}
-      </ContextMenu.Content>
-    </ContextMenu.Portal>
-  );
-
-  const withFileMenu = (entry: FileEntry | null, children: ReactNode, key?: string) => (
-    <ContextMenu.Root
-      key={key}
-      onOpenChange={(open) => {
-        if (open) {
-          setSelected(entry);
-        } else {
-          setContextMenuPoint(null);
-          setContextMenuPosition(null);
-        }
+  const fileMenu = (entry: FileEntry | null) => contextMenu ? createPortal(
+    <div
+      ref={contextMenuRef}
+      className="file-context-menu"
+      style={{ left: contextMenu.left, top: contextMenu.top }}
+      role="menu"
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
       }}
     >
-      <ContextMenu.Trigger
-        asChild
-        onContextMenu={(event) => {
-          setContextMenuPoint({ x: event.clientX, y: event.clientY });
-          setContextMenuPosition(null);
-        }}
-      >
-        {children}
-      </ContextMenu.Trigger>
-      {fileMenu(entry)}
-    </ContextMenu.Root>
-  );
+        {entry?.type === "dir" && (
+          <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("open", entry)}>
+            <FolderOpen />{t("connectFileOpenDir")}
+          </button>
+        )}
+        {entry?.type === "file" && nativeOpen && (
+          <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("open", entry)}>
+            <ExternalLink />{t("connectFileOpenDir")}
+          </button>
+        )}
+        {entry?.type === "file" && (
+          <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("download", entry)}>
+            <Download />{t("connectFileDownload")}
+          </button>
+        )}
+        <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("mkdir", entry)}>
+          <FolderPlus />{t("connectFileNewFolder")}
+        </button>
+        {entry && (
+          <>
+            <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("move", entry)}>
+              <Move />{t("connectFileMove")}
+            </button>
+            <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("copy", entry)}>
+              <Copy />{t("connectFileCopy")}
+            </button>
+            <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("properties", entry)}>
+              <Info />{t("connectFileProperties")}
+            </button>
+            <button type="button" role="menuitem" className="file-context-menu-item danger" onClick={() => runMenuAction("delete", entry)}>
+              <Trash2 />{t("commonDelete")}
+            </button>
+            <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("copy-path", entry)}>
+              <Copy />{t("connectFileCopyPath")}
+            </button>
+          </>
+        )}
+        <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("refresh", entry)}>
+          <RefreshCw />{t("commonRefresh")}
+        </button>
+        {!entry && (
+          <button type="button" role="menuitem" className="file-context-menu-item" disabled={uploading} onClick={() => runMenuAction("upload", entry)}>
+            <Upload />{uploading ? t("connectFileUploading") : t("connectFileUpload")}
+          </button>
+        )}
+    </div>,
+    document.body
+  ) : null;
 
   return (
     <section className="file-manager">
@@ -299,7 +305,7 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
           </button>
         </div>
       </header>
-      {withFileMenu(null, <div className="file-manager-body">
+      <div className="file-manager-body" onContextMenu={(event) => openFileMenu(null, event)}>
         <table>
           <thead>
             <tr>
@@ -321,12 +327,13 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
               </tr>
             )}
             {entries.map((entry) => (
-              withFileMenu(entry, (
-                <tr
-                  className={`file-row ${entry.type} ${selected?.path === entry.path ? "selected" : ""}`}
-                  onClick={() => setSelected(entry)}
-                  onDoubleClick={() => activateEntry(entry)}
-                >
+              <tr
+                key={entry.path}
+                className={`file-row ${entry.type} ${selected?.path === entry.path ? "selected" : ""}`}
+                onClick={() => setSelected(entry)}
+                onDoubleClick={() => activateEntry(entry)}
+                onContextMenu={(event) => openFileMenu(entry, event)}
+              >
                   <td>
                     <button type="button" className="file-name" onClick={() => setSelected(entry)} onDoubleClick={() => activateEntry(entry)} title={entry.name}>
                       {entry.type === "dir" ? <FolderOpen /> : <HardDrive />}
@@ -337,7 +344,6 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
                   <td><code>{entry.mode}</code></td>
                   <td>{formatDate(entry.modified_at)}</td>
                 </tr>
-              ), entry.path)
             ))}
             {!entries.length && (
               <tr>
@@ -348,7 +354,8 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
             )}
           </tbody>
         </table>
-      </div>)}
+      </div>
+      {contextMenu && fileMenu(contextMenu.entry)}
       {mkdirModal && (
         <Modal title={t("connectFileNewFolder")} onClose={() => setMkdirModal(false)}>
           <form className="stack" onSubmit={submitMkdir}>

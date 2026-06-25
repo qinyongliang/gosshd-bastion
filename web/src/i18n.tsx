@@ -427,6 +427,9 @@ const en = {
   connectSwitchSearchPlaceholder: "Search servers, aliases, hosts, tags...",
   connectFullscreen: "Fullscreen",
   connectExitFullscreen: "Exit fullscreen",
+  connectNoOpenTabsTitle: "No open connections",
+  connectNoOpenTabsBody: "Use the switcher or shortcut to open a connection.",
+  connectFilesNoOpenTabs: "Open a connection to browse files.",
 };
 
 const zh = {
@@ -849,6 +852,9 @@ const zh = {
   connectSwitchSearchPlaceholder: "搜索服务器、别名、主机、标签...",
   connectFullscreen: "全屏",
   connectExitFullscreen: "退出全屏",
+  connectNoOpenTabsTitle: "没有打开的连接",
+  connectNoOpenTabsBody: "使用切换器或快捷键打开新的连接。",
+  connectFilesNoOpenTabs: "打开连接后可浏览文件。",
 };
 
 if (!i18next.isInitialized) {
