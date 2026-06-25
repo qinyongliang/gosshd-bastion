@@ -134,6 +134,30 @@ func (m *terminalSessionManager) getForUser(userID, sessionID string) (*terminal
 	return session, nil
 }
 
+func (m *terminalSessionManager) earliestOnlineForUserTarget(userID, targetID string) *terminalSession {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var selected *terminalSession
+	for _, session := range m.sessions {
+		session.mu.Lock()
+		matches := session.userID == userID &&
+			session.target.ID == targetID &&
+			!session.closed &&
+			session.input != nil &&
+			len(session.clients) > 0 &&
+			time.Since(session.lastHeartbeat) <= terminalSessionHeartbeatTimeout
+		startedAt := session.startedAt
+		session.mu.Unlock()
+		if !matches {
+			continue
+		}
+		if selected == nil || startedAt.Before(selected.startedAt) {
+			selected = session
+		}
+	}
+	return selected
+}
+
 func (m *terminalSessionManager) watchHeartbeat(session *terminalSession) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -234,6 +258,13 @@ type terminalCommandResult struct {
 	ExitCode int
 }
 
+type terminalCommandAttempt struct {
+	Result   terminalCommandResult
+	Acquired bool
+	Sent     bool
+	Err      error
+}
+
 type terminalCommandWaiter struct {
 	id     string
 	output chan string
@@ -295,7 +326,28 @@ func (s *terminalSession) sendCommand(ctx context.Context, command string) (term
 	}
 	s.commandMu.Lock()
 	defer s.commandMu.Unlock()
+	return s.sendCommandLocked(ctx, command)
+}
 
+func (s *terminalSession) trySendCommand(ctx context.Context, command string) terminalCommandAttempt {
+	command = strings.TrimRight(command, "\r\n")
+	if strings.TrimSpace(command) == "" {
+		return terminalCommandAttempt{Err: errors.New("command is required")}
+	}
+	if !s.commandMu.TryLock() {
+		return terminalCommandAttempt{}
+	}
+	defer s.commandMu.Unlock()
+	result, sent, err := s.trySendCommandLocked(ctx, command)
+	return terminalCommandAttempt{Result: result, Acquired: true, Sent: sent, Err: err}
+}
+
+func (s *terminalSession) sendCommandLocked(ctx context.Context, command string) (terminalCommandResult, error) {
+	result, _, err := s.trySendCommandLocked(ctx, command)
+	return result, err
+}
+
+func (s *terminalSession) trySendCommandLocked(ctx context.Context, command string) (terminalCommandResult, bool, error) {
 	waiter := &terminalCommandWaiter{
 		output: make(chan string, 64),
 		done:   make(chan int, 1),
@@ -305,9 +357,10 @@ func (s *terminalSession) sendCommand(ctx context.Context, command string) (term
 	s.mu.Unlock()
 	defer s.removeCommandWaiter(waiter)
 	if err := s.writeInput(command + "\n"); err != nil {
-		return terminalCommandResult{}, err
+		return terminalCommandResult{}, false, err
 	}
-	return collectCommandOutput(ctx, s.ctx, waiter)
+	result, err := collectCommandOutput(ctx, s.ctx, waiter)
+	return result, true, err
 }
 
 func (s *terminalSession) removeCommandWaiter(waiter *terminalCommandWaiter) {
