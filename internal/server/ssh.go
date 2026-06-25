@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
@@ -130,12 +129,10 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 		return
 	}
 	defer conn.Close()
-	traceSSH("ssh conn user=%s remote=%s permissions=%t", conn.User(), conn.RemoteAddr(), conn.Permissions != nil)
 
 	if conn.Permissions != nil {
 		if userID := conn.Permissions.Extensions["user_id"]; userID != "" {
 			log.Printf("ssh authenticated bastion connection: ssh_user=%s user_id=%s fingerprint=%s", conn.User(), userID, conn.Permissions.Extensions["public_key_fingerprint"])
-			traceSSH("ssh bastion route user=%s user_id=%s", conn.User(), userID)
 			a.handleBastionSSHConn(conn, chans, reqs, userID, conn.Permissions.Extensions["public_key_fingerprint"])
 			return
 		}
@@ -145,17 +142,6 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 	for ch := range chans {
 		_ = ch.Reject(gossh.Prohibited, "public key bastion authentication required")
 	}
-}
-
-func traceSSH(format string, args ...any) {
-	f, err := os.OpenFile("/tmp/gosshd-ssh-trace.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = fmt.Fprintf(f, "%s ", time.Now().UTC().Format(time.RFC3339Nano))
-	_, _ = fmt.Fprintf(f, format, args...)
-	_, _ = fmt.Fprintln(f)
 }
 
 func (a *App) openAgentStream(id string, req protocol.StreamRequest) (*bufio.Reader, io.ReadWriteCloser, error) {

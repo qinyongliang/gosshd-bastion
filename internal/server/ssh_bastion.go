@@ -22,10 +22,8 @@ import (
 
 func (a *App) handleBastionSSHConn(conn *gossh.ServerConn, chans <-chan gossh.NewChannel, reqs <-chan *gossh.Request, userID, publicKeyFingerprint string) {
 	alias := conn.User()
-	traceSSH("bastion resolve start alias=%s user_id=%s", alias, userID)
 	target, err := a.resolveBastionTarget(context.Background(), userID, alias)
 	if err != nil {
-		traceSSH("bastion resolve failed alias=%s err=%v", alias, err)
 		go gossh.DiscardRequests(reqs)
 		for ch := range chans {
 			_ = ch.Reject(gossh.ConnectionFailed, err.Error())
@@ -37,7 +35,6 @@ func (a *App) handleBastionSSHConn(conn *gossh.ServerConn, chans <-chan gossh.Ne
 	defer forwardManager.closeAll()
 	go a.handleBastionGlobalRequests(forwardManager, reqs, userID, publicKeyFingerprint, target, sourceIP)
 	for ch := range chans {
-		traceSSH("bastion new channel alias=%s target=%s type=%s", alias, target.ID, ch.ChannelType())
 		switch ch.ChannelType() {
 		case "session":
 			go a.handleBastionSession(userID, publicKeyFingerprint, target, ch, sourceIP)
@@ -106,7 +103,6 @@ func (a *App) handleBastionSession(userID, publicKeyFingerprint string, target s
 	started := false
 	for req := range reqs {
 		log.Printf("bastion session request: target=%s alias=%s type=%s started=%t", target.ID, target.Alias, req.Type, started)
-		traceSSH("bastion session request alias=%s target=%s type=%s started=%t", target.Alias, target.ID, req.Type, started)
 		switch req.Type {
 		case "pty-req":
 			ptyWidth, ptyHeight = parsePtySize(req.Payload)
@@ -342,7 +338,6 @@ func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target stor
 	sessionID := newAuditSessionID()
 	startedAt := time.Now().UTC()
 	log.Printf("sftp request started: target=%s alias=%s type=%s source=%s", target.ID, target.Alias, target.TargetType, sourceIP)
-	traceSSH("sftp request started alias=%s target=%s type=%s", target.Alias, target.ID, target.TargetType)
 	decision, allowUpload, allowDownload, err := a.bastion.EvaluateSFTPAccess(ctx, userID, target.ID, sourceIP)
 	if err != nil {
 		log.Printf("sftp access evaluation failed: target=%s alias=%s err=%v", target.ID, target.Alias, err)
