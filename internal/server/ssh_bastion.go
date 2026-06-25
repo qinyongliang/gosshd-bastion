@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -364,7 +365,7 @@ func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target stor
 	}
 	exitCode := a.sftpOnTarget(ctx, target, ch, allowUpload, allowDownload)
 	endedAt := time.Now().UTC()
-	_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
+	if _, err := a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
 		UserID:               userID,
 		TargetID:             target.ID,
 		OrganizationID:       organizationIDForTarget(target),
@@ -378,7 +379,9 @@ func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target stor
 		StartedAt:            startedAt,
 		EndedAt:              &endedAt,
 		RemoteAddress:        sourceIP,
-	})
+	}); err != nil {
+		log.Printf("sftp audit create failed: target=%s alias=%s exit=%d err=%v", target.ID, target.Alias, exitCode, err)
+	}
 	sendExit(ch, exitCode)
 }
 
@@ -521,6 +524,7 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 
 	initialPacket, err := readSFTPPacket(ch)
 	if err != nil {
+		log.Printf("sftp initial packet failed: target=%s alias=%s err=%v", target.ID, target.Alias, err)
 		return 255
 	}
 	if ok, id := sftpPacketAllowed(initialPacket, allowUpload, allowDownload); !ok {
@@ -531,31 +535,31 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 	}
 
 	startSubsystem := func() (*targetSFTPRunner, error) {
-		return newTargetSFTPRunner(client, func(session *gossh.Session) error {
-			return session.RequestSubsystem("sftp")
-		})
+		return newTargetSFTPSubsystemRunner(client)
 	}
 	startFallback := func() (*targetSFTPRunner, error) {
-		return newTargetSFTPRunner(client, func(session *gossh.Session) error {
-			return session.Start(directSFTPServerCommand)
-		})
+		return newTargetSFTPExecRunner(client, directSFTPServerCommand)
 	}
 
 	runner, err := startSubsystem()
 	usingSubsystem := true
 	if err != nil {
+		log.Printf("sftp subsystem start failed, falling back: target=%s alias=%s err=%v", target.ID, target.Alias, err)
 		usingSubsystem = false
 		runner, err = startFallback()
 		if err != nil {
+			log.Printf("sftp fallback start failed: target=%s alias=%s err=%v", target.ID, target.Alias, err)
 			_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 			return 255
 		}
 	}
 	firstResponse, err := runner.exchangeInitialSFTPPacket(initialPacket, 5*time.Second)
 	if err != nil && usingSubsystem {
+		log.Printf("sftp subsystem handshake failed, falling back: target=%s alias=%s err=%v", target.ID, target.Alias, err)
 		_ = runner.close()
 		runner, err = startFallback()
 		if err != nil {
+			log.Printf("sftp fallback start failed after handshake: target=%s alias=%s err=%v", target.ID, target.Alias, err)
 			_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 			return 255
 		}
@@ -563,11 +567,13 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 	}
 	if err != nil {
 		_ = runner.close()
+		log.Printf("sftp handshake failed: target=%s alias=%s err=%v", target.ID, target.Alias, err)
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 		return 255
 	}
 	if _, err := ch.Write(firstResponse); err != nil {
 		_ = runner.close()
+		log.Printf("sftp initial response write failed: target=%s alias=%s err=%v", target.ID, target.Alias, err)
 		return 255
 	}
 	defer runner.close()
@@ -595,55 +601,85 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 		defer wg.Done()
 		_, _ = io.Copy(ch.Stderr(), runner.stderr)
 	}()
-	err = <-runner.wait
+	result := <-runner.wait
 	closeBoth()
 	wg.Wait()
-	if err == nil {
-		return 0
+	if result.err != nil {
+		log.Printf("sftp remote failed: target=%s alias=%s exit=%d err=%v", target.ID, target.Alias, result.exitCode, result.err)
 	}
-	if exit, ok := err.(*gossh.ExitError); ok {
-		return exit.ExitStatus()
-	}
-	return 255
+	return result.exitCode
 }
 
 type targetSFTPRunner struct {
-	session *gossh.Session
+	channel gossh.Channel
 	stdin   io.WriteCloser
 	stdout  io.Reader
 	stderr  io.Reader
-	wait    chan error
+	wait    chan targetSFTPResult
 }
 
-func newTargetSFTPRunner(client *gossh.Client, start func(*gossh.Session) error) (*targetSFTPRunner, error) {
-	session, err := client.NewSession()
+type targetSFTPResult struct {
+	exitCode int
+	err      error
+}
+
+func newTargetSFTPSubsystemRunner(client *gossh.Client) (*targetSFTPRunner, error) {
+	var payload struct {
+		Subsystem string
+	}
+	payload.Subsystem = "sftp"
+	return newTargetSFTPRunner(client, "subsystem", gossh.Marshal(&payload))
+}
+
+func newTargetSFTPExecRunner(client *gossh.Client, command string) (*targetSFTPRunner, error) {
+	var payload struct {
+		Command string
+	}
+	payload.Command = command
+	return newTargetSFTPRunner(client, "exec", gossh.Marshal(&payload))
+}
+
+func newTargetSFTPRunner(client *gossh.Client, requestType string, payload []byte) (*targetSFTPRunner, error) {
+	channel, reqs, err := client.OpenChannel("session", nil)
 	if err != nil {
 		return nil, err
 	}
-	runner := &targetSFTPRunner{session: session, wait: make(chan error, 1)}
-	runner.stdin, err = session.StdinPipe()
+	ok, err := channel.SendRequest(requestType, true, payload)
+	if err == nil && !ok {
+		err = fmt.Errorf("ssh: %s request failed", requestType)
+	}
 	if err != nil {
-		_ = session.Close()
+		_ = channel.Close()
 		return nil, err
 	}
-	runner.stdout, err = session.StdoutPipe()
-	if err != nil {
-		_ = session.Close()
-		return nil, err
+	runner := &targetSFTPRunner{
+		channel: channel,
+		stdin:   channel,
+		stdout:  channel,
+		stderr:  channel.Stderr(),
+		wait:    make(chan targetSFTPResult, 1),
 	}
-	runner.stderr, err = session.StderrPipe()
-	if err != nil {
-		_ = session.Close()
-		return nil, err
-	}
-	if err := start(session); err != nil {
-		_ = session.Close()
-		return nil, err
-	}
-	go func() {
-		runner.wait <- session.Wait()
-	}()
+	go runner.waitForExit(reqs)
 	return runner, nil
+}
+
+func (r *targetSFTPRunner) waitForExit(reqs <-chan *gossh.Request) {
+	result := targetSFTPResult{exitCode: 0}
+	for req := range reqs {
+		switch req.Type {
+		case "exit-status":
+			if len(req.Payload) < 4 {
+				result.exitCode = 255
+				result.err = errors.New("malformed sftp exit status")
+				continue
+			}
+			result.exitCode = int(binary.BigEndian.Uint32(req.Payload))
+		case "exit-signal":
+			result.exitCode = 255
+			result.err = fmt.Errorf("sftp exited with signal")
+		}
+	}
+	r.wait <- result
 }
 
 func (r *targetSFTPRunner) exchangeInitialSFTPPacket(packet []byte, timeout time.Duration) ([]byte, error) {
@@ -657,10 +693,13 @@ func (r *targetSFTPRunner) exchangeInitialSFTPPacket(packet []byte, timeout time
 		if err != nil {
 			return nil, err
 		}
-	case err := <-r.wait:
-		r.wait <- err
-		if err != nil {
-			return nil, err
+	case result := <-r.wait:
+		r.wait <- result
+		if result.err != nil {
+			return nil, result.err
+		}
+		if result.exitCode != 0 {
+			return nil, fmt.Errorf("sftp exited before handshake with status %d", result.exitCode)
 		}
 		return nil, io.ErrUnexpectedEOF
 	case <-time.After(timeout):
@@ -681,10 +720,13 @@ func (r *targetSFTPRunner) exchangeInitialSFTPPacket(packet []byte, timeout time
 		return packet, nil
 	case err := <-errCh:
 		return nil, err
-	case err := <-r.wait:
-		r.wait <- err
-		if err != nil {
-			return nil, err
+	case result := <-r.wait:
+		r.wait <- result
+		if result.err != nil {
+			return nil, result.err
+		}
+		if result.exitCode != 0 {
+			return nil, fmt.Errorf("sftp exited before handshake with status %d", result.exitCode)
 		}
 		return nil, io.ErrUnexpectedEOF
 	case <-time.After(timeout):
@@ -694,7 +736,7 @@ func (r *targetSFTPRunner) exchangeInitialSFTPPacket(packet []byte, timeout time
 
 func (r *targetSFTPRunner) close() error {
 	_ = closeWriter(r.stdin)
-	return r.session.Close()
+	return r.channel.Close()
 }
 
 func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.StreamRequest, recorder *terminalRecorder) int {
