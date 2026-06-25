@@ -7,9 +7,13 @@ import type { ConsoleData, ManualReview } from "../types";
 
 type ReviewState = {
   review: ManualReview;
-  status: "pending" | "allowed" | "denied" | "expired";
+  status: "pending" | "allowed" | "denied";
   submitting?: "allow" | "deny";
   error?: string;
+};
+type ReviewNotification = {
+  notification: Notification;
+  expiresAt: number;
 };
 
 const POLL_BACKOFF_MS = 500;
@@ -24,9 +28,11 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
   const [notificationPromptHidden, setNotificationPromptHidden] = useState(false);
   const knownIDsRef = useRef<Set<string>>(new Set());
   const notifiedIDsRef = useRef<Set<string>>(new Set());
+  const notificationsRef = useRef<Map<string, ReviewNotification>>(new Map());
   const canReview = useMemo(() => canReviewInOrg(data), [data]);
 
   useEffect(() => {
+    closeReviewNotifications(notificationsRef.current);
     setReviews([]);
     setDismissing(new Set());
     setHidden(new Set());
@@ -34,6 +40,20 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
     knownIDsRef.current = new Set();
     notifiedIDsRef.current = new Set();
   }, [canReview, data.activeOrg.id, sessionID]);
+
+  useEffect(() => {
+    return () => closeReviewNotifications(notificationsRef.current);
+  }, []);
+
+  useEffect(() => {
+    const pruneExpired = () => {
+      closeExpiredReviewNotifications(notificationsRef.current);
+      setReviews((prev) => prev.filter((item) => item.status !== "pending" || isReviewActive(item.review)));
+    };
+    pruneExpired();
+    const timer = window.setInterval(pruneExpired, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     setNotificationPermission(getNotificationPermission());
@@ -53,7 +73,7 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
             knownIDsRef.current.add(review.id);
           }
           const activeReviews = result.reviews.filter(isReviewActive);
-          notifyPendingReviews(activeReviews, notifiedIDsRef.current, t);
+          notifyPendingReviews(activeReviews, notifiedIDsRef.current, notificationsRef.current, t);
           setReviews((prev) => mergeReviews(prev, activeReviews));
           backoff = POLL_BACKOFF_MS;
           if (result.reviews.length === 0) await sleep(250);
@@ -84,6 +104,7 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
       );
     },
     onSuccess: (_data, variables) => {
+      closeReviewNotification(notificationsRef.current, variables.id);
       setReviews((prev) =>
         prev.map((item) =>
           item.review.id === variables.id
@@ -136,11 +157,13 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
             if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: false });
           }}
           onExpire={() => {
-            setReviews((prev) => prev.map((review) => review.review.id === item.review.id ? { ...review, status: "expired" } : review));
-            setDismissing((prev) => new Set(prev).add(item.review.id));
-            window.setTimeout(() => setHidden((prev) => new Set(prev).add(item.review.id)), 1200);
+            setReviews((prev) => prev.filter((review) => review.review.id !== item.review.id));
+            closeReviewNotification(notificationsRef.current, item.review.id);
           }}
-          onDismiss={() => setHidden((prev) => new Set(prev).add(item.review.id))}
+          onDismiss={() => {
+            closeReviewNotification(notificationsRef.current, item.review.id);
+            setHidden((prev) => new Set(prev).add(item.review.id));
+          }}
           compact={Boolean(data.runtime.client_mode)}
           t={t}
         />
@@ -218,16 +241,14 @@ function ReviewCard({
   }, [secondsLeft, status, onExpire]);
 
   const isDone = status === "allowed" || status === "denied";
-  const isExpired = status === "expired" || secondsLeft === 0;
-
   return (
-    <div className={`manual-review-card ${isDone ? "done" : ""} ${isExpired ? "expired" : ""} ${dismissing ? "dismissing" : ""}`}>
+    <div className={`manual-review-card ${isDone ? "done" : ""} ${dismissing ? "dismissing" : ""}`}>
       <div className="manual-review-header">
         <ShieldAlert />
         <strong>{t("manualReviewTitle")}</strong>
         <span className="manual-review-countdown">
           <Clock />
-          {isExpired ? t("manualReviewExpired") : `${secondsLeft}${t("manualReviewSecondsLeft")}`}
+          {`${secondsLeft}${t("manualReviewSecondsLeft")}`}
         </span>
         <button type="button" className="manual-review-close" onClick={onDismiss} aria-label={t("close")}>
           <X />
@@ -344,7 +365,7 @@ function canReviewInOrg(data: ConsoleData): boolean {
   return role === "owner" || role === "admin";
 }
 
-function notifyPendingReviews(reviews: ManualReview[], notifiedIDs: Set<string>, t: (key: string, fallback?: string) => string) {
+function notifyPendingReviews(reviews: ManualReview[], notifiedIDs: Set<string>, notifications: Map<string, ReviewNotification>, t: (key: string, fallback?: string) => string) {
   if (!reviews.length || typeof window === "undefined" || typeof document === "undefined") return;
   if (document.visibilityState === "visible" && document.hasFocus()) return;
   if (!("Notification" in window)) return;
@@ -360,11 +381,42 @@ function notifyPendingReviews(reviews: ManualReview[], notifiedIDs: Set<string>,
       tag: `gosshd-manual-review-${review.id}`,
       requireInteraction: true,
     });
+    const closeAfterMs = new Date(review.expires_at).getTime() - Date.now();
+    if (closeAfterMs <= 0) {
+      notification.close();
+      continue;
+    }
+    notifications.set(review.id, { notification, expiresAt: Date.now() + closeAfterMs });
+    window.setTimeout(() => closeReviewNotification(notifications, review.id), closeAfterMs);
     notification.onclick = () => {
       window.focus();
-      notification.close();
+      closeReviewNotification(notifications, review.id);
     };
+    notification.onclose = () => notifications.delete(review.id);
   }
+}
+
+function closeExpiredReviewNotifications(notifications: Map<string, ReviewNotification>) {
+  const now = Date.now();
+  for (const [id, item] of notifications) {
+    if (item.expiresAt <= now) {
+      closeReviewNotification(notifications, id);
+    }
+  }
+}
+
+function closeReviewNotification(notifications: Map<string, ReviewNotification>, id: string) {
+  const item = notifications.get(id);
+  if (!item) return;
+  item.notification.close();
+  notifications.delete(id);
+}
+
+function closeReviewNotifications(notifications: Map<string, ReviewNotification>) {
+  for (const item of notifications.values()) {
+    item.notification.close();
+  }
+  notifications.clear();
 }
 
 function getNotificationPermission(): NotificationPermission | "unsupported" {
@@ -387,8 +439,9 @@ function isReviewActive(review: ManualReview): boolean {
 }
 
 function mergeReviews(prev: ReviewState[], incoming: ManualReview[]): ReviewState[] {
-  const map = new Map(prev.map((item) => [item.review.id, item]));
+  const map = new Map(prev.filter((item) => item.status !== "pending" || isReviewActive(item.review)).map((item) => [item.review.id, item]));
   for (const review of incoming) {
+    if (!isReviewActive(review)) continue;
     const current = map.get(review.id);
     map.set(review.id, current ? { ...current, review } : { review, status: "pending" });
   }
