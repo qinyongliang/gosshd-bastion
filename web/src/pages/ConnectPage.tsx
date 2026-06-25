@@ -38,6 +38,7 @@ type TerminalPanelProps = {
   active?: boolean;
   isFullscreen: boolean;
   onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
+  onClose?: () => void;
   manualReview?: boolean;
 };
 
@@ -81,11 +82,12 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const expectedRouteTabIDRef = useRef("");
   const bodyRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const activeTab = tabs.find((item) => item.id === activeTabID) || tabs[0] || newConnectionTab(target.id);
-  const activeTarget = targets.find((item) => item.id === activeTab.targetID) || target;
+  const activeTab = tabs.find((item) => item.id === activeTabID) || tabs[0] || null;
+  const activeTarget = (activeTab ? targets.find((item) => item.id === activeTab.targetID) : null) || target;
   const openTabs = tabs
     .map((tab) => ({ tab, target: targets.find((item) => item.id === tab.targetID) }))
     .filter((item): item is { tab: ConnectionTab; target: Target } => Boolean(item.target));
+  const hasOpenTabs = openTabs.length > 0;
   const endpoint = targetEndpoint(activeTarget);
 
   useEffect(() => {
@@ -93,6 +95,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       expectedRouteTabIDRef.current = "";
       return;
     }
+    if (!activeTab) return;
     if (activeTab.targetID === target.id) return;
     const existing = tabs.find((item) => item.targetID === target.id);
     if (existing) {
@@ -102,7 +105,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     const next = newConnectionTab(target.id);
     setActiveTabID(next.id);
     setTabs((current) => [...current, next]);
-  }, [activeTab.targetID, tabs, target.id]);
+  }, [activeTab?.targetID, tabs, target.id]);
 
   useEffect(() => {
     document.title = `${serverTitle(activeTarget)} · gosshd Bastion`;
@@ -153,7 +156,8 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       if (mode === "all") next = [];
 
       if (!next.length) {
-        window.setTimeout(() => navigate("/targets", { replace: true }), 0);
+        setActiveTabID("");
+        setTerminalFullscreen(false);
         return next;
       }
       if (closingActive || !next.some((item) => item.id === activeTabID)) {
@@ -188,12 +192,12 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        closeTabs("one", activeTab.id);
+        if (activeTab) closeTabs("one", activeTab.id);
       }
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [activeTab.id, data.runtime.client_mode]);
+  }, [activeTab?.id, data.runtime.client_mode]);
 
   const startResize = (area: "host" | "files", event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -255,7 +259,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       </header>
       <ConnectionTabs
         tabs={openTabs}
-        activeTabID={activeTab.id}
+        activeTabID={activeTab?.id || ""}
         menu={tabMenu}
         onActivate={(tab) => {
           expectedRouteTabIDRef.current = tab.id;
@@ -313,16 +317,24 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         >
           <div className="connect-zone terminal-zone">
             <div className="terminal-tab-stack">
-              {openTabs.map(({ tab, target: tabTarget }) => (
-                <TerminalPanel
-                  key={tab.id}
-                  data={data}
-                  target={tabTarget}
-                  active={tab.id === activeTab.id}
-                  isFullscreen={terminalFullscreen && tab.id === activeTab.id}
-                  onFullscreenChange={setTerminalFullscreen}
-                />
-              ))}
+              {hasOpenTabs ? (
+                openTabs.map(({ tab, target: tabTarget }) => (
+                  <TerminalPanel
+                    key={tab.id}
+                    data={data}
+                    target={tabTarget}
+                    active={tab.id === activeTab?.id}
+                    isFullscreen={terminalFullscreen && tab.id === activeTab?.id}
+                    onFullscreenChange={setTerminalFullscreen}
+                    onClose={() => closeTabs("one", tab.id)}
+                  />
+                ))
+              ) : (
+                <div className="connect-zone-empty">
+                  <strong>{t("connectNoOpenTabsTitle")}</strong>
+                  <span>{t("connectNoOpenTabsBody")}</span>
+                </div>
+              )}
             </div>
           </div>
           {filesOpen && !terminalFullscreen && (
@@ -339,7 +351,13 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                 <ChevronRight />
               </button>
             </div>
-            <FileManager target={activeTarget} nativeOpen={Boolean(data.runtime.client_mode)} />
+            {hasOpenTabs ? (
+              <FileManager target={activeTarget} nativeOpen={Boolean(data.runtime.client_mode)} />
+            ) : (
+              <div className="connect-zone-empty">
+                <span>{t("connectFilesNoOpenTabs")}</span>
+              </div>
+            )}
               </>
             ) : (
               <button type="button" className="collapsed-zone-button" onClick={() => setFilesOpen(true)} title={t("connectFilesTitle")}>
@@ -573,7 +591,7 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-export function TerminalPanel({ data, target, active = true, isFullscreen, onFullscreenChange, manualReview = true }: TerminalPanelProps) {
+export function TerminalPanel({ data, target, active = true, isFullscreen, onFullscreenChange, onClose, manualReview = true }: TerminalPanelProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -586,11 +604,16 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   const fitRetryRef = useRef<number | null>(null);
   const fitFrameRef = useRef<number | null>(null);
   const activeRef = useRef(active);
+  const onCloseRef = useRef(onClose);
   const statusRef = useRef<ConnectionStatus>("connecting");
 
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const updateStatus = (next: ConnectionStatus) => {
     statusRef.current = next;
@@ -703,6 +726,8 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
       const socket = socketRef.current;
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data: value }));
+      } else if (value === "\x04" && activeRef.current && (statusRef.current === "disconnected" || statusRef.current === "error")) {
+        onCloseRef.current?.();
       } else if (value === "\r" || value === "\n") {
         reconnectIfInactive();
       }
@@ -813,9 +838,17 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || (statusRef.current !== "disconnected" && statusRef.current !== "error")) return;
+      const inactive = statusRef.current === "disconnected" || statusRef.current === "error";
+      if (!inactive) return;
       const targetElement = event.target as HTMLElement | null;
       if (isEditableElementOutsideTerminal(targetElement, containerRef.current)) return;
+      if (event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "d", "KeyD")) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) onCloseRef.current?.();
+        return;
+      }
+      if (event.key !== "Enter") return;
       event.preventDefault();
       connect();
     };
