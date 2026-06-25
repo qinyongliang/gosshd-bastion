@@ -132,6 +132,7 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 
 	if conn.Permissions != nil {
 		if userID := conn.Permissions.Extensions["user_id"]; userID != "" {
+			log.Printf("ssh authenticated bastion connection: ssh_user=%s user_id=%s fingerprint=%s", conn.User(), userID, conn.Permissions.Extensions["public_key_fingerprint"])
 			a.handleBastionSSHConn(conn, chans, reqs, userID, conn.Permissions.Extensions["public_key_fingerprint"])
 			return
 		}
