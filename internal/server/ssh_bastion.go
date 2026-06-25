@@ -1116,7 +1116,7 @@ func sftpPacketAllowed(packet []byte, allowUpload, allowDownload bool) (bool, ui
 			return false, id
 		}
 	case sftpPacketWrite, sftpPacketSetstat, sftpPacketFsetstat, sftpPacketRemove,
-		sftpPacketMkdir, sftpPacketRmdir, sftpPacketRename, sftpPacketSymlink, sftpPacketExtended:
+		sftpPacketMkdir, sftpPacketRmdir, sftpPacketRename, sftpPacketSymlink:
 		if !allowUpload {
 			return false, id
 		}
