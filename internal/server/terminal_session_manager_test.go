@@ -127,6 +127,8 @@ func TestEarliestOnlineForUserTargetRequiresReadyClient(t *testing.T) {
 	target := store.SSHTarget{ID: "target-1", Alias: "box"}
 	oldest := manager.create("oldest", "user-1", target, "127.0.0.1", 80, 24, nil)
 	newer := manager.create("newer", "user-1", target, "127.0.0.1", 80, 24, nil)
+	oldest.startedAt = time.Now().Add(-time.Second)
+	newer.startedAt = time.Now()
 	defer oldest.close("")
 	defer newer.close("")
 
@@ -140,6 +142,15 @@ func TestEarliestOnlineForUserTargetRequiresReadyClient(t *testing.T) {
 
 	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != oldest {
 		t.Fatalf("expected oldest ready session, got %v", got)
+	}
+
+	oldest.writeOutput("output", []byte("\x1b]633;C\a"))
+	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != newer {
+		t.Fatalf("expected shell-busy oldest session to be skipped, got %v", got)
+	}
+	oldest.writeOutput("output", []byte("\x1b]633;D;0\a"))
+	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != oldest {
+		t.Fatalf("expected oldest session after shell completion, got %v", got)
 	}
 }
 
