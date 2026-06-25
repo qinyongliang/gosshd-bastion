@@ -170,25 +170,29 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     const onKeyDown = (event: KeyboardEvent) => {
       const isClientMode = Boolean(data.runtime.client_mode);
       const openSwitcher = isClientMode
-        ? event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "n"
-        : event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "n";
+        ? event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "n", "KeyN")
+        : event.altKey && !event.ctrlKey && !event.metaKey && keyMatches(event, "n", "KeyN");
       const closeCurrentTab = isClientMode
-        ? event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "w"
-        : event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "w";
+        ? event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "w", "KeyW")
+        : event.altKey && !event.ctrlKey && !event.metaKey && keyMatches(event, "w", "KeyW");
 
       if (openSwitcher) {
         event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
         setTabMenu(null);
         setSwitcherOpenSignal((value) => value + 1);
         return;
       }
       if (closeCurrentTab) {
         event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
         closeTabs("one", activeTab.id);
       }
     };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [activeTab.id, data.runtime.client_mode]);
 
   const startResize = (area: "host" | "files", event: React.PointerEvent<HTMLButtonElement>) => {
@@ -811,12 +815,12 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter" || (statusRef.current !== "disconnected" && statusRef.current !== "error")) return;
       const targetElement = event.target as HTMLElement | null;
-      if (targetElement?.closest("button,a,input,textarea,select,[contenteditable='true']")) return;
+      if (isEditableElementOutsideTerminal(targetElement, containerRef.current)) return;
       event.preventDefault();
       connect();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [active, target.id]);
 
   return (
@@ -959,6 +963,7 @@ function ServerSwitcher({
             <input
               ref={inputRef}
               autoFocus
+              data-connect-switcher-search
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("connectSwitchSearchPlaceholder")}
@@ -995,6 +1000,16 @@ function ServerSwitcher({
       )}
     </div>
   );
+}
+
+function keyMatches(event: KeyboardEvent, key: string, code: string) {
+  return event.key.toLowerCase() === key || event.code === code;
+}
+
+function isEditableElementOutsideTerminal(element: HTMLElement | null, terminalContainer: HTMLElement | null) {
+  if (!element) return false;
+  if (terminalContainer?.contains(element)) return false;
+  return Boolean(element.closest("button,a,input,textarea,select,[contenteditable='true']"));
 }
 
 function contextMenuPointInTabs(clientX: number, clientY: number, container: HTMLElement | null) {
