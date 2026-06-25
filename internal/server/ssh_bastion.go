@@ -102,6 +102,7 @@ func (a *App) handleBastionSession(userID, publicKeyFingerprint string, target s
 	ptyWidth, ptyHeight := 80, 24
 	started := false
 	for req := range reqs {
+		log.Printf("bastion session request: target=%s alias=%s type=%s started=%t", target.ID, target.Alias, req.Type, started)
 		switch req.Type {
 		case "pty-req":
 			ptyWidth, ptyHeight = parsePtySize(req.Payload)
