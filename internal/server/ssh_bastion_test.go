@@ -465,6 +465,59 @@ func TestSSHSFTPFallsBackWhenSubsystemExitsBeforeHandshake(t *testing.T) {
 	waitForSFTPAudit(t, app, target.ID)
 }
 
+func TestSSHSFTPFallsBackWhenSubsystemAcceptsThenExits(t *testing.T) {
+	app, _, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner := testSSHSigner(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestSFTPServer(t, testSFTPModeExitSubsystem)
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        personal.ID,
+		Alias:          "accept-exit-sftpbox",
+		TargetType:     store.TargetDirect,
+		Host:           host,
+		Port:           port,
+		RemoteUsername: "remote",
+		AuthType:       store.AuthPassword,
+		CreatedBy:      user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachAllowSFTPPolicyForTarget(t, app, personal.ID, target.ID)
+	client, err := gossh.Dial("tcp", sshAddr, &gossh.ClientConfig{
+		User:            "accept-exit-sftpbox",
+		Auth:            []gossh.AuthMethod{gossh.PublicKeys(userSigner)},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sftpClient.ReadDir("/"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sftpClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = client.Close()
+	waitForSFTPAudit(t, app, target.ID)
+}
+
 func TestOpenSSHSFTPClientRoutesAliasToDirectTarget(t *testing.T) {
 	if _, err := exec.LookPath("sftp"); err != nil {
 		t.Skip("sftp client not found")

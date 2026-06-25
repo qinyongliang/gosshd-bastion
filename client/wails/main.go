@@ -32,8 +32,9 @@ func main() {
 		Windows: &windowsOptions.Options{
 			WebviewUserDataPath: app.webviewDataPath(),
 		},
-		OnStartup:  app.startup,
-		OnShutdown: app.shutdown,
+		OnStartup:     app.startup,
+		OnBeforeClose: app.beforeClose,
+		OnShutdown:    app.shutdown,
 		Bind: []interface{}{
 			app,
 		},
