@@ -83,7 +83,7 @@ try {
 
   const externalAlias = `refresh-${Date.now()}`;
   await page.getByRole("link", { name: /^Audit$/ }).click();
-  await page.evaluate(async (alias) => {
+  const externalTargetID = await page.evaluate(async (alias) => {
     const me = await fetch("/api/me").then((response) => response.json());
     const ownerID = localStorage.getItem("gosshd_active_org") || me.organizations[0].id;
     const response = await fetch("/api/targets", {
@@ -104,12 +104,13 @@ try {
       }),
     });
     if (!response.ok) throw new Error(await response.text());
+    return (await response.json()).target.id;
   }, externalAlias);
   await page.getByRole("link", { name: /SSH services/ }).click();
   await expectText(page, externalAlias);
 
   const privateAlias = `private-edit-${Date.now()}`;
-  await page.evaluate(async (alias) => {
+  const privateTargetID = await page.evaluate(async (alias) => {
     const me = await fetch("/api/me").then((response) => response.json());
     const ownerID = localStorage.getItem("gosshd_active_org") || me.organizations[0].id;
     const response = await fetch("/api/targets", {
@@ -130,6 +131,7 @@ try {
       }),
     });
     if (!response.ok) throw new Error(await response.text());
+    return (await response.json()).target.id;
   }, privateAlias);
   await page.getByRole("link", { name: /^Audit$/ }).click();
   await page.getByRole("link", { name: /SSH services/ }).click();
@@ -169,6 +171,24 @@ try {
   await page.getByRole("dialog", { name: "Account management" }).waitFor();
   await page.getByRole("button", { name: "Reset password" }).first().click();
   await page.getByRole("dialog", { name: "Reset user password" }).waitFor();
+
+  let terminalSocketCount = 0;
+  page.on("websocket", (socket) => {
+    if (socket.url().includes(`/api/targets/${externalTargetID}/terminal/ws`)) terminalSocketCount += 1;
+  });
+  await page.goto(`${baseURL}/targets/${externalTargetID}/connect`, { waitUntil: "domcontentloaded" });
+  await page.locator(".terminal-reconnect-button").waitFor();
+  const initialSocketCount = terminalSocketCount;
+  await page.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.press("Enter");
+  await waitUntil(() => terminalSocketCount > initialSocketCount, "Enter should reconnect a disconnected web terminal");
+
+  await page.keyboard.press("Alt+N");
+  const switcherSearch = page.locator("[data-connect-switcher-search]");
+  await switcherSearch.waitFor();
+  await switcherSearch.fill(privateAlias);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction((id) => location.pathname === `/targets/${id}/connect`, privateTargetID);
 } finally {
   await context?.close().catch(() => {});
   await browser.close();
@@ -212,6 +232,15 @@ async function expectStaticEmptyState(page) {
   await emptyState.waitFor();
   const animationName = await emptyState.locator(".empty-orbit").evaluate((element) => getComputedStyle(element).animationName);
   if (animationName !== "none") throw new Error(`empty state should be static, got ${animationName}`);
+}
+
+async function waitUntil(predicate, message, timeout = 5_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(message);
 }
 
 function mustEnv(name) {

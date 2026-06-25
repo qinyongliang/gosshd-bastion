@@ -67,6 +67,12 @@ jobs:
         shell: pwsh
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
+      - name: Build frontend assets
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
       - name: Test backend
         shell: pwsh
         run: go test ./internal/server ./internal/store ./internal/auth
@@ -78,7 +84,7 @@ jobs:
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $version = "${{ inputs.version }}"
           }
-          .\build-client-windows.ps1 -Version $version -Runtime win-x64
+          .\build-client-windows.ps1 -Version $version -Runtime win-x64 -SkipWebBuild
 
       - name: Upload client package
         uses: actions/upload-artifact@v4
