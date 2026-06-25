@@ -596,6 +596,42 @@ func TestOpenSSHSFTPClientWorksWithDownloadOnlyPolicy(t *testing.T) {
 	waitForSFTPAudit(t, app, target.ID)
 }
 
+func TestOpenSSHSCPClientUploadsToDirectTarget(t *testing.T) {
+	if _, err := exec.LookPath("scp"); err != nil {
+		t.Skip("scp client not found")
+	}
+	app, _, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner, userPrivateKey := testSSHSignerWithPrivateKey(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestSFTPServer(t, testSFTPModeSubsystem)
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        personal.ID,
+		Alias:          "openssh-scpbox",
+		TargetType:     store.TargetDirect,
+		Host:           host,
+		Port:           port,
+		RemoteUsername: "remote",
+		AuthType:       store.AuthPassword,
+		CreatedBy:      user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachAllowSFTPPolicyForTargetAccess(t, app, personal.ID, target.ID, true, true)
+	runOpenSSHSCPUpload(t, sshAddr, "openssh-scpbox", userPrivateKey, "probe.txt", []byte("scp probe\n"))
+	waitForSFTPAudit(t, app, target.ID)
+}
+
 func TestSSHInteractiveShellReturnsAfterRemoteExitWithoutClientEOF(t *testing.T) {
 	app, _, sshAddr, stop := startBastionTestApp(t)
 	defer stop()
@@ -751,6 +787,11 @@ func attachAllowPolicyForTarget(t *testing.T, app *App, orgID, targetID string, 
 
 func attachAllowSFTPPolicyForTarget(t *testing.T, app *App, orgID, targetID string) {
 	t.Helper()
+	attachAllowSFTPPolicyForTargetAccess(t, app, orgID, targetID, false, true)
+}
+
+func attachAllowSFTPPolicyForTargetAccess(t *testing.T, app *App, orgID, targetID string, allowUpload, allowDownload bool) {
+	t.Helper()
 	ctx := context.Background()
 	groups, err := app.store.Repository().ListOrganizationUserGroups(ctx, orgID)
 	if err != nil {
@@ -764,7 +805,8 @@ func attachAllowSFTPPolicyForTarget(t *testing.T, app *App, orgID, targetID stri
 		OwnerID:       orgID,
 		Name:          "allow test sftp",
 		DefaultAction: store.DecisionAllow,
-		AllowDownload: true,
+		AllowUpload:   allowUpload,
+		AllowDownload: allowDownload,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -820,6 +862,48 @@ func runOpenSSHSFTPBatch(t *testing.T, sshAddr, alias string, privateKey []byte,
 		t.Fatalf("sftp failed: %v\n%s", err, out)
 	}
 	return string(out)
+}
+
+func runOpenSSHSCPUpload(t *testing.T, sshAddr, alias string, privateKey []byte, remoteName string, content []byte) {
+	t.Helper()
+	remoteRoot := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(remoteRoot); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	keyPath := filepath.Join(t.TempDir(), "id_rsa")
+	if err := os.WriteFile(keyPath, privateKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = exec.Command("icacls", keyPath, "/inheritance:r", "/grant:r", os.Getenv("USERNAME")+":R").Run()
+	localPath := filepath.Join(t.TempDir(), remoteName)
+	if err := os.WriteFile(localPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sshHost, sshPort, err := net.SplitHostPort(sshAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("scp", "-P", sshPort, "-i", keyPath, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile="+filepath.Join(t.TempDir(), "known_hosts"), localPath, alias+"@"+sshHost+":"+remoteName)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("scp failed: %v\n%s", err, out)
+	}
+	uploaded, err := os.ReadFile(filepath.Join(remoteRoot, remoteName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(uploaded, content) {
+		t.Fatalf("uploaded content mismatch: got %q want %q", uploaded, content)
+	}
 }
 
 func runBastionSSHCommand(addr, alias string, signer gossh.Signer, command string) (string, error) {
