@@ -541,22 +541,30 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 	}
 	defer runner.close()
 	var wg sync.WaitGroup
+	var closeOnce sync.Once
+	closeBoth := func() {
+		closeOnce.Do(func() {
+			_ = ch.CloseWrite()
+			_ = runner.close()
+		})
+	}
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		_ = proxySFTPPackets(ch, runner.stdin, allowUpload, allowDownload)
-		_ = closeWriter(runner.stdin)
+		closeBoth()
 	}()
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(ch, runner.stdout)
+		closeBoth()
 	}()
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(ch.Stderr(), runner.stderr)
 	}()
 	err = <-runner.wait
-	_ = ch.CloseWrite()
+	closeBoth()
 	wg.Wait()
 	if err == nil {
 		return 0
