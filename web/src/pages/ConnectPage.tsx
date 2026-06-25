@@ -77,6 +77,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const [tabs, setTabs] = useState<ConnectionTab[]>(() => [newConnectionTab(target.id)]);
   const [activeTabID, setActiveTabID] = useState(() => tabs[0]?.id || "");
   const [tabMenu, setTabMenu] = useState<{ tabID: string; x: number; y: number } | null>(null);
+  const [switcherOpenSignal, setSwitcherOpenSignal] = useState(0);
   const expectedRouteTabIDRef = useRef("");
   const bodyRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -106,6 +107,16 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   useEffect(() => {
     document.title = `${serverTitle(activeTarget)} · gosshd Bastion`;
   }, [activeTarget]);
+
+  useEffect(() => {
+    if (data.runtime.client_mode) return;
+    const promptOnUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", promptOnUnload);
+    return () => window.removeEventListener("beforeunload", promptOnUnload);
+  }, [data.runtime.client_mode]);
 
   useEffect(() => {
     const onPointerDown = () => setTabMenu(null);
@@ -155,6 +166,31 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     });
   };
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isClientMode = Boolean(data.runtime.client_mode);
+      const openSwitcher = isClientMode
+        ? event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "n"
+        : event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "n";
+      const closeCurrentTab = isClientMode
+        ? event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "w"
+        : event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "w";
+
+      if (openSwitcher) {
+        event.preventDefault();
+        setTabMenu(null);
+        setSwitcherOpenSignal((value) => value + 1);
+        return;
+      }
+      if (closeCurrentTab) {
+        event.preventDefault();
+        closeTabs("one", activeTab.id);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [activeTab.id, data.runtime.client_mode]);
+
   const startResize = (area: "host" | "files", event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const bodyRect = bodyRef.current?.getBoundingClientRect();
@@ -190,7 +226,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
           </div>
         </div>
 
-        <ServerSwitcher targets={targets} currentTargetID={activeTarget.id} onOpenTarget={activateTarget} />
+        <ServerSwitcher targets={targets} currentTargetID={activeTarget.id} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} />
 
         <div className="connect-appbar-host">
           <Server />
@@ -653,14 +689,26 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
     if (activeRef.current) terminal.focus();
     container.addEventListener("pointerdown", focusTerminal);
 
+    const reconnectIfInactive = () => {
+      if (statusRef.current !== "disconnected" && statusRef.current !== "error") return false;
+      connect();
+      return true;
+    };
+
     terminal.onData((value) => {
       const socket = socketRef.current;
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data: value }));
-      } else if ((value === "\r" || value === "\n") && (statusRef.current === "disconnected" || statusRef.current === "error")) {
-        connect();
+      } else if (value === "\r" || value === "\n") {
+        reconnectIfInactive();
       }
     });
+
+    const onTerminalKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter") return;
+      if (reconnectIfInactive()) event.preventDefault();
+    };
+    container.addEventListener("keydown", onTerminalKeyDown);
 
     terminal.onResize(({ cols, rows }) => {
       setDims({ cols, rows });
@@ -687,7 +735,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
     const focusTerminalOnWindowFocus = () => {
       if (activeRef.current) terminal.focus();
     };
-    window.addEventListener("beforeunload", closeTerminalSession);
+    window.addEventListener("pagehide", closeTerminalSession);
     window.addEventListener("focus", focusTerminalOnWindowFocus);
 
     return () => {
@@ -695,10 +743,11 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
       if (fitFrameRef.current) window.cancelAnimationFrame(fitFrameRef.current);
       if (heartbeatRef.current) window.clearInterval(heartbeatRef.current);
       closeTerminalSession();
-      window.removeEventListener("beforeunload", closeTerminalSession);
+      window.removeEventListener("pagehide", closeTerminalSession);
       window.removeEventListener("focus", focusTerminalOnWindowFocus);
       resizeObserver.disconnect();
       container.removeEventListener("pointerdown", focusTerminal);
+      container.removeEventListener("keydown", onTerminalKeyDown);
       socketRef.current?.close();
       socketRef.current = null;
       terminalRef.current = null;
@@ -782,11 +831,24 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   );
 }
 
-function ServerSwitcher({ targets, currentTargetID, onOpenTarget }: { targets: Target[]; currentTargetID: string; onOpenTarget: (targetID: string) => void }) {
+function ServerSwitcher({
+  targets,
+  currentTargetID,
+  openSignal,
+  onOpenTarget,
+}: {
+  targets: Target[];
+  currentTargetID: string;
+  openSignal: number;
+  onOpenTarget: (targetID: string) => void;
+}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const currentTarget = targets.find((item) => item.id === currentTargetID);
   const currentTitle = currentTarget ? serverTitle(currentTarget) : t("connectSwitchServer");
   const filteredTargets = useMemo(() => {
@@ -800,6 +862,36 @@ function ServerSwitcher({ targets, currentTargetID, onOpenTarget }: { targets: T
       ...(item.tags || []),
     ].join(" ").toLowerCase().includes(text));
   }, [query, targets]);
+
+  useEffect(() => {
+    if (openSignal <= 0) return;
+    setOpen(true);
+    setSelectedIndex(0);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [openSignal]);
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedIndex(0);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [open]);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [query]);
+
+  useEffect(() => {
+    if (!filteredTargets.length) {
+      setSelectedIndex(0);
+      return;
+    }
+    setSelectedIndex((index) => clampNumber(index, 0, filteredTargets.length - 1));
+  }, [filteredTargets.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    itemRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
+  }, [open, selectedIndex]);
 
   useEffect(() => {
     if (!open) return;
@@ -823,6 +915,30 @@ function ServerSwitcher({ targets, currentTargetID, onOpenTarget }: { targets: T
     setQuery("");
   };
 
+  const onMenuKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedIndex((index) => wrapIndex(index + 1, filteredTargets.length));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedIndex((index) => wrapIndex(index - 1, filteredTargets.length));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setSelectedIndex(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setSelectedIndex(Math.max(0, filteredTargets.length - 1));
+    } else if (event.key === "Enter") {
+      const selected = filteredTargets[selectedIndex];
+      if (!selected) return;
+      event.preventDefault();
+      openTarget(selected);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+    }
+  };
+
   return (
     <div className="server-switcher" ref={rootRef}>
       <button
@@ -837,10 +953,11 @@ function ServerSwitcher({ targets, currentTargetID, onOpenTarget }: { targets: T
         <Server />
       </button>
       {open && (
-        <section className="server-switcher-menu" role="menu" aria-label={t("connectSwitchServer")}>
+        <section className="server-switcher-menu" role="menu" aria-label={t("connectSwitchServer")} onKeyDown={onMenuKeyDown}>
           <label className="server-switcher-search">
             <Search />
             <input
+              ref={inputRef}
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -848,12 +965,14 @@ function ServerSwitcher({ targets, currentTargetID, onOpenTarget }: { targets: T
             />
           </label>
           <div className="server-switcher-list">
-            {filteredTargets.map((item) => (
+            {filteredTargets.map((item, index) => (
               <button
                 type="button"
                 key={item.id}
-                className={`server-switcher-item ${item.id === currentTargetID ? "active" : ""}`}
+                ref={(element) => { itemRefs.current[index] = element; }}
+                className={`server-switcher-item ${item.id === currentTargetID ? "active" : ""} ${index === selectedIndex ? "selected" : ""}`}
                 onClick={() => openTarget(item)}
+                onPointerMove={() => setSelectedIndex(index)}
                 role="menuitem"
                 title={serverTitle(item)}
               >
@@ -1039,6 +1158,11 @@ function clampNumber(value: number, min = 0, max = 100) {
   if (value < min) return min;
   if (value > max) return max;
   return value;
+}
+
+function wrapIndex(value: number, length: number) {
+  if (length <= 0) return 0;
+  return (value + length) % length;
 }
 
 function serverTitle(target: Target) {

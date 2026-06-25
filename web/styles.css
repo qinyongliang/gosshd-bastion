@@ -3579,11 +3579,6 @@ html[data-theme="dark"] .server-switcher-search {
   background: rgba(3, 10, 20, 0.74);
 }
 
-.server-switcher-search:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 60%, var(--line-soft));
-  box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.12);
-}
-
 .server-switcher-search svg {
   flex: 0 0 auto;
   color: var(--muted);
@@ -3600,8 +3595,14 @@ html[data-theme="dark"] .server-switcher-search {
 }
 
 .server-switcher-search input:focus {
+  outline: none;
   border-color: transparent;
   box-shadow: none;
+}
+
+.server-switcher-search input:focus-visible {
+  outline: none;
+  outline-offset: 0;
 }
 
 .server-switcher-list {
@@ -3656,11 +3657,17 @@ html[data-theme="dark"] .server-switcher-item {
 }
 
 .server-switcher-item:hover,
+.server-switcher-item.selected,
 .server-switcher-item.active {
   transform: none;
   border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
   background: rgba(103, 232, 249, 0.08);
   box-shadow: none;
+}
+
+.server-switcher-item.selected {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+  background: rgba(103, 232, 249, 0.14);
 }
 
 .server-switcher-item.active::before {

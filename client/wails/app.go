@@ -115,6 +115,19 @@ func (a *App) shutdown(_ context.Context) {
 	}
 }
 
+func (a *App) beforeClose(ctx context.Context) bool {
+	result, err := wailsRuntime.MessageDialog(ctx, wailsRuntime.MessageDialogOptions{
+		Type:          wailsRuntime.QuestionDialog,
+		Title:         "关闭 GOSSHD",
+		Message:       "确定要关闭当前窗口吗？正在运行的终端连接会断开。",
+		DefaultButton: "No",
+	})
+	if err != nil {
+		return false
+	}
+	return result != "Yes"
+}
+
 func (a *App) BackendURL() string {
 	return a.backendURL
 }

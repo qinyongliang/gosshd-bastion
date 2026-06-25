@@ -518,28 +518,60 @@ func (a *App) sftpOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 		return 255
 	}
 	defer client.Close()
-	runner, err := newTargetSFTPRunner(client, func(session *gossh.Session) error {
-		return session.RequestSubsystem("sftp")
-	})
+
+	initialPacket, err := readSFTPPacket(ch)
 	if err != nil {
-		runner, err = newTargetSFTPRunner(client, func(session *gossh.Session) error {
-			return session.Start(directSFTPServerCommand)
-		})
-		if err != nil {
-			_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
-			return 255
+		return 255
+	}
+	if ok, id := sftpPacketAllowed(initialPacket, allowUpload, allowDownload); !ok {
+		if id != 0 {
+			_, _ = ch.Write(sftpStatusPacket(id, sftpPermissionDenied, "blocked by bastion policy"))
 		}
-	} else if runner.exitedBefore(200 * time.Millisecond) {
-		_ = runner.close()
-		runner, err = newTargetSFTPRunner(client, func(session *gossh.Session) error {
+		return 126
+	}
+
+	startSubsystem := func() (*targetSFTPRunner, error) {
+		return newTargetSFTPRunner(client, func(session *gossh.Session) error {
+			return session.RequestSubsystem("sftp")
+		})
+	}
+	startFallback := func() (*targetSFTPRunner, error) {
+		return newTargetSFTPRunner(client, func(session *gossh.Session) error {
 			return session.Start(directSFTPServerCommand)
 		})
+	}
+
+	runner, err := startSubsystem()
+	usingSubsystem := true
+	if err != nil {
+		usingSubsystem = false
+		runner, err = startFallback()
 		if err != nil {
 			_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 			return 255
 		}
 	}
+	firstResponse, err := runner.exchangeInitialSFTPPacket(initialPacket, 5*time.Second)
+	if err != nil && usingSubsystem {
+		_ = runner.close()
+		runner, err = startFallback()
+		if err != nil {
+			_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
+			return 255
+		}
+		firstResponse, err = runner.exchangeInitialSFTPPacket(initialPacket, 5*time.Second)
+	}
+	if err != nil {
+		_ = runner.close()
+		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
+		return 255
+	}
+	if _, err := ch.Write(firstResponse); err != nil {
+		_ = runner.close()
+		return 255
+	}
 	defer runner.close()
+
 	var wg sync.WaitGroup
 	var closeOnce sync.Once
 	closeBoth := func() {
@@ -614,13 +646,49 @@ func newTargetSFTPRunner(client *gossh.Client, start func(*gossh.Session) error)
 	return runner, nil
 }
 
-func (r *targetSFTPRunner) exitedBefore(timeout time.Duration) bool {
+func (r *targetSFTPRunner) exchangeInitialSFTPPacket(packet []byte, timeout time.Duration) ([]byte, error) {
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := r.stdin.Write(packet)
+		errCh <- err
+	}()
 	select {
+	case err := <-errCh:
+		if err != nil {
+			return nil, err
+		}
 	case err := <-r.wait:
 		r.wait <- err
-		return true
+		if err != nil {
+			return nil, err
+		}
+		return nil, io.ErrUnexpectedEOF
 	case <-time.After(timeout):
-		return false
+		return nil, fmt.Errorf("sftp handshake timed out")
+	}
+
+	packetCh := make(chan []byte, 1)
+	go func() {
+		packet, err := readSFTPPacket(r.stdout)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		packetCh <- packet
+	}()
+	select {
+	case packet := <-packetCh:
+		return packet, nil
+	case err := <-errCh:
+		return nil, err
+	case err := <-r.wait:
+		r.wait <- err
+		if err != nil {
+			return nil, err
+		}
+		return nil, io.ErrUnexpectedEOF
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("sftp handshake timed out")
 	}
 }
 
