@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
 func TestTerminalIntegrationStripsOSCAndParsesCompletion(t *testing.T) {
@@ -116,5 +119,64 @@ func TestBashShellIntegrationCommandInstallsHooks(t *testing.T) {
 	}
 	if !strings.Contains(script, "printf '\\033]633;D;%s\\007'") {
 		t.Fatalf("script missing command-finish OSC: %q", script)
+	}
+}
+
+func TestEarliestOnlineForUserTargetRequiresReadyClient(t *testing.T) {
+	manager := newTerminalSessionManager()
+	target := store.SSHTarget{ID: "target-1", Alias: "box"}
+	oldest := manager.create("oldest", "user-1", target, "127.0.0.1", 80, 24, nil)
+	newer := manager.create("newer", "user-1", target, "127.0.0.1", 80, 24, nil)
+	defer oldest.close("")
+	defer newer.close("")
+
+	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != nil {
+		t.Fatalf("session without input/client should not be selected: %+v", got)
+	}
+	oldest.input = io.Discard
+	oldest.clients[&terminalWSWriter{}] = true
+	newer.input = io.Discard
+	newer.clients[&terminalWSWriter{}] = true
+
+	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != oldest {
+		t.Fatalf("expected oldest ready session, got %v", got)
+	}
+}
+
+func TestTrySendCommandDoesNotQueueWhenBusy(t *testing.T) {
+	session := &terminalSession{
+		id:      "session-1",
+		ctx:     context.Background(),
+		input:   &strings.Builder{},
+		clients: map[*terminalWSWriter]bool{},
+		screen:  newTerminalScreenBuffer(24),
+	}
+	session.commandMu.Lock()
+	defer session.commandMu.Unlock()
+
+	attempt := session.trySendCommand(context.Background(), "echo busy")
+	if attempt.Err != nil || attempt.Acquired || attempt.Sent {
+		t.Fatalf("busy command should not acquire lock, attempt=%+v", attempt)
+	}
+}
+
+func TestTrySendCommandReportsSentWhenWaitingFails(t *testing.T) {
+	input := &strings.Builder{}
+	sessionCtx, cancel := context.WithCancel(context.Background())
+	session := &terminalSession{
+		id:      "session-1",
+		ctx:     sessionCtx,
+		input:   input,
+		clients: map[*terminalWSWriter]bool{},
+		screen:  newTerminalScreenBuffer(24),
+	}
+	cancel()
+
+	attempt := session.trySendCommand(context.Background(), "echo once")
+	if !attempt.Acquired || !attempt.Sent || attempt.Err == nil {
+		t.Fatalf("expected sent command with wait error, attempt=%+v", attempt)
+	}
+	if got := input.String(); got != "echo once\n" {
+		t.Fatalf("command input = %q, want %q", got, "echo once\n")
 	}
 }

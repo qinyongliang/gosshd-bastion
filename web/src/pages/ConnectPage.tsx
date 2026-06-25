@@ -23,6 +23,10 @@ type MetricSample = {
   tx: number;
   network: Record<string, { rx: number; tx: number }>;
 };
+type ConnectionTab = {
+  id: string;
+  targetID: string;
+};
 
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
@@ -70,19 +74,34 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const [hostWidth, setHostWidth] = useState(248);
   const [filesWidth, setFilesWidth] = useState(330);
-  const [tabs, setTabs] = useState<string[]>(() => [target.id]);
-  const [activeTargetID, setActiveTargetID] = useState(target.id);
-  const [tabMenu, setTabMenu] = useState<{ targetID: string; x: number; y: number } | null>(null);
+  const [tabs, setTabs] = useState<ConnectionTab[]>(() => [newConnectionTab(target.id)]);
+  const [activeTabID, setActiveTabID] = useState(() => tabs[0]?.id || "");
+  const [tabMenu, setTabMenu] = useState<{ tabID: string; x: number; y: number } | null>(null);
+  const expectedRouteTabIDRef = useRef("");
   const bodyRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const activeTarget = targets.find((item) => item.id === activeTargetID) || target;
-  const openTabs = tabs.map((id) => targets.find((item) => item.id === id)).filter((item): item is Target => Boolean(item));
+  const activeTab = tabs.find((item) => item.id === activeTabID) || tabs[0] || newConnectionTab(target.id);
+  const activeTarget = targets.find((item) => item.id === activeTab.targetID) || target;
+  const openTabs = tabs
+    .map((tab) => ({ tab, target: targets.find((item) => item.id === tab.targetID) }))
+    .filter((item): item is { tab: ConnectionTab; target: Target } => Boolean(item.target));
   const endpoint = targetEndpoint(activeTarget);
 
   useEffect(() => {
-    setActiveTargetID(target.id);
-    setTabs((current) => current.includes(target.id) ? current : [...current, target.id]);
-  }, [target.id]);
+    if (expectedRouteTabIDRef.current) {
+      expectedRouteTabIDRef.current = "";
+      return;
+    }
+    if (activeTab.targetID === target.id) return;
+    const existing = tabs.find((item) => item.targetID === target.id);
+    if (existing) {
+      setActiveTabID(existing.id);
+      return;
+    }
+    const next = newConnectionTab(target.id);
+    setActiveTabID(next.id);
+    setTabs((current) => [...current, next]);
+  }, [activeTab.targetID, tabs, target.id]);
 
   useEffect(() => {
     document.title = `${serverTitle(activeTarget)} · gosshd Bastion`;
@@ -102,31 +121,35 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   }, []);
 
   const activateTarget = (nextTargetID: string) => {
-    setTabs((current) => current.includes(nextTargetID) ? current : [...current, nextTargetID]);
-    setActiveTargetID(nextTargetID);
+    const next = newConnectionTab(nextTargetID);
+    expectedRouteTabIDRef.current = next.id;
+    setTabs((current) => [...current, next]);
+    setActiveTabID(next.id);
     navigate(`/targets/${nextTargetID}/connect`, { replace: true });
   };
 
-  const closeTabs = (mode: "one" | "left" | "right" | "others" | "all", targetID: string) => {
+  const closeTabs = (mode: "one" | "left" | "right" | "others" | "all", tabID: string) => {
     setTabMenu(null);
     setTabs((current) => {
-      const index = current.indexOf(targetID);
+      const index = current.findIndex((item) => item.id === tabID);
       if (index < 0) return current;
+      const closingActive = activeTabID === tabID || (mode !== "one" && tabSelectionIncludes(current, index, mode, activeTabID));
       let next = current;
-      if (mode === "one") next = current.filter((id) => id !== targetID);
+      if (mode === "one") next = current.filter((item) => item.id !== tabID);
       if (mode === "left") next = current.slice(index);
       if (mode === "right") next = current.slice(0, index + 1);
-      if (mode === "others") next = [targetID];
+      if (mode === "others") next = [current[index]];
       if (mode === "all") next = [];
 
       if (!next.length) {
         window.setTimeout(() => navigate("/targets", { replace: true }), 0);
         return next;
       }
-      if (!next.includes(activeTargetID)) {
+      if (closingActive || !next.some((item) => item.id === activeTabID)) {
         const fallback = next[Math.min(index, next.length - 1)];
-        setActiveTargetID(fallback);
-        window.setTimeout(() => navigate(`/targets/${fallback}/connect`, { replace: true }), 0);
+        expectedRouteTabIDRef.current = fallback.id;
+        setActiveTabID(fallback.id);
+        window.setTimeout(() => navigate(`/targets/${fallback.targetID}/connect`, { replace: true }), 0);
       }
       return next;
     });
@@ -192,11 +215,15 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       </header>
       <ConnectionTabs
         tabs={openTabs}
-        activeTargetID={activeTarget.id}
+        activeTabID={activeTab.id}
         menu={tabMenu}
-        onActivate={activateTarget}
-        onClose={(targetID) => closeTabs("one", targetID)}
-        onMenu={(targetID, point) => setTabMenu({ targetID, ...point })}
+        onActivate={(tab) => {
+          expectedRouteTabIDRef.current = tab.id;
+          setActiveTabID(tab.id);
+          navigate(`/targets/${tab.targetID}/connect`, { replace: true });
+        }}
+        onClose={(tabID) => closeTabs("one", tabID)}
+        onMenu={(tabID, point) => setTabMenu({ tabID, ...point })}
         onMenuAction={closeTabs}
       />
 
@@ -246,13 +273,13 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         >
           <div className="connect-zone terminal-zone">
             <div className="terminal-tab-stack">
-              {openTabs.map((tabTarget) => (
+              {openTabs.map(({ tab, target: tabTarget }) => (
                 <TerminalPanel
-                  key={tabTarget.id}
+                  key={tab.id}
                   data={data}
                   target={tabTarget}
-                  active={tabTarget.id === activeTarget.id}
-                  isFullscreen={terminalFullscreen && tabTarget.id === activeTarget.id}
+                  active={tab.id === activeTab.id}
+                  isFullscreen={terminalFullscreen && tab.id === activeTab.id}
                   onFullscreenChange={setTerminalFullscreen}
                 />
               ))}
@@ -289,45 +316,45 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
 
 function ConnectionTabs({
   tabs,
-  activeTargetID,
+  activeTabID,
   menu,
   onActivate,
   onClose,
   onMenu,
   onMenuAction,
 }: {
-  tabs: Target[];
-  activeTargetID: string;
-  menu: { targetID: string; x: number; y: number } | null;
-  onActivate: (targetID: string) => void;
-  onClose: (targetID: string) => void;
-  onMenu: (targetID: string, point: { x: number; y: number }) => void;
-  onMenuAction: (mode: "one" | "left" | "right" | "others" | "all", targetID: string) => void;
+  tabs: Array<{ tab: ConnectionTab; target: Target }>;
+  activeTabID: string;
+  menu: { tabID: string; x: number; y: number } | null;
+  onActivate: (tab: ConnectionTab) => void;
+  onClose: (tabID: string) => void;
+  onMenu: (tabID: string, point: { x: number; y: number }) => void;
+  onMenuAction: (mode: "one" | "left" | "right" | "others" | "all", tabID: string) => void;
 }) {
   const tabsRef = useRef<HTMLElement>(null);
   if (!tabs.length) return null;
-  const menuTarget = menu ? tabs.find((item) => item.id === menu.targetID) : null;
+  const menuTarget = menu ? tabs.find((item) => item.tab.id === menu.tabID) : null;
   return (
     <section ref={tabsRef} className="connection-tabs" aria-label="Connection tabs">
       <div className="connection-tabs-scroll">
-        {tabs.map((target) => (
+        {tabs.map(({ tab, target }, index) => (
           <div
-            key={target.id}
-            className={`connection-tab ${target.id === activeTargetID ? "active" : ""}`}
+            key={tab.id}
+            className={`connection-tab ${tab.id === activeTabID ? "active" : ""}`}
             onContextMenu={(event) => {
               event.preventDefault();
-              onMenu(target.id, contextMenuPointInTabs(event.clientX, event.clientY, tabsRef.current));
+              onMenu(tab.id, contextMenuPointInTabs(event.clientX, event.clientY, tabsRef.current));
             }}
             title={serverTitle(target)}
           >
-            <button type="button" className="connection-tab-main" onClick={() => onActivate(target.id)}>
+            <button type="button" className="connection-tab-main" onClick={() => onActivate(tab)}>
               {target.target_type === "agent" ? <Server /> : <HardDrive />}
               <span>
                 <strong>{target.name}</strong>
-                <code>{target.alias}</code>
+                <code>{target.alias}{sameTargetTabCount(tabs, target.id) > 1 ? ` #${sameTargetTabIndex(tabs, target.id, index)}` : ""}</code>
               </span>
             </button>
-            <button type="button" className="connection-tab-close" aria-label="Close tab" onClick={() => onClose(target.id)}>
+            <button type="button" className="connection-tab-close" aria-label="Close tab" onClick={() => onClose(tab.id)}>
               <X />
             </button>
           </div>
@@ -340,11 +367,11 @@ function ConnectionTabs({
           onPointerDown={(event) => event.stopPropagation()}
           role="menu"
         >
-          <button type="button" role="menuitem" onClick={() => onMenuAction("one", menuTarget.id)}>关闭当前</button>
-          <button type="button" role="menuitem" onClick={() => onMenuAction("left", menuTarget.id)}>关闭左侧</button>
-          <button type="button" role="menuitem" onClick={() => onMenuAction("right", menuTarget.id)}>关闭右侧</button>
-          <button type="button" role="menuitem" onClick={() => onMenuAction("others", menuTarget.id)}>关闭其他</button>
-          <button type="button" role="menuitem" onClick={() => onMenuAction("all", menuTarget.id)}>关闭全部</button>
+          <button type="button" role="menuitem" onClick={() => onMenuAction("one", menuTarget.tab.id)}>关闭当前</button>
+          <button type="button" role="menuitem" onClick={() => onMenuAction("left", menuTarget.tab.id)}>关闭左侧</button>
+          <button type="button" role="menuitem" onClick={() => onMenuAction("right", menuTarget.tab.id)}>关闭右侧</button>
+          <button type="button" role="menuitem" onClick={() => onMenuAction("others", menuTarget.tab.id)}>关闭其他</button>
+          <button type="button" role="menuitem" onClick={() => onMenuAction("all", menuTarget.tab.id)}>关闭全部</button>
         </div>
       )}
     </section>
@@ -730,6 +757,19 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
     if (active) terminal.focus();
   }, [active, isFullscreen, target.id]);
 
+  useEffect(() => {
+    if (!active) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || (statusRef.current !== "disconnected" && statusRef.current !== "error")) return;
+      const targetElement = event.target as HTMLElement | null;
+      if (targetElement?.closest("button,a,input,textarea,select,[contenteditable='true']")) return;
+      event.preventDefault();
+      connect();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [active, target.id]);
+
   return (
     <section className={`terminal-panel ${active ? "active" : "inactive"} ${isFullscreen ? "fullscreen" : ""}`} aria-hidden={!active}>
       {manualReview && sessionID && <ManualReviewPoller data={data} sessionID={sessionID} />}
@@ -848,6 +888,30 @@ function contextMenuPointInTabs(clientX: number, clientY: number, container: HTM
     x: clampNumber(clientX - rect.left - 2, margin, Math.max(margin, rect.width - menuWidth - margin)),
     y: clampNumber(clientY - rect.top + 2, margin, Math.max(margin, rect.height - menuHeight - margin)),
   };
+}
+
+function newConnectionTab(targetID: string): ConnectionTab {
+  return { id: `${targetID}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`, targetID };
+}
+
+function tabSelectionIncludes(tabs: ConnectionTab[], index: number, mode: "one" | "left" | "right" | "others" | "all", tabID: string) {
+  if (mode === "all") return true;
+  if (mode === "others") return tabs[index]?.id !== tabID;
+  if (mode === "left") return tabs.slice(0, index).some((item) => item.id === tabID);
+  if (mode === "right") return tabs.slice(index + 1).some((item) => item.id === tabID);
+  return tabs[index]?.id === tabID;
+}
+
+function sameTargetTabCount(tabs: Array<{ tab: ConnectionTab; target: Target }>, targetID: string) {
+  return tabs.filter((item) => item.target.id === targetID).length;
+}
+
+function sameTargetTabIndex(tabs: Array<{ tab: ConnectionTab; target: Target }>, targetID: string, absoluteIndex: number) {
+  let count = 0;
+  for (let index = 0; index <= absoluteIndex; index += 1) {
+    if (tabs[index]?.target.id === targetID) count += 1;
+  }
+  return count;
 }
 
 function estimateTerminalDimensions(container: HTMLElement, width: number, height: number, terminal: Terminal) {

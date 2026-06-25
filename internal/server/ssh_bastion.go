@@ -189,7 +189,10 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		sendExit(ch, code)
 		return
 	}
-	exitCode := a.execOnTarget(ctx, target, ch, command)
+	exitCode, routedThroughTerminal := a.tryExecInOpenTerminalSession(ctx, userID, target, ch, command)
+	if !routedThroughTerminal {
+		exitCode = a.execOnTarget(ctx, target, ch, command)
+	}
 	endedAt := time.Now().UTC()
 	_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
 		UserID:               userID,
@@ -207,6 +210,28 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		RemoteAddress:        sourceIP,
 	})
 	sendExit(ch, exitCode)
+}
+
+func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, target store.SSHTarget, ch gossh.Channel, command string) (int, bool) {
+	session := a.terminalSessions.earliestOnlineForUserTarget(userID, target.ID)
+	if session == nil {
+		return 0, false
+	}
+	attempt := session.trySendCommand(ctx, command)
+	if !attempt.Acquired {
+		return 0, false
+	}
+	if attempt.Err != nil {
+		if attempt.Sent {
+			_, _ = ch.Stderr().Write([]byte(attempt.Err.Error() + "\n"))
+			return attempt.Result.ExitCode, true
+		}
+		return 0, false
+	}
+	if attempt.Result.Output != "" {
+		_, _ = ch.Write([]byte(attempt.Result.Output))
+	}
+	return attempt.Result.ExitCode, true
 }
 
 func (a *App) handleBastionShell(userID, publicKeyFingerprint string, target store.SSHTarget, ch gossh.Channel, sourceIP string, width, height int) {
