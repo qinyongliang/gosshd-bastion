@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -464,6 +465,84 @@ func TestSSHSFTPFallsBackWhenSubsystemExitsBeforeHandshake(t *testing.T) {
 	waitForSFTPAudit(t, app, target.ID)
 }
 
+func TestOpenSSHSFTPClientRoutesAliasToDirectTarget(t *testing.T) {
+	if _, err := exec.LookPath("sftp"); err != nil {
+		t.Skip("sftp client not found")
+	}
+	app, _, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner, userPrivateKey := testSSHSignerWithPrivateKey(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestSFTPServer(t, testSFTPModeSubsystem)
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        personal.ID,
+		Alias:          "openssh-sftpbox",
+		TargetType:     store.TargetDirect,
+		Host:           host,
+		Port:           port,
+		RemoteUsername: "remote",
+		AuthType:       store.AuthPassword,
+		CreatedBy:      user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachAllowSFTPPolicyForTarget(t, app, personal.ID, target.ID)
+	output := runOpenSSHSFTPBatch(t, sshAddr, "openssh-sftpbox", userPrivateKey, "pwd\nquit\n")
+	if !strings.Contains(output, "Remote working directory") {
+		t.Fatalf("unexpected sftp output:\n%s", output)
+	}
+	waitForSFTPAudit(t, app, target.ID)
+}
+
+func TestOpenSSHSFTPClientWorksWithDownloadOnlyPolicy(t *testing.T) {
+	if _, err := exec.LookPath("sftp"); err != nil {
+		t.Skip("sftp client not found")
+	}
+	app, _, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner, userPrivateKey := testSSHSignerWithPrivateKey(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestSFTPServer(t, testSFTPModeSubsystem)
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        personal.ID,
+		Alias:          "openssh-downloadbox",
+		TargetType:     store.TargetDirect,
+		Host:           host,
+		Port:           port,
+		RemoteUsername: "remote",
+		AuthType:       store.AuthPassword,
+		CreatedBy:      user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachAllowSFTPPolicyForTarget(t, app, personal.ID, target.ID)
+	output := runOpenSSHSFTPBatch(t, sshAddr, "openssh-downloadbox", userPrivateKey, "pwd\nquit\n")
+	if !strings.Contains(output, "Remote working directory") {
+		t.Fatalf("unexpected sftp output:\n%s", output)
+	}
+	waitForSFTPAudit(t, app, target.ID)
+}
+
 func TestSSHInteractiveShellReturnsAfterRemoteExitWithoutClientEOF(t *testing.T) {
 	app, _, sshAddr, stop := startBastionTestApp(t)
 	defer stop()
@@ -665,6 +744,29 @@ func waitForSFTPAudit(t *testing.T, app *App, targetID string) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+}
+
+func runOpenSSHSFTPBatch(t *testing.T, sshAddr, alias string, privateKey []byte, batch string) string {
+	t.Helper()
+	keyPath := filepath.Join(t.TempDir(), "id_rsa")
+	if err := os.WriteFile(keyPath, privateKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = exec.Command("icacls", keyPath, "/inheritance:r", "/grant:r", os.Getenv("USERNAME")+":R").Run()
+	batchPath := filepath.Join(t.TempDir(), "sftp.batch")
+	if err := os.WriteFile(batchPath, []byte(batch), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sshHost, sshPort, err := net.SplitHostPort(sshAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sftp", "-b", batchPath, "-P", sshPort, "-i", keyPath, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile="+filepath.Join(t.TempDir(), "known_hosts"), alias+"@"+sshHost)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("sftp failed: %v\n%s", err, out)
+	}
+	return string(out)
 }
 
 func runBastionSSHCommand(addr, alias string, signer gossh.Signer, command string) (string, error) {
