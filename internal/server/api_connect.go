@@ -499,6 +499,11 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 	session := a.terminalSessions.create(sessionID, user.ID, target, sourceIP, cols, rows, recorder)
 	session.startedAt = startedAt
 	session.auditLogID = auditLog.ID
+	if target.TargetType == store.TargetAgent {
+		if info, ok := a.registry.Info(target.AgentID); ok && info.GOOS == "windows" {
+			session.enableCommandIdleFallback()
+		}
+	}
 	session.attach(writer)
 	_ = writer.write(terminalWSMessage{Type: "session", SessionID: session.id})
 	defer session.detach(writer)

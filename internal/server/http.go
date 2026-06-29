@@ -499,7 +499,11 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("yamux server failed: %v", err)
 		return
 	}
-	a.registry.Register(registryID, session)
+	a.registry.RegisterWithInfo(registryID, session, AgentRegistryInfo{
+		Version: strings.TrimSpace(hello.Version),
+		GOOS:    goos,
+		GOARCH:  goarch,
+	})
 	log.Printf("agent online: %s", registryID)
 	go func() {
 		<-session.CloseChan()
