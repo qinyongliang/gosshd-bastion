@@ -30,6 +30,26 @@ type terminalSessionManager struct {
 	sessions map[string]*terminalSession
 }
 
+type terminalSessionRouteSnapshot struct {
+	ID             string
+	UserID         string
+	TargetID       string
+	TargetAlias    string
+	StartedAt      time.Time
+	LastHeartbeat  time.Time
+	Closed         bool
+	InputReady     bool
+	ClientCount    int
+	ShellBusy      bool
+	HeartbeatStale bool
+	Reason         string
+}
+
+type terminalSessionRouteLookup struct {
+	Session   *terminalSession
+	Snapshots []terminalSessionRouteSnapshot
+}
+
 type terminalSession struct {
 	id         string
 	userID     string
@@ -142,20 +162,51 @@ func (m *terminalSessionManager) getForUser(userID, sessionID string) (*terminal
 }
 
 func (m *terminalSessionManager) earliestOnlineForUserTarget(userID, targetID string) *terminalSession {
+	return m.earliestOnlineForUserTargetWithDiagnostics(userID, targetID).Session
+}
+
+func (m *terminalSessionManager) earliestOnlineForUserTargetWithDiagnostics(userID, targetID string) terminalSessionRouteLookup {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var selected *terminalSession
 	var selectedStartedAt time.Time
+	var snapshots []terminalSessionRouteSnapshot
 	for _, session := range m.sessions {
 		session.mu.Lock()
-		matches := session.userID == userID &&
-			session.target.ID == targetID &&
-			!session.closed &&
-			session.input != nil &&
-			len(session.clients) > 0 &&
-			time.Since(session.lastHeartbeat) <= terminalSessionHeartbeatTimeout
+		staleHeartbeat := time.Since(session.lastHeartbeat) > terminalSessionHeartbeatTimeout
+		snapshot := terminalSessionRouteSnapshot{
+			ID:             session.id,
+			UserID:         session.userID,
+			TargetID:       session.target.ID,
+			TargetAlias:    session.target.Alias,
+			StartedAt:      session.startedAt,
+			LastHeartbeat:  session.lastHeartbeat,
+			Closed:         session.closed,
+			InputReady:     session.input != nil,
+			ClientCount:    len(session.clients),
+			ShellBusy:      session.shellBusy,
+			HeartbeatStale: staleHeartbeat,
+		}
 		startedAt := session.startedAt
 		session.mu.Unlock()
+		switch {
+		case snapshot.UserID != userID:
+			snapshot.Reason = "user-mismatch"
+		case snapshot.TargetID != targetID:
+			snapshot.Reason = "target-mismatch"
+		case snapshot.Closed:
+			snapshot.Reason = "closed"
+		case !snapshot.InputReady:
+			snapshot.Reason = "input-wait"
+		case snapshot.ClientCount == 0:
+			snapshot.Reason = "no-client"
+		case snapshot.HeartbeatStale:
+			snapshot.Reason = "stale-heartbeat"
+		default:
+			snapshot.Reason = "candidate"
+		}
+		snapshots = append(snapshots, snapshot)
+		matches := snapshot.Reason == "candidate"
 		if !matches {
 			continue
 		}
@@ -164,7 +215,7 @@ func (m *terminalSessionManager) earliestOnlineForUserTarget(userID, targetID st
 			selectedStartedAt = startedAt
 		}
 	}
-	return selected
+	return terminalSessionRouteLookup{Session: selected, Snapshots: snapshots}
 }
 
 func (m *terminalSessionManager) watchHeartbeat(session *terminalSession) {

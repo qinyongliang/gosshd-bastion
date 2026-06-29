@@ -155,6 +155,48 @@ func TestEarliestOnlineForUserTargetRequiresReadyClient(t *testing.T) {
 	}
 }
 
+func TestEarliestOnlineForUserTargetDiagnosticsExplainMisses(t *testing.T) {
+	manager := newTerminalSessionManager()
+	target := store.SSHTarget{ID: "target-1", Alias: "box"}
+	noClient := manager.create("no-client", "user-1", target, "127.0.0.1", 80, 24, nil)
+	closed := manager.create("closed", "user-1", target, "127.0.0.1", 80, 24, nil)
+	stale := manager.create("stale", "user-1", target, "127.0.0.1", 80, 24, nil)
+	ready := manager.create("ready", "user-1", target, "127.0.0.1", 80, 24, nil)
+	defer noClient.close("")
+	defer closed.close("")
+	defer stale.close("")
+	defer ready.close("")
+
+	noClient.input = io.Discard
+	closed.input = io.Discard
+	closed.clients[&terminalWSWriter{}] = true
+	closed.closed = true
+	stale.input = io.Discard
+	stale.clients[&terminalWSWriter{}] = true
+	stale.lastHeartbeat = time.Now().Add(-terminalSessionHeartbeatTimeout - time.Second)
+	ready.input = io.Discard
+	ready.clients[&terminalWSWriter{}] = true
+
+	lookup := manager.earliestOnlineForUserTargetWithDiagnostics("user-1", target.ID)
+	if lookup.Session != ready {
+		t.Fatalf("expected ready session, got %v", lookup.Session)
+	}
+	reasons := map[string]string{}
+	for _, snapshot := range lookup.Snapshots {
+		reasons[snapshot.ID] = snapshot.Reason
+	}
+	for id, want := range map[string]string{
+		"no-client": "no-client",
+		"closed":    "closed",
+		"stale":     "stale-heartbeat",
+		"ready":     "candidate",
+	} {
+		if got := reasons[id]; got != want {
+			t.Fatalf("session %s reason = %q, want %q; snapshots=%+v", id, got, want, lookup.Snapshots)
+		}
+	}
+}
+
 func TestTrySendCommandDoesNotQueueWhenBusy(t *testing.T) {
 	session := &terminalSession{
 		id:      "session-1",

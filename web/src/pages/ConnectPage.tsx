@@ -723,13 +723,19 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
     };
 
     terminal.onData((value) => {
+      if (statusRef.current === "disconnected" || statusRef.current === "error") {
+        if (value === "\x04") {
+          if (activeRef.current) onCloseRef.current?.();
+          return;
+        }
+        if (value === "\r" || value === "\n") {
+          reconnectIfInactive();
+          return;
+        }
+      }
       const socket = socketRef.current;
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data: value }));
-      } else if (value === "\x04" && activeRef.current && (statusRef.current === "disconnected" || statusRef.current === "error")) {
-        onCloseRef.current?.();
-      } else if (value === "\r" || value === "\n") {
-        reconnectIfInactive();
       }
     });
 
