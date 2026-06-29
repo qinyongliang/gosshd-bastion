@@ -327,9 +327,10 @@ type terminalCommandAttempt struct {
 }
 
 type terminalCommandWaiter struct {
-	id     string
-	output chan string
-	done   chan int
+	id      string
+	command string
+	output  chan string
+	done    chan int
 }
 
 type terminalIntegrationEvent struct {
@@ -428,8 +429,9 @@ func (s *terminalSession) sendCommandLocked(ctx context.Context, command string)
 
 func (s *terminalSession) trySendCommandLocked(ctx context.Context, command string) (terminalCommandResult, bool, error) {
 	waiter := &terminalCommandWaiter{
-		output: make(chan string, 64),
-		done:   make(chan int, 1),
+		command: command,
+		output:  make(chan string, 64),
+		done:    make(chan int, 1),
 	}
 	if err := s.commandReadinessError(); err != nil {
 		return terminalCommandResult{}, false, err
@@ -493,13 +495,32 @@ func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalComma
 				}
 				break
 			}
-			return terminalCommandResult{Output: out.String(), ExitCode: code}, nil
+			return terminalCommandResult{Output: stripCommandEcho(out.String(), waiter.command), ExitCode: code}, nil
 		case <-ctx.Done():
 			return terminalCommandResult{Output: out.String(), ExitCode: 255}, ctx.Err()
 		case <-sessionCtx.Done():
 			return terminalCommandResult{Output: out.String(), ExitCode: 255}, errors.New("session closed before command completed")
 		}
 	}
+}
+
+func stripCommandEcho(output, command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" || output == "" {
+		return output
+	}
+	lineEnd := strings.IndexByte(output, '\n')
+	if lineEnd < 0 {
+		if strings.TrimSpace(stripANSI(output)) == command {
+			return ""
+		}
+		return output
+	}
+	firstLine := output[:lineEnd+1]
+	if strings.TrimSpace(stripANSI(firstLine)) != command {
+		return output
+	}
+	return output[lineEnd+1:]
 }
 
 func (s *terminalSession) writeOutput(typ string, data []byte) {

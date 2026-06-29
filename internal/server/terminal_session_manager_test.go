@@ -130,6 +130,38 @@ func TestCollectCommandOutputWaitsForCompletionEvent(t *testing.T) {
 	}
 }
 
+func TestCollectCommandOutputStripsCommandEchoFromReturnedOutput(t *testing.T) {
+	waiter := &terminalCommandWaiter{
+		command: "docker exec -it",
+		output:  make(chan string, 8),
+		done:    make(chan int, 1),
+	}
+	waiter.output <- "docker exec -it\r\n"
+	waiter.output <- "docker: 'docker exec' requires at least 2 arguments\r\n"
+	waiter.done <- 1
+
+	result, err := collectCommandOutput(context.Background(), context.Background(), waiter)
+	if err != nil {
+		t.Fatalf("collect command output: %v", err)
+	}
+	if strings.Contains(result.Output, "docker exec -it\r\n") {
+		t.Fatalf("returned output should not include command echo: %q", result.Output)
+	}
+	if !strings.Contains(result.Output, "requires at least 2 arguments") {
+		t.Fatalf("returned output missing command result: %q", result.Output)
+	}
+	if result.ExitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", result.ExitCode)
+	}
+}
+
+func TestStripCommandEchoPreservesSimilarOutput(t *testing.T) {
+	output := "docker exec -it failed before echo\r\n"
+	if got := stripCommandEcho(output, "docker exec -it"); got != output {
+		t.Fatalf("output should be preserved:\n got: %q\nwant: %q", got, output)
+	}
+}
+
 func TestTerminalScreenBufferPreservesCRLFLines(t *testing.T) {
 	buffer := newTerminalScreenBuffer(8)
 
