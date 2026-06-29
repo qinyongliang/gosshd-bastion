@@ -26,7 +26,7 @@ func TestTerminalIntegrationStripsOSCAndParsesCompletion(t *testing.T) {
 	session.writeOutput("output", []byte("hello"))
 	session.writeOutput("output", []byte("\x1b]633;D;cmd-1;2\a"))
 
-	result, err := collectCommandOutput(context.Background(), context.Background(), waiter)
+	result, err := collectCommandOutput(context.Background(), context.Background(), waiter, false)
 	if err != nil {
 		t.Fatalf("collect command output: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestTerminalIntegrationParsesSplitOSCSequence(t *testing.T) {
 	session.writeOutput("output", []byte("before\x1b]633;D;cmd"))
 	session.writeOutput("output", []byte("-2;0\aafter"))
 
-	result, err := collectCommandOutput(context.Background(), context.Background(), waiter)
+	result, err := collectCommandOutput(context.Background(), context.Background(), waiter, false)
 	if err != nil {
 		t.Fatalf("collect command output: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestCollectCommandOutputWaitsForCompletionEvent(t *testing.T) {
 		waiter.done <- 0
 	}()
 
-	result, err := collectCommandOutput(ctx, context.Background(), waiter)
+	result, err := collectCommandOutput(ctx, context.Background(), waiter, false)
 	if err != nil {
 		t.Fatalf("collect command output: %v", err)
 	}
@@ -384,6 +384,53 @@ func TestRunCommandInTerminalSessionTimeoutReleasesCommandLock(t *testing.T) {
 
 	if !session.commandMu.TryLock() {
 		t.Fatal("command lock should be released after timeout")
+	}
+	session.commandMu.Unlock()
+}
+
+type idleFallbackCommandWriter struct {
+	session *terminalSession
+	input   strings.Builder
+}
+
+func (w *idleFallbackCommandWriter) Write(data []byte) (int, error) {
+	w.input.Write(data)
+	if strings.Contains(string(data), "\r") {
+		go w.session.writeOutput("output", []byte("legacy windows output\r\n"))
+	}
+	return len(data), nil
+}
+
+func TestRunCommandInTerminalSessionIdleFallbackCompletesLegacyWindowsAgentOutput(t *testing.T) {
+	session := &terminalSession{
+		id:      "session-1",
+		ctx:     context.Background(),
+		clients: map[*terminalWSWriter]bool{},
+		screen:  newTerminalScreenBuffer(24),
+	}
+	session.enableCommandIdleFallback()
+	input := &idleFallbackCommandWriter{session: session}
+	session.input = input
+
+	run := (&App{}).runCommandInTerminalSession(context.Background(), session, "dir", terminalSessionCommandOptions{
+		UserID:           "user-1",
+		SkipPolicyReview: true,
+		WaitTimeout:      5 * time.Second,
+	})
+	if !run.Routed || !run.Allowed || run.Err != nil {
+		t.Fatalf("expected idle fallback command to complete, run=%+v", run)
+	}
+	if run.ExitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", run.ExitCode)
+	}
+	if !strings.Contains(run.Output, "legacy windows output") {
+		t.Fatalf("output missing legacy command result: %q", run.Output)
+	}
+	if got := input.input.String(); got != "dir\r" {
+		t.Fatalf("command input = %q, want %q", got, "dir\r")
+	}
+	if !session.commandMu.TryLock() {
+		t.Fatal("command lock should be released after idle fallback completion")
 	}
 	session.commandMu.Unlock()
 }
