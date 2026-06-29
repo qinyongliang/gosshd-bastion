@@ -339,9 +339,11 @@ type terminalCommandAttempt struct {
 }
 
 type terminalCommandWaiter struct {
-	id     string
-	output chan string
-	done   chan int
+	id           string
+	command      string
+	idleFallback bool
+	output       chan string
+	done         chan int
 }
 
 type terminalIntegrationEvent struct {
@@ -441,8 +443,10 @@ func (s *terminalSession) sendCommandLocked(ctx context.Context, command string)
 
 func (s *terminalSession) trySendCommandLocked(ctx context.Context, command string) (terminalCommandResult, bool, error) {
 	waiter := &terminalCommandWaiter{
-		output: make(chan string, 64),
-		done:   make(chan int, 1),
+		command:      command,
+		idleFallback: s.commandIdleFallback,
+		output:       make(chan string, 64),
+		done:         make(chan int, 1),
 	}
 	if err := s.commandReadinessError(); err != nil {
 		return terminalCommandResult{}, false, err
@@ -454,7 +458,7 @@ func (s *terminalSession) trySendCommandLocked(ctx context.Context, command stri
 	if err := s.writeInput(command + "\r"); err != nil {
 		return terminalCommandResult{}, false, err
 	}
-	result, err := collectCommandOutput(ctx, s.ctx, waiter, s.commandIdleFallback)
+	result, err := collectCommandOutput(ctx, s.ctx, waiter)
 	return result, true, err
 }
 
@@ -485,7 +489,7 @@ func (s *terminalSession) removeCommandWaiter(waiter *terminalCommandWaiter) {
 	}
 }
 
-func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalCommandWaiter, idleFallback bool) (terminalCommandResult, error) {
+func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalCommandWaiter) (terminalCommandResult, error) {
 	var out strings.Builder
 	var idleTimer *time.Timer
 	var idleC <-chan time.Time
@@ -501,7 +505,7 @@ func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalComma
 		}
 	}
 	resetIdle := func(d time.Duration) {
-		if !idleFallback {
+		if !waiter.idleFallback {
 			return
 		}
 		if idleTimer == nil {
@@ -536,13 +540,41 @@ func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalComma
 			}
 			return terminalCommandResult{Output: out.String(), ExitCode: code}, nil
 		case <-idleC:
-			return terminalCommandResult{Output: out.String(), ExitCode: 0}, nil
+			return terminalCommandResult{Output: cleanIdleFallbackCommandOutput(out.String(), waiter.command), ExitCode: 0}, nil
 		case <-ctx.Done():
 			return terminalCommandResult{Output: out.String(), ExitCode: 255}, ctx.Err()
 		case <-sessionCtx.Done():
 			return terminalCommandResult{Output: out.String(), ExitCode: 255}, errors.New("session closed before command completed")
 		}
 	}
+}
+
+func cleanIdleFallbackCommandOutput(output, command string) string {
+	output = strings.ReplaceAll(output, "\r\n", "\n")
+	output = strings.ReplaceAll(output, "\r", "\n")
+	lines := strings.Split(output, "\n")
+	command = strings.TrimSpace(command)
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	if len(lines) > 0 && command != "" && strings.TrimSpace(lines[0]) == command {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	for len(lines) > 0 {
+		last := strings.TrimSpace(stripANSI(lines[len(lines)-1]))
+		if strings.HasSuffix(last, ">") || strings.HasSuffix(last, "#") || strings.HasSuffix(last, "$") {
+			lines = lines[:len(lines)-1]
+			continue
+		}
+		break
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\r\n") + "\r\n"
 }
 
 func (s *terminalSession) writeOutput(typ string, data []byte) {
