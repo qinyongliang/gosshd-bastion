@@ -19,11 +19,6 @@ import (
 
 const terminalSessionHeartbeatTimeout = 30 * time.Second
 
-const (
-	terminalCommandIdleFallbackTimeout = 1200 * time.Millisecond
-	terminalCommandIdleFallbackGrace   = 200 * time.Millisecond
-)
-
 var (
 	errTerminalSessionBusy      = errors.New("terminal session is busy")
 	errTerminalSessionClosed    = errors.New("terminal session is closed")
@@ -70,21 +65,20 @@ type terminalSession struct {
 	cancel context.CancelFunc
 	done   chan int
 
-	mu                  sync.Mutex
-	input               io.Writer
-	resize              func(cols, rows int)
-	closeInput          func()
-	recorder            *terminalRecorder
-	clients             map[*terminalWSWriter]bool
-	output              strings.Builder
-	screen              *terminalScreenBuffer
-	lastHeartbeat       time.Time
-	closed              bool
-	shellBusy           bool
-	commandIdleFallback bool
-	commandMu           sync.Mutex
-	commandWaiters      []*terminalCommandWaiter
-	oscBuffer           string
+	mu             sync.Mutex
+	input          io.Writer
+	resize         func(cols, rows int)
+	closeInput     func()
+	recorder       *terminalRecorder
+	clients        map[*terminalWSWriter]bool
+	output         strings.Builder
+	screen         *terminalScreenBuffer
+	lastHeartbeat  time.Time
+	closed         bool
+	shellBusy      bool
+	commandMu      sync.Mutex
+	commandWaiters []*terminalCommandWaiter
+	oscBuffer      string
 }
 
 type terminalScreenBuffer struct {
@@ -320,12 +314,6 @@ func (s *terminalSession) interrupt() error {
 	return s.writeInput("\x03")
 }
 
-func (s *terminalSession) enableCommandIdleFallback() {
-	s.mu.Lock()
-	s.commandIdleFallback = true
-	s.mu.Unlock()
-}
-
 type terminalCommandResult struct {
 	Output   string
 	ExitCode int
@@ -339,11 +327,9 @@ type terminalCommandAttempt struct {
 }
 
 type terminalCommandWaiter struct {
-	id           string
-	command      string
-	idleFallback bool
-	output       chan string
-	done         chan int
+	id     string
+	output chan string
+	done   chan int
 }
 
 type terminalIntegrationEvent struct {
@@ -443,10 +429,8 @@ func (s *terminalSession) sendCommandLocked(ctx context.Context, command string)
 
 func (s *terminalSession) trySendCommandLocked(ctx context.Context, command string) (terminalCommandResult, bool, error) {
 	waiter := &terminalCommandWaiter{
-		command:      command,
-		idleFallback: s.commandIdleFallback,
-		output:       make(chan string, 64),
-		done:         make(chan int, 1),
+		output: make(chan string, 64),
+		done:   make(chan int, 1),
 	}
 	if err := s.commandReadinessError(); err != nil {
 		return terminalCommandResult{}, false, err
@@ -491,33 +475,6 @@ func (s *terminalSession) removeCommandWaiter(waiter *terminalCommandWaiter) {
 
 func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalCommandWaiter) (terminalCommandResult, error) {
 	var out strings.Builder
-	var idleTimer *time.Timer
-	var idleC <-chan time.Time
-	stopIdle := func() {
-		if idleTimer == nil {
-			return
-		}
-		if !idleTimer.Stop() {
-			select {
-			case <-idleTimer.C:
-			default:
-			}
-		}
-	}
-	resetIdle := func(d time.Duration) {
-		if !waiter.idleFallback {
-			return
-		}
-		if idleTimer == nil {
-			idleTimer = time.NewTimer(d)
-			idleC = idleTimer.C
-			return
-		}
-		stopIdle()
-		idleTimer.Reset(d)
-	}
-	defer stopIdle()
-	resetIdle(terminalCommandIdleFallbackTimeout)
 	for {
 		select {
 		case chunk, ok := <-waiter.output:
@@ -525,7 +482,6 @@ func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalComma
 				return terminalCommandResult{Output: out.String(), ExitCode: 255}, errors.New("session command output closed before completion")
 			}
 			out.WriteString(chunk)
-			resetIdle(terminalCommandIdleFallbackGrace)
 		case code := <-waiter.done:
 			for {
 				select {
@@ -539,42 +495,12 @@ func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalComma
 				break
 			}
 			return terminalCommandResult{Output: out.String(), ExitCode: code}, nil
-		case <-idleC:
-			return terminalCommandResult{Output: cleanIdleFallbackCommandOutput(out.String(), waiter.command), ExitCode: 0}, nil
 		case <-ctx.Done():
 			return terminalCommandResult{Output: out.String(), ExitCode: 255}, ctx.Err()
 		case <-sessionCtx.Done():
 			return terminalCommandResult{Output: out.String(), ExitCode: 255}, errors.New("session closed before command completed")
 		}
 	}
-}
-
-func cleanIdleFallbackCommandOutput(output, command string) string {
-	output = strings.ReplaceAll(output, "\r\n", "\n")
-	output = strings.ReplaceAll(output, "\r", "\n")
-	lines := strings.Split(output, "\n")
-	command = strings.TrimSpace(command)
-	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
-		lines = lines[1:]
-	}
-	if len(lines) > 0 && command != "" && strings.TrimSpace(lines[0]) == command {
-		lines = lines[1:]
-	}
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	for len(lines) > 0 {
-		last := strings.TrimSpace(stripANSI(lines[len(lines)-1]))
-		if strings.HasSuffix(last, ">") || strings.HasSuffix(last, "#") || strings.HasSuffix(last, "$") {
-			lines = lines[:len(lines)-1]
-			continue
-		}
-		break
-	}
-	if len(lines) == 0 {
-		return ""
-	}
-	return strings.Join(lines, "\r\n") + "\r\n"
 }
 
 func (s *terminalSession) writeOutput(typ string, data []byte) {
