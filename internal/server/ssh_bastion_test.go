@@ -262,7 +262,7 @@ func TestSSHExecReusesOpenTerminalSessionWithSessionReview(t *testing.T) {
 	session := app.terminalSessions.create("session-1", user.ID, target, "127.0.0.1", 80, 24, nil)
 	defer app.terminalSessions.remove(session.id)
 	defer session.close("")
-	input := &terminalRouteTestInput{session: session, output: "terminal route ok\r\n"}
+	input := &terminalRouteTestInput{session: session, output: "rm /tmp/needs-review\r\nterminal route ok\r\n"}
 	session.input = input
 	closeWebTerminal := attachTestWebTerminalClient(t, session)
 	defer closeWebTerminal()
@@ -307,6 +307,9 @@ func TestSSHExecReusesOpenTerminalSessionWithSessionReview(t *testing.T) {
 	}
 	if got := ch.stdout.String(); !strings.Contains(got, "terminal route ok") {
 		t.Fatalf("ssh caller did not receive terminal output: %q", got)
+	}
+	if got := ch.stdout.String(); strings.Contains(got, "rm /tmp/needs-review\r\n") {
+		t.Fatalf("ssh caller should not receive terminal command echo: %q", got)
 	}
 	if ch.exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0", ch.exitCode)
