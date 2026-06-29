@@ -68,6 +68,40 @@ func TestTerminalIntegrationParsesSplitOSCSequence(t *testing.T) {
 	}
 }
 
+func TestTerminalIntegrationPromptEventClearsBusy(t *testing.T) {
+	session := &terminalSession{
+		screen:  newTerminalScreenBuffer(24),
+		clients: map[*terminalWSWriter]bool{},
+	}
+	waiter := &terminalCommandWaiter{
+		id:     "cmd-1",
+		output: make(chan string, 8),
+		done:   make(chan int, 1),
+	}
+	session.commandWaiters = []*terminalCommandWaiter{waiter}
+
+	session.writeOutput("output", []byte("\x1b]633;C\a"))
+	if !session.shellBusy {
+		t.Fatal("command-start event should mark shell busy")
+	}
+	session.writeOutput("output", []byte("\x1b]633;A\a"))
+	if session.shellBusy {
+		t.Fatal("prompt event should clear shell busy")
+	}
+	select {
+	case code := <-waiter.done:
+		t.Fatalf("prompt event should not complete command waiter, got exit %d", code)
+	default:
+	}
+}
+
+func TestParseTerminalIntegrationPromptEvent(t *testing.T) {
+	event, ok := parseTerminalIntegrationEvent("A")
+	if !ok || event.Kind != "A" {
+		t.Fatalf("prompt event parse failed: %+v ok=%t", event, ok)
+	}
+}
+
 func TestCollectCommandOutputWaitsForCompletionEvent(t *testing.T) {
 	waiter := &terminalCommandWaiter{
 		id:     "cmd-3",
