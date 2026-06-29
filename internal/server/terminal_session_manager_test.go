@@ -26,7 +26,7 @@ func TestTerminalIntegrationStripsOSCAndParsesCompletion(t *testing.T) {
 	session.writeOutput("output", []byte("hello"))
 	session.writeOutput("output", []byte("\x1b]633;D;cmd-1;2\a"))
 
-	result, err := collectCommandOutput(context.Background(), context.Background(), waiter, false)
+	result, err := collectCommandOutput(context.Background(), context.Background(), waiter)
 	if err != nil {
 		t.Fatalf("collect command output: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestTerminalIntegrationParsesSplitOSCSequence(t *testing.T) {
 	session.writeOutput("output", []byte("before\x1b]633;D;cmd"))
 	session.writeOutput("output", []byte("-2;0\aafter"))
 
-	result, err := collectCommandOutput(context.Background(), context.Background(), waiter, false)
+	result, err := collectCommandOutput(context.Background(), context.Background(), waiter)
 	if err != nil {
 		t.Fatalf("collect command output: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestCollectCommandOutputWaitsForCompletionEvent(t *testing.T) {
 		waiter.done <- 0
 	}()
 
-	result, err := collectCommandOutput(ctx, context.Background(), waiter, false)
+	result, err := collectCommandOutput(ctx, context.Background(), waiter)
 	if err != nil {
 		t.Fatalf("collect command output: %v", err)
 	}
@@ -396,7 +396,7 @@ type idleFallbackCommandWriter struct {
 func (w *idleFallbackCommandWriter) Write(data []byte) (int, error) {
 	w.input.Write(data)
 	if strings.Contains(string(data), "\r") {
-		go w.session.writeOutput("output", []byte("legacy windows output\r\n"))
+		go w.session.writeOutput("output", []byte("dir\r\nlegacy windows output\r\nC:\\ProgramData\\gosshd>"))
 	}
 	return len(data), nil
 }
@@ -425,6 +425,9 @@ func TestRunCommandInTerminalSessionIdleFallbackCompletesLegacyWindowsAgentOutpu
 	}
 	if !strings.Contains(run.Output, "legacy windows output") {
 		t.Fatalf("output missing legacy command result: %q", run.Output)
+	}
+	if strings.Contains(run.Output, "dir") || strings.Contains(run.Output, "C:\\ProgramData\\gosshd>") {
+		t.Fatalf("idle fallback output should remove command echo and prompt: %q", run.Output)
 	}
 	if got := input.input.String(); got != "dir\r" {
 		t.Fatalf("command input = %q, want %q", got, "dir\r")
