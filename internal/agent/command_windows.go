@@ -221,6 +221,11 @@ func startConPTYProcess(shell, root string, console windows.Handle) (windows.Han
 		attributeList.Delete()
 		return 0, 0, nil, err
 	}
+	commandLine, err := windows.UTF16PtrFromString(windowsCommandLine(shell))
+	if err != nil {
+		attributeList.Delete()
+		return 0, 0, nil, err
+	}
 	var currentDir *uint16
 	if root != "" {
 		currentDir, err = windows.UTF16PtrFromString(root)
@@ -232,7 +237,7 @@ func startConPTYProcess(shell, root string, console windows.Handle) (windows.Han
 
 	if err := windows.CreateProcess(
 		appName,
-		nil,
+		commandLine,
 		nil,
 		nil,
 		false,
@@ -493,11 +498,21 @@ func windowsInteractiveShellArgs(shell string) []string {
 			"-NoProfile",
 			"-NoExit",
 			"-Command",
-			"[Console]::InputEncoding=[Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)",
+			windowsPowerShellIntegrationCommand(),
 		}
 	}
 	if isCmdShell(shell) {
-		return []string{"/D", "/K"}
+		return []string{"/D", "/K", windowsCmdIntegrationCommand()}
 	}
 	return nil
+}
+
+func windowsCmdIntegrationCommand() string {
+	return `for /F "delims=" %i in ('echo prompt $E]633;D;0$E\$E]633;A$E\$_$P$G') do @%i`
+}
+
+func windowsPowerShellIntegrationCommand() string {
+	esc := string(rune(0x1b))
+	bel := string(rune(0x07))
+	return `[Console]::InputEncoding=[Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); function global:prompt { $code = if ($global:?) { 0 } else { 1 }; [Console]::Write("` + esc + `]633;D;$code` + bel + esc + `]633;A` + bel + `"); "PS $($executionContext.SessionState.Path.CurrentLocation)> " }`
 }

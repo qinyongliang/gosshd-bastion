@@ -80,15 +80,28 @@ func TestWindowsShellUsesConPTYForInteractiveInput(t *testing.T) {
 }
 
 func TestWindowsInteractiveShellArgsKeepInteractiveEcho(t *testing.T) {
-	if got, want := windowsInteractiveShellArgs("cmd.exe"), []string{"/D", "/K"}; !reflect.DeepEqual(got, want) {
+	if got, want := windowsInteractiveShellArgs("cmd.exe"), []string{"/D", "/K", windowsCmdIntegrationCommand()}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("cmd args mismatch:\n got: %#v\nwant: %#v", got, want)
 	}
-	if got, want := windowsInteractiveShellArgs(`C:\Windows\system32\cmd.exe`), []string{"/D", "/K"}; !reflect.DeepEqual(got, want) {
+	if got, want := windowsInteractiveShellArgs(`C:\Windows\system32\cmd.exe`), []string{"/D", "/K", windowsCmdIntegrationCommand()}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("cmd path args mismatch:\n got: %#v\nwant: %#v", got, want)
 	}
 	got := windowsCommandLine("cmd.exe")
 	if strings.Contains(got, " /Q ") {
 		t.Fatalf("interactive cmd should not disable echo: %q", got)
+	}
+	if !strings.Contains(got, "633;D") || !strings.Contains(got, "633;A") {
+		t.Fatalf("interactive cmd should install terminal integration prompt: %q", got)
+	}
+}
+
+func TestWindowsPowerShellInteractiveArgsInstallTerminalIntegration(t *testing.T) {
+	args := windowsInteractiveShellArgs("powershell.exe")
+	if len(args) != 5 || args[0] != "-NoLogo" || args[1] != "-NoProfile" || args[2] != "-NoExit" || args[3] != "-Command" {
+		t.Fatalf("powershell args mismatch: %#v", args)
+	}
+	if !strings.Contains(args[4], "function global:prompt") || !strings.Contains(args[4], "633;D") || !strings.Contains(args[4], "633;A") {
+		t.Fatalf("powershell integration missing: %q", args[4])
 	}
 }
 
