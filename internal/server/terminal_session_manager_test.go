@@ -155,6 +155,9 @@ func TestBashShellIntegrationCommandInstallsHooks(t *testing.T) {
 	if !strings.Contains(script, "printf '\\033]633;D;%s\\007'") {
 		t.Fatalf("script missing command-finish OSC: %q", script)
 	}
+	if strings.Contains(script, `return "$__gosshd_rc"`) {
+		t.Fatalf("script should not re-trigger DEBUG trap from precmd return: %q", script)
+	}
 }
 
 func TestEarliestOnlineForUserTargetRequiresReadyClient(t *testing.T) {
@@ -289,6 +292,32 @@ func TestRunCommandInTerminalSessionNonBlockingFallsBackWhenShellBusy(t *testing
 	})
 	if run.Routed || run.Err != nil {
 		t.Fatalf("busy session should fall back without surfacing an error: %+v", run)
+	}
+	if input.Len() != 0 {
+		t.Fatalf("busy shell should not receive command input, got %q", input.String())
+	}
+}
+
+func TestRunCommandInTerminalSessionBlockingReportsShellBusyForMCP(t *testing.T) {
+	input := &strings.Builder{}
+	session := &terminalSession{
+		id:       "session-1",
+		userID:   "user-1",
+		target:   store.SSHTarget{ID: "target-1"},
+		sourceIP: "127.0.0.1",
+		ctx:      context.Background(),
+		input:    input,
+		clients:  map[*terminalWSWriter]bool{},
+		screen:   newTerminalScreenBuffer(24),
+	}
+	session.writeOutput("output", []byte("\x1b]633;C\a"))
+
+	run := (&App{}).runCommandInTerminalSession(context.Background(), session, "echo busy", terminalSessionCommandOptions{
+		UserID:           "user-1",
+		SkipPolicyReview: true,
+	})
+	if !run.Routed || run.Err == nil || !errors.Is(run.Err, errTerminalSessionBusy) {
+		t.Fatalf("blocking session command should surface busy error, run=%+v", run)
 	}
 	if input.Len() != 0 {
 		t.Fatalf("busy shell should not receive command input, got %q", input.String())
