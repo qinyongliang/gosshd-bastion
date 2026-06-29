@@ -529,7 +529,7 @@ func (s *terminalSession) writeOutput(typ string, data []byte) {
 		switch event.Kind {
 		case "C":
 			s.shellBusy = true
-		case "D":
+		case "A", "D":
 			s.shellBusy = false
 		}
 	}
@@ -606,7 +606,7 @@ func parseTerminalIntegrationEvent(payload string) (terminalIntegrationEvent, bo
 	}
 	event := terminalIntegrationEvent{Kind: parts[0]}
 	switch event.Kind {
-	case "C", "E":
+	case "A", "C", "E":
 		if len(parts) >= 2 {
 			event.ID = parts[1]
 		}
