@@ -19,6 +19,12 @@ import (
 
 const terminalSessionHeartbeatTimeout = 30 * time.Second
 
+var (
+	errTerminalSessionBusy      = errors.New("terminal session is busy")
+	errTerminalSessionClosed    = errors.New("terminal session is closed")
+	errTerminalSessionInputWait = errors.New("session input not ready")
+)
+
 type terminalSessionManager struct {
 	mu       sync.Mutex
 	sessions map[string]*terminalSession
@@ -139,6 +145,7 @@ func (m *terminalSessionManager) earliestOnlineForUserTarget(userID, targetID st
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var selected *terminalSession
+	var selectedStartedAt time.Time
 	for _, session := range m.sessions {
 		session.mu.Lock()
 		matches := session.userID == userID &&
@@ -146,15 +153,15 @@ func (m *terminalSessionManager) earliestOnlineForUserTarget(userID, targetID st
 			!session.closed &&
 			session.input != nil &&
 			len(session.clients) > 0 &&
-			!session.shellBusy &&
 			time.Since(session.lastHeartbeat) <= terminalSessionHeartbeatTimeout
 		startedAt := session.startedAt
 		session.mu.Unlock()
 		if !matches {
 			continue
 		}
-		if selected == nil || startedAt.Before(selected.startedAt) {
+		if selected == nil || startedAt.Before(selectedStartedAt) {
 			selected = session
+			selectedStartedAt = startedAt
 		}
 	}
 	return selected
@@ -233,7 +240,7 @@ func (s *terminalSession) writeInput(data string) error {
 	writer := s.input
 	s.mu.Unlock()
 	if writer == nil {
-		return errors.New("session input not ready")
+		return errTerminalSessionInputWait
 	}
 	_, err := io.WriteString(writer, data)
 	return err
@@ -322,22 +329,25 @@ exec "${SHELL:-/bin/sh}" -i
 }
 
 func (s *terminalSession) sendCommand(ctx context.Context, command string) (terminalCommandResult, error) {
-	command = strings.TrimRight(command, "\r\n")
-	if strings.TrimSpace(command) == "" {
-		return terminalCommandResult{}, errors.New("command is required")
-	}
-	s.commandMu.Lock()
-	defer s.commandMu.Unlock()
-	return s.sendCommandLocked(ctx, command)
+	attempt := s.sendCommandAttempt(ctx, command, false)
+	return attempt.Result, attempt.Err
 }
 
 func (s *terminalSession) trySendCommand(ctx context.Context, command string) terminalCommandAttempt {
+	return s.sendCommandAttempt(ctx, command, true)
+}
+
+func (s *terminalSession) sendCommandAttempt(ctx context.Context, command string, nonBlocking bool) terminalCommandAttempt {
 	command = strings.TrimRight(command, "\r\n")
 	if strings.TrimSpace(command) == "" {
 		return terminalCommandAttempt{Err: errors.New("command is required")}
 	}
-	if !s.commandMu.TryLock() {
-		return terminalCommandAttempt{}
+	if nonBlocking {
+		if !s.commandMu.TryLock() {
+			return terminalCommandAttempt{}
+		}
+	} else {
+		s.commandMu.Lock()
 	}
 	defer s.commandMu.Unlock()
 	result, sent, err := s.trySendCommandLocked(ctx, command)
@@ -355,6 +365,18 @@ func (s *terminalSession) trySendCommandLocked(ctx context.Context, command stri
 		done:   make(chan int, 1),
 	}
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return terminalCommandResult{}, false, errTerminalSessionClosed
+	}
+	if s.input == nil {
+		s.mu.Unlock()
+		return terminalCommandResult{}, false, errTerminalSessionInputWait
+	}
+	if s.shellBusy {
+		s.mu.Unlock()
+		return terminalCommandResult{}, false, errTerminalSessionBusy
+	}
 	s.commandWaiters = append(s.commandWaiters, waiter)
 	s.mu.Unlock()
 	defer s.removeCommandWaiter(waiter)
