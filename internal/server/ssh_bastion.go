@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/qinyongliang/gosshd-bastion/internal/bastion"
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
@@ -191,9 +192,12 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		sendExit(ch, code)
 		return
 	}
-	exitCode, routedThroughTerminal := a.tryExecInOpenTerminalSession(ctx, userID, target, ch, command)
+	exitCode, routedSessionID, routedThroughTerminal := a.tryExecInOpenTerminalSession(ctx, userID, target, ch, command)
 	if !routedThroughTerminal {
 		exitCode = a.execOnTarget(ctx, target, ch, command)
+	}
+	if routedSessionID != "" {
+		sessionID = routedSessionID
 	}
 	endedAt := time.Now().UTC()
 	_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
@@ -214,26 +218,105 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 	sendExit(ch, exitCode)
 }
 
-func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, target store.SSHTarget, ch gossh.Channel, command string) (int, bool) {
+func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, target store.SSHTarget, ch gossh.Channel, command string) (int, string, bool) {
 	session := a.terminalSessions.earliestOnlineForUserTarget(userID, target.ID)
 	if session == nil {
-		return 0, false
+		return 0, "", false
 	}
-	attempt := session.trySendCommand(ctx, command)
-	if !attempt.Acquired {
-		return 0, false
+	run := a.runCommandInTerminalSession(ctx, session, command, terminalSessionCommandOptions{
+		UserID:           userID,
+		Decision:         bastion.Decision{Action: store.DecisionAllow},
+		NonBlocking:      true,
+		SkipPolicyReview: true,
+	})
+	if !run.Routed {
+		return 0, "", false
 	}
-	if attempt.Err != nil {
-		if attempt.Sent {
-			_, _ = ch.Stderr().Write([]byte(attempt.Err.Error() + "\n"))
-			return attempt.Result.ExitCode, true
+	if run.Err != nil {
+		_, _ = ch.Stderr().Write([]byte(run.Err.Error() + "\n"))
+		return run.ExitCode, session.id, true
+	}
+	if run.Output != "" {
+		_, _ = ch.Write([]byte(run.Output))
+	}
+	return run.ExitCode, session.id, true
+}
+
+type terminalSessionCommandOptions struct {
+	UserID           string
+	Decision         bastion.Decision
+	StartedAt        time.Time
+	NonBlocking      bool
+	SkipPolicyReview bool
+}
+
+type terminalSessionCommandRun struct {
+	Routed    bool
+	Allowed   bool
+	Decision  bastion.Decision
+	Output    string
+	ExitCode  int
+	StartedAt time.Time
+	EndedAt   time.Time
+	Err       error
+}
+
+func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminalSession, command string, opts terminalSessionCommandOptions) terminalSessionCommandRun {
+	startedAt := opts.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	}
+	run := terminalSessionCommandRun{
+		Routed:    true,
+		Decision:  opts.Decision,
+		StartedAt: startedAt,
+	}
+	if run.Decision.Action == "" {
+		run.Decision.Action = store.DecisionAllow
+	}
+	if !opts.SkipPolicyReview {
+		decision, err := a.bastion.EvaluateCommandForSource(ctx, opts.UserID, session.target.ID, command, session.sourceIP)
+		if err != nil {
+			run.Routed = false
+			run.Err = err
+			return run
 		}
-		return 0, false
+		if decision.Action == store.DecisionDeny && decision.AllowManualReview {
+			decision = a.reviewDeniedCommandForSession(ctx, opts.UserID, session.target, command, decision, session.id)
+		}
+		run.Decision = decision
 	}
-	if attempt.Result.Output != "" {
-		_, _ = ch.Write([]byte(attempt.Result.Output))
+	if run.Decision.Action == store.DecisionDeny {
+		run.Allowed = false
+		run.Output = "command denied: " + run.Decision.Reason + "\r\n"
+		run.ExitCode = 126
+		run.EndedAt = time.Now().UTC()
+		session.writeOutput("error", []byte(run.Output))
+		return run
 	}
-	return attempt.Result.ExitCode, true
+
+	var attempt terminalCommandAttempt
+	if opts.NonBlocking {
+		attempt = session.trySendCommand(ctx, command)
+	} else {
+		attempt = session.sendCommandAttempt(ctx, command, false)
+	}
+	if !attempt.Acquired {
+		run.Routed = false
+		return run
+	}
+	run.Allowed = true
+	run.Output = attempt.Result.Output
+	run.ExitCode = attempt.Result.ExitCode
+	run.EndedAt = time.Now().UTC()
+	if attempt.Err != nil {
+		if !attempt.Sent && (errors.Is(attempt.Err, errTerminalSessionBusy) || errors.Is(attempt.Err, errTerminalSessionInputWait) || errors.Is(attempt.Err, errTerminalSessionClosed)) {
+			run.Routed = false
+			return run
+		}
+		run.Err = attempt.Err
+	}
+	return run
 }
 
 func (a *App) handleBastionShell(userID, publicKeyFingerprint string, target store.SSHTarget, ch gossh.Channel, sourceIP string, width, height int) {

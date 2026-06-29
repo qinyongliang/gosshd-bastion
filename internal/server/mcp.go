@@ -183,39 +183,14 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 			if err != nil {
 				return nil, mcpSessionCommandOutput{}, err
 			}
-			decision, err := a.bastion.EvaluateCommandForSource(ctx, actor.ID, session.target.ID, in.Command, session.sourceIP)
-			if err != nil {
-				return nil, mcpSessionCommandOutput{}, err
-			}
-			if decision.Action == store.DecisionDeny && decision.AllowManualReview {
-				decision = a.reviewDeniedCommandForSession(ctx, actor.ID, session.target, in.Command, decision, session.id)
-			}
 			started := time.Now().UTC()
-			if decision.Action == store.DecisionDeny {
-				msg := "command denied: " + decision.Reason + "\r\n"
-				session.writeOutput("error", []byte(msg))
-				code := 126
-				ended := time.Now().UTC()
-				_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
-					UserID:         actor.ID,
-					TargetID:       session.target.ID,
-					OrganizationID: organizationIDForTarget(session.target),
-					PublicKeyName:  "MCP session",
-					SessionID:      session.id,
-					Command:        in.Command,
-					RequestType:    store.RequestExec,
-					PolicyDecision: store.DecisionDeny,
-					PolicyReason:   decision.Reason,
-					ExitCode:       &code,
-					StartedAt:      started,
-					EndedAt:        &ended,
-					RemoteAddress:  session.sourceIP,
-				})
-				return nil, mcpSessionCommandOutput{Allowed: false, PolicyReason: decision.Reason, Output: msg, ExitCode: code}, nil
+			run := a.runCommandInTerminalSession(ctx, session, in.Command, terminalSessionCommandOptions{
+				UserID:    actor.ID,
+				StartedAt: started,
+			})
+			if run.Err != nil {
+				return nil, mcpSessionCommandOutput{}, run.Err
 			}
-			result, err := session.sendCommand(ctx, in.Command)
-			ended := time.Now().UTC()
-			code := result.ExitCode
 			_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
 				UserID:         actor.ID,
 				TargetID:       session.target.ID,
@@ -224,17 +199,14 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 				SessionID:      session.id,
 				Command:        in.Command,
 				RequestType:    store.RequestExec,
-				PolicyDecision: decision.Action,
-				PolicyReason:   decision.Reason,
-				ExitCode:       &code,
+				PolicyDecision: run.Decision.Action,
+				PolicyReason:   run.Decision.Reason,
+				ExitCode:       &run.ExitCode,
 				StartedAt:      started,
-				EndedAt:        &ended,
+				EndedAt:        &run.EndedAt,
 				RemoteAddress:  session.sourceIP,
 			})
-			if err != nil {
-				return nil, mcpSessionCommandOutput{}, err
-			}
-			return nil, mcpSessionCommandOutput{Allowed: true, PolicyReason: decision.Reason, Output: result.Output, ExitCode: result.ExitCode}, nil
+			return nil, mcpSessionCommandOutput{Allowed: run.Allowed, PolicyReason: run.Decision.Reason, Output: run.Output, ExitCode: run.ExitCode}, nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "session_interrupt", Description: "Send Ctrl+C to an active bastion terminal session; use this to stop a long-running session_send_command."},

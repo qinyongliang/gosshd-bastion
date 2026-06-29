@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -145,8 +146,8 @@ func TestEarliestOnlineForUserTargetRequiresReadyClient(t *testing.T) {
 	}
 
 	oldest.writeOutput("output", []byte("\x1b]633;C\a"))
-	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != newer {
-		t.Fatalf("expected shell-busy oldest session to be skipped, got %v", got)
+	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != oldest {
+		t.Fatalf("expected oldest online session even while shell-busy, got %v", got)
 	}
 	oldest.writeOutput("output", []byte("\x1b]633;D;0\a"))
 	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != oldest {
@@ -168,6 +169,53 @@ func TestTrySendCommandDoesNotQueueWhenBusy(t *testing.T) {
 	attempt := session.trySendCommand(context.Background(), "echo busy")
 	if attempt.Err != nil || attempt.Acquired || attempt.Sent {
 		t.Fatalf("busy command should not acquire lock, attempt=%+v", attempt)
+	}
+}
+
+func TestTrySendCommandDoesNotSendWhenShellBusy(t *testing.T) {
+	input := &strings.Builder{}
+	session := &terminalSession{
+		id:      "session-1",
+		ctx:     context.Background(),
+		input:   input,
+		clients: map[*terminalWSWriter]bool{},
+		screen:  newTerminalScreenBuffer(24),
+	}
+	session.writeOutput("output", []byte("\x1b]633;C\a"))
+
+	attempt := session.trySendCommand(context.Background(), "echo busy")
+	if !attempt.Acquired || attempt.Sent || !errors.Is(attempt.Err, errTerminalSessionBusy) {
+		t.Fatalf("busy shell should be acquired but not sent, attempt=%+v", attempt)
+	}
+	if input.Len() != 0 {
+		t.Fatalf("busy shell should not receive command input, got %q", input.String())
+	}
+}
+
+func TestRunCommandInTerminalSessionNonBlockingFallsBackWhenShellBusy(t *testing.T) {
+	input := &strings.Builder{}
+	session := &terminalSession{
+		id:       "session-1",
+		userID:   "user-1",
+		target:   store.SSHTarget{ID: "target-1"},
+		sourceIP: "127.0.0.1",
+		ctx:      context.Background(),
+		input:    input,
+		clients:  map[*terminalWSWriter]bool{},
+		screen:   newTerminalScreenBuffer(24),
+	}
+	session.writeOutput("output", []byte("\x1b]633;C\a"))
+
+	run := (&App{}).runCommandInTerminalSession(context.Background(), session, "echo busy", terminalSessionCommandOptions{
+		UserID:           "user-1",
+		NonBlocking:      true,
+		SkipPolicyReview: true,
+	})
+	if run.Routed || run.Err != nil {
+		t.Fatalf("busy session should fall back without surfacing an error: %+v", run)
+	}
+	if input.Len() != 0 {
+		t.Fatalf("busy shell should not receive command input, got %q", input.String())
 	}
 }
 
