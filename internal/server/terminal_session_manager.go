@@ -369,7 +369,6 @@ __gosshd_precmd() {
     eval "$__gosshd_original_prompt_command"
   fi
   trap '__gosshd_preexec' DEBUG
-  return "$__gosshd_rc"
 }
 PROMPT_COMMAND='__gosshd_precmd'
 trap '__gosshd_preexec' DEBUG
