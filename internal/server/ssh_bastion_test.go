@@ -5,10 +5,13 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/binary"
 	"encoding/pem"
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/pkg/sftp"
 	"github.com/qinyongliang/gosshd-bastion/internal/agent"
 	"github.com/qinyongliang/gosshd-bastion/internal/bastion"
@@ -201,6 +205,118 @@ func TestSSHDeniesBlacklistedExecAndAudits(t *testing.T) {
 	}
 	if logs[0].PublicKeyFingerprint != gossh.FingerprintSHA256(userSigner.PublicKey()) {
 		t.Fatalf("deny audit public key mismatch: %+v", logs[0])
+	}
+}
+
+func TestSSHExecReusesOpenTerminalSessionWithSessionReview(t *testing.T) {
+	app, _, _, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner := testSSHSigner(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        personal.ID,
+		Alias:          "webbox",
+		TargetType:     store.TargetDirect,
+		Host:           "127.0.0.1",
+		Port:           22,
+		RemoteUsername: "remote",
+		AuthType:       store.AuthPassword,
+		CreatedBy:      user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := app.store.Repository().CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
+		OwnerType:                  store.OwnerOrganization,
+		OwnerID:                    personal.ID,
+		Name:                       "review web terminal command",
+		DefaultAction:              store.DecisionAllow,
+		AllowManualReview:          true,
+		ManualReviewTimeoutSeconds: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.store.Repository().CreatePolicyRule(ctx, store.CreatePolicyRuleParams{
+		PolicyID: policy.ID, RuleType: store.RuleBlacklist, PatternType: store.PatternContains, Pattern: "rm",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.store.Repository().AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	decision, err := app.bastion.EvaluateCommandForSource(ctx, user.ID, target.ID, "rm /tmp/needs-review", "203.0.113.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionDeny || !decision.AllowManualReview {
+		t.Fatalf("test policy should require manual review before routing: %+v", decision)
+	}
+
+	session := app.terminalSessions.create("session-1", user.ID, target, "127.0.0.1", 80, 24, nil)
+	defer app.terminalSessions.remove(session.id)
+	defer session.close("")
+	input := &terminalRouteTestInput{session: session, output: "terminal route ok\r\n"}
+	session.input = input
+	closeWebTerminal := attachTestWebTerminalClient(t, session)
+	defer closeWebTerminal()
+
+	reviewCtx, cancelReview := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelReview()
+	reviewCh := make(chan manualReviewPollResultDirect, 1)
+	go func() {
+		reviews, err := app.manualReviews.List(reviewCtx, organizationIDForTarget(target), session.id, 2*time.Second, nil)
+		reviewCh <- manualReviewPollResultDirect{reviews: reviews, err: err}
+	}()
+	waitForManualReviewPoller(t, app, organizationIDForTarget(target), session.id)
+
+	ch := &recordingSSHChannel{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		app.handleBastionExec(user.ID, gossh.FingerprintSHA256(userSigner.PublicKey()), target, ch, "rm /tmp/needs-review", "203.0.113.9")
+	}()
+
+	reviewResult := readManualReviewDirect(t, reviewCh)
+	if len(reviewResult) != 1 || reviewResult[0].SessionID != session.id || reviewResult[0].Command != "rm /tmp/needs-review" {
+		t.Fatalf("session-scoped review mismatch: %+v", reviewResult)
+	}
+	orgReviews, err := app.manualReviews.List(ctx, organizationIDForTarget(target), "", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orgReviews) != 0 {
+		t.Fatalf("session review leaked into org-wide review list: %+v", orgReviews)
+	}
+	if err := app.manualReviews.Decide(reviewResult[0].ID, manualReviewDecision{Allow: true, ReviewerID: user.ID, Reviewer: user.Email}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ssh exec did not finish after session review approval")
+	}
+	if got := input.input.String(); got != "rm /tmp/needs-review\r" {
+		t.Fatalf("terminal input = %q, want command submitted with carriage return", got)
+	}
+	if got := ch.stdout.String(); !strings.Contains(got, "terminal route ok") {
+		t.Fatalf("ssh caller did not receive terminal output: %q", got)
+	}
+	if ch.exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", ch.exitCode)
+	}
+	page, err := app.audit.Repository().ListCommandAuditLogs(ctx, store.AuditLogFilter{UserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Logs) != 1 || page.Logs[0].SessionID != session.id || page.Logs[0].PolicyDecision != store.DecisionAllow {
+		t.Fatalf("ssh exec audit should use routed session and approved decision: %+v", page.Logs)
 	}
 }
 
@@ -1240,4 +1356,127 @@ func mustAtoi(t *testing.T, value string) int {
 		out = out*10 + int(ch-'0')
 	}
 	return out
+}
+
+type manualReviewPollResultDirect struct {
+	reviews []manualReviewSnapshot
+	err     error
+}
+
+func readManualReviewDirect(t *testing.T, ch <-chan manualReviewPollResultDirect) []manualReviewSnapshot {
+	t.Helper()
+	select {
+	case result := <-ch:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		return result.reviews
+	case <-time.After(3 * time.Second):
+		t.Fatal("manual review poll timed out")
+		return nil
+	}
+}
+
+type terminalRouteTestInput struct {
+	session *terminalSession
+	input   strings.Builder
+	output  string
+}
+
+func (w *terminalRouteTestInput) Write(data []byte) (int, error) {
+	w.input.Write(data)
+	if strings.Contains(string(data), "\r") {
+		go func() {
+			w.session.writeOutput("output", []byte(w.output))
+			w.session.writeOutput("output", []byte("\x1b]633;D;0\a"))
+		}()
+	}
+	return len(data), nil
+}
+
+func attachTestWebTerminalClient(t *testing.T, session *terminalSession) func() {
+	t.Helper()
+	upgrader := websocket.Upgrader{}
+	attached := make(chan *terminalWSWriter, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("upgrade test websocket: %v", err)
+			return
+		}
+		writer := &terminalWSWriter{ws: ws}
+		session.attach(writer)
+		attached <- writer
+		for {
+			if _, _, err := ws.NextReader(); err != nil {
+				session.detach(writer)
+				_ = ws.Close()
+				return
+			}
+		}
+	}))
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		srv.Close()
+		t.Fatal(err)
+	}
+	var writer *terminalWSWriter
+	select {
+	case writer = <-attached:
+	case <-time.After(time.Second):
+		_ = ws.Close()
+		srv.Close()
+		t.Fatal("test web terminal did not attach")
+	}
+	return func() {
+		session.detach(writer)
+		_ = ws.Close()
+		srv.Close()
+	}
+}
+
+type recordingSSHChannel struct {
+	stdout   strings.Builder
+	stderr   strings.Builder
+	exitCode int
+}
+
+func (c *recordingSSHChannel) Read(_ []byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (c *recordingSSHChannel) Write(data []byte) (int, error) {
+	return c.stdout.Write(data)
+}
+
+func (c *recordingSSHChannel) Close() error {
+	return nil
+}
+
+func (c *recordingSSHChannel) CloseWrite() error {
+	return nil
+}
+
+func (c *recordingSSHChannel) SendRequest(name string, _ bool, payload []byte) (bool, error) {
+	if name == "exit-status" && len(payload) >= 4 {
+		c.exitCode = int(binary.BigEndian.Uint32(payload[:4]))
+	}
+	return false, nil
+}
+
+func (c *recordingSSHChannel) Stderr() io.ReadWriter {
+	return recordingSSHChannelStderr{channel: c}
+}
+
+type recordingSSHChannelStderr struct {
+	channel *recordingSSHChannel
+}
+
+func (w recordingSSHChannelStderr) Read(_ []byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (w recordingSSHChannelStderr) Write(data []byte) (int, error) {
+	return w.channel.stderr.Write(data)
 }

@@ -219,6 +219,50 @@ func TestRunCommandInTerminalSessionNonBlockingFallsBackWhenShellBusy(t *testing
 	}
 }
 
+type carriageReturnCommandWriter struct {
+	session *terminalSession
+	input   strings.Builder
+}
+
+func (w *carriageReturnCommandWriter) Write(data []byte) (int, error) {
+	w.input.Write(data)
+	if strings.Contains(string(data), "\r") {
+		go func() {
+			w.session.writeOutput("output", []byte("command output\r\n"))
+			w.session.writeOutput("output", []byte("\x1b]633;D;0\a"))
+		}()
+	}
+	return len(data), nil
+}
+
+func TestTrySendCommandUsesCarriageReturnAndReturnsOutput(t *testing.T) {
+	session := &terminalSession{
+		id:      "session-1",
+		ctx:     context.Background(),
+		clients: map[*terminalWSWriter]bool{},
+		screen:  newTerminalScreenBuffer(24),
+	}
+	input := &carriageReturnCommandWriter{session: session}
+	session.input = input
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	attempt := session.trySendCommand(ctx, "echo once")
+	if !attempt.Acquired || !attempt.Sent || attempt.Err != nil {
+		t.Fatalf("expected command to be sent and completed, attempt=%+v", attempt)
+	}
+	if got := input.input.String(); got != "echo once\r" {
+		t.Fatalf("command input = %q, want %q", got, "echo once\r")
+	}
+	if attempt.Result.ExitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", attempt.Result.ExitCode)
+	}
+	if !strings.Contains(attempt.Result.Output, "command output") {
+		t.Fatalf("output missing command result: %q", attempt.Result.Output)
+	}
+}
+
 func TestTrySendCommandReportsSentWhenWaitingFails(t *testing.T) {
 	input := &strings.Builder{}
 	sessionCtx, cancel := context.WithCancel(context.Background())
@@ -235,7 +279,7 @@ func TestTrySendCommandReportsSentWhenWaitingFails(t *testing.T) {
 	if !attempt.Acquired || !attempt.Sent || attempt.Err == nil {
 		t.Fatalf("expected sent command with wait error, attempt=%+v", attempt)
 	}
-	if got := input.String(); got != "echo once\n" {
-		t.Fatalf("command input = %q, want %q", got, "echo once\n")
+	if got := input.String(); got != "echo once\r" {
+		t.Fatalf("command input = %q, want %q", got, "echo once\r")
 	}
 }

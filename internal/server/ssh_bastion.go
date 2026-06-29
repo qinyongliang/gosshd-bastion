@@ -157,6 +157,38 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 	ctx := context.Background()
 	sessionID := newAuditSessionID()
 	startedAt := time.Now().UTC()
+	if run, routedSessionID, routedThroughTerminal := a.tryExecInOpenTerminalSession(ctx, userID, target, command, sourceIP, startedAt); routedThroughTerminal {
+		if routedSessionID != "" {
+			sessionID = routedSessionID
+		}
+		if run.Err != nil {
+			_, _ = ch.Stderr().Write([]byte(run.Err.Error() + "\n"))
+		}
+		if run.Output != "" {
+			_, _ = ch.Write([]byte(run.Output))
+		}
+		endedAt := run.EndedAt
+		if endedAt.IsZero() {
+			endedAt = time.Now().UTC()
+		}
+		_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
+			UserID:               userID,
+			TargetID:             target.ID,
+			OrganizationID:       organizationIDForTarget(target),
+			PublicKeyFingerprint: publicKeyFingerprint,
+			SessionID:            sessionID,
+			Command:              command,
+			RequestType:          store.RequestExec,
+			PolicyDecision:       run.Decision.Action,
+			PolicyReason:         run.Decision.Reason,
+			ExitCode:             &run.ExitCode,
+			StartedAt:            startedAt,
+			EndedAt:              &endedAt,
+			RemoteAddress:        sourceIP,
+		})
+		sendExit(ch, run.ExitCode)
+		return
+	}
 	decision, err := a.bastion.EvaluateCommandForSource(ctx, userID, target.ID, command, sourceIP)
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
@@ -192,13 +224,7 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		sendExit(ch, code)
 		return
 	}
-	exitCode, routedSessionID, routedThroughTerminal := a.tryExecInOpenTerminalSession(ctx, userID, target, ch, command)
-	if !routedThroughTerminal {
-		exitCode = a.execOnTarget(ctx, target, ch, command)
-	}
-	if routedSessionID != "" {
-		sessionID = routedSessionID
-	}
+	exitCode := a.execOnTarget(ctx, target, ch, command)
 	endedAt := time.Now().UTC()
 	_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
 		UserID:               userID,
@@ -218,34 +244,28 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 	sendExit(ch, exitCode)
 }
 
-func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, target store.SSHTarget, ch gossh.Channel, command string) (int, string, bool) {
+func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, target store.SSHTarget, command, sourceIP string, startedAt time.Time) (terminalSessionCommandRun, string, bool) {
 	session := a.terminalSessions.earliestOnlineForUserTarget(userID, target.ID)
 	if session == nil {
-		return 0, "", false
+		return terminalSessionCommandRun{}, "", false
 	}
 	run := a.runCommandInTerminalSession(ctx, session, command, terminalSessionCommandOptions{
-		UserID:           userID,
-		Decision:         bastion.Decision{Action: store.DecisionAllow},
-		NonBlocking:      true,
-		SkipPolicyReview: true,
+		UserID:      userID,
+		StartedAt:   startedAt,
+		SourceIP:    sourceIP,
+		NonBlocking: true,
 	})
 	if !run.Routed {
-		return 0, "", false
+		return terminalSessionCommandRun{}, "", false
 	}
-	if run.Err != nil {
-		_, _ = ch.Stderr().Write([]byte(run.Err.Error() + "\n"))
-		return run.ExitCode, session.id, true
-	}
-	if run.Output != "" {
-		_, _ = ch.Write([]byte(run.Output))
-	}
-	return run.ExitCode, session.id, true
+	return run, session.id, true
 }
 
 type terminalSessionCommandOptions struct {
 	UserID           string
 	Decision         bastion.Decision
 	StartedAt        time.Time
+	SourceIP         string
 	NonBlocking      bool
 	SkipPolicyReview bool
 }
@@ -274,15 +294,43 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 	if run.Decision.Action == "" {
 		run.Decision.Action = store.DecisionAllow
 	}
-	if !opts.SkipPolicyReview {
-		decision, err := a.bastion.EvaluateCommandForSource(ctx, opts.UserID, session.target.ID, command, session.sourceIP)
-		if err != nil {
+	normalizedCommand, err := normalizeTerminalCommand(command)
+	if err != nil {
+		run.ExitCode = 255
+		run.EndedAt = time.Now().UTC()
+		run.Err = err
+		return run
+	}
+	unlockCommand, acquired := session.lockCommand(opts.NonBlocking)
+	if !acquired {
+		run.Routed = false
+		return run
+	}
+	defer unlockCommand()
+	if err := session.commandReadinessError(); err != nil {
+		run.EndedAt = time.Now().UTC()
+		if opts.NonBlocking && terminalCommandUnavailableForRouting(err) {
 			run.Routed = false
+			return run
+		}
+		run.ExitCode = 255
+		run.Err = err
+		return run
+	}
+	if !opts.SkipPolicyReview {
+		sourceIP := opts.SourceIP
+		if strings.TrimSpace(sourceIP) == "" {
+			sourceIP = session.sourceIP
+		}
+		decision, err := a.bastion.EvaluateCommandForSource(ctx, opts.UserID, session.target.ID, normalizedCommand, sourceIP)
+		if err != nil {
+			run.ExitCode = 255
+			run.EndedAt = time.Now().UTC()
 			run.Err = err
 			return run
 		}
 		if decision.Action == store.DecisionDeny && decision.AllowManualReview {
-			decision = a.reviewDeniedCommandForSession(ctx, opts.UserID, session.target, command, decision, session.id)
+			decision = a.reviewDeniedCommandForSession(ctx, opts.UserID, session.target, normalizedCommand, decision, session.id)
 		}
 		run.Decision = decision
 	}
@@ -295,28 +343,23 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 		return run
 	}
 
-	var attempt terminalCommandAttempt
-	if opts.NonBlocking {
-		attempt = session.trySendCommand(ctx, command)
-	} else {
-		attempt = session.sendCommandAttempt(ctx, command, false)
-	}
-	if !attempt.Acquired {
-		run.Routed = false
-		return run
-	}
+	result, sent, err := session.trySendCommandLocked(ctx, normalizedCommand)
 	run.Allowed = true
-	run.Output = attempt.Result.Output
-	run.ExitCode = attempt.Result.ExitCode
+	run.Output = result.Output
+	run.ExitCode = result.ExitCode
 	run.EndedAt = time.Now().UTC()
-	if attempt.Err != nil {
-		if !attempt.Sent && (errors.Is(attempt.Err, errTerminalSessionBusy) || errors.Is(attempt.Err, errTerminalSessionInputWait) || errors.Is(attempt.Err, errTerminalSessionClosed)) {
+	if err != nil {
+		if !sent && opts.NonBlocking && terminalCommandUnavailableForRouting(err) {
 			run.Routed = false
 			return run
 		}
-		run.Err = attempt.Err
+		run.Err = err
 	}
 	return run
+}
+
+func terminalCommandUnavailableForRouting(err error) bool {
+	return errors.Is(err, errTerminalSessionBusy) || errors.Is(err, errTerminalSessionInputWait) || errors.Is(err, errTerminalSessionClosed)
 }
 
 func (a *App) handleBastionShell(userID, publicKeyFingerprint string, target store.SSHTarget, ch gossh.Channel, sourceIP string, width, height int) {
