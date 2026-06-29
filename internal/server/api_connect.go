@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	pathpkg "path"
@@ -504,14 +505,19 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 			session.enableCommandIdleFallback()
 		}
 	}
+	log.Printf("web terminal session created: user=%s target=%s alias=%s session=%s type=%s source=%s clients=1", user.ID, target.ID, target.Alias, session.id, target.TargetType, sourceIP)
 	session.attach(writer)
 	_ = writer.write(terminalWSMessage{Type: "session", SessionID: session.id})
-	defer session.detach(writer)
+	defer func() {
+		session.detach(writer)
+		log.Printf("web terminal websocket detached: user=%s target=%s alias=%s session=%s", user.ID, target.ID, target.Alias, session.id)
+	}()
 	a.backgroundWG.Add(1)
 	go func() {
 		defer a.backgroundWG.Done()
 		exitCode := a.webTerminalOnTarget(session)
 		endedAt := time.Now().UTC()
+		log.Printf("web terminal session ended: user=%s target=%s alias=%s session=%s exit=%d", user.ID, target.ID, target.Alias, session.id, exitCode)
 		session.close("")
 		a.terminalSessions.remove(session.id)
 		a.completeShellAuditAsync(recorder, auditLog.ID, exitCode, endedAt)

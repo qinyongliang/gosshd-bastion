@@ -51,8 +51,9 @@ type terminalSessionRouteSnapshot struct {
 }
 
 type terminalSessionRouteLookup struct {
-	Session   *terminalSession
-	Snapshots []terminalSessionRouteSnapshot
+	Session      *terminalSession
+	Snapshots    []terminalSessionRouteSnapshot
+	SessionCount int
 }
 
 type terminalSession struct {
@@ -221,7 +222,7 @@ func (m *terminalSessionManager) earliestOnlineForUserTargetWithDiagnostics(user
 			selectedStartedAt = startedAt
 		}
 	}
-	return terminalSessionRouteLookup{Session: selected, Snapshots: snapshots}
+	return terminalSessionRouteLookup{Session: selected, Snapshots: snapshots, SessionCount: len(snapshots)}
 }
 
 func (m *terminalSessionManager) watchHeartbeat(session *terminalSession) {
