@@ -245,8 +245,10 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 }
 
 func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, target store.SSHTarget, command, sourceIP string, startedAt time.Time) (terminalSessionCommandRun, string, bool) {
-	session := a.terminalSessions.earliestOnlineForUserTarget(userID, target.ID)
+	lookup := a.terminalSessions.earliestOnlineForUserTargetWithDiagnostics(userID, target.ID)
+	session := lookup.Session
 	if session == nil {
+		log.Printf("ssh exec terminal route miss: user=%s target=%s alias=%s command=%q sessions=%s", userID, target.ID, target.Alias, command, summarizeTerminalRouteSnapshots(lookup.Snapshots))
 		return terminalSessionCommandRun{}, "", false
 	}
 	run := a.runCommandInTerminalSession(ctx, session, command, terminalSessionCommandOptions{
@@ -256,9 +258,42 @@ func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, t
 		NonBlocking: true,
 	})
 	if !run.Routed {
+		log.Printf("ssh exec terminal route fallback: user=%s target=%s alias=%s session=%s command=%q err=%v", userID, target.ID, target.Alias, session.id, command, run.Err)
 		return terminalSessionCommandRun{}, "", false
 	}
+	log.Printf("ssh exec terminal route hit: user=%s target=%s alias=%s session=%s command=%q exit=%d err=%v", userID, target.ID, target.Alias, session.id, command, run.ExitCode, run.Err)
 	return run, session.id, true
+}
+
+func summarizeTerminalRouteSnapshots(snapshots []terminalSessionRouteSnapshot) string {
+	if len(snapshots) == 0 {
+		return "none"
+	}
+	const maxSnapshots = 8
+	capacity := len(snapshots)
+	if capacity > maxSnapshots {
+		capacity = maxSnapshots
+	}
+	parts := make([]string, 0, capacity)
+	for i, snapshot := range snapshots {
+		if i >= maxSnapshots {
+			parts = append(parts, "more="+strconv.Itoa(len(snapshots)-maxSnapshots))
+			break
+		}
+		age := time.Since(snapshot.LastHeartbeat).Round(time.Second)
+		parts = append(parts, fmt.Sprintf("%s:%s target=%s alias=%s clients=%d input=%t closed=%t busy=%t hb=%s",
+			snapshot.ID,
+			snapshot.Reason,
+			snapshot.TargetID,
+			snapshot.TargetAlias,
+			snapshot.ClientCount,
+			snapshot.InputReady,
+			snapshot.Closed,
+			snapshot.ShellBusy,
+			age,
+		))
+	}
+	return strings.Join(parts, "; ")
 }
 
 type terminalSessionCommandOptions struct {

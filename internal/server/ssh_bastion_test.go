@@ -320,6 +320,32 @@ func TestSSHExecReusesOpenTerminalSessionWithSessionReview(t *testing.T) {
 	}
 }
 
+func TestSummarizeTerminalRouteSnapshots(t *testing.T) {
+	summary := summarizeTerminalRouteSnapshots([]terminalSessionRouteSnapshot{
+		{
+			ID:            "session-1",
+			TargetID:      "target-1",
+			TargetAlias:   "box",
+			LastHeartbeat: time.Now().Add(-5 * time.Second),
+			InputReady:    true,
+			ClientCount:   1,
+			Reason:        "candidate",
+		},
+		{
+			ID:            "session-2",
+			TargetID:      "target-2",
+			TargetAlias:   "other",
+			LastHeartbeat: time.Now().Add(-time.Minute),
+			Reason:        "target-mismatch",
+		},
+	})
+	for _, want := range []string{"session-1:candidate", "target=target-1", "alias=box", "session-2:target-mismatch"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary %q missing %q", summary, want)
+		}
+	}
+}
+
 func TestSSHExecRoutesAliasThroughAgentTarget(t *testing.T) {
 	app, httpAddr, sshAddr, stop := startBastionTestApp(t)
 	defer stop()
