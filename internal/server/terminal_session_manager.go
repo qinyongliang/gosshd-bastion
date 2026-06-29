@@ -338,20 +338,36 @@ func (s *terminalSession) trySendCommand(ctx context.Context, command string) te
 }
 
 func (s *terminalSession) sendCommandAttempt(ctx context.Context, command string, nonBlocking bool) terminalCommandAttempt {
+	command, err := normalizeTerminalCommand(command)
+	if err != nil {
+		return terminalCommandAttempt{Err: err}
+	}
+	unlock, acquired := s.lockCommand(nonBlocking)
+	if !acquired {
+		return terminalCommandAttempt{}
+	}
+	defer unlock()
+	result, sent, err := s.trySendCommandLocked(ctx, command)
+	return terminalCommandAttempt{Result: result, Acquired: true, Sent: sent, Err: err}
+}
+
+func normalizeTerminalCommand(command string) (string, error) {
 	command = strings.TrimRight(command, "\r\n")
 	if strings.TrimSpace(command) == "" {
-		return terminalCommandAttempt{Err: errors.New("command is required")}
+		return "", errors.New("command is required")
 	}
+	return command, nil
+}
+
+func (s *terminalSession) lockCommand(nonBlocking bool) (func(), bool) {
 	if nonBlocking {
 		if !s.commandMu.TryLock() {
-			return terminalCommandAttempt{}
+			return nil, false
 		}
 	} else {
 		s.commandMu.Lock()
 	}
-	defer s.commandMu.Unlock()
-	result, sent, err := s.trySendCommandLocked(ctx, command)
-	return terminalCommandAttempt{Result: result, Acquired: true, Sent: sent, Err: err}
+	return s.commandMu.Unlock, true
 }
 
 func (s *terminalSession) sendCommandLocked(ctx context.Context, command string) (terminalCommandResult, error) {
@@ -364,27 +380,33 @@ func (s *terminalSession) trySendCommandLocked(ctx context.Context, command stri
 		output: make(chan string, 64),
 		done:   make(chan int, 1),
 	}
+	if err := s.commandReadinessError(); err != nil {
+		return terminalCommandResult{}, false, err
+	}
 	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return terminalCommandResult{}, false, errTerminalSessionClosed
-	}
-	if s.input == nil {
-		s.mu.Unlock()
-		return terminalCommandResult{}, false, errTerminalSessionInputWait
-	}
-	if s.shellBusy {
-		s.mu.Unlock()
-		return terminalCommandResult{}, false, errTerminalSessionBusy
-	}
 	s.commandWaiters = append(s.commandWaiters, waiter)
 	s.mu.Unlock()
 	defer s.removeCommandWaiter(waiter)
-	if err := s.writeInput(command + "\n"); err != nil {
+	if err := s.writeInput(command + "\r"); err != nil {
 		return terminalCommandResult{}, false, err
 	}
 	result, err := collectCommandOutput(ctx, s.ctx, waiter)
 	return result, true, err
+}
+
+func (s *terminalSession) commandReadinessError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errTerminalSessionClosed
+	}
+	if s.input == nil {
+		return errTerminalSessionInputWait
+	}
+	if s.shellBusy {
+		return errTerminalSessionBusy
+	}
+	return nil
 }
 
 func (s *terminalSession) removeCommandWaiter(waiter *terminalCommandWaiter) {
