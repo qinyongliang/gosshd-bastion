@@ -359,3 +359,31 @@ func TestTrySendCommandReportsSentWhenWaitingFails(t *testing.T) {
 		t.Fatalf("command input = %q, want %q", got, "echo once\r")
 	}
 }
+
+func TestRunCommandInTerminalSessionTimeoutReleasesCommandLock(t *testing.T) {
+	input := &strings.Builder{}
+	session := &terminalSession{
+		id:      "session-1",
+		ctx:     context.Background(),
+		input:   input,
+		clients: map[*terminalWSWriter]bool{},
+		screen:  newTerminalScreenBuffer(24),
+	}
+
+	run := (&App{}).runCommandInTerminalSession(context.Background(), session, "echo no-finish-event", terminalSessionCommandOptions{
+		UserID:           "user-1",
+		SkipPolicyReview: true,
+		WaitTimeout:      25 * time.Millisecond,
+	})
+	if !run.Routed || !run.Allowed || run.Err == nil {
+		t.Fatalf("expected routed command to time out while waiting for terminal integration, run=%+v", run)
+	}
+	if got := input.String(); got != "echo no-finish-event\r" {
+		t.Fatalf("command input = %q, want %q", got, "echo no-finish-event\r")
+	}
+
+	if !session.commandMu.TryLock() {
+		t.Fatal("command lock should be released after timeout")
+	}
+	session.commandMu.Unlock()
+}

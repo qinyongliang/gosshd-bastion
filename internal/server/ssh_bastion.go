@@ -303,6 +303,7 @@ type terminalSessionCommandOptions struct {
 	SourceIP         string
 	NonBlocking      bool
 	SkipPolicyReview bool
+	WaitTimeout      time.Duration
 }
 
 type terminalSessionCommandRun struct {
@@ -378,7 +379,13 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 		return run
 	}
 
-	result, sent, err := session.trySendCommandLocked(ctx, normalizedCommand)
+	waitCtx := ctx
+	if timeout := terminalSessionCommandWaitTimeout(opts); timeout > 0 {
+		var cancel context.CancelFunc
+		waitCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	result, sent, err := session.trySendCommandLocked(waitCtx, normalizedCommand)
 	run.Allowed = true
 	run.Output = result.Output
 	run.ExitCode = result.ExitCode
@@ -391,6 +398,13 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 		run.Err = err
 	}
 	return run
+}
+
+func terminalSessionCommandWaitTimeout(opts terminalSessionCommandOptions) time.Duration {
+	if opts.WaitTimeout > 0 {
+		return opts.WaitTimeout
+	}
+	return 30 * time.Minute
 }
 
 func terminalCommandUnavailableForRouting(err error) bool {
