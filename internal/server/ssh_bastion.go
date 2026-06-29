@@ -248,7 +248,7 @@ func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, t
 	lookup := a.terminalSessions.earliestOnlineForUserTargetWithDiagnostics(userID, target.ID)
 	session := lookup.Session
 	if session == nil {
-		log.Printf("ssh exec terminal route miss: user=%s target=%s alias=%s command=%q sessions=%s", userID, target.ID, target.Alias, command, summarizeTerminalRouteSnapshots(lookup.Snapshots))
+		log.Printf("ssh exec terminal route miss: user=%s target=%s alias=%s command=%q session_count=%d sessions=%s", userID, target.ID, target.Alias, command, lookup.SessionCount, summarizeTerminalRouteSnapshots(lookup.Snapshots))
 		return terminalSessionCommandRun{}, "", false
 	}
 	run := a.runCommandInTerminalSession(ctx, session, command, terminalSessionCommandOptions{
