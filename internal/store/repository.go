@@ -109,6 +109,21 @@ func (r *Repository) UpdateUserSystemAdmin(ctx context.Context, userID string, i
 	return requireRowsAffected(res)
 }
 
+func (r *Repository) UpdateUserDisabled(ctx context.Context, userID string, disabled bool) error {
+	var disabledAt any
+	if disabled {
+		now := time.Now().UTC()
+		disabledAt = formatTime(now)
+	}
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE users SET disabled_at = ? WHERE id = ?
+	`, disabledAt, userID)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
 func (r *Repository) UpdateUserPasswordHash(ctx context.Context, userID string, passwordHash []byte) error {
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE users SET password_hash = ? WHERE id = ?
@@ -117,6 +132,31 @@ func (r *Repository) UpdateUserPasswordHash(ctx context.Context, userID string, 
 		return err
 	}
 	return requireRowsAffected(res)
+}
+
+func (r *Repository) DeleteUser(ctx context.Context, userID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	orgIDs, err := r.listOwnedOrganizationIDsTx(ctx, tx, userID)
+	if err != nil {
+		return err
+	}
+	for _, orgID := range orgIDs {
+		if err := r.deleteOrganizationTx(ctx, tx, orgID, true); err != nil {
+			return err
+		}
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
+	if err != nil {
+		return err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *Repository) EnsureBootstrapAdmin(ctx context.Context, password string) (User, string, error) {
@@ -691,6 +731,75 @@ func (r *Repository) GetOrganization(ctx context.Context, id string) (Organizati
 	org.IsPersonal = isPersonal == 1
 	org.CreatedAt = parseTime(created)
 	return org, nil
+}
+
+func (r *Repository) DeleteOrganization(ctx context.Context, organizationID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := r.deleteOrganizationTx(ctx, tx, organizationID, false); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) listOwnedOrganizationIDsTx(ctx context.Context, tx *sql.Tx, userID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id FROM organizations WHERE owner_user_id = ?
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (r *Repository) deleteOrganizationTx(ctx context.Context, tx *sql.Tx, organizationID string, allowPersonal bool) error {
+	var isPersonal int
+	err := tx.QueryRowContext(ctx, `
+		SELECT is_personal FROM organizations WHERE id = ?
+	`, organizationID).Scan(&isPersonal)
+	if err != nil {
+		return wrapScanErr(err)
+	}
+	if isPersonal == 1 && !allowPersonal {
+		return errors.New("personal organization cannot be deleted")
+	}
+	if err := r.deleteOwnedResourcesTx(ctx, tx, OwnerOrganization, organizationID); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM organizations WHERE id = ?`, organizationID)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
+func (r *Repository) deleteOwnedResourcesTx(ctx context.Context, tx *sql.Tx, ownerType, ownerID string) error {
+	for _, stmt := range []string{
+		`DELETE FROM ssh_targets WHERE owner_type = ? AND owner_id = ?`,
+		`DELETE FROM target_tags WHERE owner_type = ? AND owner_id = ?`,
+		`DELETE FROM agent_enrollments WHERE owner_type = ? AND owner_id = ?`,
+		`DELETE FROM agents WHERE owner_type = ? AND owner_id = ?`,
+		`DELETE FROM command_policies WHERE owner_type = ? AND owner_id = ?`,
+		`DELETE FROM llm_policy_configs WHERE owner_type = ? AND owner_id = ?`,
+		`DELETE FROM llm_prompt_resources WHERE owner_type = ? AND owner_id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt, ownerType, ownerID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Repository) ListOrganizations(ctx context.Context) ([]Organization, error) {

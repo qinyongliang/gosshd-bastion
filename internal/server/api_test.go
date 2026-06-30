@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -186,6 +187,112 @@ func TestAPIAdminOrganizationsExcludePersonal(t *testing.T) {
 	if hasPersonalOrganization(out.Organizations) {
 		t.Fatalf("admin org list should hide personal organizations: %+v", out.Organizations)
 	}
+}
+
+func TestAPIAdminUserDisableEnableAndDelete(t *testing.T) {
+	srv, adminClient, _ := newAPITestServer(t)
+	defer srv.Close()
+	postJSON(t, adminClient, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "admin",
+		"password": "admin-pass",
+	}, http.StatusOK, nil)
+
+	regular := apiClient(t)
+	regularUser := registerForAPI(t, regular, srv.URL, "disable-me@example.com")
+	patchJSON(t, adminClient, srv.URL+"/api/admin/users/"+regularUser.User.ID, map[string]bool{
+		"disabled": true,
+	}, http.StatusOK, nil)
+
+	var users struct {
+		Users []apiUser `json:"users"`
+	}
+	getJSON(t, adminClient, srv.URL+"/api/admin/users", http.StatusOK, &users)
+	if user := findAPIUser(users.Users, regularUser.User.ID); user == nil || user.DisabledAt == "" {
+		t.Fatalf("admin user list should show disabled user: %+v", users.Users)
+	}
+	getJSON(t, regular, srv.URL+"/api/me", http.StatusUnauthorized, nil)
+	postJSON(t, regular, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "disable-me@example.com",
+		"password": "secret-pass",
+	}, http.StatusUnauthorized, nil)
+
+	patchJSON(t, adminClient, srv.URL+"/api/admin/users/"+regularUser.User.ID, map[string]bool{
+		"disabled": false,
+	}, http.StatusOK, nil)
+	postJSON(t, regular, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "disable-me@example.com",
+		"password": "secret-pass",
+	}, http.StatusOK, nil)
+
+	deleteJSON(t, adminClient, srv.URL+"/api/admin/users/"+regularUser.User.ID, http.StatusNoContent)
+	postJSON(t, regular, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "disable-me@example.com",
+		"password": "secret-pass",
+	}, http.StatusUnauthorized, nil)
+	getJSON(t, adminClient, srv.URL+"/api/admin/users", http.StatusOK, &users)
+	if user := findAPIUser(users.Users, regularUser.User.ID); user != nil {
+		t.Fatalf("deleted user should not be listed: %+v", users.Users)
+	}
+}
+
+func TestAPIAdminDeleteOrganization(t *testing.T) {
+	srv, adminClient, app := newAPITestServer(t)
+	defer srv.Close()
+	postJSON(t, adminClient, srv.URL+"/api/auth/login", map[string]string{
+		"email":    "admin",
+		"password": "admin-pass",
+	}, http.StatusOK, nil)
+
+	var org apiOrganizationResponse
+	postJSON(t, adminClient, srv.URL+"/api/orgs", map[string]string{
+		"name": "Delete Ops",
+		"slug": "delete-ops",
+	}, http.StatusCreated, &org)
+	postJSON(t, adminClient, srv.URL+"/api/targets", map[string]any{
+		"owner_type":      "organization",
+		"owner_id":        org.Organization.ID,
+		"name":            "ops-db",
+		"alias":           "ops-db",
+		"target_type":     "direct",
+		"host":            "127.0.0.1",
+		"port":            22,
+		"remote_username": "root",
+		"auth_type":       "password",
+		"secret":          "secret",
+	}, http.StatusCreated, nil)
+
+	deleteJSON(t, adminClient, srv.URL+"/api/admin/orgs/"+org.Organization.ID, http.StatusNoContent)
+	var out struct {
+		Organizations []apiOrganization `json:"organizations"`
+	}
+	getJSON(t, adminClient, srv.URL+"/api/admin/orgs", http.StatusOK, &out)
+	if hasOrganization(out.Organizations, org.Organization.ID) {
+		t.Fatalf("deleted organization should not be listed: %+v", out.Organizations)
+	}
+	if _, err := app.store.Repository().GetOrganization(context.Background(), org.Organization.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleted organization should be gone, got err=%v", err)
+	}
+	targets, err := app.store.Repository().ListSSHTargets(context.Background(), "organization", org.Organization.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 0 {
+		t.Fatalf("deleted organization resources should be removed: %+v", targets)
+	}
+
+	var me apiMeResponse
+	getJSON(t, adminClient, srv.URL+"/api/me", http.StatusOK, &me)
+	var personalID string
+	for _, item := range me.Organizations {
+		if item.IsPersonal {
+			personalID = item.ID
+			break
+		}
+	}
+	if personalID == "" {
+		t.Fatal("admin personal organization not found")
+	}
+	deleteJSON(t, adminClient, srv.URL+"/api/admin/orgs/"+personalID, http.StatusBadRequest)
 }
 
 func TestAPIAdminResetUserPassword(t *testing.T) {
@@ -1434,6 +1541,15 @@ func hasOrganization(orgs []apiOrganization, id string) bool {
 		}
 	}
 	return false
+}
+
+func findAPIUser(users []apiUser, id string) *apiUser {
+	for i := range users {
+		if users[i].ID == id {
+			return &users[i]
+		}
+	}
+	return nil
 }
 
 func hasPersonalOrganization(orgs []apiOrganization) bool {

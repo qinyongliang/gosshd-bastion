@@ -4,10 +4,10 @@ import { KeyRound, LayoutDashboard, ListChecks, LockKeyhole, Menu, Server, Setti
 import { ComponentType, ReactNode, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { NavButton, Segmented } from "../components/ui";
+import { Field, Modal, ModalActions, NavButton, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appName } from "../lib/branding";
-import { pageTitle } from "../lib/forms";
+import { formSubmit, pageTitle } from "../lib/forms";
 import { useTheme } from "../theme";
 import type { ConsoleData } from "../types";
 
@@ -15,6 +15,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isClientMode = Boolean(data.runtime.client_mode);
@@ -62,6 +63,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
           {nav.map(([to, label, Icon]) => <NavButton key={to} to={to} label={label} icon={<Icon />} onClick={() => setSidebarOpen(false)} />)}
         </nav>
         {!isClientMode && <OrgSwitcher data={data} />}
+        {!isClientMode && data.user.auth_provider === "local" && <button type="button" className="logout-button" onClick={() => setPasswordOpen(true)}><KeyRound />{t("changePassword")}</button>}
         {!isClientMode && <button type="button" className="logout-button" onClick={() => logout.mutate()}><LockKeyhole />{t("logout")}</button>}
       </aside>
       <button className="sidebar-scrim" aria-label={t("close")} onClick={() => setSidebarOpen(false)} />
@@ -80,8 +82,22 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
         </header>
         {children}
       </section>
+      {passwordOpen && <ChangePasswordModal onClose={() => setPasswordOpen(false)} />}
     </section>
   );
+}
+
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  const mutation = useMutation({ mutationFn: api.changeOwnPassword, onSuccess: onClose });
+  return <Modal title={t("changePassword")} onClose={onClose} closeOnEscape={false}>
+    <form className="stack" onSubmit={(event) => formSubmit(event, (body) => mutation.mutate(body))}>
+      <Field label={t("currentPassword")} name="current_password" type="password" required />
+      <Field label={t("newPassword")} name="new_password" type="password" required />
+      <Field label={t("confirmPassword")} name="confirm_password" type="password" required />
+      <ModalActions onCancel={onClose} submit={t("save")} />
+    </form>
+  </Modal>;
 }
 
 function OrgSwitcher({ data }: { data: ConsoleData }) {

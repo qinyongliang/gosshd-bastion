@@ -29,7 +29,14 @@ func (s *Service) NormalizeAuthorizedKey(raw string) (string, string, error) {
 }
 
 func (s *Service) LookupUserByPublicKey(ctx context.Context, key gossh.PublicKey) (store.User, error) {
-	return s.repo.GetUserByPublicKeyFingerprint(ctx, gossh.FingerprintSHA256(key))
+	user, err := s.repo.GetUserByPublicKeyFingerprint(ctx, gossh.FingerprintSHA256(key))
+	if err != nil {
+		return store.User{}, err
+	}
+	if user.DisabledAt != nil {
+		return store.User{}, store.ErrNotFound
+	}
+	return user, nil
 }
 
 func (s *Service) EvaluateCommand(ctx context.Context, userID, targetID, command string) (Decision, error) {

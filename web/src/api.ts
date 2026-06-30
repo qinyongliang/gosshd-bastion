@@ -123,8 +123,10 @@ export const api = {
   updateLDAPSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/ldap", put(body)),
   adminUsers: () => request<{ users: AdminUser[] }>("/api/admin/users"),
   updateAdminUser: (id: string, body: Record<string, unknown>) => request<void>(`/api/admin/users/${id}`, patch(body)),
+  deleteAdminUser: (id: string) => request<void>(`/api/admin/users/${id}`, { method: "DELETE" }),
   resetAdminUserPassword: (id: string, body: Record<string, unknown>) => request<void>(`/api/admin/users/${id}/password`, put(body)),
   adminOrgs: () => request<{ organizations: AdminOrg[] }>("/api/admin/orgs"),
+  deleteAdminOrg: (id: string) => request<void>(`/api/admin/orgs/${id}`, { method: "DELETE" }),
   adminOrgMembers: (orgID: string) => request<{ members: Member[] }>(`/api/admin/orgs/${orgID}/members`),
   adminUpdateOrgMember: (orgID: string, userID: string, body: Record<string, unknown>) =>
     request<void>(`/api/admin/orgs/${orgID}/members/${userID}`, patch(body)),

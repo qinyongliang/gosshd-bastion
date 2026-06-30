@@ -9,6 +9,7 @@ export type User = {
   display_name: string;
   is_system_admin: boolean;
   auth_provider: string;
+  disabled_at?: string;
 };
 
 export type Organization = {

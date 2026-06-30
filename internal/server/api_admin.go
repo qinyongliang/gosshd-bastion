@@ -139,18 +139,43 @@ func (a *App) handleAdminListUsers(w http.ResponseWriter, r *http.Request, user 
 func (a *App) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request, user store.User) {
 	var req struct {
 		IsSystemAdmin *bool `json:"is_system_admin"`
+		Disabled      *bool `json:"disabled"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	targetID := r.PathValue("id")
+	if req.Disabled != nil && *req.Disabled && targetID == user.ID {
+		writeError(w, http.StatusBadRequest, "cannot disable current user")
+		return
+	}
 	if req.IsSystemAdmin != nil {
-		if err := a.store.Repository().UpdateUserSystemAdmin(r.Context(), r.PathValue("id"), *req.IsSystemAdmin); err != nil {
+		if err := a.store.Repository().UpdateUserSystemAdmin(r.Context(), targetID, *req.IsSystemAdmin); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.Disabled != nil {
+		if err := a.store.Repository().UpdateUserDisabled(r.Context(), targetID, *req.Disabled); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (a *App) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request, user store.User) {
+	targetID := r.PathValue("id")
+	if targetID == user.ID {
+		writeError(w, http.StatusBadRequest, "cannot delete current user")
+		return
+	}
+	if err := a.store.Repository().DeleteUser(r.Context(), targetID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusNoContent, nil)
 }
 
 func (a *App) handleAdminResetUserPassword(w http.ResponseWriter, r *http.Request, user store.User) {
@@ -198,6 +223,14 @@ func (a *App) handleAdminListOrganizations(w http.ResponseWriter, r *http.Reques
 		out.Organizations = append(out.Organizations, apiOrganizationFromStore(org))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) handleAdminDeleteOrganization(w http.ResponseWriter, r *http.Request, user store.User) {
+	if err := a.store.Repository().DeleteOrganization(r.Context(), r.PathValue("id")); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusNoContent, nil)
 }
 
 func (a *App) handleAdminListOrganizationMembers(w http.ResponseWriter, r *http.Request, user store.User) {
