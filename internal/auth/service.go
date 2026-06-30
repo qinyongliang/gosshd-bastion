@@ -64,6 +64,9 @@ func (s *Service) Login(ctx context.Context, email, password string) (store.User
 	if err := bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(password)); err != nil {
 		return store.User{}, "", ErrInvalidCredentials
 	}
+	if user.DisabledAt != nil {
+		return store.User{}, "", ErrInvalidCredentials
+	}
 	token, err := s.createSession(ctx, user.ID)
 	if err != nil {
 		return store.User{}, "", err
@@ -95,7 +98,15 @@ func (s *Service) UserForSession(ctx context.Context, token string) (store.User,
 		_ = s.repo.DeleteSessionByTokenHash(ctx, tokenHash(token))
 		return store.User{}, store.ErrNotFound
 	}
-	return s.repo.GetUser(ctx, session.UserID)
+	user, err := s.repo.GetUser(ctx, session.UserID)
+	if err != nil {
+		return store.User{}, err
+	}
+	if user.DisabledAt != nil {
+		_ = s.repo.DeleteSessionByTokenHash(ctx, tokenHash(token))
+		return store.User{}, store.ErrNotFound
+	}
+	return user, nil
 }
 
 func (s *Service) Logout(ctx context.Context, token string) error {

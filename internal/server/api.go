@@ -21,6 +21,7 @@ type apiUser struct {
 	DisplayName   string `json:"display_name"`
 	IsSystemAdmin bool   `json:"is_system_admin"`
 	AuthProvider  string `json:"auth_provider"`
+	DisabledAt    string `json:"disabled_at,omitempty"`
 }
 
 type apiOrganization struct {
@@ -89,8 +90,10 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/admin/settings/ldap", a.requireSystemAdmin(a.handleUpdateLDAPSettings))
 	mux.HandleFunc("GET /api/admin/users", a.requireSystemAdmin(a.handleAdminListUsers))
 	mux.HandleFunc("PATCH /api/admin/users/{id}", a.requireSystemAdmin(a.handleAdminUpdateUser))
+	mux.HandleFunc("DELETE /api/admin/users/{id}", a.requireSystemAdmin(a.handleAdminDeleteUser))
 	mux.HandleFunc("PUT /api/admin/users/{id}/password", a.requireSystemAdmin(a.handleAdminResetUserPassword))
 	mux.HandleFunc("GET /api/admin/orgs", a.requireSystemAdmin(a.handleAdminListOrganizations))
+	mux.HandleFunc("DELETE /api/admin/orgs/{id}", a.requireSystemAdmin(a.handleAdminDeleteOrganization))
 	mux.HandleFunc("GET /api/admin/orgs/{id}/members", a.requireSystemAdmin(a.handleAdminListOrganizationMembers))
 	mux.HandleFunc("PATCH /api/admin/orgs/{id}/members/{user_id}", a.requireSystemAdmin(a.handleAdminUpdateOrganizationMember))
 	mux.HandleFunc("POST /api/admin/orgs/{id}/transfer-owner", a.requireSystemAdmin(a.handleAdminTransferOrganizationOwner))
@@ -279,13 +282,17 @@ func isHTTPSRequest(r *http.Request) bool {
 }
 
 func apiUserFromStore(user store.User) apiUser {
-	return apiUser{
+	out := apiUser{
 		ID:            user.ID,
 		Email:         user.Email,
 		DisplayName:   user.DisplayName,
 		IsSystemAdmin: user.IsSystemAdmin,
 		AuthProvider:  user.AuthProvider,
 	}
+	if user.DisabledAt != nil {
+		out.DisabledAt = user.DisabledAt.Format(time.RFC3339)
+	}
+	return out
 }
 
 func apiOrganizationFromStore(org store.Organization) apiOrganization {

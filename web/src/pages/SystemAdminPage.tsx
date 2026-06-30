@@ -27,7 +27,7 @@ export function SystemAdminPage({ data }: { data: ConsoleData }) {
         <button type="button" className="admin-card" onClick={() => setModal("users")}><strong>{t("adminAccountsTitle")}</strong><span>{t("adminAccountsBody")}</span></button>
         <button type="button" className="admin-card" onClick={() => setModal("orgs")}><strong>{t("adminOrgsTitle")}</strong><span>{t("adminOrgsBody")}</span></button>
       </div>
-      {modal === "users" && <AdminUsersModal users={adminUsers.data?.users || []} onClose={() => setModal("")} />}
+      {modal === "users" && <AdminUsersModal users={adminUsers.data?.users || []} currentUserID={data.user.id} onClose={() => setModal("")} />}
       {modal === "orgs" && <AdminOrgsModal orgs={(adminOrgs.data?.organizations || []).filter((org) => !org.is_personal)} onClose={() => setModal("")} />}
       {modal === "branding" && <BrandingSettingsModal data={data} onClose={() => setModal("")} />}
       {modal === "auth" && <AuthSettingsModal onClose={() => setModal("")} />}
@@ -85,17 +85,23 @@ function AuthSettingsModal({ onClose }: { onClose: () => void }) {
   </Modal>;
 }
 
-function AdminUsersModal({ users, onClose }: { users: AdminUser[]; onClose: () => void }) {
+function AdminUsersModal({ users, currentUserID, onClose }: { users: AdminUser[]; currentUserID: string; onClose: () => void }) {
   const { t } = useI18n();
   const [resetUser, setResetUser] = useState<AdminUser | null>(null);
   const queryClient = useQueryClient();
-  const update = useMutation({ mutationFn: ({ id, is_system_admin }: { id: string; is_system_admin: boolean }) => api.updateAdminUser(id, { is_system_admin }), onSuccess: async () => queryClient.invalidateQueries() });
+  const update = useMutation({ mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api.updateAdminUser(id, body), onSuccess: async () => queryClient.invalidateQueries() });
+  const remove = useMutation({ mutationFn: (id: string) => api.deleteAdminUser(id), onSuccess: async () => queryClient.invalidateQueries() });
   return <Modal title={t("adminAccountsTitle")} onClose={onClose} wide>
-    <SimpleTable headers={[t("commonEmail"), t("adminLoginSource"), t("adminSystemAdminColumn"), t("commonActions")]} rows={users.map((user) => [
+    <SimpleTable headers={[t("commonEmail"), t("adminLoginSource"), t("commonStatus"), t("adminSystemAdminColumn"), t("commonActions")]} rows={users.map((user) => [
       <UserCell member={{ user_id: user.id, email: user.email, display_name: user.display_name, role: "member" }} />,
       user.auth_provider === "local" ? t("commonLocal") : user.auth_provider,
-      <select defaultValue={user.is_system_admin ? "admin" : "user"} onChange={(event) => update.mutate({ id: user.id, is_system_admin: event.target.value === "admin" })}><option value="user">{t("adminUser")}</option><option value="admin">{t("adminRole")}</option></select>,
-      <button type="button" disabled={user.auth_provider !== "local"} onClick={() => setResetUser(user)}>{t("adminResetPassword")}</button>,
+      user.disabled_at ? <span className="badge danger">{t("adminUserDisabled")}</span> : <span className="badge info">{t("adminUserEnabled")}</span>,
+      <select defaultValue={user.is_system_admin ? "admin" : "user"} onChange={(event) => update.mutate({ id: user.id, body: { is_system_admin: event.target.value === "admin" } })}><option value="user">{t("adminUser")}</option><option value="admin">{t("adminRole")}</option></select>,
+      <span className="inline-actions">
+        <button type="button" onClick={() => update.mutate({ id: user.id, body: { disabled: !user.disabled_at } })} disabled={user.id === currentUserID && !user.disabled_at}>{user.disabled_at ? t("adminEnableUser") : t("adminDisableUser")}</button>
+        <button type="button" disabled={user.auth_provider !== "local"} onClick={() => setResetUser(user)}>{t("adminResetPassword")}</button>
+        <button type="button" className="danger" disabled={user.id === currentUserID} onClick={() => { if (window.confirm(t("adminDeleteUserConfirm"))) remove.mutate(user.id); }}>{t("commonDelete")}</button>
+      </span>,
     ])} />
     {resetUser && <ResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />}
   </Modal>;
@@ -116,11 +122,22 @@ function ResetPasswordModal({ user, onClose }: { user: AdminUser; onClose: () =>
 function AdminOrgsModal({ orgs, onClose }: { orgs: AdminOrg[]; onClose: () => void }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<AdminOrg | null>(null);
+  const queryClient = useQueryClient();
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteAdminOrg(id),
+    onSuccess: async (_, id) => {
+      if (selected?.id === id) setSelected(null);
+      await queryClient.invalidateQueries();
+    },
+  });
   return <Modal title={t("adminOrgsTitle")} onClose={onClose} wide>
     <SimpleTable headers={[t("orgs"), t("commonRole"), t("commonActions")]} rows={orgs.map((org) => [
       <strong>{org.name}</strong>,
       roleText(org.role, t),
-      <button type="button" onClick={() => setSelected(org)}>{t("members")}</button>,
+      <span className="inline-actions">
+        <button type="button" onClick={() => setSelected(org)}>{t("members")}</button>
+        <button type="button" className="danger" onClick={() => { if (window.confirm(t("adminDeleteOrgConfirm"))) remove.mutate(org.id); }}>{t("commonDelete")}</button>
+      </span>,
     ])} />
     {selected && <AdminOrgDrawer org={selected} onClose={() => setSelected(null)} />}
   </Modal>;
