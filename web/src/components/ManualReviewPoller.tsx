@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { BellRing, Check, Clock, Server, ShieldAlert, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api";
 import { useI18n } from "../i18n";
 import type { ConsoleData, ManualReview } from "../types";
@@ -133,7 +134,7 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
 
   if (!visible.length && !showNotificationPrompt) return null;
 
-  return (
+  return createPortal(
     <div className="manual-review-toasts" aria-live="polite" aria-atomic="false">
       {showNotificationPrompt && (
         <NotificationPermissionPrompt
@@ -168,7 +169,8 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
           t={t}
         />
       ))}
-    </div>
+    </div>,
+    document.body
   );
 }
 
