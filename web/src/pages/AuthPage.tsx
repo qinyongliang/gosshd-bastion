@@ -1,14 +1,15 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { KeyRound, Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Field, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
+import { appDescription, appName, documentTitle, type Branding } from "../lib/branding";
 import { formSubmit, localizeError } from "../lib/forms";
 import { useTheme } from "../theme";
 
-export function AuthPage({ dingTalkEnabled, registrationEnabled }: { dingTalkEnabled: boolean; registrationEnabled: boolean }) {
+export function AuthPage({ dingTalkEnabled, registrationEnabled, branding }: { dingTalkEnabled: boolean; registrationEnabled: boolean; branding?: Branding }) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
@@ -22,13 +23,18 @@ export function AuthPage({ dingTalkEnabled, registrationEnabled }: { dingTalkEna
     },
     onError: (err) => setError(localizeError(err, t)),
   });
+  const name = appName(branding);
+  const description = appDescription(branding);
+  useEffect(() => {
+    document.title = documentTitle(t("login"), branding);
+  }, [branding, t]);
 
   return (
     <section className="auth-screen">
       <div className="brand-panel">
-        <div className="brand-row"><div className="mark">g</div><span>gosshd</span></div>
-        <h1>{t("authTitle")}</h1>
-        <p>{t("authSubtitle")}</p>
+        <div className="brand-row"><div className="mark">g</div><span>{name}</span></div>
+        <h1>{name}</h1>
+        <p>{description}</p>
       </div>
       <div className="auth-card">
         <div className="auth-card-head">

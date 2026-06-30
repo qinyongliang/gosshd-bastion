@@ -3,16 +3,30 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 const (
 	settingAuth     = "auth"
+	settingBranding = "branding"
 	settingDingTalk = "dingtalk"
 	settingLDAP     = "ldap"
 )
 
 type authSettings struct {
 	PublicRegistration bool `json:"public_registration"`
+}
+
+type brandingSettings struct {
+	AppName        string `json:"app_name"`
+	AppDescription string `json:"app_description"`
+}
+
+func defaultBrandingSettings() brandingSettings {
+	return brandingSettings{
+		AppName:        "gosshd",
+		AppDescription: "AI service bastion",
+	}
 }
 
 func (a *App) loadAuthSettings(ctx context.Context) (authSettings, error) {
@@ -28,4 +42,35 @@ func (a *App) loadAuthSettings(ctx context.Context) (authSettings, error) {
 		return authSettings{}, err
 	}
 	return out, nil
+}
+
+func (a *App) loadBrandingSettings(ctx context.Context) (brandingSettings, error) {
+	out := defaultBrandingSettings()
+	if a.store == nil {
+		return out, nil
+	}
+	setting, err := a.store.Repository().GetSystemSetting(ctx, settingBranding)
+	if isNotFound(err) {
+		return out, nil
+	}
+	if err != nil {
+		return brandingSettings{}, err
+	}
+	if err := json.Unmarshal([]byte(setting.ValueJSON), &out); err != nil {
+		return brandingSettings{}, err
+	}
+	return normalizeBrandingSettings(out), nil
+}
+
+func normalizeBrandingSettings(value brandingSettings) brandingSettings {
+	defaults := defaultBrandingSettings()
+	value.AppName = strings.TrimSpace(value.AppName)
+	value.AppDescription = strings.TrimSpace(value.AppDescription)
+	if value.AppName == "" {
+		value.AppName = defaults.AppName
+	}
+	if value.AppDescription == "" {
+		value.AppDescription = defaults.AppDescription
+	}
+	return value
 }

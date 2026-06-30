@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { Field, Metric, Modal, ModalActions, Panel, SimpleTable } from "../components/ui";
 import { useI18n } from "../i18n";
+import { appDescription } from "../lib/branding";
 import { formSubmit, roleText } from "../lib/forms";
 import type { ConsoleData } from "../types";
 
@@ -16,7 +17,7 @@ export function OrganizationsPage({ data }: { data: ConsoleData }) {
   return (
     <>
       <section className="resource-head">
-        <div><small>{t("shellProduct")}</small><h2>{t("orgs")}</h2><p>{t("orgPageBody")}</p></div>
+        <div><small>{appDescription(data.runtime)}</small><h2>{t("orgs")}</h2><p>{t("orgPageBody")}</p></div>
         <div className="resource-actions">
           <button type="button" onClick={() => setModal("join")}>{t("orgJoin")}</button>
           <button type="button" className="primary" onClick={() => setModal("create")}><Plus />{t("orgCreate")}</button>

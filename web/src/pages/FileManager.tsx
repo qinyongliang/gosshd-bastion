@@ -181,16 +181,6 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
     mkdir.mutate(remoteJoin(path, name), { onSuccess: () => setMkdirModal(false) });
   };
 
-  const submitTransfer = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!transfer) return;
-    const form = new FormData(event.currentTarget);
-    const destination = String(form.get("destination") || "").trim();
-    if (!destination) return;
-    const mutation = transfer.action === "move" ? move : copy;
-    mutation.mutate({ entry: transfer.entry, destination }, { onSuccess: () => setTransfer(null) });
-  };
-
   const submitPath = () => {
     const nextPath = pathDraft.trim();
     if (!nextPath || nextPath === path) {
@@ -199,13 +189,6 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
     }
     setPath(nextPath);
     setSelected(null);
-  };
-
-  const parentPath = () => {
-    const trimmed = path.replace(/\/$/, "");
-    const index = trimmed.lastIndexOf("/");
-    if (index <= 0) return "/";
-    return trimmed.slice(0, index) || "/";
   };
 
   const fileMenu = (entry: FileEntry | null) => contextMenu ? createPortal(
@@ -319,7 +302,7 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
             {path !== "/" && (
               <tr className="file-row directory">
                 <td>
-                  <button type="button" className="file-name" onClick={() => setPath(parentPath())} onDoubleClick={() => setPath(parentPath())}>
+                  <button type="button" className="file-name" onClick={() => setPath(remoteParent(path))} onDoubleClick={() => setPath(remoteParent(path))}>
                     <FolderOpen />{t("connectFileParentDir")}
                   </button>
                 </td>
@@ -368,16 +351,16 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
         </Modal>
       )}
       {transfer && (
-        <Modal title={transfer.action === "move" ? t("connectFileMove") : t("connectFileCopy")} onClose={() => setTransfer(null)}>
-          <form className="stack" onSubmit={submitTransfer}>
-            <p className="muted">{transfer.entry.path}</p>
-            <label className="field">
-              <span>{t("connectFileDestination")}</span>
-              <input name="destination" defaultValue={remoteJoin(path, transfer.entry.name)} autoFocus required />
-            </label>
-            <ModalActions onCancel={() => setTransfer(null)} submit={transfer.action === "move" ? t("connectFileMove") : t("connectFileCopy")} />
-          </form>
-        </Modal>
+        <TransferModal
+          target={target}
+          transfer={transfer}
+          initialDir={path}
+          onClose={() => setTransfer(null)}
+          onSubmit={(entry, destination) => {
+            const mutation = transfer.action === "move" ? move : copy;
+            mutation.mutate({ entry, destination }, { onSuccess: () => setTransfer(null) });
+          }}
+        />
       )}
       {properties && (
         <Modal title={t("connectFileProperties")} onClose={() => setProperties(null)}>
@@ -394,6 +377,126 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
         </Modal>
       )}
     </section>
+  );
+}
+
+function TransferModal({
+  target,
+  transfer,
+  initialDir,
+  onClose,
+  onSubmit,
+}: {
+  target: Target;
+  transfer: { action: "move" | "copy"; entry: FileEntry };
+  initialDir: string;
+  onClose: () => void;
+  onSubmit: (entry: FileEntry, destination: string) => void;
+}) {
+  const { t } = useI18n();
+  const [browsePath, setBrowsePath] = useState(initialDir || ".");
+  const [browseDraft, setBrowseDraft] = useState(initialDir || ".");
+  const [destination, setDestination] = useState(remoteJoin(initialDir || ".", transfer.entry.name));
+  const listing = useQuery({
+    queryKey: ["target-files", target.id, browsePath],
+    queryFn: () => api.listFiles(target.id, browsePath),
+  });
+  const directories = (listing.data?.entries || []).filter((entry) => entry.type === "dir");
+
+  useEffect(() => {
+    setBrowsePath(initialDir || ".");
+    setBrowseDraft(initialDir || ".");
+    setDestination(remoteJoin(initialDir || ".", transfer.entry.name));
+  }, [initialDir, transfer.entry.name, transfer.entry.path]);
+
+  useEffect(() => {
+    setBrowseDraft(browsePath);
+    setDestination(remoteJoin(browsePath, transfer.entry.name));
+  }, [browsePath, transfer.entry.name]);
+
+  const submitBrowsePath = () => {
+    const nextPath = browseDraft.trim();
+    if (!nextPath || nextPath === browsePath) {
+      setBrowseDraft(browsePath);
+      return;
+    }
+    setBrowsePath(nextPath);
+  };
+
+  const submitTransfer = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextDestination = destination.trim();
+    if (!nextDestination) return;
+    onSubmit(transfer.entry, nextDestination);
+  };
+
+  return (
+    <Modal title={transfer.action === "move" ? t("connectFileMove") : t("connectFileCopy")} onClose={onClose} wide>
+      <form className="stack transfer-modal" onSubmit={submitTransfer}>
+        <p className="muted">{transfer.entry.path}</p>
+        <label className="field">
+          <span>{t("connectFileDestination")}</span>
+          <input value={destination} onChange={(event) => setDestination(event.target.value)} autoFocus required />
+        </label>
+        <div className="transfer-browser">
+          <div className="file-manager-head">
+            <div className="file-manager-path" title={browsePath}>
+              <HardDrive />
+              <input
+                value={browseDraft}
+                onChange={(event) => setBrowseDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitBrowsePath();
+                  } else if (event.key === "Escape") {
+                    setBrowseDraft(browsePath);
+                  }
+                }}
+                onBlur={() => setBrowseDraft(browsePath)}
+                aria-label="Transfer browser path"
+              />
+            </div>
+            <div className="file-manager-actions">
+              <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")}>
+                <RefreshCw />
+              </button>
+            </div>
+          </div>
+          <div className="file-manager-body transfer-browser-body">
+            <table>
+              <tbody>
+                {browsePath !== "/" && (
+                  <tr className="file-row directory">
+                    <td>
+                      <button type="button" className="file-name" onClick={() => setBrowsePath(remoteParent(browsePath))}>
+                        <FolderOpen />{t("connectFileParentDir")}
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                {directories.map((entry) => (
+                  <tr key={entry.path} className="file-row directory">
+                    <td>
+                      <button type="button" className="file-name" onClick={() => setBrowsePath(entry.path)} title={entry.name}>
+                        <FolderOpen />
+                        <span>{entry.name}</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!directories.length && (
+                  <tr>
+                    <td className="file-empty">{listing.isLoading ? t("loading") : t("connectFileEmpty")}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <ModalActions onCancel={onClose} submit={transfer.action === "move" ? t("connectFileMove") : t("connectFileCopy")} />
+      </form>
+    </Modal>
   );
 }
 
@@ -433,6 +536,13 @@ function remoteJoin(dir: string, name: string) {
   if (trimmedName.startsWith("/")) return normalizeRemotePath(trimmedName);
   if (!dir || dir === ".") return normalizeRemotePath(trimmedName);
   return normalizeRemotePath(`${dir.replace(/\/+$/, "")}/${trimmedName}`);
+}
+
+function remoteParent(path: string) {
+  const trimmed = path.replace(/\/$/, "");
+  const index = trimmed.lastIndexOf("/");
+  if (index <= 0) return "/";
+  return trimmed.slice(0, index) || "/";
 }
 
 function normalizeRemotePath(value: string) {

@@ -291,13 +291,19 @@ func hostFromListenAddress(listen string) string {
 	return host + ":" + port
 }
 
-func (a *App) runtimeInfo(r *http.Request) apiRuntime {
+func (a *App) runtimeInfo(ctx context.Context, r *http.Request) (apiRuntime, error) {
+	branding, err := a.loadBrandingSettings(ctx)
+	if err != nil {
+		return apiRuntime{}, err
+	}
 	return apiRuntime{
 		SSHHost:               publicSSHHost(a.cfg.PublicHost, r.Host),
 		SSHPort:               publicSSHPort(a.cfg.PublicSSHPort, a.cfg.SSHListen),
 		ClientMode:            a.cfg.ClientMode,
 		LocalTerminalTargetID: a.localTargetID,
-	}
+		AppName:               branding.AppName,
+		AppDescription:        branding.AppDescription,
+	}, nil
 }
 
 func publicSSHHost(configuredHost, requestHost string) string {

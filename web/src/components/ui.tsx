@@ -190,7 +190,7 @@ export function SelectButton({ label, items, onSelect }: { label: string; items:
 }
 
 export function Loading() {
-  return <section className="loading-view"><div className="mark">g</div><p>Loading bastion console...</p></section>;
+  return <section className="loading-view"><div className="mark">g</div><p>Loading...</p></section>;
 }
 
 export function Fatal({ error }: { error: unknown }) {

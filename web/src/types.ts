@@ -24,6 +24,8 @@ export type Runtime = {
   ssh_port: number;
   client_mode?: boolean;
   local_terminal_target_id?: string;
+  app_name: string;
+  app_description: string;
 };
 
 export type PublicKey = {
@@ -223,6 +225,10 @@ export type AdminOrg = Organization & {
 export type Providers = {
   dingtalk?: { enabled: boolean };
   registration_enabled?: boolean;
+  branding?: {
+    app_name: string;
+    app_description: string;
+  };
 };
 
 export type ConsoleData = {
