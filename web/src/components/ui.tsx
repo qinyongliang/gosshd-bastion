@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { Activity, Copy, Play, Search, X } from "lucide-react";
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
 import { useI18n } from "../i18n";
 import type { AuditLog, Member, Target } from "../types";
@@ -103,10 +104,10 @@ export function Modal({ title, children, onClose, wide = false, stacked = false,
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeOnEscape, onClose]);
-  return <div className={clsx("overlay", stacked && "stacked")}><section className={clsx("modal", wide && "wide", className)} role="dialog" aria-modal="true" aria-label={title}>
+  return createPortal(<div className={clsx("overlay", stacked && "stacked")}><section className={clsx("modal", wide && "wide", className)} role="dialog" aria-modal="true" aria-label={title}>
     <header className="surface-head"><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
     <div className="surface-body modal-body-list">{children}</div>
-  </section></div>;
+  </section></div>, document.body);
 }
 
 function isEditingTarget(target: EventTarget | null) {
