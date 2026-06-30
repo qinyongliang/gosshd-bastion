@@ -7,6 +7,7 @@ import { useSearchParams } from "react-router-dom";
 import { api, type Enrollment } from "../api";
 import { CommandBox, CopyButton, Drawer, Empty, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toolbar } from "../components/ui";
 import { useI18n } from "../i18n";
+import { appDescription } from "../lib/branding";
 import { formSubmit, formValues } from "../lib/forms";
 import type { ConsoleData, Target } from "../types";
 import { splitTags, tagColor, targetEndpoint } from "../utils";
@@ -75,7 +76,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   return (
     <>
       <section className="resource-head">
-        <div><small>{t("shellProduct")}</small><h2>{t("services")}</h2><p>{t("servicePageBody")}</p></div>
+        <div><small>{appDescription(data.runtime)}</small><h2>{t("services")}</h2><p>{t("servicePageBody")}</p></div>
         {!data.runtime.client_mode && <button type="button" className="primary" onClick={() => setModal(true)}><Plus />{t("addService")}</button>}
       </section>
       {!data.runtime.client_mode && <div className="metrics">

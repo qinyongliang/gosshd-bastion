@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ApiError, api } from "./api";
 import { ManualReviewPoller } from "./components/ManualReviewPoller";
 import { Fatal, Loading } from "./components/ui";
 import { useConsoleData } from "./hooks/useConsoleData";
 import { Shell } from "./layout/Shell";
+import { documentTitle } from "./lib/branding";
 import { AuditPage } from "./pages/AuditPage";
 import { AuthPage } from "./pages/AuthPage";
 import { ConnectPage } from "./pages/ConnectPage";
@@ -25,7 +26,7 @@ export function App() {
 
   if (me.isLoading || providers.isLoading) return <Loading />;
   if (me.error instanceof ApiError && me.error.status === 401) {
-    return <AuthPage dingTalkEnabled={Boolean(providers.data?.dingtalk?.enabled)} registrationEnabled={Boolean(providers.data?.registration_enabled)} />;
+    return <AuthPage dingTalkEnabled={Boolean(providers.data?.dingtalk?.enabled)} registrationEnabled={Boolean(providers.data?.registration_enabled)} branding={providers.data?.branding} />;
   }
   if (me.error) return <Fatal error={me.error} />;
   if (!me.data) return <Loading />;
@@ -40,6 +41,11 @@ function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[];
   const isConnectPage = /^\/targets\/[^/]+\/connect\/?$/.test(location.pathname);
   const isClientTerminalPage = runtime.client_mode && location.pathname === "/local-terminal";
   const isClientMode = Boolean(data.runtime.client_mode);
+
+  useEffect(() => {
+    if (isConnectPage) return;
+    document.title = documentTitle("", data.runtime);
+  }, [data.runtime, isConnectPage]);
 
   return (
     <>

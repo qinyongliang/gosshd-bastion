@@ -54,6 +54,9 @@ func TestAPIRegisterLoginMeAndLogout(t *testing.T) {
 	if me.Runtime.SSHHost == "" || me.Runtime.SSHPort != 22 {
 		t.Fatalf("me runtime mismatch: %+v", me.Runtime)
 	}
+	if me.Runtime.AppName != "gosshd" || me.Runtime.AppDescription == "" {
+		t.Fatalf("me runtime branding mismatch: %+v", me.Runtime)
+	}
 }
 
 func TestAPIRegisterDisabledByDefault(t *testing.T) {
@@ -104,6 +107,10 @@ func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 	putJSON(t, adminClient, srv.URL+"/api/admin/settings/auth", map[string]any{
 		"public_registration": true,
 	}, http.StatusOK, nil)
+	putJSON(t, adminClient, srv.URL+"/api/admin/settings/branding", map[string]any{
+		"app_name":        "吉时雨堡垒机",
+		"app_description": "内部 SSH 安全控制台",
+	}, http.StatusOK, nil)
 	putJSON(t, adminClient, srv.URL+"/api/admin/settings/dingtalk", map[string]any{
 		"enabled":        true,
 		"client_id":      "app-key",
@@ -126,13 +133,25 @@ func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 		"name_attr":     "cn",
 	}, http.StatusOK, nil)
 	getJSON(t, adminClient, srv.URL+"/api/admin/settings", http.StatusOK, &settings)
-	if settings["auth"] == nil || settings["dingtalk"] == nil || settings["ldap"] == nil {
+	if settings["auth"] == nil || settings["branding"] == nil || settings["dingtalk"] == nil || settings["ldap"] == nil {
 		t.Fatalf("settings response missing providers: %+v", settings)
+	}
+	branding, _ := settings["branding"].(map[string]any)
+	if branding["app_name"] != "吉时雨堡垒机" || branding["app_description"] != "内部 SSH 安全控制台" {
+		t.Fatalf("settings response missing branding: %+v", settings)
 	}
 	var providers ProvidersForTest
 	getJSON(t, adminClient, srv.URL+"/api/auth/providers", http.StatusOK, &providers)
 	if !providers.RegistrationEnabled {
 		t.Fatalf("provider response should expose public registration setting: %+v", providers)
+	}
+	if providers.Branding.AppName != "吉时雨堡垒机" || providers.Branding.AppDescription != "内部 SSH 安全控制台" {
+		t.Fatalf("provider response should expose branding: %+v", providers)
+	}
+	var me apiMeResponse
+	getJSON(t, adminClient, srv.URL+"/api/me", http.StatusOK, &me)
+	if me.Runtime.AppName != "吉时雨堡垒机" || me.Runtime.AppDescription != "内部 SSH 安全控制台" {
+		t.Fatalf("me response should expose branding: %+v", me.Runtime)
 	}
 
 	regular := apiClient(t)
@@ -1212,6 +1231,10 @@ func newAPITestServer(t *testing.T) (*httptest.Server, *http.Client, *App) {
 
 type ProvidersForTest struct {
 	RegistrationEnabled bool `json:"registration_enabled"`
+	Branding            struct {
+		AppName        string `json:"app_name"`
+		AppDescription string `json:"app_description"`
+	} `json:"branding"`
 }
 
 func enablePublicRegistrationForTest(t *testing.T, app *App) {

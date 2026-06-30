@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { NavButton, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
+import { appDescription, appName } from "../lib/branding";
 import { pageTitle } from "../lib/forms";
 import { useTheme } from "../theme";
 import type { ConsoleData } from "../types";
@@ -17,6 +18,8 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isClientMode = Boolean(data.runtime.client_mode);
+  const name = appName(data.runtime);
+  const description = appDescription(data.runtime);
   const logout = useMutation({
     mutationFn: api.logout,
     onSuccess: async () => {
@@ -47,7 +50,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
       <aside className="sidebar">
         <div className="brand-row">
           <div className="mark">g</div>
-          <strong>gosshd</strong>
+          <strong>{name}</strong>
           <button className="mobile-sidebar-close icon-button" type="button" aria-label={t("close")} onClick={() => setSidebarOpen(false)}><X /></button>
         </div>
         {!isClientMode && <div className="user-block">
@@ -66,7 +69,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
         <header className="topbar">
           <button className="mobile-menu-button icon-button" type="button" aria-label={t("openMenu")} onClick={() => setSidebarOpen(true)}><Menu /></button>
           <div>
-            <small>{t("shellProduct")}</small>
+            <small>{description}</small>
             <h1>{pageTitle(t)}</h1>
             {!isClientMode && <span className="context-line">{data.activeOrg.name}</span>}
           </div>
@@ -75,11 +78,6 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
             <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
           </div>
         </header>
-        <div className="hud-line">
-          <span className="hud-pill"><i className="hud-dot" />{t("statusIngress")}</span>
-          <span className="hud-pill">{t("statusPolicy")}</span>
-          <span className="hud-pill">{t("statusAudit")}</span>
-        </div>
         {children}
       </section>
     </section>

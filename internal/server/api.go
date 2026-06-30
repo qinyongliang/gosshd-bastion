@@ -53,6 +53,8 @@ type apiRuntime struct {
 	SSHPort               int    `json:"ssh_port"`
 	ClientMode            bool   `json:"client_mode"`
 	LocalTerminalTargetID string `json:"local_terminal_target_id,omitempty"`
+	AppName               string `json:"app_name"`
+	AppDescription        string `json:"app_description"`
 }
 
 type apiOrganizationResponse struct {
@@ -81,6 +83,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/me", a.requireUser(a.handleMe))
 	mux.HandleFunc("PUT /api/me/password", a.requireUser(a.handleChangeOwnPassword))
 	mux.HandleFunc("GET /api/admin/settings", a.requireSystemAdmin(a.handleAdminSettings))
+	mux.HandleFunc("PUT /api/admin/settings/branding", a.requireSystemAdmin(a.handleUpdateBrandingSettings))
 	mux.HandleFunc("PUT /api/admin/settings/auth", a.requireSystemAdmin(a.handleUpdateAuthSettings))
 	mux.HandleFunc("PUT /api/admin/settings/dingtalk", a.requireSystemAdmin(a.handleUpdateDingTalkSettings))
 	mux.HandleFunc("PUT /api/admin/settings/ldap", a.requireSystemAdmin(a.handleUpdateLDAPSettings))

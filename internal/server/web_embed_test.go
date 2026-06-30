@@ -27,7 +27,7 @@ func TestWebAppServesIndexAndStaticAssets(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("%s status mismatch: %d", path, resp.StatusCode)
 		}
-		if !strings.Contains(body, "gosshd Bastion") || !strings.Contains(body, `id="root"`) || !strings.Contains(body, `type="module"`) {
+		if !strings.Contains(body, "<title>gosshd</title>") || !strings.Contains(body, `id="root"`) || !strings.Contains(body, `type="module"`) {
 			t.Fatalf("%s did not serve React/Vite index: %s", path, body)
 		}
 		if path == "/" {

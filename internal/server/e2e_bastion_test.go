@@ -171,7 +171,7 @@ func TestBastionE2E(t *testing.T) {
 	}
 	body := readBody(t, resp)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "gosshd Bastion") {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "<title>gosshd</title>") {
 		t.Fatalf("frontend response mismatch: %d %s", resp.StatusCode, body)
 	}
 
@@ -318,7 +318,7 @@ func TestDingTalkAdminOrganizationE2E(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("%s status mismatch: %d", path, resp.StatusCode)
 		}
-		if !strings.Contains(body, "gosshd Bastion") || !strings.Contains(body, `id="root"`) || !strings.Contains(body, `type="module"`) {
+		if !strings.Contains(body, "<title>gosshd</title>") || !strings.Contains(body, `id="root"`) || !strings.Contains(body, `type="module"`) {
 			t.Fatalf("%s did not load React frontend", path)
 		}
 	}

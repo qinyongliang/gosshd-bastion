@@ -117,6 +117,7 @@ export const api = {
   decideManualReview: (id: string, allow: boolean) => request<{ ok: true }>(`/api/manual-reviews/${id}/decision`, post({ allow })),
 
   adminSettings: () => request<Record<string, unknown>>("/api/admin/settings"),
+  updateBrandingSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/branding", put(body)),
   updateAuthSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/auth", put(body)),
   updateDingTalkSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/dingtalk", put(body)),
   updateLDAPSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/ldap", put(body)),

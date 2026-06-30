@@ -99,11 +99,17 @@ func (a *App) handleAuthProviders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	branding, err := a.loadBrandingSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"dingtalk": map[string]any{
 			"enabled": cfg.Enabled,
 		},
 		"registration_enabled": settings.PublicRegistration,
+		"branding":             branding,
 	})
 }
 
@@ -163,7 +169,12 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request, user store.User) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := apiMeResponse{User: apiUserFromStore(user), Runtime: a.runtimeInfo(r)}
+	runtimeInfo, err := a.runtimeInfo(r.Context(), r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := apiMeResponse{User: apiUserFromStore(user), Runtime: runtimeInfo}
 	for _, org := range orgs {
 		apiOrg := apiOrganizationFromStore(org)
 		if member, err := a.store.Repository().GetOrganizationMember(r.Context(), org.ID, user.ID); err == nil {

@@ -3,19 +3,21 @@ import { useState } from "react";
 import { api } from "../api";
 import { Drawer, Field, Modal, ModalActions, SimpleTable, Toggle, UserCell } from "../components/ui";
 import { useI18n } from "../i18n";
+import { appDescription, appName } from "../lib/branding";
 import { formSubmit, roleText } from "../lib/forms";
 import type { AdminOrg, AdminUser, ConsoleData } from "../types";
 
 export function SystemAdminPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
-  const [modal, setModal] = useState<"" | "users" | "orgs" | "auth" | "dingtalk" | "ldap">("");
+  const [modal, setModal] = useState<"" | "users" | "orgs" | "branding" | "auth" | "dingtalk" | "ldap">("");
   const adminUsers = useQuery({ queryKey: ["admin-users"], queryFn: api.adminUsers, enabled: data.user.is_system_admin && modal === "users" });
   const adminOrgs = useQuery({ queryKey: ["admin-orgs"], queryFn: api.adminOrgs, enabled: data.user.is_system_admin && modal === "orgs" });
   return (
     <>
       <section className="resource-head">
-        <div><small>{t("shellProduct")}</small><h2>{t("systemAdminTitle")}</h2><p>{t("systemAdminBody")}</p></div>
+        <div><small>{appDescription(data.runtime)}</small><h2>{t("systemAdminTitle")}</h2><p>{t("systemAdminBody")}</p></div>
         <div className="resource-actions">
+          <button type="button" onClick={() => setModal("branding")}>{t("adminBrandingSettings")}</button>
           <button type="button" onClick={() => setModal("auth")}>{t("adminAuthSettings")}</button>
           <button type="button" onClick={() => setModal("dingtalk")}>{t("adminProviderDingTalk")}</button>
           <button type="button" className="primary" onClick={() => setModal("ldap")}>{t("adminProviderLDAP")}</button>
@@ -27,11 +29,40 @@ export function SystemAdminPage({ data }: { data: ConsoleData }) {
       </div>
       {modal === "users" && <AdminUsersModal users={adminUsers.data?.users || []} onClose={() => setModal("")} />}
       {modal === "orgs" && <AdminOrgsModal orgs={(adminOrgs.data?.organizations || []).filter((org) => !org.is_personal)} onClose={() => setModal("")} />}
+      {modal === "branding" && <BrandingSettingsModal data={data} onClose={() => setModal("")} />}
       {modal === "auth" && <AuthSettingsModal onClose={() => setModal("")} />}
       {modal === "dingtalk" && <ProviderModal title={t("adminProviderDingTalk")} action={api.updateDingTalkSettings} onClose={() => setModal("")} />}
       {modal === "ldap" && <ProviderModal title={t("adminProviderLDAP")} action={api.updateLDAPSettings} onClose={() => setModal("")} />}
     </>
   );
+}
+
+function BrandingSettingsModal({ data, onClose }: { data: ConsoleData; onClose: () => void }) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ["admin-settings"], queryFn: api.adminSettings });
+  const branding = (settings.data?.branding || {}) as { app_name?: string; app_description?: string };
+  const mutation = useMutation({
+    mutationFn: (body: Record<string, string>) => api.updateBrandingSettings({
+      app_name: body.app_name,
+      app_description: body.app_description,
+    }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["me"] }),
+        queryClient.invalidateQueries({ queryKey: ["providers"] }),
+      ]);
+      onClose();
+    },
+  });
+  return <Modal title={t("adminBrandingSettings")} onClose={onClose} closeOnEscape={false}>
+    {!settings.data ? <p>{t("loading")}</p> : <form className="stack" onSubmit={(event) => formSubmit(event, (body) => mutation.mutate(body))}>
+      <Field label={t("adminAppName")} name="app_name" defaultValue={branding.app_name || appName(data.runtime)} required />
+      <Field label={t("adminAppDescription")} name="app_description" defaultValue={branding.app_description || appDescription(data.runtime)} required />
+      <ModalActions onCancel={onClose} submit={t("save")} />
+    </form>}
+  </Modal>;
 }
 
 function AuthSettingsModal({ onClose }: { onClose: () => void }) {

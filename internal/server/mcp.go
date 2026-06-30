@@ -38,7 +38,11 @@ func (a *App) mcpHandler() http.Handler {
 
 func (a *App) actorForMCPRequest(r *http.Request) (mcpActor, error) {
 	if user, err := a.userForRequest(r); err == nil {
-		return mcpActor{User: user, ToolGroups: allMCPToolGroups(), Runtime: a.runtimeInfo(r)}, nil
+		runtimeInfo, err := a.runtimeInfo(r.Context(), r)
+		if err != nil {
+			return mcpActor{}, err
+		}
+		return mcpActor{User: user, ToolGroups: allMCPToolGroups(), Runtime: runtimeInfo}, nil
 	}
 	tokenValue := bearerToken(r)
 	if tokenValue == "" {
@@ -56,7 +60,11 @@ func (a *App) actorForMCPRequest(r *http.Request) (mcpActor, error) {
 		return mcpActor{}, err
 	}
 	_ = a.store.Repository().TouchMCPToken(r.Context(), token.ID, time.Now().UTC())
-	return mcpActor{User: user, ToolGroups: mcpToolGroupSet(token.ToolGroups), Runtime: a.runtimeInfo(r)}, nil
+	runtimeInfo, err := a.runtimeInfo(r.Context(), r)
+	if err != nil {
+		return mcpActor{}, err
+	}
+	return mcpActor{User: user, ToolGroups: mcpToolGroupSet(token.ToolGroups), Runtime: runtimeInfo}, nil
 }
 
 func bearerToken(r *http.Request) string {

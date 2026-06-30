@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"io/fs"
 	"net/http/httptest"
 	"testing"
@@ -31,16 +32,25 @@ func TestStartupHTTPBaseFallsBackToListenPort(t *testing.T) {
 func TestRuntimeInfoUsesPublicHostAndSSHListen(t *testing.T) {
 	app := NewApp(Config{PublicHost: "https://bastion.example.com:18080/docs", SSHListen: ":22022"})
 	req := httptest.NewRequest("GET", "http://internal.local:18080/api/me", nil)
-	got := app.runtimeInfo(req)
+	got, err := app.runtimeInfo(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.SSHHost != "bastion.example.com" || got.SSHPort != 22022 {
 		t.Fatalf("runtimeInfo mismatch: %+v", got)
+	}
+	if got.AppName != "gosshd" || got.AppDescription == "" {
+		t.Fatalf("runtimeInfo branding mismatch: %+v", got)
 	}
 }
 
 func TestRuntimeInfoUsesPublicSSHPortOverride(t *testing.T) {
 	app := NewApp(Config{PublicHost: "https://bastion.example.com:18080", SSHListen: ":22", PublicSSHPort: 22022})
 	req := httptest.NewRequest("GET", "http://internal.local:18080/api/me", nil)
-	got := app.runtimeInfo(req)
+	got, err := app.runtimeInfo(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.SSHHost != "bastion.example.com" || got.SSHPort != 22022 {
 		t.Fatalf("runtimeInfo mismatch: %+v", got)
 	}

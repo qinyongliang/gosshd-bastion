@@ -8,6 +8,7 @@ import { api } from "../api";
 import { ManualReviewPoller } from "../components/ManualReviewPoller";
 import { Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
+import { appDescription, appName, documentTitle } from "../lib/branding";
 import { useTheme } from "../theme";
 import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
 import { tagColor, targetEndpoint } from "../utils";
@@ -89,6 +90,8 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     .filter((item): item is { tab: ConnectionTab; target: Target } => Boolean(item.target));
   const hasOpenTabs = openTabs.length > 0;
   const endpoint = targetEndpoint(activeTarget);
+  const name = appName(data.runtime);
+  const description = appDescription(data.runtime);
 
   useEffect(() => {
     if (expectedRouteTabIDRef.current) {
@@ -108,8 +111,8 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   }, [activeTab?.targetID, tabs, target.id]);
 
   useEffect(() => {
-    document.title = `${serverTitle(activeTarget)} · gosshd Bastion`;
-  }, [activeTarget]);
+    document.title = documentTitle(serverTitle(activeTarget), data.runtime);
+  }, [activeTarget, data.runtime]);
 
   useEffect(() => {
     if (data.runtime.client_mode) return;
@@ -229,8 +232,8 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         <div className="connect-appbar-brand">
           <div className="connect-appbar-mark">g</div>
           <div className="connect-appbar-title">
-            <strong>gosshd</strong>
-            <span>{t("shellProduct")}</span>
+            <strong>{name}</strong>
+            <span>{description}</span>
           </div>
         </div>
 

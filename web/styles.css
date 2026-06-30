@@ -567,43 +567,6 @@ html[data-theme="dark"] .theme-switch {
   gap: 10px;
 }
 
-.hud-line {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto;
-  align-items: center;
-  gap: 14px;
-  margin: -6px 0 18px;
-  color: #9fb3c9;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-}
-
-.hud-line::before {
-  height: 1px;
-  content: "";
-  background: linear-gradient(90deg, rgba(103, 232, 249, 0.62), rgba(114, 242, 166, 0.22), transparent);
-  box-shadow: 0 0 18px rgba(103, 232, 249, 0.52);
-}
-
-.hud-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 26px;
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  padding: 0 10px;
-  background: rgba(2, 6, 12, 0.54);
-}
-
-.hud-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent-2);
-  box-shadow: 0 0 16px rgba(114, 242, 166, 0.92);
-}
-
 .metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
@@ -5061,6 +5024,32 @@ body.is-resizing-connect {
   overflow-wrap: anywhere;
 }
 
+.transfer-modal {
+  min-width: min(560px, 82vw);
+}
+
+.transfer-browser {
+  display: grid;
+  gap: 7px;
+  min-height: 0;
+}
+
+.transfer-browser .file-manager-path {
+  max-width: none;
+}
+
+.transfer-browser-body {
+  max-height: min(320px, 42vh);
+}
+
+.transfer-browser-body table {
+  table-layout: auto;
+}
+
+.transfer-browser-body td {
+  width: auto;
+}
+
 html[data-theme="light"] .connection-tabs {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 252, 255, 0.82));
   border-bottom-color: rgba(22, 96, 122, 0.14);
@@ -5450,8 +5439,7 @@ html[data-theme="dark"] .empty-state {
   .metrics, .grid.two, .grid.three, .grid.four {
     grid-template-columns: 1fr;
   }
-  .signal-panel,
-  .hud-line {
+  .signal-panel {
     grid-template-columns: 1fr;
   }
   .form-grid, .inline-form {

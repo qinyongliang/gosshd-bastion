@@ -30,6 +30,12 @@ func (a *App) handleAdminSettings(w http.ResponseWriter, r *http.Request, user s
 		return
 	}
 	out[settingAuth] = authConfig
+	brandingConfig, err := a.loadBrandingSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out[settingBranding] = brandingConfig
 	for _, key := range []string{settingDingTalk, settingLDAP} {
 		setting, err := a.store.Repository().GetSystemSetting(r.Context(), key)
 		if isNotFound(err) {
@@ -48,6 +54,25 @@ func (a *App) handleAdminSettings(w http.ResponseWriter, r *http.Request, user s
 		out[key] = value
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) handleUpdateBrandingSettings(w http.ResponseWriter, r *http.Request, user store.User) {
+	var req brandingSettings
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	branding := normalizeBrandingSettings(req)
+	payload, err := json.Marshal(branding)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := a.store.Repository().UpsertSystemSetting(r.Context(), settingBranding, payload, user.ID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{settingBranding: branding})
 }
 
 func (a *App) handleUpdateAuthSettings(w http.ResponseWriter, r *http.Request, user store.User) {
