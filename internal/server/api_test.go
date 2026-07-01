@@ -579,6 +579,45 @@ func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
 	}
 }
 
+func TestAPIBatchCommandHistories(t *testing.T) {
+	srv, client, _ := newAPITestServer(t)
+	defer srv.Close()
+	registerForAPI(t, client, srv.URL, "batch-owner@example.com")
+
+	var org apiOrganizationResponse
+	postJSON(t, client, srv.URL+"/api/orgs", map[string]string{"name": "Batch Ops", "slug": "batch-ops"}, http.StatusCreated, &org)
+	for _, command := range []string{"uptime", "df -h", "uptime", "docker ps"} {
+		var recorded apiBatchCommandHistoryResponse
+		postJSON(t, client, srv.URL+"/api/batch-command-histories", map[string]string{
+			"owner_type": "organization",
+			"owner_id":   org.Organization.ID,
+			"command":    command,
+		}, http.StatusOK, &recorded)
+		if recorded.History.ID == "" || recorded.History.OwnerID != org.Organization.ID {
+			t.Fatalf("recorded history mismatch: %+v", recorded)
+		}
+	}
+
+	var listed apiBatchCommandHistoriesResponse
+	getJSON(t, client, srv.URL+"/api/batch-command-histories?owner_type=organization&owner_id="+org.Organization.ID+"&page=1&page_size=10", http.StatusOK, &listed)
+	if listed.Total != 3 || len(listed.Histories) != 3 || listed.Page != 1 || listed.PageSize != 10 {
+		t.Fatalf("history list mismatch: %+v", listed)
+	}
+	if listed.Histories[0].Command != "uptime" || listed.Histories[0].ExecuteCount != 2 {
+		t.Fatalf("history should sort by execute count: %+v", listed.Histories)
+	}
+
+	var searched apiBatchCommandHistoriesResponse
+	getJSON(t, client, srv.URL+"/api/batch-command-histories?owner_type=organization&owner_id="+org.Organization.ID+"&query="+url.QueryEscape("dock"), http.StatusOK, &searched)
+	if searched.Total != 1 || len(searched.Histories) != 1 || searched.Histories[0].Command != "docker ps" {
+		t.Fatalf("history search mismatch: %+v", searched)
+	}
+
+	outsider := apiClient(t)
+	registerForAPI(t, outsider, srv.URL, "batch-outsider@example.com")
+	getJSON(t, outsider, srv.URL+"/api/batch-command-histories?owner_type=organization&owner_id="+org.Organization.ID, http.StatusForbidden, nil)
+}
+
 func TestAPIOrganizationDefaultAndCustomUserGroups(t *testing.T) {
 	srv, alice, _ := newAPITestServer(t)
 	defer srv.Close()

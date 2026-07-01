@@ -12,11 +12,13 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/bastion"
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
@@ -28,6 +30,7 @@ import (
 )
 
 const webConsolePublicKeyName = "Web console"
+const webFileEditorMaxBytes = 2 << 20
 
 type terminalWSMessage struct {
 	Type      string `json:"type"`
@@ -36,6 +39,7 @@ type terminalWSMessage struct {
 	Cols      int    `json:"cols,omitempty"`
 	Rows      int    `json:"rows,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
+	Enabled   *bool  `json:"enabled,omitempty"`
 }
 
 type terminalWSWriter struct {
@@ -72,6 +76,7 @@ type apiTargetSystemResponse struct {
 	OS          string                      `json:"os,omitempty"`
 	Hostname    string                      `json:"hostname,omitempty"`
 	IP          string                      `json:"ip,omitempty"`
+	PublicIP    string                      `json:"public_ip,omitempty"`
 	Uptime      string                      `json:"uptime,omitempty"`
 	Load        string                      `json:"load,omitempty"`
 	CPUPercent  float64                     `json:"cpu_percent"`
@@ -208,6 +213,8 @@ printf 'hostname=%s\n' "$(hostname 2>/dev/null || uname -n 2>/dev/null)"
 ipaddr="$(hostname -I 2>/dev/null | awk '{print $1}')"
 if [ -z "$ipaddr" ]; then ipaddr="$(ip -4 addr show scope global 2>/dev/null | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}')"; fi
 printf 'ip=%s\n' "$ipaddr"
+public_ip="$(curl -fsS --max-time 3 ifconfig.me 2>/dev/null | tr -d '\r\n' | awk '{print $1}')"
+printf 'public_ip=%s\n' "$public_ip"
 printf 'uptime=%s\n' "$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
 printf 'load=%s\n' "$(awk '{print $1 ", " $2 ", " $3}' /proc/loadavg 2>/dev/null)"
 awk '/^cpu /{print "cpu1="$0}' /proc/stat 2>/dev/null
@@ -226,6 +233,9 @@ Write-Output "os=windows"
 Write-Output ("hostname={0}" -f $env:COMPUTERNAME)
 $ips = Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -and $_.IPAddress } | Select-Object -First 1
 if ($ips) { Write-Output ("ip={0}" -f ($ips.IPAddress | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)) }
+$publicIP = (& curl.exe -fsS --max-time 3 ifconfig.me) -join ""
+if (-not $publicIP) { $publicIP = Invoke-RestMethod -Uri "https://ifconfig.me" -TimeoutSec 3 }
+if ($publicIP) { Write-Output ("public_ip={0}" -f $publicIP.Trim()) }
 $os = Get-CimInstance Win32_OperatingSystem
 if ($os) {
   $uptime = (Get-Date) - $os.LastBootUpTime
@@ -275,6 +285,8 @@ func parseTargetSystemProbe(out string) (apiTargetSystemResponse, bool) {
 			snapshot.Hostname = value
 		case "ip":
 			snapshot.IP = value
+		case "public_ip":
+			snapshot.PublicIP = value
 		case "uptime":
 			snapshot.Uptime = value
 		case "load":
@@ -534,6 +546,10 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 			}
 		case "heartbeat":
 			session.heartbeat()
+		case "ai-collaboration":
+			if msg.Enabled != nil {
+				session.setAICollaborationEnabled(*msg.Enabled)
+			}
 		case "close":
 			session.close("browser closed")
 			return
@@ -664,6 +680,12 @@ type apiTargetFileStatResponse struct {
 	Items     int64 `json:"items"`
 }
 
+type apiTargetFileReadResponse struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Modified string `json:"modified_at,omitempty"`
+}
+
 func (a *App) handleTargetFiles(w http.ResponseWriter, r *http.Request, user store.User) {
 	target, decision, _, allowDownload, ok := a.authorizeTargetSFTP(w, r, user, "list")
 	if !ok {
@@ -698,6 +720,7 @@ func (a *App) handleTargetFiles(w http.ResponseWriter, r *http.Request, user sto
 		}
 		out.Entries = append(out.Entries, apiFileEntry(dir, info, targetInfo))
 	}
+	sortFileEntries(out.Entries, r.URL.Query().Get("sort"), r.URL.Query().Get("order"))
 	a.auditWebSFTP(r.Context(), user, target, decision, "sftp list "+dir, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r))
 	writeJSON(w, http.StatusOK, out)
 }
@@ -838,6 +861,168 @@ func (a *App) handleTargetFileUpload(w http.ResponseWriter, r *http.Request, use
 	}
 	a.auditWebSFTP(r.Context(), user, target, decision, fmt.Sprintf("sftp upload %s (%d bytes)", destPath, written), decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r))
 	writeJSON(w, http.StatusCreated, map[string]any{"path": destPath, "size": written})
+}
+
+func (a *App) handleTargetFileRead(w http.ResponseWriter, r *http.Request, user store.User) {
+	target, decision, _, allowDownload, ok := a.authorizeTargetSFTP(w, r, user, "read")
+	if !ok {
+		return
+	}
+	filePath := remotePathFromQuery(r)
+	if !allowDownload {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp read "+filePath, store.DecisionDeny, "download/read is not allowed", 126, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusForbidden, "SFTP read is not allowed by policy")
+		return
+	}
+	client, closeClient, err := a.openSFTPClient(r.Context(), target)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer closeClient()
+	info, err := client.Stat(filePath)
+	if err != nil {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp read "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if info.IsDir() {
+		writeError(w, http.StatusBadRequest, "cannot edit a directory")
+		return
+	}
+	if info.Size() > webFileEditorMaxBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "file is too large for web editor")
+		return
+	}
+	file, err := client.Open(filePath)
+	if err != nil {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp read "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, webFileEditorMaxBytes+1))
+	if err != nil {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp read "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if len(content) > webFileEditorMaxBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "file is too large for web editor")
+		return
+	}
+	if !utf8.Valid(content) {
+		writeError(w, http.StatusUnsupportedMediaType, "file is not valid UTF-8 text")
+		return
+	}
+	a.auditWebSFTP(r.Context(), user, target, decision, "sftp read "+filePath, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r))
+	writeJSON(w, http.StatusOK, apiTargetFileReadResponse{Path: filePath, Content: string(content), Modified: info.ModTime().UTC().Format(time.RFC3339)})
+}
+
+func (a *App) handleTargetFileWrite(w http.ResponseWriter, r *http.Request, user store.User) {
+	target, decision, allowUpload, _, ok := a.authorizeTargetSFTP(w, r, user, "write")
+	if !ok {
+		return
+	}
+	var body struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	filePath := cleanRemoteBodyPath(body.Path)
+	if filePath == "" || filePath == "." || filePath == "/" {
+		writeError(w, http.StatusBadRequest, "invalid path")
+		return
+	}
+	if !allowUpload {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp write "+filePath, store.DecisionDeny, "upload/write is not allowed", 126, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusForbidden, "SFTP write is not allowed by policy")
+		return
+	}
+	if len([]byte(body.Content)) > webFileEditorMaxBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "file is too large for web editor")
+		return
+	}
+	if !utf8.ValidString(body.Content) {
+		writeError(w, http.StatusUnsupportedMediaType, "content is not valid UTF-8 text")
+		return
+	}
+	client, closeClient, err := a.openSFTPClient(r.Context(), target)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer closeClient()
+	file, err := client.Create(filePath)
+	if err != nil {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp write "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	_, writeErr := io.WriteString(file, body.Content)
+	closeErr := file.Close()
+	if writeErr != nil {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp write "+filePath, decision.Action, writeErr.Error(), 255, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusBadGateway, writeErr.Error())
+		return
+	}
+	if closeErr != nil {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp write "+filePath, decision.Action, closeErr.Error(), 255, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusBadGateway, closeErr.Error())
+		return
+	}
+	a.auditWebSFTP(r.Context(), user, target, decision, "sftp write "+filePath, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r))
+	writeJSON(w, http.StatusOK, map[string]any{"path": filePath, "size": len([]byte(body.Content))})
+}
+
+func (a *App) handleTargetFileTouch(w http.ResponseWriter, r *http.Request, user store.User) {
+	target, decision, allowUpload, _, ok := a.authorizeTargetSFTP(w, r, user, "touch")
+	if !ok {
+		return
+	}
+	var body struct {
+		Path string `json:"path"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	filePath := cleanRemoteBodyPath(body.Path)
+	if filePath == "" || filePath == "." || filePath == "/" {
+		writeError(w, http.StatusBadRequest, "invalid path")
+		return
+	}
+	if !allowUpload {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp touch "+filePath, store.DecisionDeny, "upload/write is not allowed", 126, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusForbidden, "SFTP touch is not allowed by policy")
+		return
+	}
+	client, closeClient, err := a.openSFTPClient(r.Context(), target)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer closeClient()
+	if _, err := client.Stat(filePath); err == nil {
+		writeError(w, http.StatusConflict, "file already exists")
+		return
+	}
+	file, err := client.Create(filePath)
+	if err != nil {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp touch "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if err := file.Close(); err != nil {
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp touch "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r))
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	a.auditWebSFTP(r.Context(), user, target, decision, "sftp touch "+filePath, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r))
+	writeJSON(w, http.StatusCreated, map[string]any{"path": filePath})
 }
 
 func (a *App) handleTargetFileStat(w http.ResponseWriter, r *http.Request, user store.User) {
@@ -1112,6 +1297,62 @@ func sftpCopyPath(client *sftp.Client, source, destination string) error {
 		return copyErr
 	}
 	return closeErr
+}
+
+func sortFileEntries(entries []apiTargetFileEntry, sortKey, order string) {
+	sortKey = strings.ToLower(strings.TrimSpace(sortKey))
+	desc := strings.EqualFold(strings.TrimSpace(order), "desc")
+	if sortKey == "" {
+		sortKey = "name"
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		left := entries[i]
+		right := entries[j]
+		var less bool
+		switch sortKey {
+		case "size":
+			if left.Size == right.Size {
+				less = strings.ToLower(left.Name) < strings.ToLower(right.Name)
+			} else {
+				less = left.Size < right.Size
+			}
+		case "mode", "permission", "permissions":
+			if left.Mode == right.Mode {
+				less = strings.ToLower(left.Name) < strings.ToLower(right.Name)
+			} else {
+				less = left.Mode < right.Mode
+			}
+		case "modified", "modified_at", "mtime":
+			if left.ModifiedAt == right.ModifiedAt {
+				less = strings.ToLower(left.Name) < strings.ToLower(right.Name)
+			} else {
+				less = left.ModifiedAt < right.ModifiedAt
+			}
+		default:
+			if left.Type != right.Type {
+				less = left.Type == "dir"
+			} else {
+				less = strings.ToLower(left.Name) < strings.ToLower(right.Name)
+			}
+		}
+		if desc {
+			return !less && !sameFileEntrySortValue(left, right, sortKey)
+		}
+		return less
+	})
+}
+
+func sameFileEntrySortValue(left, right apiTargetFileEntry, sortKey string) bool {
+	switch sortKey {
+	case "size":
+		return left.Size == right.Size && strings.EqualFold(left.Name, right.Name)
+	case "mode", "permission", "permissions":
+		return left.Mode == right.Mode && strings.EqualFold(left.Name, right.Name)
+	case "modified", "modified_at", "mtime":
+		return left.ModifiedAt == right.ModifiedAt && strings.EqualFold(left.Name, right.Name)
+	default:
+		return left.Type == right.Type && strings.EqualFold(left.Name, right.Name)
+	}
 }
 
 func copyRemoteFileToOpenTemp(reader io.Reader, name string) (string, error) {
