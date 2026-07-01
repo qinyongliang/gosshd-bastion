@@ -2093,7 +2093,7 @@ html[data-theme="dark"] .tag-input-menu {
 .target-folder-row,
 .target-tree-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(120px, 0.6fr) minmax(120px, 0.7fr) auto;
+  grid-template-columns: minmax(260px, 1.2fr) minmax(160px, 1fr) minmax(120px, 0.6fr) minmax(120px, 0.7fr) auto;
   align-items: center;
   gap: 10px;
   min-height: 38px;
@@ -2106,6 +2106,10 @@ html[data-theme="dark"] .tag-input-menu {
   background: rgba(103, 232, 249, 0.06);
 }
 
+.target-folder-row.selecting {
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+}
+
 .target-folder-main,
 .target-tree-main {
   display: inline-flex;
@@ -2116,6 +2120,30 @@ html[data-theme="dark"] .tag-input-menu {
   background: transparent;
   color: var(--ink);
   text-align: left;
+  justify-self: start;
+}
+
+.target-folder-main strong {
+  text-align: left;
+}
+
+.tree-check {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tree-check:hover {
+  transform: none;
+  background: rgba(103, 232, 249, 0.12);
+  box-shadow: none;
 }
 
 .target-folder-main:hover {
@@ -2140,6 +2168,46 @@ html[data-theme="dark"] .tag-input-menu {
   display: grid;
   gap: 2px;
   padding-left: 18px;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--panel);
+}
+
+.batch-toolbar span {
+  margin-right: auto;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.folder-picker-tree {
+  display: grid;
+  gap: 2px;
+  max-height: min(420px, 54dvh);
+  overflow: auto;
+}
+
+.folder-picker-tree button {
+  justify-content: flex-start;
+  min-height: 34px;
+  padding-left: calc(10px + var(--tree-depth, 0) * 18px);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.folder-picker-tree button.active,
+.folder-picker-tree button:hover {
+  transform: none;
+  background: rgba(103, 232, 249, 0.12);
+  box-shadow: none;
 }
 
 .member-card-list {
@@ -3663,7 +3731,7 @@ html[data-theme="dark"] .server-switcher-search {
 .server-switcher-item {
   position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
   min-height: 56px;
@@ -3690,6 +3758,25 @@ html[data-theme="dark"] .server-switcher-search {
 html[data-theme="dark"] .server-switcher-item {
   color: var(--ink);
   background: transparent;
+}
+
+.server-switcher-folder {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 4px 8px 4px calc(8px + var(--tree-depth, 0) * 16px);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.server-switcher-folder svg {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
 }
 
 .server-switcher-item:hover,
@@ -4043,10 +4130,10 @@ html[data-theme="dark"] .connection-tab.active {
 .connect-body {
   display: grid;
   grid-template-columns: var(--host-width, 248px) 4px minmax(0, 1fr);
-  gap: 4px;
+  gap: 0;
   min-height: 0;
   height: 100%;
-  padding: 4px;
+  padding: 0;
   overflow: hidden;
 }
 
@@ -4525,7 +4612,7 @@ body.is-resizing-connect {
 .connect-main {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) 4px var(--files-width, 330px);
-  gap: 4px;
+  gap: 0;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -4548,13 +4635,13 @@ body.is-resizing-connect {
 .connect-zone {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 4px;
+  gap: 0;
   min-width: 0;
   min-height: 0;
   max-height: 100%;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 4px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
   background: rgba(3, 8, 16, 0.72);
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   backdrop-filter: blur(14px);
@@ -4580,6 +4667,26 @@ body.is-resizing-connect {
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+.terminal-tab-layer {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-tab-layer.inactive {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.terminal-tab-layer.active {
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 1;
 }
 
 .connect-zone-empty {
@@ -4838,8 +4945,8 @@ body.is-resizing-connect {
 .terminal-viewport {
   min-height: 0;
   height: 100%;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: 0;
+  border-radius: 0;
   padding: 0;
   color: #dbeafe;
   background: radial-gradient(circle at 18% 0%, rgba(14, 165, 183, 0.18), transparent 30%), #08111e;
@@ -5854,8 +5961,15 @@ html[data-theme="dark"] .manual-review-card {
 .editor-pane {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
   background: #08111e;
   color: #dbeafe;
+}
+
+.editor-pane .monaco-editor,
+.editor-pane .monaco-editor-background,
+.editor-pane .overflow-guard {
+  height: 100% !important;
 }
 
 .editor-pane-head {
@@ -5883,7 +5997,7 @@ html[data-theme="dark"] .manual-review-card {
 }
 
 .editor-pane-error {
-  padding: 6px 8px;
+  padding: 6px 8px 6px calc(8px + var(--tree-depth, 0) * 16px);
   color: #fecdd3;
   background: rgba(127, 29, 29, 0.55);
   font-size: 12px;

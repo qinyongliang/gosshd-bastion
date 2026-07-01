@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -306,6 +307,59 @@ func (a *App) handleDeleteTarget(w http.ResponseWriter, r *http.Request, user st
 		return
 	}
 	writeJSON(w, http.StatusNoContent, nil)
+}
+
+func (a *App) handleCopyTarget(w http.ResponseWriter, r *http.Request, user store.User) {
+	current, err := a.store.Repository().GetSSHTarget(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, _, err := a.resolveOwner(r.Context(), current.OwnerType, current.OwnerID, user.ID); err != nil {
+		writeOwnerError(w, err)
+		return
+	}
+	targets, err := a.store.Repository().ListSSHTargets(r.Context(), current.OwnerType, current.OwnerID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	used := map[string]bool{}
+	for _, target := range targets {
+		used[target.Alias] = true
+	}
+	alias := nextCopyAlias(current.Alias, used)
+	name := strings.TrimSpace(current.Name) + " copy"
+	if strings.TrimSpace(current.Name) == "" {
+		name = alias
+	}
+	copied, err := a.store.Repository().CreateSSHTarget(r.Context(), store.CreateSSHTargetParams{
+		OwnerType:       current.OwnerType,
+		OwnerID:         current.OwnerID,
+		Name:            name,
+		Alias:           alias,
+		TargetType:      current.TargetType,
+		Host:            current.Host,
+		Port:            current.Port,
+		RemoteUsername:  current.RemoteUsername,
+		AuthType:        current.AuthType,
+		EncryptedSecret: append([]byte(nil), current.EncryptedSecret...),
+		AgentID:         current.AgentID,
+		ProxyTargetID:   current.ProxyTargetID,
+		CredentialID:    current.CredentialID,
+		FolderID:        current.FolderID,
+		Tags:            append([]string(nil), current.Tags...),
+		CreatedBy:       user.ID,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, apiTargetResponse{Target: apiTargetFromStore(copied)})
 }
 
 func (a *App) handleUpdateTargetTagColor(w http.ResponseWriter, r *http.Request, user store.User) {
@@ -618,6 +672,23 @@ func (a *App) validateTargetFolder(ctx context.Context, ownerType, ownerID, fold
 		return errors.New("folder belongs to another owner")
 	}
 	return nil
+}
+
+func nextCopyAlias(alias string, used map[string]bool) string {
+	base := strings.TrimSpace(alias)
+	if base == "" {
+		base = "target"
+	}
+	for index := 1; ; index++ {
+		suffix := "_copy"
+		if index > 1 {
+			suffix = fmt.Sprintf("_copy_%d", index)
+		}
+		next := base + suffix
+		if !used[next] {
+			return next
+		}
+	}
 }
 
 func apiTargetFromStore(target store.SSHTarget) apiTarget {
