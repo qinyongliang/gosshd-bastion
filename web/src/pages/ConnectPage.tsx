@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import Editor from "@monaco-editor/react";
+import type { OnMount } from "@monaco-editor/react";
 import { Terminal } from "@xterm/xterm";
 import { Activity, ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Cpu, Folder, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
@@ -789,6 +790,10 @@ function SplitPaneView({
 function EditorPane({ target, filePath, active, onActivate, onClose }: { target: Target; filePath: string; active: boolean; onActivate: () => void; onClose: () => void }) {
   const { t } = useI18n();
   const { theme } = useTheme();
+  const editorHostRef = useRef<HTMLDivElement>(null);
+  const editorLayoutRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const editorLayoutFrameRef = useRef<number | null>(null);
+  const editorLayoutRetryRef = useRef<number | null>(null);
   const file = useQuery({
     queryKey: ["target-file-read", target.id, filePath],
     queryFn: () => api.readFile(target.id, filePath),
@@ -839,6 +844,51 @@ function EditorPane({ target, filePath, active, onActivate, onClose }: { target:
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [active, content, dirty, filePath, target.id]);
 
+  const layoutEditor = () => {
+    const host = editorHostRef.current;
+    const editor = editorLayoutRef.current;
+    if (!host || !editor) return;
+    const rect = host.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    editor.layout({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
+  };
+
+  const scheduleEditorLayout = () => {
+    if (editorLayoutFrameRef.current) window.cancelAnimationFrame(editorLayoutFrameRef.current);
+    editorLayoutFrameRef.current = window.requestAnimationFrame(() => {
+      editorLayoutFrameRef.current = null;
+      layoutEditor();
+    });
+  };
+
+  useEffect(() => {
+    const host = editorHostRef.current;
+    if (!host) return;
+    const resizeObserver = new ResizeObserver(scheduleEditorLayout);
+    resizeObserver.observe(host);
+    scheduleEditorLayout();
+    return () => {
+      resizeObserver.disconnect();
+      if (editorLayoutFrameRef.current) window.cancelAnimationFrame(editorLayoutFrameRef.current);
+      if (editorLayoutRetryRef.current) window.clearTimeout(editorLayoutRetryRef.current);
+      editorLayoutFrameRef.current = null;
+      editorLayoutRetryRef.current = null;
+    };
+  }, [file.data?.path]);
+
+  useEffect(() => {
+    scheduleEditorLayout();
+    const retry = window.setTimeout(scheduleEditorLayout, 80);
+    return () => window.clearTimeout(retry);
+  }, [active, filePath, theme, file.isLoading, Boolean(error)]);
+
+  const mountEditor: OnMount = (editor) => {
+    editorLayoutRef.current = editor;
+    scheduleEditorLayout();
+    if (editorLayoutRetryRef.current) window.clearTimeout(editorLayoutRetryRef.current);
+    editorLayoutRetryRef.current = window.setTimeout(scheduleEditorLayout, 80);
+  };
+
   return (
     <section className={`editor-pane pane-leaf ${active ? "active" : ""}`} onPointerDown={onActivate}>
       <header className="editor-pane-head">
@@ -858,14 +908,19 @@ function EditorPane({ target, filePath, active, onActivate, onClose }: { target:
       ) : file.error ? (
         <div className="connect-zone-empty"><span>{file.error instanceof Error ? file.error.message : String(file.error)}</span></div>
       ) : (
-        <Editor
-          height="100%"
-          theme={theme === "dark" ? "vs-dark" : "light"}
-          path={filePath}
-          value={content}
-          onChange={(value) => setContent(value ?? "")}
-          options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true }}
-        />
+        <div className="editor-monaco-host" ref={editorHostRef}>
+          <Editor
+            className="editor-pane-monaco"
+            height="100%"
+            width="100%"
+            theme={theme === "dark" ? "vs-dark" : "light"}
+            path={filePath}
+            value={content}
+            onMount={mountEditor}
+            onChange={(value) => setContent(value ?? "")}
+            options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true }}
+          />
+        </div>
       )}
     </section>
   );
@@ -1550,7 +1605,6 @@ function ServerSwitcher({
                 <span className="server-switcher-main">
                   <strong>{treeItem.target.name}</strong>
                   <code>{treeItem.target.alias}</code>
-                  {folderPathByTarget[treeItem.target.id] && <small>{folderPathByTarget[treeItem.target.id]}</small>}
                   <small>{targetEndpoint(treeItem.target)}</small>
                   <span className="server-switcher-tags">
                     {(treeItem.target.tags || []).map((tag) => (
