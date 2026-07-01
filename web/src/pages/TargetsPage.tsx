@@ -12,6 +12,8 @@ import { formSubmit, formValues } from "../lib/forms";
 import type { ConsoleData, Target, TargetFolder } from "../types";
 import { splitTags, tagColor, targetEndpoint } from "../utils";
 
+let connectWindowRef: Window | null = null;
+
 export function TargetsPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -69,7 +71,8 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
     }
     if (data.userSettings.connect_open_mode === "tab") {
       if (attachExisting && openInExistingConnectWindow(path, id)) return;
-      window.open(path, attachExisting ? "gosshd-connect" : "_blank", attachExisting ? "" : "noopener=yes,noreferrer=yes");
+      const opened = window.open(path, attachExisting ? "gosshd-connect" : "_blank", attachExisting ? "" : "noopener=yes,noreferrer=yes");
+      if (attachExisting) connectWindowRef = opened;
       return;
     }
     const width = 1200;
@@ -87,7 +90,8 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
       ...(!attachExisting ? ["noopener=yes", "noreferrer=yes"] : []),
     ].join(",");
     if (attachExisting && openInExistingConnectWindow(path, id)) return;
-    window.open(path, attachExisting ? "gosshd-connect" : `connect-${id}`, features);
+    const opened = window.open(path, attachExisting ? "gosshd-connect" : `connect-${id}`, features);
+    if (attachExisting) connectWindowRef = opened;
   }
 
   function toggleSelected(id: string) {
@@ -743,20 +747,20 @@ function openInExistingConnectWindow(path: string, targetID: string) {
   try {
     const raw = window.localStorage.getItem("gosshd-connect-window-online");
     const state = raw ? JSON.parse(raw) as { at?: number } : null;
-    online = Boolean(state?.at && Date.now() - state.at < 5000);
+    online = Boolean(state?.at && Date.now() - state.at < 2500);
   } catch {
     online = false;
   }
   if (!online) return false;
   const command = new URL(path, window.location.origin).searchParams.get("command") || "";
   const message = { type: "gosshd-connect-open-target", targetID, command, at: Date.now(), messageID: `${targetID}:${Date.now()}:${Math.random().toString(36).slice(2)}` };
-  const connectWindow = window.open("", "gosshd-connect");
-  connectWindow?.postMessage(message, window.location.origin);
+  if (connectWindowRef?.closed) connectWindowRef = null;
+  connectWindowRef?.postMessage(message, window.location.origin);
   try {
     window.localStorage.setItem("gosshd-connect-open", JSON.stringify(message));
   } catch {
-    // Ignore storage failures; direct postMessage is the primary path.
+    // Ignore storage failures; direct postMessage is the primary path when this page opened the window.
   }
-  connectWindow?.focus();
+  connectWindowRef?.focus();
   return true;
 }
