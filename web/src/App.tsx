@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ApiError, api } from "./api";
 import { ManualReviewPoller } from "./components/ManualReviewPoller";
@@ -9,7 +9,6 @@ import { Shell } from "./layout/Shell";
 import { documentTitle } from "./lib/branding";
 import { AuditPage } from "./pages/AuditPage";
 import { AuthPage } from "./pages/AuthPage";
-import { ConnectPage } from "./pages/ConnectPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { KeysPage } from "./pages/KeysPage";
 import { LocalTerminalPage } from "./pages/LocalTerminalPage";
@@ -19,6 +18,8 @@ import { PoliciesPage } from "./pages/PoliciesPage";
 import { SystemAdminPage } from "./pages/SystemAdminPage";
 import { TargetsPage } from "./pages/TargetsPage";
 import type { ConsoleData, Organization, Runtime, User } from "./types";
+
+const ConnectPage = lazy(() => import("./pages/ConnectPage").then((module) => ({ default: module.ConnectPage })));
 
 export function App() {
   const providers = useQuery({ queryKey: ["providers"], queryFn: api.authProviders });
@@ -51,7 +52,7 @@ function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[];
     <>
       {!isConnectPage && !isClientTerminalPage && <ManualReviewPoller data={data} />}
       <Routes>
-        <Route path="/targets/:targetID/connect" element={<ConnectPage data={data} />} />
+        <Route path="/targets/:targetID/connect" element={<Suspense fallback={<Loading />}><ConnectPage data={data} /></Suspense>} />
         {isClientMode && <Route path="/local-terminal" element={<LocalTerminalPage data={data} />} />}
         <Route path="*" element={isClientMode ? (
           <ClientDesktopFrame>

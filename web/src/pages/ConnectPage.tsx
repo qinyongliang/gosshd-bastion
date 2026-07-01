@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import Editor from "@monaco-editor/react";
-import type { OnMount } from "@monaco-editor/react";
+import Editor, { loader } from "@monaco-editor/react";
+import type { BeforeMount, Monaco, OnMount } from "@monaco-editor/react";
+import * as monaco from "monaco-editor";
+import "monaco-editor-nginx";
 import { Terminal } from "@xterm/xterm";
 import { Activity, ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Cpu, Folder, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
@@ -16,6 +18,11 @@ import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } fro
 import { tagColor, targetEndpoint } from "../utils";
 import { FileManager } from "./FileManager";
 import aiCollaborationIcon from "../assets/ai-collaboration.png";
+
+let monacoConfigured = false;
+loader.config({ monaco });
+
+const FALLBACK_EDITOR_LANGUAGE = "gosshd-config-fallback";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 type MetricSample = {
@@ -62,6 +69,7 @@ const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 const SYSTEM_REFRESH_MS = 5000;
 const MAX_SYSTEM_SAMPLES = 60;
+const EDITOR_PANE_CLOSE_REQUEST = "gosshd-editor-pane-close-request";
 type TerminalPanelProps = {
   data: ConsoleData;
   target: Target;
@@ -312,6 +320,11 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
 
   const closeActivePane = () => {
     if (!activeTab) return;
+    const pane = findPane(activeTab.layout, activeTab.activePaneID);
+    if (pane?.type === "editor") {
+      window.dispatchEvent(new CustomEvent(EDITOR_PANE_CLOSE_REQUEST, { detail: { paneID: pane.id } }));
+      return;
+    }
     closePane(activeTab.id, activeTab.activePaneID);
   };
 
@@ -723,7 +736,7 @@ function PaneTree({
   const active = tabActive && node.id === activePaneID;
   const activate = () => onActivate(node.id);
   if (node.type === "editor") {
-    return <EditorPane target={target} filePath={node.path} active={active} onActivate={activate} onClose={() => onClose(node.id)} />;
+    return <EditorPane paneID={node.id} target={target} filePath={node.path} active={active} onActivate={activate} onClose={() => onClose(node.id)} />;
   }
   return (
     <div className={`pane-leaf ${active ? "active" : ""}`} onPointerDown={activate}>
@@ -799,7 +812,7 @@ function SplitPaneView({
   );
 }
 
-function EditorPane({ target, filePath, active, onActivate, onClose }: { target: Target; filePath: string; active: boolean; onActivate: () => void; onClose: () => void }) {
+function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: { paneID: string; target: Target; filePath: string; active: boolean; onActivate: () => void; onClose: () => void }) {
   const { t } = useI18n();
   const { theme } = useTheme();
   const editorHostRef = useRef<HTMLDivElement>(null);
@@ -814,6 +827,8 @@ function EditorPane({ target, filePath, active, onActivate, onClose }: { target:
   const [savedContent, setSavedContent] = useState("");
   const [error, setError] = useState("");
   const dirty = content !== savedContent;
+  const editorLanguage = inferEditorLanguage(filePath);
+  const editorTheme = editorLanguage === "nginx" ? (theme === "dark" ? "nginx-theme-dark" : "nginx-theme") : (theme === "dark" ? "vs-dark" : "light");
 
   useEffect(() => {
     if (!file.data) return;
@@ -856,6 +871,16 @@ function EditorPane({ target, filePath, active, onActivate, onClose }: { target:
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [active, content, dirty, filePath, target.id]);
 
+  useEffect(() => {
+    if (!active) return;
+    const onCloseRequest = (event: Event) => {
+      const paneIDToClose = (event as CustomEvent<{ paneID?: string }>).detail?.paneID || "";
+      if (paneIDToClose === paneID) close();
+    };
+    window.addEventListener(EDITOR_PANE_CLOSE_REQUEST, onCloseRequest);
+    return () => window.removeEventListener(EDITOR_PANE_CLOSE_REQUEST, onCloseRequest);
+  }, [active, content, dirty, filePath, paneID, target.id]);
+
   const layoutEditor = () => {
     const host = editorHostRef.current;
     const editor = editorLayoutRef.current;
@@ -894,8 +919,24 @@ function EditorPane({ target, filePath, active, onActivate, onClose }: { target:
     return () => window.clearTimeout(retry);
   }, [active, filePath, theme, file.isLoading, Boolean(error)]);
 
-  const mountEditor: OnMount = (editor) => {
+  const beforeMountEditor: BeforeMount = (monaco) => {
+    configureMonaco(monaco);
+  };
+
+  const mountEditor: OnMount = (editor, monaco) => {
+    configureMonaco(monaco);
     editorLayoutRef.current = editor;
+    editor.addAction({
+      id: "gosshd-toggle-line-comment",
+      label: "Toggle line comment",
+      keybindings: [
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash,
+        monaco.KeyMod.Alt | monaco.KeyCode.Slash,
+      ],
+      run: (instance) => {
+        instance.trigger("gosshd", "editor.action.commentLine", null);
+      },
+    });
     scheduleEditorLayout();
     if (editorLayoutRetryRef.current) window.clearTimeout(editorLayoutRetryRef.current);
     editorLayoutRetryRef.current = window.setTimeout(scheduleEditorLayout, 80);
@@ -925,17 +966,114 @@ function EditorPane({ target, filePath, active, onActivate, onClose }: { target:
             className="editor-pane-monaco"
             height="100%"
             width="100%"
-            theme={theme === "dark" ? "vs-dark" : "light"}
+            theme={editorTheme}
             path={filePath}
+            language={editorLanguage}
             value={content}
+            wrapperProps={{ className: "editor-monaco-wrapper" }}
+            beforeMount={beforeMountEditor}
             onMount={mountEditor}
             onChange={(value) => setContent(value ?? "")}
-            options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true }}
+            options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true, fixedOverflowWidgets: true }}
           />
         </div>
       )}
     </section>
   );
+}
+
+function inferEditorLanguage(path: string) {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  const filename = normalized.split("/").pop() || normalized;
+  if (/(^|\/)nginx(\/|$)/.test(normalized) || filename === "nginx.conf" || filename.endsWith(".nginx") || filename.endsWith(".nginx.conf")) return "nginx";
+  if (filename === "dockerfile" || filename.startsWith("dockerfile.")) return "dockerfile";
+  if (filename === "compose.yaml" || filename === "compose.yml" || filename === "docker-compose.yaml" || filename === "docker-compose.yml") return "yaml";
+  if (filename === "makefile" || filename === "gnumakefile") return "shell";
+  if (filename === "crontab" || filename === "hosts" || filename === "sudoers") return "shell";
+  if (filename === ".gitconfig" || filename === ".gitmodules" || filename === "gitconfig") return "ini";
+  if (filename.endsWith(".service") || filename.endsWith(".timer") || filename.endsWith(".socket") || filename.endsWith(".mount") || filename.endsWith(".target")) return "ini";
+  if (filename === ".env" || filename.endsWith(".env") || filename.startsWith(".env.")) return "shell";
+  if (filename.endsWith(".properties") || filename.endsWith(".propertis") || filename.endsWith(".props")) return "ini";
+  if (filename.endsWith(".conf") || filename.endsWith(".config") || filename.endsWith(".cfg") || filename.endsWith(".cnf") || filename.endsWith(".ini")) return "ini";
+  if (filename.endsWith(".yaml") || filename.endsWith(".yml")) return "yaml";
+  if (filename.endsWith(".json") || filename.endsWith(".jsonc")) return "json";
+  if (filename.endsWith(".toml")) return "ini";
+  if (filename.endsWith(".hcl") || filename.endsWith(".tf") || filename.endsWith(".tfvars")) return "hcl";
+  if (filename.endsWith(".xml") || filename.endsWith(".svg")) return "xml";
+  if (filename.endsWith(".html") || filename.endsWith(".htm")) return "html";
+  if (filename.endsWith(".vue") || filename.endsWith(".svelte")) return "html";
+  if (filename.endsWith(".css")) return "css";
+  if (filename.endsWith(".scss")) return "scss";
+  if (filename.endsWith(".less")) return "less";
+  if (filename.endsWith(".js") || filename.endsWith(".mjs") || filename.endsWith(".cjs")) return "javascript";
+  if (filename.endsWith(".ts") || filename.endsWith(".tsx")) return "typescript";
+  if (filename.endsWith(".jsx")) return "javascript";
+  if (filename.endsWith(".sh") || filename.endsWith(".bash") || filename.endsWith(".zsh") || filename.endsWith(".profile") || filename.endsWith(".bashrc") || filename.endsWith(".zshrc")) return "shell";
+  if (filename.endsWith(".ps1") || filename.endsWith(".psm1")) return "powershell";
+  if (filename.endsWith(".py")) return "python";
+  if (filename.endsWith(".go")) return "go";
+  if (filename.endsWith(".rs")) return "rust";
+  if (filename.endsWith(".java")) return "java";
+  if (filename.endsWith(".kt") || filename.endsWith(".kts")) return "kotlin";
+  if (filename.endsWith(".c") || filename.endsWith(".h") || filename.endsWith(".cc") || filename.endsWith(".cpp") || filename.endsWith(".cxx") || filename.endsWith(".hpp")) return "cpp";
+  if (filename.endsWith(".cs")) return "csharp";
+  if (filename.endsWith(".php")) return "php";
+  if (filename.endsWith(".rb")) return "ruby";
+  if (filename.endsWith(".lua")) return "lua";
+  if (filename.endsWith(".pl") || filename.endsWith(".pm")) return "perl";
+  if (filename.endsWith(".r")) return "r";
+  if (filename.endsWith(".swift")) return "swift";
+  if (filename.endsWith(".scala")) return "scala";
+  if (filename.endsWith(".dart")) return "dart";
+  if (filename.endsWith(".ex") || filename.endsWith(".exs")) return "elixir";
+  if (filename.endsWith(".sol")) return "solidity";
+  if (filename.endsWith(".proto")) return "protobuf";
+  if (filename.endsWith(".graphql") || filename.endsWith(".gql")) return "graphql";
+  if (filename.endsWith(".sql")) return "sql";
+  if (filename.endsWith(".md") || filename.endsWith(".markdown")) return "markdown";
+  return FALLBACK_EDITOR_LANGUAGE;
+}
+
+function configureMonaco(instance: Monaco) {
+  if (monacoConfigured) return;
+  monacoConfigured = true;
+  const fallbackLanguageRegistered = instance.languages.getLanguages().some((language: { id: string }) => language.id === FALLBACK_EDITOR_LANGUAGE);
+  if (!fallbackLanguageRegistered) {
+    instance.languages.register({ id: FALLBACK_EDITOR_LANGUAGE });
+  }
+  instance.languages.setLanguageConfiguration(FALLBACK_EDITOR_LANGUAGE, {
+    comments: { lineComment: "#" },
+    brackets: [["{", "}"], ["(", ")"], ["[", "]"]],
+    autoClosingPairs: [
+      { open: "{", close: "}" },
+      { open: "(", close: ")" },
+      { open: "[", close: "]" },
+      { open: "\"", close: "\"" },
+      { open: "'", close: "'" },
+    ],
+  });
+  instance.languages.setLanguageConfiguration("dockerfile", {
+    comments: { lineComment: "#" },
+    brackets: [["{", "}"], ["(", ")"], ["[", "]"]],
+    autoClosingPairs: [
+      { open: "{", close: "}" },
+      { open: "(", close: ")" },
+      { open: "[", close: "]" },
+      { open: "\"", close: "\"" },
+      { open: "'", close: "'" },
+    ],
+  });
+  instance.languages.setLanguageConfiguration("nginx", {
+    comments: { lineComment: "#" },
+    brackets: [["{", "}"], ["(", ")"], ["[", "]"]],
+    autoClosingPairs: [
+      { open: "{", close: "}" },
+      { open: "(", close: ")" },
+      { open: "[", close: "]" },
+      { open: "\"", close: "\"" },
+      { open: "'", close: "'" },
+    ],
+  });
 }
 
 function SystemSnapshotPanel({ targetID }: { targetID: string }) {
@@ -1204,6 +1342,10 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
         const message = JSON.parse(event.data) as { type: string; data?: string; code?: number; cols?: number; rows?: number; session_id?: string };
         if (message.type === "output" && message.data !== undefined) {
           terminal.write(message.data);
+          if (isTerminalSessionClosedOutput(message.data)) {
+            updateStatus("disconnected");
+            setRuntimeSnapshot(runtime, { sessionID: "" });
+          }
         } else if (message.type === "error" && message.data !== undefined) {
           terminal.write(`\r\n\x1b[1;31m${message.data}\x1b[0m\r\n`);
           updateStatus("error");
@@ -1263,6 +1405,21 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       });
       terminal.open(container);
       runtime.terminal = terminal;
+
+      terminal.attachCustomKeyEventHandler((event) => {
+        if (runtime.status !== "disconnected" && runtime.status !== "error") return true;
+        if (event.type !== "keydown") return true;
+        const ctrlD = event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "d", "KeyD");
+        if (ctrlD) {
+          if (!event.repeat && runtime.active) runtime.onClose?.();
+          return false;
+        }
+        if (event.key === "Enter") {
+          if (!event.repeat) runtime.connect?.();
+          return false;
+        }
+        return true;
+      });
 
       runtime.disposables.push(terminal.onData((value) => {
         if (runtime.status === "disconnected" || runtime.status === "error") {
@@ -1743,6 +1900,10 @@ function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
 function setRuntimeSnapshot(runtime: TerminalRuntime, patch: Partial<Pick<TerminalRuntime, "status" | "error" | "dims" | "sessionID" | "aiEnabled">>) {
   Object.assign(runtime, patch);
   for (const listener of runtime.listeners) listener();
+}
+
+function isTerminalSessionClosedOutput(data: string) {
+  return data.includes("Session closed:");
 }
 
 function scheduleAllTerminalFits() {
