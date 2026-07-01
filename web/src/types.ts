@@ -84,6 +84,34 @@ export type Target = {
   endpoint?: string;
   agent_id?: string;
   proxy_target_id?: string;
+  credential_id?: string;
+  folder_id?: string;
+};
+
+export type SSHCredential = {
+  id: string;
+  owner_type: string;
+  owner_id: string;
+  name: string;
+  username: string;
+  auth_type: "password" | "private_key";
+  created_at: string;
+  updated_at: string;
+};
+
+export type TargetFolder = {
+  id: string;
+  owner_type: string;
+  owner_id: string;
+  parent_id?: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UserSettings = {
+  connect_open_mode: "popup" | "tab";
+  connect_attach_existing: boolean;
 };
 
 export type TargetTag = {
@@ -242,6 +270,9 @@ export type ConsoleData = {
   members: Member[];
   groups: UserGroup[];
   targets: Target[];
+  credentials: SSHCredential[];
+  targetFolders: TargetFolder[];
+  userSettings: UserSettings;
   policies: Policy[];
   llms: LLMConfig[];
   prompts: PromptResource[];
@@ -261,4 +292,10 @@ export type FileEntry = {
 export type FileProperties = FileEntry & {
   disk_usage: number;
   items: number;
+};
+
+export type FileReadResult = {
+  path: string;
+  content: string;
+  modified_at?: string;
 };

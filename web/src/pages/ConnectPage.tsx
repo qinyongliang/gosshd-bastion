@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import Editor from "@monaco-editor/react";
 import { Terminal } from "@xterm/xterm";
-import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Search, Server, X } from "lucide-react";
+import { Activity, ArrowDownToLine, ArrowLeft, ArrowRightToLine, ChevronLeft, ChevronRight, Cpu, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -13,6 +14,7 @@ import { useTheme } from "../theme";
 import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
 import { tagColor, targetEndpoint } from "../utils";
 import { FileManager } from "./FileManager";
+import aiCollaborationIcon from "../assets/ai-collaboration.png";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 type MetricSample = {
@@ -27,6 +29,31 @@ type MetricSample = {
 type ConnectionTab = {
   id: string;
   targetID: string;
+  layout: PaneNode;
+  activePaneID: string;
+};
+
+type PaneNode = TerminalPaneNode | EditorPaneNode | SplitPaneNode;
+type PaneDirection = "row" | "column";
+type PaneSide = "right" | "down";
+type TerminalPaneNode = {
+  type: "terminal";
+  id: string;
+  targetID: string;
+};
+type EditorPaneNode = {
+  type: "editor";
+  id: string;
+  targetID: string;
+  path: string;
+};
+type SplitPaneNode = {
+  type: "split";
+  id: string;
+  direction: PaneDirection;
+  ratio: number;
+  first: PaneNode;
+  second: PaneNode;
 };
 
 const DEFAULT_COLS = 120;
@@ -40,6 +67,7 @@ type TerminalPanelProps = {
   isFullscreen: boolean;
   onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
   onClose?: () => void;
+  onSplit?: (side: PaneSide) => void;
   manualReview?: boolean;
 };
 
@@ -84,7 +112,9 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const bodyRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const activeTab = tabs.find((item) => item.id === activeTabID) || tabs[0] || null;
-  const activeTarget = (activeTab ? targets.find((item) => item.id === activeTab.targetID) : null) || target;
+  const activePane = activeTab ? findPane(activeTab.layout, activeTab.activePaneID) : null;
+  const activeTargetID = activePane && activePane.type !== "split" ? activePane.targetID : activeTab?.targetID;
+  const activeTarget = (activeTargetID ? targets.find((item) => item.id === activeTargetID) : null) || target;
   const openTabs = tabs
     .map((tab) => ({ tab, target: targets.find((item) => item.id === tab.targetID) }))
     .filter((item): item is { tab: ConnectionTab; target: Target } => Boolean(item.target));
@@ -145,6 +175,51 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     navigate(`/targets/${nextTargetID}/connect`, { replace: true });
   };
 
+  const updateActiveTab = (updater: (tab: ConnectionTab) => ConnectionTab) => {
+    setTabs((current) => current.map((tab) => tab.id === activeTabID ? updater(tab) : tab));
+  };
+
+  const splitActivePane = (side: PaneSide, targetID?: string) => {
+    if (!activeTab) return;
+    const basePane = findPane(activeTab.layout, activeTab.activePaneID);
+    if (!basePane || basePane.type === "split") return;
+    const nextTargetID = targetID || basePane.targetID;
+    const nextPane = newTerminalPane(nextTargetID);
+    updateActiveTab((tab) => ({
+      ...tab,
+      layout: splitPane(tab.layout, tab.activePaneID, nextPane, side),
+      activePaneID: nextPane.id,
+      targetID: nextTargetID,
+    }));
+  };
+
+  const closeActivePane = () => {
+    if (!activeTab) return;
+    closePane(activeTab.id, activeTab.activePaneID);
+  };
+
+  const closePane = (tabID: string, paneID: string) => {
+    setTabs((current) => current.map((tab) => {
+      if (tab.id !== tabID) return tab;
+      const result = removePane(tab.layout, paneID);
+      if (!result.node) return tab;
+      const fallbackID = result.activePaneID || firstLeafID(result.node);
+      const fallbackPane = findPane(result.node, fallbackID);
+      return { ...tab, layout: result.node, activePaneID: fallbackID, targetID: fallbackPane && fallbackPane.type !== "split" ? fallbackPane.targetID : tab.targetID };
+    }));
+  };
+
+  const openEditorForActiveTarget = (filePath: string) => {
+    if (!activeTab) return;
+    const paneTargetID = activeTarget.id;
+    const editorPane: EditorPaneNode = { type: "editor", id: newPaneID("editor"), targetID: paneTargetID, path: filePath };
+    updateActiveTab((tab) => ({
+      ...tab,
+      layout: splitPane(tab.layout, tab.activePaneID, editorPane, "down"),
+      activePaneID: editorPane.id,
+    }));
+  };
+
   const closeTabs = (mode: "one" | "left" | "right" | "others" | "all", tabID: string) => {
     setTabMenu(null);
     setTabs((current) => {
@@ -195,12 +270,12 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        if (activeTab) closeTabs("one", activeTab.id);
+        closeActivePane();
       }
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [activeTab?.id, data.runtime.client_mode]);
+  }, [activeTab?.id, activeTab?.activePaneID, data.runtime.client_mode]);
 
   const startResize = (area: "host" | "files", event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -237,7 +312,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
           </div>
         </div>
 
-        <ServerSwitcher targets={targets} currentTargetID={activeTarget.id} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} />
+        <ServerSwitcher targets={targets} folders={data.targetFolders} currentTargetID={activeTarget.id} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} onSplitTarget={splitActivePane} />
 
         <div className="connect-appbar-host">
           <Server />
@@ -321,17 +396,20 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
           <div className="connect-zone terminal-zone">
             <div className="terminal-tab-stack">
               {hasOpenTabs ? (
-                openTabs.map(({ tab, target: tabTarget }) => (
-                  <TerminalPanel
-                    key={tab.id}
+                activeTab && (
+                  <PaneTree
                     data={data}
-                    target={tabTarget}
-                    active={tab.id === activeTab?.id}
-                    isFullscreen={terminalFullscreen && tab.id === activeTab?.id}
+                    node={activeTab.layout}
+                    targets={targets}
+                    activePaneID={activeTab.activePaneID}
+                    isFullscreen={terminalFullscreen}
+                    onActivate={(paneID) => updateActiveTab((tab) => ({ ...tab, activePaneID: paneID }))}
+                    onClose={(paneID) => closePane(activeTab.id, paneID)}
                     onFullscreenChange={setTerminalFullscreen}
-                    onClose={() => closeTabs("one", tab.id)}
+                    onSplit={splitActivePane}
+                    onResizeSplit={(splitID, ratio) => updateActiveTab((tab) => ({ ...tab, layout: resizeSplit(tab.layout, splitID, ratio) }))}
                   />
-                ))
+                )
               ) : (
                 <div className="connect-zone-empty">
                   <strong>{t("connectNoOpenTabsTitle")}</strong>
@@ -355,7 +433,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
               </button>
             </div>
             {hasOpenTabs ? (
-              <FileManager target={activeTarget} nativeOpen={Boolean(data.runtime.client_mode)} />
+              <FileManager target={activeTarget} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} />
             ) : (
               <div className="connect-zone-empty">
                 <span>{t("connectFilesNoOpenTabs")}</span>
@@ -434,6 +512,189 @@ function ConnectionTabs({
           <button type="button" role="menuitem" onClick={() => onMenuAction("others", menuTarget.tab.id)}>关闭其他</button>
           <button type="button" role="menuitem" onClick={() => onMenuAction("all", menuTarget.tab.id)}>关闭全部</button>
         </div>
+      )}
+    </section>
+  );
+}
+
+function PaneTree({
+  data,
+  node,
+  targets,
+  activePaneID,
+  isFullscreen,
+  onActivate,
+  onClose,
+  onFullscreenChange,
+  onSplit,
+  onResizeSplit,
+}: {
+  data: ConsoleData;
+  node: PaneNode;
+  targets: Target[];
+  activePaneID: string;
+  isFullscreen: boolean;
+  onActivate: (paneID: string) => void;
+  onClose: (paneID: string) => void;
+  onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
+  onSplit: (side: PaneSide, targetID?: string) => void;
+  onResizeSplit: (splitID: string, ratio: number) => void;
+}) {
+  if (node.type === "split") {
+    return <SplitPaneView data={data} node={node} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />;
+  }
+  const target = targets.find((item) => item.id === node.targetID);
+  if (!target) return null;
+  const active = node.id === activePaneID;
+  const activate = () => onActivate(node.id);
+  if (node.type === "editor") {
+    return <EditorPane target={target} filePath={node.path} active={active} onActivate={activate} onClose={() => onClose(node.id)} />;
+  }
+  return (
+    <div className={`pane-leaf ${active ? "active" : ""}`} onPointerDown={activate}>
+      <TerminalPanel
+        data={data}
+        target={target}
+        active={active}
+        isFullscreen={isFullscreen && active}
+        onFullscreenChange={onFullscreenChange}
+        onClose={() => onClose(node.id)}
+        onSplit={onSplit}
+      />
+    </div>
+  );
+}
+
+function SplitPaneView({
+  data,
+  node,
+  targets,
+  activePaneID,
+  isFullscreen,
+  onActivate,
+  onClose,
+  onFullscreenChange,
+  onSplit,
+  onResizeSplit,
+}: {
+  data: ConsoleData;
+  node: SplitPaneNode;
+  targets: Target[];
+  activePaneID: string;
+  isFullscreen: boolean;
+  onActivate: (paneID: string) => void;
+  onClose: (paneID: string) => void;
+  onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
+  onSplit: (side: PaneSide, targetID?: string) => void;
+  onResizeSplit: (splitID: string, ratio: number) => void;
+}) {
+  const splitRef = useRef<HTMLDivElement>(null);
+  const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const rect = splitRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const raw = node.direction === "row" ? (moveEvent.clientX - rect.left) / rect.width : (moveEvent.clientY - rect.top) / rect.height;
+      onResizeSplit(node.id, clampNumber(raw, 0.18, 0.82));
+    };
+    const onPointerUp = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      document.body.classList.remove("is-resizing-connect");
+    };
+    document.body.classList.add("is-resizing-connect");
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  };
+  return (
+    <div ref={splitRef} className={`pane-split ${node.direction}`} style={{ "--split-ratio": `${node.ratio * 100}%` } as CSSProperties}>
+      <PaneTree data={data} node={node.first} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />
+      <button type="button" className="pane-splitter" onPointerDown={startResize} aria-label="Resize pane" />
+      <PaneTree data={data} node={node.second} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />
+    </div>
+  );
+}
+
+function EditorPane({ target, filePath, active, onActivate, onClose }: { target: Target; filePath: string; active: boolean; onActivate: () => void; onClose: () => void }) {
+  const { t } = useI18n();
+  const { theme } = useTheme();
+  const file = useQuery({
+    queryKey: ["target-file-read", target.id, filePath],
+    queryFn: () => api.readFile(target.id, filePath),
+  });
+  const [content, setContent] = useState("");
+  const [savedContent, setSavedContent] = useState("");
+  const [error, setError] = useState("");
+  const dirty = content !== savedContent;
+
+  useEffect(() => {
+    if (!file.data) return;
+    setContent(file.data.content);
+    setSavedContent(file.data.content);
+    setError("");
+  }, [file.data?.content, file.data?.path]);
+
+  const save = async () => {
+    try {
+      await api.writeFile(target.id, filePath, content);
+      setSavedContent(content);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const close = () => {
+    if (dirty && !window.confirm(t("connectEditorCloseDirtyConfirm"))) return;
+    onClose();
+  };
+
+  useEffect(() => {
+    if (!active) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const saveShortcut = (event.ctrlKey || event.altKey) && !event.metaKey && keyMatches(event, "s", "KeyS");
+      const closeShortcut = (event.ctrlKey || event.altKey) && !event.metaKey && keyMatches(event, "w", "KeyW");
+      if (saveShortcut) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) void save();
+      } else if (closeShortcut) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) close();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [active, content, dirty, filePath, target.id]);
+
+  return (
+    <section className={`editor-pane pane-leaf ${active ? "active" : ""}`} onPointerDown={onActivate}>
+      <header className="editor-pane-head">
+        <span title={filePath}>{dirty ? "* " : ""}{filePath}</span>
+        <div className="editor-pane-actions">
+          <button type="button" className="icon-button" onClick={() => void save()} title={t("save")} disabled={file.isLoading}>
+            <Save />
+          </button>
+          <button type="button" className="icon-button" onClick={close} title={t("commonClose")}>
+            <X />
+          </button>
+        </div>
+      </header>
+      {error && <div className="editor-pane-error">{error}</div>}
+      {file.isLoading ? (
+        <div className="connect-zone-empty"><span>{t("loading")}</span></div>
+      ) : file.error ? (
+        <div className="connect-zone-empty"><span>{file.error instanceof Error ? file.error.message : String(file.error)}</span></div>
+      ) : (
+        <Editor
+          height="100%"
+          theme={theme === "dark" ? "vs-dark" : "light"}
+          path={filePath}
+          value={content}
+          onChange={(value) => setContent(value ?? "")}
+          options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true }}
+        />
       )}
     </section>
   );
@@ -594,7 +855,7 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-export function TerminalPanel({ data, target, active = true, isFullscreen, onFullscreenChange, onClose, manualReview = true }: TerminalPanelProps) {
+export function TerminalPanel({ data, target, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, manualReview = true }: TerminalPanelProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -604,6 +865,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   const [error, setError] = useState("");
   const [dims, setDims] = useState({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS });
   const [sessionID, setSessionID] = useState("");
+  const [aiEnabled, setAIEnabled] = useState(true);
   const fitRetryRef = useRef<number | null>(null);
   const fitFrameRef = useRef<number | null>(null);
   const activeRef = useRef(active);
@@ -621,6 +883,21 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   const updateStatus = (next: ConnectionStatus) => {
     statusRef.current = next;
     setStatus(next);
+  };
+
+  const sendAICollaborationState = (enabled: boolean) => {
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "ai-collaboration", enabled }));
+    }
+  };
+
+  const toggleAI = () => {
+    setAIEnabled((current) => {
+      const next = !current;
+      sendAICollaborationState(next);
+      return next;
+    });
   };
 
   const connect = () => {
@@ -650,6 +927,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
       const currentRows = terminal.rows || rows;
       setDims({ cols: currentCols, rows: currentRows });
       socket.send(JSON.stringify({ type: "resize", cols: currentCols, rows: currentRows }));
+      socket.send(JSON.stringify({ type: "ai-collaboration", enabled: aiEnabled }));
       if (heartbeatRef.current) window.clearInterval(heartbeatRef.current);
       heartbeatRef.current = window.setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
@@ -868,9 +1146,20 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   return (
     <section className={`terminal-panel ${active ? "active" : "inactive"} ${isFullscreen ? "fullscreen" : ""}`} aria-hidden={!active}>
       {manualReview && sessionID && <ManualReviewPoller data={data} sessionID={sessionID} />}
-      <button type="button" className="terminal-fullscreen-button icon-button" onClick={() => onFullscreenChange((prev) => !prev)} aria-label={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")} title={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")}>
-        {isFullscreen ? <Minimize /> : <Maximize />}
-      </button>
+      <div className="terminal-pane-toolbar">
+        <button type="button" className={`terminal-ai-button icon-button ${aiEnabled ? "active" : ""}`} onClick={toggleAI} aria-pressed={aiEnabled} title={aiEnabled ? t("connectAICollaborationOn") : t("connectAICollaborationOff")}>
+          <img src={aiCollaborationIcon} alt="" />
+        </button>
+        <button type="button" className="icon-button" onClick={() => onSplit?.("right")} title={t("connectSplitRight")}>
+          <SplitSquareHorizontal />
+        </button>
+        <button type="button" className="icon-button" onClick={() => onSplit?.("down")} title={t("connectSplitDown")}>
+          <SplitSquareVertical />
+        </button>
+        <button type="button" className="icon-button" onClick={() => onFullscreenChange((prev) => !prev)} aria-label={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")} title={isFullscreen ? t("connectExitFullscreen") : t("connectFullscreen")}>
+          {isFullscreen ? <Minimize /> : <Maximize />}
+        </button>
+      </div>
       {(status === "disconnected" || status === "error") && <button type="button" className="terminal-reconnect-button" onClick={connect}><RefreshCw />{t("connectReconnect")}</button>}
       <div className="terminal-viewport" ref={containerRef} />
     </section>
@@ -879,14 +1168,18 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
 
 function ServerSwitcher({
   targets,
+  folders,
   currentTargetID,
   openSignal,
   onOpenTarget,
+  onSplitTarget,
 }: {
   targets: Target[];
+  folders: ConsoleData["targetFolders"];
   currentTargetID: string;
   openSignal: number;
   onOpenTarget: (targetID: string) => void;
+  onSplitTarget: (side: PaneSide, targetID: string) => void;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -897,17 +1190,21 @@ function ServerSwitcher({
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const currentTarget = targets.find((item) => item.id === currentTargetID);
   const currentTitle = currentTarget ? serverTitle(currentTarget) : t("connectSwitchServer");
+  const folderPathByTarget = useMemo(() => Object.fromEntries(targets.map((item) => [item.id, targetFolderPath(item, folders)])), [targets, folders]);
   const filteredTargets = useMemo(() => {
     const text = query.trim().toLowerCase();
     if (!text) return targets;
     return targets.filter((item) => [
+      folderPathByTarget[item.id],
+      folderPathByTarget[item.id] ? `${folderPathByTarget[item.id]}/${item.alias}` : item.alias,
+      folderPathByTarget[item.id] ? `${folderPathByTarget[item.id]}/${item.name}` : item.name,
       item.name,
       item.alias,
       targetEndpoint(item),
       item.remote_username,
       ...(item.tags || []),
     ].join(" ").toLowerCase().includes(text));
-  }, [query, targets]);
+  }, [folderPathByTarget, query, targets]);
 
   useEffect(() => {
     if (openSignal <= 0) return;
@@ -957,6 +1254,12 @@ function ServerSwitcher({
 
   const openTarget = (target: Target) => {
     onOpenTarget(target.id);
+    setOpen(false);
+    setQuery("");
+  };
+
+  const splitTarget = (target: Target, side: PaneSide) => {
+    onSplitTarget(side, target.id);
     setOpen(false);
     setQuery("");
   };
@@ -1027,12 +1330,21 @@ function ServerSwitcher({
                 <span className="server-switcher-main">
                   <strong>{item.name}</strong>
                   <code>{item.alias}</code>
+                  {folderPathByTarget[item.id] && <small>{folderPathByTarget[item.id]}</small>}
                   <small>{targetEndpoint(item)}</small>
                   <span className="server-switcher-tags">
                     {(item.tags || []).map((tag) => (
                       <span key={tag} className={`tag-chip tag-color-${tagColor(tag, item.tag_colors)}`}>{tag}</span>
                     ))}
                   </span>
+                </span>
+                <span className="server-switcher-actions">
+                  <button type="button" className="icon-button" onClick={(event) => { event.stopPropagation(); splitTarget(item, "right"); }} title={t("connectSplitRight")}>
+                    <ArrowRightToLine />
+                  </button>
+                  <button type="button" className="icon-button" onClick={(event) => { event.stopPropagation(); splitTarget(item, "down"); }} title={t("connectSplitDown")}>
+                    <ArrowDownToLine />
+                  </button>
                 </span>
               </button>
             ))}
@@ -1067,7 +1379,58 @@ function contextMenuPointInTabs(clientX: number, clientY: number, container: HTM
 }
 
 function newConnectionTab(targetID: string): ConnectionTab {
-  return { id: `${targetID}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`, targetID };
+  const pane = newTerminalPane(targetID);
+  return { id: `${targetID}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`, targetID, layout: pane, activePaneID: pane.id };
+}
+
+function newPaneID(prefix: string) {
+  return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function newTerminalPane(targetID: string): TerminalPaneNode {
+  return { type: "terminal", id: newPaneID("terminal"), targetID };
+}
+
+function findPane(node: PaneNode, paneID: string): PaneNode | null {
+  if (node.id === paneID) return node;
+  if (node.type !== "split") return null;
+  return findPane(node.first, paneID) || findPane(node.second, paneID);
+}
+
+function splitPane(node: PaneNode, paneID: string, nextPane: PaneNode, side: PaneSide): PaneNode {
+  if (node.id === paneID) {
+    return {
+      type: "split",
+      id: newPaneID("split"),
+      direction: side === "right" ? "row" : "column",
+      ratio: 0.5,
+      first: node,
+      second: nextPane,
+    };
+  }
+  if (node.type !== "split") return node;
+  return { ...node, first: splitPane(node.first, paneID, nextPane, side), second: splitPane(node.second, paneID, nextPane, side) };
+}
+
+function removePane(node: PaneNode, paneID: string): { node: PaneNode | null; activePaneID: string } {
+  if (node.id === paneID) return { node: null, activePaneID: "" };
+  if (node.type !== "split") return { node, activePaneID: node.id };
+  const first = removePane(node.first, paneID);
+  if (!first.node) return { node: node.second, activePaneID: firstLeafID(node.second) };
+  const second = removePane(node.second, paneID);
+  if (!second.node) return { node: first.node, activePaneID: firstLeafID(first.node) };
+  return { node: { ...node, first: first.node, second: second.node }, activePaneID: first.activePaneID || second.activePaneID };
+}
+
+function resizeSplit(node: PaneNode, splitID: string, ratio: number): PaneNode {
+  if (node.type !== "split") return node;
+  if (node.id === splitID) return { ...node, ratio };
+  return { ...node, first: resizeSplit(node.first, splitID, ratio), second: resizeSplit(node.second, splitID, ratio) };
+}
+
+function firstLeafID(node: PaneNode): string {
+  if (node.type !== "split") return node.id;
+  return firstLeafID(node.first);
 }
 
 function tabSelectionIncludes(tabs: ConnectionTab[], index: number, mode: "one" | "left" | "right" | "others" | "all", tabID: string) {
@@ -1226,4 +1589,19 @@ function serverTitle(target: Target) {
   const endpoint = targetEndpoint(target);
   const tags = (target.tags || []).join(", ");
   return [target.name, target.alias, endpoint, tags].filter(Boolean).join(" · ");
+}
+
+function targetFolderPath(target: Target, folders: ConsoleData["targetFolders"]) {
+  const byID = new Map(folders.map((folder) => [folder.id, folder]));
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (let folderID = target.folder_id || ""; folderID;) {
+    if (seen.has(folderID)) break;
+    seen.add(folderID);
+    const folder = byID.get(folderID);
+    if (!folder) break;
+    names.unshift(folder.name);
+    folderID = folder.parent_id || "";
+  }
+  return names.join("/");
 }

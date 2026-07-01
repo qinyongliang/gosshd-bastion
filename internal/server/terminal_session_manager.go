@@ -31,18 +31,19 @@ type terminalSessionManager struct {
 }
 
 type terminalSessionRouteSnapshot struct {
-	ID             string
-	UserID         string
-	TargetID       string
-	TargetAlias    string
-	StartedAt      time.Time
-	LastHeartbeat  time.Time
-	Closed         bool
-	InputReady     bool
-	ClientCount    int
-	ShellBusy      bool
-	HeartbeatStale bool
-	Reason         string
+	ID                     string
+	UserID                 string
+	TargetID               string
+	TargetAlias            string
+	StartedAt              time.Time
+	LastHeartbeat          time.Time
+	Closed                 bool
+	InputReady             bool
+	ClientCount            int
+	ShellBusy              bool
+	AICollaborationEnabled bool
+	HeartbeatStale         bool
+	Reason                 string
 }
 
 type terminalSessionRouteLookup struct {
@@ -65,20 +66,21 @@ type terminalSession struct {
 	cancel context.CancelFunc
 	done   chan int
 
-	mu             sync.Mutex
-	input          io.Writer
-	resize         func(cols, rows int)
-	closeInput     func()
-	recorder       *terminalRecorder
-	clients        map[*terminalWSWriter]bool
-	output         strings.Builder
-	screen         *terminalScreenBuffer
-	lastHeartbeat  time.Time
-	closed         bool
-	shellBusy      bool
-	commandMu      sync.Mutex
-	commandWaiters []*terminalCommandWaiter
-	oscBuffer      string
+	mu                     sync.Mutex
+	input                  io.Writer
+	resize                 func(cols, rows int)
+	closeInput             func()
+	recorder               *terminalRecorder
+	clients                map[*terminalWSWriter]bool
+	output                 strings.Builder
+	screen                 *terminalScreenBuffer
+	lastHeartbeat          time.Time
+	closed                 bool
+	shellBusy              bool
+	aiCollaborationEnabled bool
+	commandMu              sync.Mutex
+	commandWaiters         []*terminalCommandWaiter
+	oscBuffer              string
 }
 
 type terminalScreenBuffer struct {
@@ -97,20 +99,21 @@ func (m *terminalSessionManager) create(sessionID, userID string, target store.S
 		sessionID = newAuditSessionID()
 	}
 	s := &terminalSession{
-		id:            sessionID,
-		userID:        userID,
-		target:        target,
-		sourceIP:      sourceIP,
-		cols:          cols,
-		rows:          rows,
-		startedAt:     time.Now().UTC(),
-		ctx:           ctx,
-		cancel:        cancel,
-		done:          make(chan int, 1),
-		recorder:      recorder,
-		clients:       map[*terminalWSWriter]bool{},
-		screen:        newTerminalScreenBuffer(rows),
-		lastHeartbeat: time.Now().UTC(),
+		id:                     sessionID,
+		userID:                 userID,
+		target:                 target,
+		sourceIP:               sourceIP,
+		cols:                   cols,
+		rows:                   rows,
+		startedAt:              time.Now().UTC(),
+		ctx:                    ctx,
+		cancel:                 cancel,
+		done:                   make(chan int, 1),
+		recorder:               recorder,
+		clients:                map[*terminalWSWriter]bool{},
+		screen:                 newTerminalScreenBuffer(rows),
+		lastHeartbeat:          time.Now().UTC(),
+		aiCollaborationEnabled: true,
 	}
 	m.mu.Lock()
 	m.sessions[s.id] = s
@@ -131,7 +134,7 @@ func (m *terminalSessionManager) listForUser(userID string) []terminalSessionInf
 	var out []terminalSessionInfo
 	for _, session := range m.sessions {
 		session.mu.Lock()
-		if session.userID == userID && !session.closed {
+		if session.userID == userID && !session.closed && session.aiCollaborationEnabled {
 			out = append(out, terminalSessionInfo{
 				ID:            session.id,
 				TargetID:      session.target.ID,
@@ -176,17 +179,18 @@ func (m *terminalSessionManager) earliestOnlineForUserTargetWithDiagnostics(user
 		session.mu.Lock()
 		staleHeartbeat := time.Since(session.lastHeartbeat) > terminalSessionHeartbeatTimeout
 		snapshot := terminalSessionRouteSnapshot{
-			ID:             session.id,
-			UserID:         session.userID,
-			TargetID:       session.target.ID,
-			TargetAlias:    session.target.Alias,
-			StartedAt:      session.startedAt,
-			LastHeartbeat:  session.lastHeartbeat,
-			Closed:         session.closed,
-			InputReady:     session.input != nil,
-			ClientCount:    len(session.clients),
-			ShellBusy:      session.shellBusy,
-			HeartbeatStale: staleHeartbeat,
+			ID:                     session.id,
+			UserID:                 session.userID,
+			TargetID:               session.target.ID,
+			TargetAlias:            session.target.Alias,
+			StartedAt:              session.startedAt,
+			LastHeartbeat:          session.lastHeartbeat,
+			Closed:                 session.closed,
+			InputReady:             session.input != nil,
+			ClientCount:            len(session.clients),
+			ShellBusy:              session.shellBusy,
+			AICollaborationEnabled: session.aiCollaborationEnabled,
+			HeartbeatStale:         staleHeartbeat,
 		}
 		startedAt := session.startedAt
 		session.mu.Unlock()
@@ -203,6 +207,8 @@ func (m *terminalSessionManager) earliestOnlineForUserTargetWithDiagnostics(user
 			snapshot.Reason = "no-client"
 		case snapshot.HeartbeatStale:
 			snapshot.Reason = "stale-heartbeat"
+		case !snapshot.AICollaborationEnabled:
+			snapshot.Reason = "ai-collaboration-disabled"
 		default:
 			snapshot.Reason = "candidate"
 		}
@@ -267,6 +273,12 @@ func (s *terminalSession) detach(writer *terminalWSWriter) {
 func (s *terminalSession) heartbeat() {
 	s.mu.Lock()
 	s.lastHeartbeat = time.Now().UTC()
+	s.mu.Unlock()
+}
+
+func (s *terminalSession) setAICollaborationEnabled(enabled bool) {
+	s.mu.Lock()
+	s.aiCollaborationEnabled = enabled
 	s.mu.Unlock()
 }
 
