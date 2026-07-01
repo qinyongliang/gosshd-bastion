@@ -2094,9 +2094,9 @@ html[data-theme="dark"] .tag-input-menu {
 .target-tree-row {
   display: grid;
   grid-template-columns: minmax(260px, 1.2fr) minmax(160px, 1fr) minmax(120px, 0.6fr) minmax(120px, 0.7fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 10px;
-  min-height: 38px;
+  min-height: 0;
   padding: 5px 8px;
   border-bottom: 1px solid var(--line);
 }
@@ -2121,10 +2121,12 @@ html[data-theme="dark"] .tag-input-menu {
   color: var(--ink);
   text-align: left;
   justify-self: start;
+  min-height: 28px;
 }
 
 .target-folder-main strong {
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .tree-check {
@@ -2159,9 +2161,8 @@ html[data-theme="dark"] .tag-input-menu {
 .target-tree-main strong,
 .target-tree-main code,
 .target-tree-row > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .target-folder-children {
@@ -3734,7 +3735,7 @@ html[data-theme="dark"] .server-switcher-search {
   grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
-  min-height: 56px;
+  min-height: 0;
   width: 100%;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -3762,21 +3763,33 @@ html[data-theme="dark"] .server-switcher-item {
 
 .server-switcher-folder {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 14px 18px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
-  min-height: 28px;
+  min-height: 30px;
+  width: 100%;
+  border: 0;
   padding: 4px 8px 4px calc(8px + var(--tree-depth, 0) * 16px);
   color: var(--muted);
+  background: transparent;
+  box-shadow: none;
   font-size: 12px;
   font-weight: 800;
   text-align: left;
+  justify-items: start;
 }
 
 .server-switcher-folder svg {
   width: 15px;
   height: 15px;
   color: var(--accent);
+}
+
+.server-switcher-folder:hover {
+  transform: none;
+  color: var(--ink);
+  background: rgba(103, 232, 249, 0.08);
+  box-shadow: none;
 }
 
 .server-switcher-item:hover,
@@ -3818,6 +3831,7 @@ html[data-theme="dark"] .server-switcher-item {
 .server-switcher-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 1px 8px;
   min-width: 0;
   line-height: 1.18;
@@ -3826,9 +3840,9 @@ html[data-theme="dark"] .server-switcher-item {
 .server-switcher-main strong,
 .server-switcher-main code,
 .server-switcher-main small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .server-switcher-main strong {
@@ -4615,6 +4629,7 @@ body.is-resizing-connect {
   gap: 0;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -4638,6 +4653,7 @@ body.is-resizing-connect {
   gap: 0;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   max-height: 100%;
   border: 0;
   border-radius: 0;
@@ -4670,12 +4686,14 @@ body.is-resizing-connect {
 }
 
 .terminal-tab-layer {
+  display: grid;
   position: absolute;
   inset: 0;
   min-width: 0;
   min-height: 0;
   width: 100%;
   height: 100%;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .terminal-tab-layer.inactive {
@@ -4773,6 +4791,7 @@ body.is-resizing-connect {
   display: grid;
   position: relative;
   grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
   min-height: 0;
   height: 100%;
   border-radius: 0;
@@ -4994,7 +5013,9 @@ body.is-resizing-connect {
   display: grid;
   gap: 7px;
   grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
   min-height: 0;
+  height: 100%;
 }
 
 .file-manager-head {
@@ -5059,10 +5080,12 @@ body.is-resizing-connect {
 .file-manager-body {
   position: relative;
   overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
   background: rgba(2, 6, 12, 0.36);
   min-height: 0;
+  min-width: 0;
 }
 
 .file-manager-body table {
@@ -5075,8 +5098,10 @@ body.is-resizing-connect {
 
 .file-manager-body th,
 .file-manager-body td {
-  padding: 6px 7px;
+  padding: 6px 5px;
   font-size: 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .file-sort-button {
@@ -5107,12 +5132,12 @@ body.is-resizing-connect {
 
 .file-manager-body th:nth-child(1),
 .file-manager-body td:nth-child(1) {
-  width: 42%;
+  width: 44%;
 }
 
 .file-manager-body th:nth-child(2),
 .file-manager-body td:nth-child(2) {
-  width: 16%;
+  width: 14%;
 }
 
 .file-manager-body th:nth-child(3),
@@ -5151,9 +5176,12 @@ body.is-resizing-connect {
   font-size: 12px;
   max-width: 100%;
   min-height: 24px;
+  min-width: 0;
+  text-align: left;
 }
 
 .file-name span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5947,8 +5975,11 @@ html[data-theme="dark"] .manual-review-card {
 }
 
 .pane-leaf {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
   border-radius: 0;
   border: 1px solid transparent;
@@ -5961,9 +5992,17 @@ html[data-theme="dark"] .manual-review-card {
 .editor-pane {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
+  min-width: 0;
   min-height: 0;
+  height: 100%;
   background: #08111e;
   color: #dbeafe;
+}
+
+.editor-pane > .connect-zone-empty,
+.editor-pane > .monaco-editor {
+  min-height: 0;
+  height: 100%;
 }
 
 .editor-pane .monaco-editor,

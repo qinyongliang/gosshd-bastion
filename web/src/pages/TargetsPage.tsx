@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { CheckSquare, ChevronDown, ChevronRight, Copy, Folder, FolderPlus, KeyRound, Move, Play, Plus, Settings, Square, TerminalSquare, Trash2 } from "lucide-react";
+import { CheckSquare, ChevronDown, ChevronRight, Copy, Edit3, Folder, FolderPlus, KeyRound, Move, Play, Plus, Settings, Square, TerminalSquare, Trash2 } from "lucide-react";
 import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -68,6 +68,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
       return;
     }
     if (data.userSettings.connect_open_mode === "tab") {
+      if (attachExisting && openInExistingConnectWindow(path, id)) return;
       window.open(path, attachExisting ? "gosshd-connect" : "_blank", attachExisting ? "" : "noopener=yes,noreferrer=yes");
       return;
     }
@@ -85,6 +86,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
       "status=yes",
       ...(!attachExisting ? ["noopener=yes", "noreferrer=yes"] : []),
     ].join(",");
+    if (attachExisting && openInExistingConnectWindow(path, id)) return;
     window.open(path, attachExisting ? "gosshd-connect" : `connect-${id}`, features);
   }
 
@@ -244,6 +246,7 @@ function FolderNode(props: {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const remove = useMutation({ mutationFn: api.deleteTargetFolder, onSuccess: async () => queryClient.invalidateQueries() });
+  const rename = useMutation({ mutationFn: (name: string) => api.updateTargetFolder(props.folder.id, { name }), onSuccess: async () => queryClient.invalidateQueries(), onError: (error) => window.alert(error instanceof Error ? error.message : String(error)) });
   const children = props.data.targetFolders.filter((folder) => folder.parent_id === props.folder.id);
   const targets = props.targets.filter((target) => target.folder_id === props.folder.id);
   const collapsed = props.collapsed.has(props.folder.id);
@@ -257,6 +260,10 @@ function FolderNode(props: {
         {collapsed ? <ChevronRight /> : <ChevronDown />}<Folder /><strong>{props.folder.name}</strong>
       </button>
       <span className="inline-actions">
+        <button type="button" onClick={() => {
+          const name = window.prompt(t("serviceRenameFolder"), props.folder.name);
+          if (name && name.trim() && name.trim() !== props.folder.name) rename.mutate(name.trim());
+        }} disabled={rename.isPending}><Edit3 />{t("commonEdit")}</button>
         <button type="button" onClick={() => props.onNewFolder(props.folder.id)}><FolderPlus />{t("serviceNewFolder")}</button>
         <button type="button" className="danger" onClick={() => { if (window.confirm(t("serviceDeleteFolderConfirm"))) remove.mutate(props.folder.id); }} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
       </span>
@@ -668,4 +675,28 @@ function targetIDsInFolder(folderID: string, data: ConsoleData) {
     }
   }
   return data.targets.filter((target) => target.folder_id && folderIDs.has(target.folder_id)).map((target) => target.id);
+}
+
+function openInExistingConnectWindow(path: string, targetID: string) {
+  if (typeof window === "undefined") return false;
+  let online = false;
+  try {
+    const raw = window.localStorage.getItem("gosshd-connect-window-online");
+    const state = raw ? JSON.parse(raw) as { at?: number } : null;
+    online = Boolean(state?.at && Date.now() - state.at < 5000);
+  } catch {
+    online = false;
+  }
+  if (!online) return false;
+  const command = new URL(path, window.location.origin).searchParams.get("command") || "";
+  const message = { type: "gosshd-connect-open-target", targetID, command, at: Date.now() };
+  const connectWindow = window.open("", "gosshd-connect");
+  connectWindow?.postMessage(message, window.location.origin);
+  try {
+    window.localStorage.setItem("gosshd-connect-open", JSON.stringify(message));
+  } catch {
+    // Ignore storage failures; direct postMessage is the primary path.
+  }
+  connectWindow?.focus();
+  return true;
 }
