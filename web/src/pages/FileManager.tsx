@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, ExternalLink, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Trash2, Upload } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api";
@@ -8,7 +9,10 @@ import { useI18n } from "../i18n";
 import type { FileEntry, FileProperties, Target } from "../types";
 import { copyText } from "../utils";
 
-export function FileManager({ target, nativeOpen = false }: { target: Target; nativeOpen?: boolean }) {
+type FileSortKey = "name" | "size" | "mode" | "modified";
+type SortOrder = "asc" | "desc";
+
+export function FileManager({ target, nativeOpen = false, onEditFile }: { target: Target; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [path, setPath] = useState(".");
@@ -16,6 +20,8 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
   const [selected, setSelected] = useState<FileEntry | null>(null);
   const [uploading, setUploading] = useState(false);
   const [mkdirModal, setMkdirModal] = useState(false);
+  const [touchModal, setTouchModal] = useState(false);
+  const [sort, setSort] = useState<{ key: FileSortKey; order: SortOrder }>({ key: "name", order: "asc" });
   const [transfer, setTransfer] = useState<{ action: "move" | "copy"; entry: FileEntry } | null>(null);
   const [properties, setProperties] = useState<FileProperties | null>(null);
   const [contextMenu, setContextMenu] = useState<{ entry: FileEntry | null; x: number; y: number; left: number; top: number } | null>(null);
@@ -55,8 +61,8 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
   }, [contextMenu]);
 
   const listing = useQuery({
-    queryKey: ["target-files", target.id, path],
-    queryFn: () => api.listFiles(target.id, path),
+    queryKey: ["target-files", target.id, path, sort.key, sort.order],
+    queryFn: () => api.listFiles(target.id, path, sort.key, sort.order),
   });
 
   const upload = useMutation({
@@ -77,6 +83,11 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
   };
   const mkdir = useMutation({
     mutationFn: (nextPath: string) => api.mkdirFile(target.id, nextPath),
+    onSuccess: refreshFiles,
+    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+  });
+  const touch = useMutation({
+    mutationFn: (nextPath: string) => api.touchFile(target.id, nextPath),
     onSuccess: refreshFiles,
     onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
   });
@@ -137,11 +148,13 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
     await copyText(entry?.path || path);
   };
 
-  const handleMenuAction = async (action: "open" | "download" | "copy-path" | "refresh" | "upload" | "mkdir" | "delete" | "properties" | "move" | "copy", entry: FileEntry | null) => {
+  const handleMenuAction = async (action: "open" | "download" | "edit" | "copy-path" | "refresh" | "upload" | "mkdir" | "touch" | "delete" | "properties" | "move" | "copy", entry: FileEntry | null) => {
     if (action === "open" && entry) {
       activateEntry(entry);
     } else if (action === "download" && entry && entry.type === "file") {
       downloadEntry(entry);
+    } else if (action === "edit" && entry && entry.type === "file") {
+      onEditFile?.(entry.path);
     } else if (action === "copy-path") {
       await copyEntryPath(entry);
     } else if (action === "refresh") {
@@ -150,6 +163,8 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
       fileInputRef.current?.click();
     } else if (action === "mkdir") {
       setMkdirModal(true);
+    } else if (action === "touch") {
+      setTouchModal(true);
     } else if (action === "delete" && entry) {
       if (window.confirm(t("connectFileDeleteConfirm", `Delete ${entry.path}?`))) {
         remove.mutate(entry);
@@ -168,9 +183,13 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
     setContextMenu({ entry, x: event.clientX, y: event.clientY, left: event.clientX, top: event.clientY });
   };
 
-  const runMenuAction = (action: "open" | "download" | "copy-path" | "refresh" | "upload" | "mkdir" | "delete" | "properties" | "move" | "copy", entry: FileEntry | null) => {
+  const runMenuAction = (action: "open" | "download" | "edit" | "copy-path" | "refresh" | "upload" | "mkdir" | "touch" | "delete" | "properties" | "move" | "copy", entry: FileEntry | null) => {
     setContextMenu(null);
     void handleMenuAction(action, entry);
+  };
+
+  const changeSort = (key: FileSortKey) => {
+    setSort((current) => current.key === key ? { key, order: current.order === "asc" ? "desc" : "asc" } : { key, order: "asc" });
   };
 
   const submitMkdir = (event: React.FormEvent<HTMLFormElement>) => {
@@ -179,6 +198,14 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
     const name = String(form.get("name") || "").trim();
     if (!name) return;
     mkdir.mutate(remoteJoin(path, name), { onSuccess: () => setMkdirModal(false) });
+  };
+
+  const submitTouch = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    if (!name) return;
+    touch.mutate(remoteJoin(path, name), { onSuccess: () => setTouchModal(false) });
   };
 
   const submitPath = () => {
@@ -218,8 +245,16 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
             <Download />{t("connectFileDownload")}
           </button>
         )}
+        {entry?.type === "file" && onEditFile && (
+          <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("edit", entry)}>
+            <Edit3 />{t("connectFileEdit")}
+          </button>
+        )}
         <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("mkdir", entry)}>
           <FolderPlus />{t("connectFileNewFolder")}
+        </button>
+        <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("touch", entry)}>
+          <FilePlus />{t("connectFileNewFile")}
         </button>
         {entry && (
           <>
@@ -292,10 +327,10 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
         <table>
           <thead>
             <tr>
-              <th>{t("connectFileName")}</th>
-              <th>{t("connectFileSize")}</th>
-              <th>{t("connectFileMode")}</th>
-              <th>{t("connectFileModified")}</th>
+              <th><SortButton active={sort.key === "name"} order={sort.order} onClick={() => changeSort("name")}>{t("connectFileName")}</SortButton></th>
+              <th><SortButton active={sort.key === "size"} order={sort.order} onClick={() => changeSort("size")}>{t("connectFileSize")}</SortButton></th>
+              <th><SortButton active={sort.key === "mode"} order={sort.order} onClick={() => changeSort("mode")}>{t("connectFileMode")}</SortButton></th>
+              <th><SortButton active={sort.key === "modified"} order={sort.order} onClick={() => changeSort("modified")}>{t("connectFileModified")}</SortButton></th>
             </tr>
           </thead>
           <tbody>
@@ -313,12 +348,12 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
               <tr
                 key={entry.path}
                 className={`file-row ${entry.type} ${selected?.path === entry.path ? "selected" : ""}`}
-                onClick={() => setSelected(entry)}
+                onClick={() => entry.type === "dir" ? activateEntry(entry) : setSelected(entry)}
                 onDoubleClick={() => activateEntry(entry)}
                 onContextMenu={(event) => openFileMenu(entry, event)}
               >
                   <td>
-                    <button type="button" className="file-name" onClick={() => setSelected(entry)} onDoubleClick={() => activateEntry(entry)} title={entry.name}>
+                    <button type="button" className="file-name" onClick={() => entry.type === "dir" ? activateEntry(entry) : setSelected(entry)} onDoubleClick={() => activateEntry(entry)} title={entry.name}>
                       {entry.type === "dir" ? <FolderOpen /> : <HardDrive />}
                       <span>{entry.name}</span>
                     </button>
@@ -350,11 +385,23 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
           </form>
         </Modal>
       )}
+      {touchModal && (
+        <Modal title={t("connectFileNewFile")} onClose={() => setTouchModal(false)}>
+          <form className="stack" onSubmit={submitTouch}>
+            <label className="field">
+              <span>{t("connectFileFileName")}</span>
+              <input name="name" autoFocus required />
+            </label>
+            <ModalActions onCancel={() => setTouchModal(false)} submit={t("connectFileNewFile")} />
+          </form>
+        </Modal>
+      )}
       {transfer && (
         <TransferModal
           target={target}
           transfer={transfer}
           initialDir={path}
+          initialSort={sort}
           onClose={() => setTransfer(null)}
           onSubmit={(entry, destination) => {
             const mutation = transfer.action === "move" ? move : copy;
@@ -380,16 +427,27 @@ export function FileManager({ target, nativeOpen = false }: { target: Target; na
   );
 }
 
+function SortButton({ active, order, onClick, children }: { active: boolean; order: SortOrder; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" className={`file-sort-button ${active ? "active" : ""}`} onClick={onClick}>
+      <span>{children}</span>
+      <small>{active ? (order === "asc" ? "▲" : "▼") : ""}</small>
+    </button>
+  );
+}
+
 function TransferModal({
   target,
   transfer,
   initialDir,
+  initialSort,
   onClose,
   onSubmit,
 }: {
   target: Target;
   transfer: { action: "move" | "copy"; entry: FileEntry };
   initialDir: string;
+  initialSort: { key: FileSortKey; order: SortOrder };
   onClose: () => void;
   onSubmit: (entry: FileEntry, destination: string) => void;
 }) {
@@ -397,9 +455,10 @@ function TransferModal({
   const [browsePath, setBrowsePath] = useState(initialDir || ".");
   const [browseDraft, setBrowseDraft] = useState(initialDir || ".");
   const [destination, setDestination] = useState(remoteJoin(initialDir || ".", transfer.entry.name));
+  const [sort, setSort] = useState<{ key: FileSortKey; order: SortOrder }>(initialSort);
   const listing = useQuery({
-    queryKey: ["target-files", target.id, browsePath],
-    queryFn: () => api.listFiles(target.id, browsePath),
+    queryKey: ["target-files", target.id, browsePath, sort.key, sort.order, "transfer"],
+    queryFn: () => api.listFiles(target.id, browsePath, sort.key, sort.order),
   });
   const directories = (listing.data?.entries || []).filter((entry) => entry.type === "dir");
 
@@ -428,6 +487,10 @@ function TransferModal({
     const nextDestination = destination.trim();
     if (!nextDestination) return;
     onSubmit(transfer.entry, nextDestination);
+  };
+
+  const changeSort = (key: FileSortKey) => {
+    setSort((current) => current.key === key ? { key, order: current.order === "asc" ? "desc" : "asc" } : { key, order: "asc" });
   };
 
   return (
@@ -465,6 +528,14 @@ function TransferModal({
           </div>
           <div className="file-manager-body transfer-browser-body">
             <table>
+              <thead>
+                <tr>
+                  <th><SortButton active={sort.key === "name"} order={sort.order} onClick={() => changeSort("name")}>{t("connectFileName")}</SortButton></th>
+                  <th><SortButton active={sort.key === "size"} order={sort.order} onClick={() => changeSort("size")}>{t("connectFileSize")}</SortButton></th>
+                  <th><SortButton active={sort.key === "mode"} order={sort.order} onClick={() => changeSort("mode")}>{t("connectFileMode")}</SortButton></th>
+                  <th><SortButton active={sort.key === "modified"} order={sort.order} onClick={() => changeSort("modified")}>{t("connectFileModified")}</SortButton></th>
+                </tr>
+              </thead>
               <tbody>
                 {browsePath !== "/" && (
                   <tr className="file-row directory">
@@ -473,6 +544,7 @@ function TransferModal({
                         <FolderOpen />{t("connectFileParentDir")}
                       </button>
                     </td>
+                    <td>-</td><td>-</td><td>-</td>
                   </tr>
                 )}
                 {directories.map((entry) => (
@@ -483,11 +555,14 @@ function TransferModal({
                         <span>{entry.name}</span>
                       </button>
                     </td>
+                    <td>-</td>
+                    <td><code>{entry.mode}</code></td>
+                    <td>{formatDate(entry.modified_at)}</td>
                   </tr>
                 ))}
                 {!directories.length && (
                   <tr>
-                    <td className="file-empty">{listing.isLoading ? t("loading") : t("connectFileEmpty")}</td>
+                    <td colSpan={4} className="file-empty">{listing.isLoading ? t("loading") : t("connectFileEmpty")}</td>
                   </tr>
                 )}
               </tbody>

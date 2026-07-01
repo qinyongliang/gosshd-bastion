@@ -103,6 +103,39 @@ var migrations = []string{
 	`ALTER TABLE ssh_targets ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
 	`UPDATE ssh_targets SET name = alias WHERE name = ''`,
 	`ALTER TABLE ssh_targets ADD COLUMN proxy_target_id TEXT`,
+	`ALTER TABLE ssh_targets ADD COLUMN credential_id TEXT`,
+	`ALTER TABLE ssh_targets ADD COLUMN folder_id TEXT`,
+	`CREATE TABLE IF NOT EXISTS ssh_credentials (
+		id TEXT PRIMARY KEY,
+		owner_type TEXT NOT NULL,
+		owner_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		username TEXT NOT NULL,
+		auth_type TEXT NOT NULL,
+		encrypted_secret BLOB,
+		created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		UNIQUE (owner_type, owner_id, name)
+	)`,
+	`CREATE TABLE IF NOT EXISTS target_folders (
+		id TEXT PRIMARY KEY,
+		owner_type TEXT NOT NULL,
+		owner_id TEXT NOT NULL,
+		parent_id TEXT,
+		name TEXT NOT NULL,
+		created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		UNIQUE (owner_type, owner_id, parent_id, name)
+	)`,
+	`CREATE TABLE IF NOT EXISTS user_settings (
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		key TEXT NOT NULL,
+		value_json TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (user_id, key)
+	)`,
 	`CREATE TABLE IF NOT EXISTS target_tags (
 		id TEXT PRIMARY KEY,
 		owner_type TEXT NOT NULL,

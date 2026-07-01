@@ -1140,6 +1140,8 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 		EncryptedSecret: append([]byte(nil), params.EncryptedSecret...),
 		AgentID:         params.AgentID,
 		ProxyTargetID:   strings.TrimSpace(params.ProxyTargetID),
+		CredentialID:    strings.TrimSpace(params.CredentialID),
+		FolderID:        strings.TrimSpace(params.FolderID),
 		Tags:            normalizeTags(params.Tags),
 		CreatedBy:       params.CreatedBy,
 		CreatedAt:       now,
@@ -1153,12 +1155,13 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ssh_targets (
 			id, owner_type, owner_id, name, alias, target_type, host, port,
-			remote_username, auth_type, encrypted_secret, agent_id, proxy_target_id,
+			remote_username, auth_type, encrypted_secret, agent_id, proxy_target_id, credential_id, folder_id,
 			created_by, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, target.ID, target.OwnerType, target.OwnerID, target.Name, target.Alias, target.TargetType, target.Host, target.Port,
 		target.RemoteUsername, target.AuthType, nullableBytes(target.EncryptedSecret), nullableString(target.AgentID),
-		nullableString(target.ProxyTargetID), target.CreatedBy, formatTime(target.CreatedAt), formatTime(target.UpdatedAt)); err != nil {
+		nullableString(target.ProxyTargetID), nullableString(target.CredentialID), nullableString(target.FolderID),
+		target.CreatedBy, formatTime(target.CreatedAt), formatTime(target.UpdatedAt)); err != nil {
 		return SSHTarget{}, err
 	}
 	if err := r.replaceTargetTagsTx(ctx, tx, target, now); err != nil {
@@ -1177,7 +1180,8 @@ func (r *Repository) ListSSHTargets(ctx context.Context, ownerType, ownerID stri
 func (r *Repository) ListSSHTargetsFiltered(ctx context.Context, filter SSHTargetFilter) ([]SSHTarget, error) {
 	query := `
 		SELECT id, owner_type, owner_id, COALESCE(name, ''), alias, target_type, host, port, remote_username,
-			auth_type, encrypted_secret, COALESCE(agent_id, ''), COALESCE(proxy_target_id, ''), created_by, created_at, updated_at
+			auth_type, encrypted_secret, COALESCE(agent_id, ''), COALESCE(proxy_target_id, ''),
+			COALESCE(credential_id, ''), COALESCE(folder_id, ''), created_by, created_at, updated_at
 		FROM ssh_targets t
 		WHERE 1 = 1`
 	args := []any{}
@@ -1223,7 +1227,8 @@ func (r *Repository) ListSSHTargetsFiltered(ctx context.Context, filter SSHTarge
 func (r *Repository) GetSSHTarget(ctx context.Context, targetID string) (SSHTarget, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, owner_type, owner_id, COALESCE(name, ''), alias, target_type, host, port, remote_username,
-			auth_type, encrypted_secret, COALESCE(agent_id, ''), COALESCE(proxy_target_id, ''), created_by, created_at, updated_at
+			auth_type, encrypted_secret, COALESCE(agent_id, ''), COALESCE(proxy_target_id, ''),
+			COALESCE(credential_id, ''), COALESCE(folder_id, ''), created_by, created_at, updated_at
 		FROM ssh_targets
 		WHERE id = ?
 	`, targetID)
@@ -1304,6 +1309,16 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 	} else if params.ProxyTargetID != "" {
 		current.ProxyTargetID = strings.TrimSpace(params.ProxyTargetID)
 	}
+	if params.ReplaceCredential {
+		current.CredentialID = strings.TrimSpace(params.CredentialID)
+	} else if params.CredentialID != "" {
+		current.CredentialID = strings.TrimSpace(params.CredentialID)
+	}
+	if params.ReplaceFolder {
+		current.FolderID = strings.TrimSpace(params.FolderID)
+	} else if params.FolderID != "" {
+		current.FolderID = strings.TrimSpace(params.FolderID)
+	}
 	if params.ReplaceTags {
 		current.Tags = normalizeTags(params.Tags)
 	}
@@ -1316,10 +1331,11 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 	if _, err = tx.ExecContext(ctx, `
 		UPDATE ssh_targets
 		SET name = ?, alias = ?, host = ?, port = ?, remote_username = ?, auth_type = ?,
-			encrypted_secret = ?, agent_id = ?, proxy_target_id = ?, updated_at = ?
+			encrypted_secret = ?, agent_id = ?, proxy_target_id = ?, credential_id = ?, folder_id = ?, updated_at = ?
 		WHERE id = ?
 	`, current.Name, current.Alias, current.Host, current.Port, current.RemoteUsername, current.AuthType,
-		nullableBytes(current.EncryptedSecret), nullableString(current.AgentID), nullableString(current.ProxyTargetID), formatTime(current.UpdatedAt), current.ID); err != nil {
+		nullableBytes(current.EncryptedSecret), nullableString(current.AgentID), nullableString(current.ProxyTargetID),
+		nullableString(current.CredentialID), nullableString(current.FolderID), formatTime(current.UpdatedAt), current.ID); err != nil {
 		return SSHTarget{}, err
 	}
 	if params.ReplaceTags {
@@ -1331,6 +1347,294 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 		return SSHTarget{}, err
 	}
 	return r.GetSSHTarget(ctx, current.ID)
+}
+
+func (r *Repository) CreateSSHCredential(ctx context.Context, params CreateSSHCredentialParams) (SSHCredential, error) {
+	now := time.Now().UTC()
+	credential := SSHCredential{
+		ID:              uuid.NewString(),
+		OwnerType:       params.OwnerType,
+		OwnerID:         params.OwnerID,
+		Name:            strings.TrimSpace(params.Name),
+		Username:        strings.TrimSpace(params.Username),
+		AuthType:        strings.TrimSpace(params.AuthType),
+		EncryptedSecret: append([]byte(nil), params.EncryptedSecret...),
+		CreatedBy:       params.CreatedBy,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if credential.Name == "" {
+		return SSHCredential{}, errors.New("credential name is required")
+	}
+	if credential.Username == "" {
+		return SSHCredential{}, errors.New("credential username is required")
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		INSERT INTO ssh_credentials (id, owner_type, owner_id, name, username, auth_type, encrypted_secret, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, credential.ID, credential.OwnerType, credential.OwnerID, credential.Name, credential.Username, credential.AuthType,
+		nullableBytes(credential.EncryptedSecret), credential.CreatedBy, formatTime(credential.CreatedAt), formatTime(credential.UpdatedAt)); err != nil {
+		return SSHCredential{}, err
+	}
+	return r.GetSSHCredential(ctx, credential.ID)
+}
+
+func (r *Repository) ListSSHCredentials(ctx context.Context, ownerType, ownerID string) ([]SSHCredential, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, owner_type, owner_id, name, username, auth_type, encrypted_secret, created_by, created_at, updated_at
+		FROM ssh_credentials
+		WHERE owner_type = ? AND owner_id = ?
+		ORDER BY name ASC, created_at ASC
+	`, ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var credentials []SSHCredential
+	for rows.Next() {
+		credential, err := scanSSHCredentialRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		credentials = append(credentials, credential)
+	}
+	return credentials, rows.Err()
+}
+
+func (r *Repository) GetSSHCredential(ctx context.Context, credentialID string) (SSHCredential, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, name, username, auth_type, encrypted_secret, created_by, created_at, updated_at
+		FROM ssh_credentials
+		WHERE id = ?
+	`, credentialID)
+	credential, err := scanSSHCredentialRows(row)
+	if err != nil {
+		return SSHCredential{}, wrapScanErr(err)
+	}
+	return credential, nil
+}
+
+func (r *Repository) UpdateSSHCredential(ctx context.Context, credentialID string, params UpdateSSHCredentialParams) (SSHCredential, error) {
+	current, err := r.GetSSHCredential(ctx, credentialID)
+	if err != nil {
+		return SSHCredential{}, err
+	}
+	if params.Name != "" {
+		current.Name = strings.TrimSpace(params.Name)
+	}
+	if params.Username != "" {
+		current.Username = strings.TrimSpace(params.Username)
+	}
+	if params.AuthType != "" {
+		current.AuthType = strings.TrimSpace(params.AuthType)
+	}
+	if params.EncryptedSecret != nil {
+		current.EncryptedSecret = append([]byte(nil), params.EncryptedSecret...)
+	}
+	current.UpdatedAt = time.Now().UTC()
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE ssh_credentials
+		SET name = ?, username = ?, auth_type = ?, encrypted_secret = ?, updated_at = ?
+		WHERE id = ?
+	`, current.Name, current.Username, current.AuthType, nullableBytes(current.EncryptedSecret), formatTime(current.UpdatedAt), current.ID)
+	if err != nil {
+		return SSHCredential{}, err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return SSHCredential{}, err
+	}
+	return r.GetSSHCredential(ctx, current.ID)
+}
+
+func (r *Repository) DeleteSSHCredential(ctx context.Context, credentialID string) error {
+	var used int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM ssh_targets WHERE credential_id = ?`, credentialID).Scan(&used); err != nil {
+		return err
+	}
+	if used > 0 {
+		return errors.New("credential is used by ssh targets")
+	}
+	res, err := r.db.ExecContext(ctx, `DELETE FROM ssh_credentials WHERE id = ?`, credentialID)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
+func (r *Repository) CreateTargetFolder(ctx context.Context, params CreateTargetFolderParams) (TargetFolder, error) {
+	now := time.Now().UTC()
+	folder := TargetFolder{
+		ID:        uuid.NewString(),
+		OwnerType: params.OwnerType,
+		OwnerID:   params.OwnerID,
+		ParentID:  strings.TrimSpace(params.ParentID),
+		Name:      strings.TrimSpace(params.Name),
+		CreatedBy: params.CreatedBy,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if folder.Name == "" {
+		return TargetFolder{}, errors.New("folder name is required")
+	}
+	if folder.ParentID != "" {
+		if err := r.ensureFolderOwner(ctx, folder.ParentID, folder.OwnerType, folder.OwnerID); err != nil {
+			return TargetFolder{}, err
+		}
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		INSERT INTO target_folders (id, owner_type, owner_id, parent_id, name, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, folder.ID, folder.OwnerType, folder.OwnerID, nullableString(folder.ParentID), folder.Name, folder.CreatedBy, formatTime(folder.CreatedAt), formatTime(folder.UpdatedAt)); err != nil {
+		return TargetFolder{}, err
+	}
+	return r.GetTargetFolder(ctx, folder.ID)
+}
+
+func (r *Repository) ListTargetFolders(ctx context.Context, ownerType, ownerID string) ([]TargetFolder, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, owner_type, owner_id, COALESCE(parent_id, ''), name, created_by, created_at, updated_at
+		FROM target_folders
+		WHERE owner_type = ? AND owner_id = ?
+		ORDER BY name ASC, created_at ASC
+	`, ownerType, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var folders []TargetFolder
+	for rows.Next() {
+		folder, err := scanTargetFolderRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		folders = append(folders, folder)
+	}
+	return folders, rows.Err()
+}
+
+func (r *Repository) GetTargetFolder(ctx context.Context, folderID string) (TargetFolder, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, COALESCE(parent_id, ''), name, created_by, created_at, updated_at
+		FROM target_folders
+		WHERE id = ?
+	`, folderID)
+	folder, err := scanTargetFolderRows(row)
+	if err != nil {
+		return TargetFolder{}, wrapScanErr(err)
+	}
+	return folder, nil
+}
+
+func (r *Repository) UpdateTargetFolder(ctx context.Context, folderID string, params UpdateTargetFolderParams) (TargetFolder, error) {
+	current, err := r.GetTargetFolder(ctx, folderID)
+	if err != nil {
+		return TargetFolder{}, err
+	}
+	if params.Name != "" {
+		current.Name = strings.TrimSpace(params.Name)
+	}
+	if params.ReplaceParent {
+		parentID := strings.TrimSpace(params.ParentID)
+		if parentID == current.ID {
+			return TargetFolder{}, errors.New("folder cannot be moved into itself")
+		}
+		if parentID != "" {
+			if err := r.ensureFolderOwner(ctx, parentID, current.OwnerType, current.OwnerID); err != nil {
+				return TargetFolder{}, err
+			}
+			if err := r.ensureNoFolderCycle(ctx, current.ID, parentID); err != nil {
+				return TargetFolder{}, err
+			}
+		}
+		current.ParentID = parentID
+	}
+	current.UpdatedAt = time.Now().UTC()
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE target_folders
+		SET parent_id = ?, name = ?, updated_at = ?
+		WHERE id = ?
+	`, nullableString(current.ParentID), current.Name, formatTime(current.UpdatedAt), current.ID)
+	if err != nil {
+		return TargetFolder{}, err
+	}
+	if err := requireRowsAffected(res); err != nil {
+		return TargetFolder{}, err
+	}
+	return r.GetTargetFolder(ctx, current.ID)
+}
+
+func (r *Repository) DeleteTargetFolder(ctx context.Context, folderID string) error {
+	var children int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM target_folders WHERE parent_id = ?`, folderID).Scan(&children); err != nil {
+		return err
+	}
+	var targets int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM ssh_targets WHERE folder_id = ?`, folderID).Scan(&targets); err != nil {
+		return err
+	}
+	if children > 0 || targets > 0 {
+		return errors.New("folder is not empty")
+	}
+	res, err := r.db.ExecContext(ctx, `DELETE FROM target_folders WHERE id = ?`, folderID)
+	if err != nil {
+		return err
+	}
+	return requireRowsAffected(res)
+}
+
+func (r *Repository) ensureFolderOwner(ctx context.Context, folderID, ownerType, ownerID string) error {
+	folder, err := r.GetTargetFolder(ctx, folderID)
+	if err != nil {
+		return err
+	}
+	if folder.OwnerType != ownerType || folder.OwnerID != ownerID {
+		return errors.New("folder belongs to another owner")
+	}
+	return nil
+}
+
+func (r *Repository) ensureNoFolderCycle(ctx context.Context, movingID, newParentID string) error {
+	for parentID := strings.TrimSpace(newParentID); parentID != ""; {
+		if parentID == movingID {
+			return errors.New("folder cannot be moved into its descendant")
+		}
+		parent, err := r.GetTargetFolder(ctx, parentID)
+		if err != nil {
+			return err
+		}
+		parentID = strings.TrimSpace(parent.ParentID)
+	}
+	return nil
+}
+
+func (r *Repository) UpsertUserSetting(ctx context.Context, userID, key string, valueJSON []byte) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO user_settings (user_id, key, value_json, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(user_id, key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+	`, userID, strings.TrimSpace(key), string(valueJSON), formatTime(time.Now().UTC()))
+	return err
+}
+
+func (r *Repository) ListUserSettings(ctx context.Context, userID string) (map[string]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT key, value_json
+		FROM user_settings
+		WHERE user_id = ?
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	settings := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		settings[key] = value
+	}
+	return settings, rows.Err()
 }
 
 func (r *Repository) replaceTargetTagsTx(ctx context.Context, tx *sql.Tx, target SSHTarget, now time.Time) error {
@@ -2484,7 +2788,7 @@ func scanTarget(row *sql.Row) (SSHTarget, error) {
 	var created, updated string
 	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Name, &target.Alias, &target.TargetType,
 		&target.Host, &target.Port, &target.RemoteUsername, &target.AuthType, &target.EncryptedSecret,
-		&target.AgentID, &target.ProxyTargetID, &target.CreatedBy, &created, &updated)
+		&target.AgentID, &target.ProxyTargetID, &target.CredentialID, &target.FolderID, &target.CreatedBy, &created, &updated)
 	if err != nil {
 		return SSHTarget{}, wrapScanErr(err)
 	}
@@ -2505,7 +2809,7 @@ func scanTargetRows(row targetScanner) (SSHTarget, error) {
 	var created, updated string
 	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Name, &target.Alias, &target.TargetType,
 		&target.Host, &target.Port, &target.RemoteUsername, &target.AuthType, &target.EncryptedSecret,
-		&target.AgentID, &target.ProxyTargetID, &target.CreatedBy, &created, &updated)
+		&target.AgentID, &target.ProxyTargetID, &target.CredentialID, &target.FolderID, &target.CreatedBy, &created, &updated)
 	if err != nil {
 		return SSHTarget{}, wrapScanErr(err)
 	}
@@ -2515,6 +2819,31 @@ func scanTargetRows(row targetScanner) (SSHTarget, error) {
 	target.CreatedAt = parseTime(created)
 	target.UpdatedAt = parseTime(updated)
 	return target, nil
+}
+
+func scanSSHCredentialRows(row targetScanner) (SSHCredential, error) {
+	var credential SSHCredential
+	var created, updated string
+	err := row.Scan(&credential.ID, &credential.OwnerType, &credential.OwnerID, &credential.Name,
+		&credential.Username, &credential.AuthType, &credential.EncryptedSecret, &credential.CreatedBy, &created, &updated)
+	if err != nil {
+		return SSHCredential{}, err
+	}
+	credential.CreatedAt = parseTime(created)
+	credential.UpdatedAt = parseTime(updated)
+	return credential, nil
+}
+
+func scanTargetFolderRows(row targetScanner) (TargetFolder, error) {
+	var folder TargetFolder
+	var created, updated string
+	err := row.Scan(&folder.ID, &folder.OwnerType, &folder.OwnerID, &folder.ParentID, &folder.Name, &folder.CreatedBy, &created, &updated)
+	if err != nil {
+		return TargetFolder{}, err
+	}
+	folder.CreatedAt = parseTime(created)
+	folder.UpdatedAt = parseTime(updated)
+	return folder, nil
 }
 
 func scanLLMPolicyConfig(row *sql.Row) (LLMPolicyConfig, error) {

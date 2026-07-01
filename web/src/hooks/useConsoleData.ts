@@ -14,6 +14,9 @@ export function useConsoleData({ user, orgs, runtime }: { user: User; orgs: Orga
   const queryClient = useQueryClient();
   const keys = useQuery({ queryKey: ["keys"], queryFn: api.keys });
   const targets = useQuery({ queryKey: ["targets", owner], queryFn: () => api.targets(owner!), enabled: Boolean(owner) });
+  const credentials = useQuery({ queryKey: ["credentials", owner], queryFn: () => api.credentials(owner!), enabled: Boolean(owner) });
+  const targetFolders = useQuery({ queryKey: ["target-folders", owner], queryFn: () => api.targetFolders(owner!), enabled: Boolean(owner) });
+  const userSettings = useQuery({ queryKey: ["my-settings"], queryFn: api.mySettings });
   const members = useQuery({ queryKey: ["members", activeOrg?.id], queryFn: () => api.orgMembers(activeOrg.id), enabled: Boolean(activeOrg) && !isClientMode });
   const groups = useQuery({ queryKey: ["groups", activeOrg?.id], queryFn: () => api.groups(activeOrg.id), enabled: Boolean(activeOrg) && !isClientMode });
   const policies = useQuery({ queryKey: ["policies", owner], queryFn: () => api.policies(owner!), enabled: Boolean(owner) });
@@ -40,6 +43,9 @@ export function useConsoleData({ user, orgs, runtime }: { user: User; orgs: Orga
     members: members.data?.members || [],
     groups: groups.data?.groups || [],
     targets: targets.data?.targets || [],
+    credentials: credentials.data?.credentials || [],
+    targetFolders: targetFolders.data?.folders || [],
+    userSettings: { connect_open_mode: "popup", connect_attach_existing: false, ...(userSettings.data || {}) },
     policies: policies.data?.policies || [],
     llms: llms.data?.configs || [],
     prompts: prompts.data?.prompts || [],
