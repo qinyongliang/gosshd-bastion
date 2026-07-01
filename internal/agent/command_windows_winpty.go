@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
@@ -103,30 +102,4 @@ func terminalSize(req protocol.StreamRequest) (int, int) {
 		rows = 24
 	}
 	return cols, rows
-}
-
-func windowsCommandLine(command string) string {
-	command = strings.TrimSpace(command)
-	if command == "" {
-		return "cmd.exe"
-	}
-	args := windowsInteractiveShellArgs(command)
-	if len(args) == 0 {
-		return quoteWindowsArg(command)
-	}
-	parts := []string{quoteWindowsArg(command)}
-	for _, arg := range args {
-		parts = append(parts, quoteWindowsArg(arg))
-	}
-	return strings.Join(parts, " ")
-}
-
-func quoteWindowsArg(arg string) string {
-	if arg == "" {
-		return `""`
-	}
-	if !strings.ContainsAny(arg, " \t\"") {
-		return arg
-	}
-	return `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
 }

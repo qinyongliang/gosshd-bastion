@@ -302,7 +302,7 @@ func TestSSHExecReusesOpenTerminalSessionWithSessionReview(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("ssh exec did not finish after session review approval")
 	}
-	if got := input.input.String(); got != "rm /tmp/needs-review\r" {
+	if got := input.input.String(); got != " rm /tmp/needs-review\r" {
 		t.Fatalf("terminal input = %q, want command submitted with carriage return", got)
 	}
 	if got := ch.stdout.String(); !strings.Contains(got, "terminal route ok") {

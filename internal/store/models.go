@@ -140,11 +140,68 @@ type SSHTarget struct {
 	EncryptedSecret []byte
 	AgentID         string
 	ProxyTargetID   string
+	CredentialID    string
+	FolderID        string
 	Tags            []string
 	TagColors       map[string]string
 	CreatedBy       string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+}
+
+type SSHCredential struct {
+	ID              string
+	OwnerType       string
+	OwnerID         string
+	Name            string
+	Username        string
+	AuthType        string
+	EncryptedSecret []byte
+	CreatedBy       string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type TargetFolder struct {
+	ID        string
+	OwnerType string
+	OwnerID   string
+	ParentID  string
+	Name      string
+	CreatedBy string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type BatchCommandHistory struct {
+	ID           string
+	OwnerType    string
+	OwnerID      string
+	Command      string
+	ExecuteCount int
+	CreatedBy    string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type UpsertBatchCommandHistoryParams struct {
+	OwnerType string
+	OwnerID   string
+	Command   string
+	CreatedBy string
+}
+
+type BatchCommandHistoryFilter struct {
+	OwnerType string
+	OwnerID   string
+	Query     string
+	Limit     int
+	Offset    int
+}
+
+type BatchCommandHistoryPage struct {
+	Histories []BatchCommandHistory
+	Total     int
 }
 
 type TargetTag struct {
@@ -398,29 +455,66 @@ type CreateSSHTargetParams struct {
 	EncryptedSecret []byte
 	AgentID         string
 	ProxyTargetID   string
+	CredentialID    string
+	FolderID        string
 	Tags            []string
 	CreatedBy       string
 }
 
 type UpdateSSHTargetParams struct {
-	Name            string
-	Alias           string
-	Host            string
-	Port            int
-	RemoteUsername  string
-	AuthType        string
-	EncryptedSecret []byte
-	AgentID         string
-	ProxyTargetID   string
-	ReplaceProxy    bool
-	Tags            []string
-	ReplaceTags     bool
+	Name              string
+	Alias             string
+	Host              string
+	Port              int
+	RemoteUsername    string
+	AuthType          string
+	EncryptedSecret   []byte
+	AgentID           string
+	ProxyTargetID     string
+	ReplaceProxy      bool
+	CredentialID      string
+	ReplaceCredential bool
+	FolderID          string
+	ReplaceFolder     bool
+	Tags              []string
+	ReplaceTags       bool
 }
 
 type SSHTargetFilter struct {
 	OwnerType string
 	OwnerID   string
 	Tags      []string
+}
+
+type CreateSSHCredentialParams struct {
+	OwnerType       string
+	OwnerID         string
+	Name            string
+	Username        string
+	AuthType        string
+	EncryptedSecret []byte
+	CreatedBy       string
+}
+
+type UpdateSSHCredentialParams struct {
+	Name            string
+	Username        string
+	AuthType        string
+	EncryptedSecret []byte
+}
+
+type CreateTargetFolderParams struct {
+	OwnerType string
+	OwnerID   string
+	ParentID  string
+	Name      string
+	CreatedBy string
+}
+
+type UpdateTargetFolderParams struct {
+	ParentID      string
+	ReplaceParent bool
+	Name          string
 }
 
 type CreateAgentEnrollmentParams struct {

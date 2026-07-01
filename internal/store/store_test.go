@@ -45,6 +45,10 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 		"organization_invites",
 		"user_public_keys",
 		"ssh_targets",
+		"ssh_credentials",
+		"target_folders",
+		"user_settings",
+		"batch_command_histories",
 		"agent_enrollments",
 		"agents",
 		"command_policies",
@@ -62,6 +66,103 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 		if !got[table] {
 			t.Fatalf("schema missing table %s; got %#v", table, got)
 		}
+	}
+}
+
+func TestRepositoryBatchCommandHistoryCountsAndSearchesByOrganization(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+
+	user, err := repo.CreateUser(ctx, CreateUserParams{
+		Email:        "batch@example.com",
+		DisplayName:  "Batch",
+		PasswordHash: []byte("hash"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orgA, err := repo.CreateOrganization(ctx, CreateOrganizationParams{Name: "Ops A", Slug: "ops-a", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orgB, err := repo.CreateOrganization(ctx, CreateOrganizationParams{Name: "Ops B", Slug: "ops-b", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"uptime", "df -h", "uptime", "docker ps", "uptime", "df -h"} {
+		if _, err := repo.UpsertBatchCommandHistory(ctx, UpsertBatchCommandHistoryParams{
+			OwnerType: OwnerOrganization,
+			OwnerID:   orgA.ID,
+			Command:   command,
+			CreatedBy: user.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := repo.UpsertBatchCommandHistory(ctx, UpsertBatchCommandHistoryParams{
+		OwnerType: OwnerOrganization,
+		OwnerID:   orgB.ID,
+		Command:   "uptime",
+		CreatedBy: user.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := repo.ListBatchCommandHistories(ctx, BatchCommandHistoryFilter{
+		OwnerType: OwnerOrganization,
+		OwnerID:   orgA.ID,
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 3 || len(page.Histories) != 3 {
+		t.Fatalf("history page mismatch: %#v", page)
+	}
+	if page.Histories[0].Command != "uptime" || page.Histories[0].ExecuteCount != 3 {
+		t.Fatalf("histories should sort by count desc: %#v", page.Histories)
+	}
+	if page.Histories[1].Command != "df -h" || page.Histories[1].ExecuteCount != 2 {
+		t.Fatalf("second history mismatch: %#v", page.Histories)
+	}
+	search, err := repo.ListBatchCommandHistories(ctx, BatchCommandHistoryFilter{
+		OwnerType: OwnerOrganization,
+		OwnerID:   orgA.ID,
+		Query:     "dock",
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if search.Total != 1 || len(search.Histories) != 1 || search.Histories[0].Command != "docker ps" {
+		t.Fatalf("search mismatch: %#v", search)
+	}
+	secondPage, err := repo.ListBatchCommandHistories(ctx, BatchCommandHistoryFilter{
+		OwnerType: OwnerOrganization,
+		OwnerID:   orgA.ID,
+		Limit:     1,
+		Offset:    1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondPage.Total != 3 || len(secondPage.Histories) != 1 || secondPage.Histories[0].Command != "df -h" {
+		t.Fatalf("pagination mismatch: %#v", secondPage)
+	}
+	otherOrg, err := repo.ListBatchCommandHistories(ctx, BatchCommandHistoryFilter{
+		OwnerType: OwnerOrganization,
+		OwnerID:   orgB.ID,
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherOrg.Total != 1 || otherOrg.Histories[0].ExecuteCount != 1 {
+		t.Fatalf("organization isolation mismatch: %#v", otherOrg)
 	}
 }
 

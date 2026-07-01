@@ -389,8 +389,8 @@ func TestTrySendCommandUsesCarriageReturnAndReturnsOutput(t *testing.T) {
 	if !attempt.Acquired || !attempt.Sent || attempt.Err != nil {
 		t.Fatalf("expected command to be sent and completed, attempt=%+v", attempt)
 	}
-	if got := input.input.String(); got != "echo once\r" {
-		t.Fatalf("command input = %q, want %q", got, "echo once\r")
+	if got := input.input.String(); got != " echo once\r" {
+		t.Fatalf("command input = %q, want %q", got, " echo once\r")
 	}
 	if attempt.Result.ExitCode != 0 {
 		t.Fatalf("exit code = %d, want 0", attempt.Result.ExitCode)
@@ -416,8 +416,8 @@ func TestTrySendCommandReportsSentWhenWaitingFails(t *testing.T) {
 	if !attempt.Acquired || !attempt.Sent || attempt.Err == nil {
 		t.Fatalf("expected sent command with wait error, attempt=%+v", attempt)
 	}
-	if got := input.String(); got != "echo once\r" {
-		t.Fatalf("command input = %q, want %q", got, "echo once\r")
+	if got := input.String(); got != " echo once\r" {
+		t.Fatalf("command input = %q, want %q", got, " echo once\r")
 	}
 }
 
@@ -439,12 +439,21 @@ func TestRunCommandInTerminalSessionTimeoutReleasesCommandLock(t *testing.T) {
 	if !run.Routed || !run.Allowed || run.Err == nil {
 		t.Fatalf("expected routed command to time out while waiting for terminal integration, run=%+v", run)
 	}
-	if got := input.String(); got != "echo no-finish-event\r" {
-		t.Fatalf("command input = %q, want %q", got, "echo no-finish-event\r")
+	if got := input.String(); got != " echo no-finish-event\r" {
+		t.Fatalf("command input = %q, want %q", got, " echo no-finish-event\r")
 	}
 
 	if !session.commandMu.TryLock() {
 		t.Fatal("command lock should be released after timeout")
 	}
 	session.commandMu.Unlock()
+}
+
+func TestHistorySuppressedTerminalCommandAddsLeadingSpace(t *testing.T) {
+	if got := historySuppressedTerminalCommand("echo hidden"); got != " echo hidden" {
+		t.Fatalf("history suppressed command = %q", got)
+	}
+	if got := historySuppressedTerminalCommand(" echo already"); got != " echo already" {
+		t.Fatalf("history suppressed command should preserve existing leading space, got %q", got)
+	}
 }

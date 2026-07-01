@@ -1159,6 +1159,11 @@ func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSH
 	if depth > 3 {
 		return nil, errors.New("ssh proxy chain is too deep")
 	}
+	resolvedTarget, err := a.resolveTargetCredential(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	target = resolvedTarget
 	auth, err := targetAuthMethods(target)
 	if err != nil {
 		return nil, err
@@ -1223,6 +1228,23 @@ func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSH
 		return gossh.NewClient(conn, chans, reqs), nil
 	}
 	return nil, fmt.Errorf("unsupported target type %q", target.TargetType)
+}
+
+func (a *App) resolveTargetCredential(ctx context.Context, target store.SSHTarget) (store.SSHTarget, error) {
+	if strings.TrimSpace(target.CredentialID) == "" {
+		return target, nil
+	}
+	credential, err := a.store.Repository().GetSSHCredential(ctx, target.CredentialID)
+	if err != nil {
+		return store.SSHTarget{}, fmt.Errorf("load target credential: %w", err)
+	}
+	if credential.OwnerType != target.OwnerType || credential.OwnerID != target.OwnerID {
+		return store.SSHTarget{}, errors.New("target credential belongs to another owner")
+	}
+	target.RemoteUsername = credential.Username
+	target.AuthType = credential.AuthType
+	target.EncryptedSecret = append([]byte(nil), credential.EncryptedSecret...)
+	return target, nil
 }
 
 func (a *App) openAgentTCPConn(agentID, addr string) (net.Conn, error) {
