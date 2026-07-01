@@ -80,6 +80,7 @@ export const api = {
 
   targets: (owner: Owner) => request<{ targets: Target[] }>(`/api/targets?${ownerQuery(owner)}`),
   createTarget: (body: Record<string, unknown>) => request<{ target: Target }>("/api/targets", post(body)),
+  copyTarget: (id: string) => request<{ target: Target }>(`/api/targets/${id}/copy`, post({})),
   updateTarget: (id: string, body: Record<string, unknown>) => request<{ target: Target }>(`/api/targets/${id}`, patch(body)),
   deleteTarget: (id: string) => request<void>(`/api/targets/${id}`, { method: "DELETE" }),
   credentials: (owner: Owner) => request<{ credentials: SSHCredential[] }>(`/api/credentials?${ownerQuery(owner)}`),

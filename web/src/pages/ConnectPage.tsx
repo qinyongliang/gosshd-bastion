@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Editor from "@monaco-editor/react";
 import { Terminal } from "@xterm/xterm";
-import { Activity, ArrowDownToLine, ArrowLeft, ArrowRightToLine, ChevronLeft, ChevronRight, Cpu, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
+import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Folder, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -35,7 +35,7 @@ type ConnectionTab = {
 
 type PaneNode = TerminalPaneNode | EditorPaneNode | SplitPaneNode;
 type PaneDirection = "row" | "column";
-type PaneSide = "right" | "down";
+type PaneSide = "left" | "right" | "down";
 type TerminalPaneNode = {
   type: "terminal";
   id: string;
@@ -68,6 +68,8 @@ type TerminalPanelProps = {
   onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
   onClose?: () => void;
   onSplit?: (side: PaneSide) => void;
+  pendingCommand?: string;
+  onPendingCommandConsumed?: () => void;
   manualReview?: boolean;
 };
 
@@ -122,6 +124,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const endpoint = targetEndpoint(activeTarget);
   const name = appName(data.runtime);
   const description = appDescription(data.runtime);
+  const pendingCommand = getConnectCommandParam();
 
   useEffect(() => {
     if (expectedRouteTabIDRef.current) {
@@ -193,6 +196,25 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     }));
   };
 
+  const splitTabIntoActiveTab = (sourceTabID: string, side: PaneSide) => {
+    if (!activeTab || sourceTabID === activeTab.id) return;
+    setTabMenu(null);
+    setTabs((current) => {
+      const source = current.find((item) => item.id === sourceTabID);
+      const destination = current.find((item) => item.id === activeTabID);
+      if (!source || !destination || source.id === destination.id) return current;
+      const nextLayout = splitPane(destination.layout, destination.activePaneID, source.layout, side);
+      return current
+        .filter((item) => item.id !== source.id)
+        .map((item) => item.id === destination.id ? {
+          ...item,
+          layout: nextLayout,
+          activePaneID: source.activePaneID,
+          targetID: source.targetID,
+        } : item);
+    });
+  };
+
   const closeActivePane = () => {
     if (!activeTab) return;
     closePane(activeTab.id, activeTab.activePaneID);
@@ -254,9 +276,12 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       const openSwitcher = isClientMode
         ? event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "n", "KeyN")
         : event.altKey && !event.ctrlKey && !event.metaKey && keyMatches(event, "n", "KeyN");
-      const closeCurrentTab = isClientMode
+      const closeCurrentPane = isClientMode
         ? event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "w", "KeyW")
         : event.altKey && !event.ctrlKey && !event.metaKey && keyMatches(event, "w", "KeyW");
+      const closeDisconnectedPane = isClientMode
+        ? event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "d", "KeyD")
+        : event.altKey && !event.ctrlKey && !event.metaKey && keyMatches(event, "d", "KeyD");
 
       if (openSwitcher) {
         event.preventDefault();
@@ -266,7 +291,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         setSwitcherOpenSignal((value) => value + 1);
         return;
       }
-      if (closeCurrentTab) {
+      if (closeCurrentPane || closeDisconnectedPane) {
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
@@ -312,7 +337,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
           </div>
         </div>
 
-        <ServerSwitcher targets={targets} folders={data.targetFolders} currentTargetID={activeTarget.id} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} onSplitTarget={splitActivePane} />
+        <ServerSwitcher targets={targets} folders={data.targetFolders} currentTargetID={activeTarget.id} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} />
 
         <div className="connect-appbar-host">
           <Server />
@@ -347,6 +372,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         onClose={(tabID) => closeTabs("one", tabID)}
         onMenu={(tabID, point) => setTabMenu({ tabID, ...point })}
         onMenuAction={closeTabs}
+        onSplitTab={splitTabIntoActiveTab}
       />
 
       <section
@@ -396,20 +422,42 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
           <div className="connect-zone terminal-zone">
             <div className="terminal-tab-stack">
               {hasOpenTabs ? (
-                activeTab && (
-                  <PaneTree
-                    data={data}
-                    node={activeTab.layout}
-                    targets={targets}
-                    activePaneID={activeTab.activePaneID}
-                    isFullscreen={terminalFullscreen}
-                    onActivate={(paneID) => updateActiveTab((tab) => ({ ...tab, activePaneID: paneID }))}
-                    onClose={(paneID) => closePane(activeTab.id, paneID)}
-                    onFullscreenChange={setTerminalFullscreen}
-                    onSplit={splitActivePane}
-                    onResizeSplit={(splitID, ratio) => updateActiveTab((tab) => ({ ...tab, layout: resizeSplit(tab.layout, splitID, ratio) }))}
-                  />
-                )
+                tabs.map((tab) => (
+                  <div key={tab.id} className={`terminal-tab-layer ${tab.id === activeTabID ? "active" : "inactive"}`}>
+                    <PaneTree
+                      data={data}
+                      node={tab.layout}
+                      targets={targets}
+                      activePaneID={tab.activePaneID}
+                      isFullscreen={terminalFullscreen && tab.id === activeTabID}
+                      tabActive={tab.id === activeTabID}
+                      pendingCommand={tab.id === activeTabID ? pendingCommand : ""}
+                      onPendingCommandConsumed={clearConnectCommandParam}
+                      onActivate={(paneID) => {
+                        setActiveTabID(tab.id);
+                        setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, activePaneID: paneID } : item));
+                      }}
+                      onClose={(paneID) => closePane(tab.id, paneID)}
+                      onFullscreenChange={setTerminalFullscreen}
+                      onSplit={(side, targetID) => {
+                        setActiveTabID(tab.id);
+                        setTabs((current) => current.map((item) => {
+                          if (item.id !== tab.id) return item;
+                          const basePane = findPane(item.layout, item.activePaneID);
+                          if (!basePane || basePane.type === "split") return item;
+                          const nextPane = newTerminalPane(targetID || basePane.targetID);
+                          return {
+                            ...item,
+                            layout: splitPane(item.layout, item.activePaneID, nextPane, side),
+                            activePaneID: nextPane.id,
+                            targetID: nextPane.targetID,
+                          };
+                        }));
+                      }}
+                      onResizeSplit={(splitID, ratio) => setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, layout: resizeSplit(item.layout, splitID, ratio) } : item))}
+                    />
+                  </div>
+                ))
               ) : (
                 <div className="connect-zone-empty">
                   <strong>{t("connectNoOpenTabsTitle")}</strong>
@@ -461,6 +509,7 @@ function ConnectionTabs({
   onClose,
   onMenu,
   onMenuAction,
+  onSplitTab,
 }: {
   tabs: Array<{ tab: ConnectionTab; target: Target }>;
   activeTabID: string;
@@ -469,6 +518,7 @@ function ConnectionTabs({
   onClose: (tabID: string) => void;
   onMenu: (tabID: string, point: { x: number; y: number }) => void;
   onMenuAction: (mode: "one" | "left" | "right" | "others" | "all", tabID: string) => void;
+  onSplitTab: (tabID: string, side: PaneSide) => void;
 }) {
   const tabsRef = useRef<HTMLElement>(null);
   if (!tabs.length) return null;
@@ -507,6 +557,8 @@ function ConnectionTabs({
           role="menu"
         >
           <button type="button" role="menuitem" onClick={() => onMenuAction("one", menuTarget.tab.id)}>关闭当前</button>
+          {menuTarget.tab.id !== activeTabID && <button type="button" role="menuitem" onClick={() => onSplitTab(menuTarget.tab.id, "left")}>拆分到左侧</button>}
+          {menuTarget.tab.id !== activeTabID && <button type="button" role="menuitem" onClick={() => onSplitTab(menuTarget.tab.id, "down")}>拆分到下方</button>}
           <button type="button" role="menuitem" onClick={() => onMenuAction("left", menuTarget.tab.id)}>关闭左侧</button>
           <button type="button" role="menuitem" onClick={() => onMenuAction("right", menuTarget.tab.id)}>关闭右侧</button>
           <button type="button" role="menuitem" onClick={() => onMenuAction("others", menuTarget.tab.id)}>关闭其他</button>
@@ -528,6 +580,9 @@ function PaneTree({
   onFullscreenChange,
   onSplit,
   onResizeSplit,
+  tabActive,
+  pendingCommand,
+  onPendingCommandConsumed,
 }: {
   data: ConsoleData;
   node: PaneNode;
@@ -539,13 +594,16 @@ function PaneTree({
   onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
   onSplit: (side: PaneSide, targetID?: string) => void;
   onResizeSplit: (splitID: string, ratio: number) => void;
+  tabActive: boolean;
+  pendingCommand?: string;
+  onPendingCommandConsumed?: () => void;
 }) {
   if (node.type === "split") {
-    return <SplitPaneView data={data} node={node} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />;
+    return <SplitPaneView data={data} node={node} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} tabActive={tabActive} pendingCommand={pendingCommand} onPendingCommandConsumed={onPendingCommandConsumed} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />;
   }
   const target = targets.find((item) => item.id === node.targetID);
   if (!target) return null;
-  const active = node.id === activePaneID;
+  const active = tabActive && node.id === activePaneID;
   const activate = () => onActivate(node.id);
   if (node.type === "editor") {
     return <EditorPane target={target} filePath={node.path} active={active} onActivate={activate} onClose={() => onClose(node.id)} />;
@@ -560,6 +618,8 @@ function PaneTree({
         onFullscreenChange={onFullscreenChange}
         onClose={() => onClose(node.id)}
         onSplit={onSplit}
+        pendingCommand={pendingCommand}
+        onPendingCommandConsumed={onPendingCommandConsumed}
       />
     </div>
   );
@@ -576,6 +636,9 @@ function SplitPaneView({
   onFullscreenChange,
   onSplit,
   onResizeSplit,
+  tabActive,
+  pendingCommand,
+  onPendingCommandConsumed,
 }: {
   data: ConsoleData;
   node: SplitPaneNode;
@@ -587,6 +650,9 @@ function SplitPaneView({
   onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
   onSplit: (side: PaneSide, targetID?: string) => void;
   onResizeSplit: (splitID: string, ratio: number) => void;
+  tabActive: boolean;
+  pendingCommand?: string;
+  onPendingCommandConsumed?: () => void;
 }) {
   const splitRef = useRef<HTMLDivElement>(null);
   const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -608,9 +674,9 @@ function SplitPaneView({
   };
   return (
     <div ref={splitRef} className={`pane-split ${node.direction}`} style={{ "--split-ratio": `${node.ratio * 100}%` } as CSSProperties}>
-      <PaneTree data={data} node={node.first} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />
+      <PaneTree data={data} node={node.first} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} tabActive={tabActive} pendingCommand={pendingCommand} onPendingCommandConsumed={onPendingCommandConsumed} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />
       <button type="button" className="pane-splitter" onPointerDown={startResize} aria-label="Resize pane" />
-      <PaneTree data={data} node={node.second} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />
+      <PaneTree data={data} node={node.second} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} tabActive={tabActive} pendingCommand={pendingCommand} onPendingCommandConsumed={onPendingCommandConsumed} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />
     </div>
   );
 }
@@ -855,7 +921,7 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-export function TerminalPanel({ data, target, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, manualReview = true }: TerminalPanelProps) {
+export function TerminalPanel({ data, target, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, pendingCommand = "", onPendingCommandConsumed, manualReview = true }: TerminalPanelProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -871,6 +937,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   const activeRef = useRef(active);
   const onCloseRef = useRef(onClose);
   const statusRef = useRef<ConnectionStatus>("connecting");
+  const pendingCommandRef = useRef("");
 
   useEffect(() => {
     activeRef.current = active;
@@ -898,6 +965,23 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
       sendAICollaborationState(next);
       return next;
     });
+  };
+
+  const sendTerminalInput = (value: string) => {
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "input", data: value }));
+      return true;
+    }
+    return false;
+  };
+
+  const runPendingCommand = () => {
+    const command = pendingCommandRef.current.trim();
+    if (!command || statusRef.current !== "connected") return;
+    if (!sendTerminalInput(`${command}\r`)) return;
+    pendingCommandRef.current = "";
+    onPendingCommandConsumed?.();
   };
 
   const connect = () => {
@@ -928,6 +1012,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
       setDims({ cols: currentCols, rows: currentRows });
       socket.send(JSON.stringify({ type: "resize", cols: currentCols, rows: currentRows }));
       socket.send(JSON.stringify({ type: "ai-collaboration", enabled: aiEnabled }));
+      window.setTimeout(runPendingCommand, 80);
       if (heartbeatRef.current) window.clearInterval(heartbeatRef.current);
       heartbeatRef.current = window.setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
@@ -977,6 +1062,12 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   };
 
   useEffect(() => {
+    if (!active || !pendingCommand.trim()) return;
+    pendingCommandRef.current = pendingCommand;
+    runPendingCommand();
+  }, [active, pendingCommand]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     if (terminalRef.current) return;
@@ -1014,10 +1105,7 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
           return;
         }
       }
-      const socket = socketRef.current;
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "input", data: value }));
-      }
+      sendTerminalInput(value);
     });
 
     const onTerminalKeyDown = (event: KeyboardEvent) => {
@@ -1172,14 +1260,12 @@ function ServerSwitcher({
   currentTargetID,
   openSignal,
   onOpenTarget,
-  onSplitTarget,
 }: {
   targets: Target[];
   folders: ConsoleData["targetFolders"];
   currentTargetID: string;
   openSignal: number;
   onOpenTarget: (targetID: string) => void;
-  onSplitTarget: (side: PaneSide, targetID: string) => void;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -1205,6 +1291,7 @@ function ServerSwitcher({
       ...(item.tags || []),
     ].join(" ").toLowerCase().includes(text));
   }, [folderPathByTarget, query, targets]);
+  const treeItems = useMemo(() => buildSwitcherTree(filteredTargets, folders, folderPathByTarget), [filteredTargets, folderPathByTarget, folders]);
 
   useEffect(() => {
     if (openSignal <= 0) return;
@@ -1224,12 +1311,12 @@ function ServerSwitcher({
   }, [query]);
 
   useEffect(() => {
-    if (!filteredTargets.length) {
+    if (!treeItems.length) {
       setSelectedIndex(0);
       return;
     }
-    setSelectedIndex((index) => clampNumber(index, 0, filteredTargets.length - 1));
-  }, [filteredTargets.length]);
+    setSelectedIndex((index) => nextSelectableSwitcherIndex(treeItems, clampNumber(index, 0, treeItems.length - 1), 1));
+  }, [treeItems]);
 
   useEffect(() => {
     if (!open) return;
@@ -1258,30 +1345,24 @@ function ServerSwitcher({
     setQuery("");
   };
 
-  const splitTarget = (target: Target, side: PaneSide) => {
-    onSplitTarget(side, target.id);
-    setOpen(false);
-    setQuery("");
-  };
-
   const onMenuKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setSelectedIndex((index) => wrapIndex(index + 1, filteredTargets.length));
+      setSelectedIndex((index) => nextSelectableSwitcherIndex(treeItems, index + 1, 1));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setSelectedIndex((index) => wrapIndex(index - 1, filteredTargets.length));
+      setSelectedIndex((index) => nextSelectableSwitcherIndex(treeItems, index - 1, -1));
     } else if (event.key === "Home") {
       event.preventDefault();
-      setSelectedIndex(0);
+      setSelectedIndex(nextSelectableSwitcherIndex(treeItems, 0, 1));
     } else if (event.key === "End") {
       event.preventDefault();
-      setSelectedIndex(Math.max(0, filteredTargets.length - 1));
+      setSelectedIndex(nextSelectableSwitcherIndex(treeItems, treeItems.length - 1, -1));
     } else if (event.key === "Enter") {
-      const selected = filteredTargets[selectedIndex];
-      if (!selected) return;
+      const selected = treeItems[selectedIndex];
+      if (!selected || selected.type !== "target") return;
       event.preventDefault();
-      openTarget(selected);
+      openTarget(selected.target);
     } else if (event.key === "Escape") {
       event.preventDefault();
       setOpen(false);
@@ -1315,36 +1396,34 @@ function ServerSwitcher({
             />
           </label>
           <div className="server-switcher-list">
-            {filteredTargets.map((item, index) => (
+            {treeItems.map((treeItem, index) => treeItem.type === "folder" ? (
+              <div key={treeItem.id} className="server-switcher-folder" style={{ "--tree-depth": treeItem.depth } as CSSProperties}>
+                <FolderIcon />
+                <strong>{treeItem.name}</strong>
+              </div>
+            ) : (
               <button
                 type="button"
-                key={item.id}
+                key={treeItem.target.id}
                 ref={(element) => { itemRefs.current[index] = element; }}
-                className={`server-switcher-item ${item.id === currentTargetID ? "active" : ""} ${index === selectedIndex ? "selected" : ""}`}
-                onClick={() => openTarget(item)}
+                className={`server-switcher-item ${treeItem.target.id === currentTargetID ? "active" : ""} ${index === selectedIndex ? "selected" : ""}`}
+                style={{ "--tree-depth": treeItem.depth } as CSSProperties}
+                onClick={() => openTarget(treeItem.target)}
                 onPointerMove={() => setSelectedIndex(index)}
                 role="menuitem"
-                title={serverTitle(item)}
+                title={serverTitle(treeItem.target)}
               >
-                <span className="server-switcher-icon">{item.target_type === "agent" ? <Server /> : <HardDrive />}</span>
+                <span className="server-switcher-icon">{treeItem.target.target_type === "agent" ? <Server /> : <HardDrive />}</span>
                 <span className="server-switcher-main">
-                  <strong>{item.name}</strong>
-                  <code>{item.alias}</code>
-                  {folderPathByTarget[item.id] && <small>{folderPathByTarget[item.id]}</small>}
-                  <small>{targetEndpoint(item)}</small>
+                  <strong>{treeItem.target.name}</strong>
+                  <code>{treeItem.target.alias}</code>
+                  {folderPathByTarget[treeItem.target.id] && <small>{folderPathByTarget[treeItem.target.id]}</small>}
+                  <small>{targetEndpoint(treeItem.target)}</small>
                   <span className="server-switcher-tags">
-                    {(item.tags || []).map((tag) => (
-                      <span key={tag} className={`tag-chip tag-color-${tagColor(tag, item.tag_colors)}`}>{tag}</span>
+                    {(treeItem.target.tags || []).map((tag) => (
+                      <span key={tag} className={`tag-chip tag-color-${tagColor(tag, treeItem.target.tag_colors)}`}>{tag}</span>
                     ))}
                   </span>
-                </span>
-                <span className="server-switcher-actions">
-                  <button type="button" className="icon-button" onClick={(event) => { event.stopPropagation(); splitTarget(item, "right"); }} title={t("connectSplitRight")}>
-                    <ArrowRightToLine />
-                  </button>
-                  <button type="button" className="icon-button" onClick={(event) => { event.stopPropagation(); splitTarget(item, "down"); }} title={t("connectSplitDown")}>
-                    <ArrowDownToLine />
-                  </button>
                 </span>
               </button>
             ))}
@@ -1364,6 +1443,51 @@ function isEditableElementOutsideTerminal(element: HTMLElement | null, terminalC
   if (!element) return false;
   if (terminalContainer?.contains(element)) return false;
   return Boolean(element.closest("button,a,input,textarea,select,[contenteditable='true']"));
+}
+
+type SwitcherTreeItem =
+  | { type: "folder"; id: string; name: string; depth: number }
+  | { type: "target"; target: Target; depth: number };
+
+function buildSwitcherTree(targets: Target[], folders: ConsoleData["targetFolders"], folderPathByTarget: Record<string, string>): SwitcherTreeItem[] {
+  const out: SwitcherTreeItem[] = [];
+  const targetIDs = new Set(targets.map((item) => item.id));
+  const children = new Map<string, typeof folders>();
+  for (const folder of folders) {
+    const key = folder.parent_id || "";
+    children.set(key, [...(children.get(key) || []), folder]);
+  }
+  const walkFolder = (parentID: string, depth: number) => {
+    for (const folder of (children.get(parentID) || []).sort((a, b) => a.name.localeCompare(b.name))) {
+      const folderPath = folderPathFromFolder(folder, folders);
+      const descendants = targets.filter((target) => target.folder_id === folder.id || folderPathByTarget[target.id]?.startsWith(`${folderPath}/`));
+      if (!descendants.length) continue;
+      out.push({ type: "folder", id: folder.id, name: folder.name, depth });
+      for (const target of targets.filter((item) => item.folder_id === folder.id && targetIDs.has(item.id)).sort((a, b) => a.name.localeCompare(b.name))) {
+        out.push({ type: "target", target, depth: depth + 1 });
+      }
+      walkFolder(folder.id, depth + 1);
+    }
+  };
+  for (const target of targets.filter((item) => !item.folder_id).sort((a, b) => a.name.localeCompare(b.name))) {
+    out.push({ type: "target", target, depth: 0 });
+  }
+  walkFolder("", 0);
+  return out;
+}
+
+function nextSelectableSwitcherIndex(items: SwitcherTreeItem[], start: number, direction: 1 | -1) {
+  if (!items.length) return 0;
+  let index = wrapIndex(start, items.length);
+  for (let i = 0; i < items.length; i += 1) {
+    if (items[index]?.type === "target") return index;
+    index = wrapIndex(index + direction, items.length);
+  }
+  return 0;
+}
+
+function FolderIcon() {
+  return <Folder />;
 }
 
 function contextMenuPointInTabs(clientX: number, clientY: number, container: HTMLElement | null) {
@@ -1402,10 +1526,10 @@ function splitPane(node: PaneNode, paneID: string, nextPane: PaneNode, side: Pan
     return {
       type: "split",
       id: newPaneID("split"),
-      direction: side === "right" ? "row" : "column",
+      direction: side === "down" ? "column" : "row",
       ratio: 0.5,
-      first: node,
-      second: nextPane,
+      first: side === "left" ? nextPane : node,
+      second: side === "left" ? node : nextPane,
     };
   }
   if (node.type !== "split") return node;
@@ -1489,6 +1613,19 @@ function measureTerminalCell(container: HTMLElement, terminal: Terminal) {
 function shouldFocusTerminalByDefault() {
   if (typeof window === "undefined") return false;
   return window.innerWidth < 1680;
+}
+
+function getConnectCommandParam() {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get("command") || "";
+}
+
+function clearConnectCommandParam() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("command")) return;
+  url.searchParams.delete("command");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 function snapshotToSample(snapshot: TargetSystemSnapshot): MetricSample {
@@ -1602,6 +1739,19 @@ function targetFolderPath(target: Target, folders: ConsoleData["targetFolders"])
     if (!folder) break;
     names.unshift(folder.name);
     folderID = folder.parent_id || "";
+  }
+  return names.join("/");
+}
+
+function folderPathFromFolder(folder: ConsoleData["targetFolders"][number], folders: ConsoleData["targetFolders"]) {
+  const byID = new Map(folders.map((item) => [item.id, item]));
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (let current: typeof folder | undefined = folder; current;) {
+    if (seen.has(current.id)) break;
+    seen.add(current.id);
+    names.unshift(current.name);
+    current = current.parent_id ? byID.get(current.parent_id) : undefined;
   }
   return names.join("/");
 }

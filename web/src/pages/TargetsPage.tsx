@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ChevronDown, ChevronRight, Folder, FolderPlus, KeyRound, Plus, Settings, TerminalSquare, Trash2 } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { CheckSquare, ChevronDown, ChevronRight, Copy, Folder, FolderPlus, KeyRound, Move, Play, Plus, Settings, Square, TerminalSquare, Trash2 } from "lucide-react";
+import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { api, type Enrollment } from "../api";
@@ -21,6 +21,10 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   const [credentialModal, setCredentialModal] = useState(false);
   const [folderModal, setFolderModal] = useState<{ parent_id?: string } | null>(null);
   const [settingsModal, setSettingsModal] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [moveModal, setMoveModal] = useState<"move" | "copy" | null>(null);
+  const [commandModal, setCommandModal] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
   const [drawerTargetID, setDrawerTargetID] = useState("");
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
@@ -31,6 +35,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
     return [folderPath, `${folderPath}/${target.alias}`, `${folderPath}/${target.name}`, target.name, target.alias, target.host, target.remote_username, ...(target.tags || [])].join(" ").toLowerCase().includes(query.toLowerCase());
   });
   const drawerTarget = data.targets.find((target) => target.id === drawerTargetID) || null;
+  const selectedTargetIDs = selectedTargets(selected, data);
   const refreshTargets = () => void queryClient.invalidateQueries({ queryKey: ["targets"] });
   const removeTarget = useMutation({
     mutationFn: api.deleteTarget,
@@ -53,7 +58,10 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   }
 
   function openConnectWindow(id: string) {
-    const path = `/targets/${id}/connect`;
+    openConnectPath(`/targets/${id}/connect`, id);
+  }
+
+  function openConnectPath(path: string, id: string) {
     const attachExisting = data.userSettings.connect_attach_existing;
     if (window.parent && window.parent !== window) {
       window.parent.postMessage({ type: "gosshd-open-connect", path, targetID: id, openMode: data.userSettings.connect_open_mode, attachExisting }, "*");
@@ -80,6 +88,31 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
     window.open(path, attachExisting ? "gosshd-connect" : `connect-${id}`, features);
   }
 
+  function toggleSelected(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function setManySelected(ids: string[], checked: boolean) {
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const id of ids) {
+        if (checked) next.add(id); else next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  function runBatchCommand(command: string) {
+    for (const id of selectedTargetIDs) {
+      openConnectPath(`/targets/${id}/connect?command=${encodeURIComponent(command)}`, id);
+    }
+    setCommandModal(false);
+  }
+
   useEffect(() => {
     refreshTargets();
   }, [data.activeOrg.id]);
@@ -100,6 +133,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
         <div><small>{appDescription(data.runtime)}</small><h2>{t("services")}</h2><p>{t("servicePageBody")}</p></div>
         {!data.runtime.client_mode && <div className="inline-actions">
           <button type="button" onClick={() => setSettingsModal(true)}><Settings />{t("serviceOpenSettings")}</button>
+          <button type="button" onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>{selecting ? <CheckSquare /> : <Square />}{selecting ? t("serviceBatchDone") : t("serviceBatchSelect")}</button>
           <button type="button" onClick={() => setCredentialModal(true)}><KeyRound />{t("serviceCredentials")}</button>
           <button type="button" onClick={() => setFolderModal({})}><FolderPlus />{t("serviceNewFolder")}</button>
           <button type="button" className="primary" onClick={() => setModal(true)}><Plus />{t("addService")}</button>
@@ -112,6 +146,12 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
         <Metric label={t("commonTag")} value={new Set(data.targets.flatMap((item) => item.tags || [])).size} />
       </div>}
       <Toolbar query={query} setQuery={setQuery} />
+      {selecting && <div className="batch-toolbar">
+        <span>{t("serviceBatchSelected").replace("{0}", String(selectedTargetIDs.length))}</span>
+        <button type="button" onClick={() => setMoveModal("move")} disabled={!selectedTargetIDs.length}><Move />{t("serviceBatchMove")}</button>
+        <button type="button" onClick={() => setMoveModal("copy")} disabled={!selectedTargetIDs.length}><Copy />{t("serviceBatchCopy")}</button>
+        <button type="button" onClick={() => setCommandModal(true)} disabled={!selectedTargetIDs.length}><Play />{t("serviceBatchCommand")}</button>
+      </div>}
       <Panel title={t("serviceTableService")} subtitle="">
         {filtered.length || data.targetFolders.length ? (
           <TargetTree
@@ -128,6 +168,10 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
             onEdit={(id) => setDrawerTargetID(id)}
             onDelete={deleteTarget}
             deleting={removeTarget.isPending}
+            selecting={selecting}
+            selected={selected}
+            onSelect={toggleSelected}
+            onSelectMany={setManySelected}
           />
         ) : <Empty title={t("serviceEmptyTitle")} body={t("serviceEmptyBody")} />}
       </Panel>
@@ -135,6 +179,8 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
       {credentialModal && <CredentialManagerModal data={data} onClose={() => setCredentialModal(false)} />}
       {folderModal && <FolderModal data={data} parentID={folderModal.parent_id || ""} onClose={() => setFolderModal(null)} />}
       {settingsModal && <ConnectOpenSettingsModal data={data} onClose={() => setSettingsModal(false)} />}
+      {moveModal && <TargetMoveCopyModal data={data} targetIDs={selectedTargetIDs} action={moveModal} onClose={() => setMoveModal(null)} />}
+      {commandModal && <BatchCommandModal onClose={() => setCommandModal(false)} onSubmit={runBatchCommand} />}
       {drawerTarget && <TargetDrawer data={data} target={drawerTarget} onClose={() => setDrawerTargetID("")} onEnrollment={setEnrollment} onSaved={() => showTip(t("serviceSaveSuccess"))} />}
       {enrollment && <InstallDrawer enrollment={enrollment} onClose={() => { setEnrollment(null); refreshTargets(); }} />}
       {tip && <div className="page-toast" role="status">{tip}</div>}
@@ -152,6 +198,10 @@ function TargetTree({
   onEdit,
   onDelete,
   deleting,
+  selecting,
+  selected,
+  onSelect,
+  onSelectMany,
 }: {
   data: ConsoleData;
   targets: Target[];
@@ -162,12 +212,16 @@ function TargetTree({
   onEdit: (id: string) => void;
   onDelete: (target: Target) => void;
   deleting: boolean;
+  selecting: boolean;
+  selected: Set<string>;
+  onSelect: (id: string) => void;
+  onSelectMany: (ids: string[], checked: boolean) => void;
 }) {
   const roots = data.targetFolders.filter((folder) => !folder.parent_id);
   const rootTargets = targets.filter((target) => !target.folder_id);
   return <div className="target-tree">
-    {roots.map((folder) => <FolderNode key={folder.id} data={data} folder={folder} targets={targets} collapsed={collapsed} onToggle={onToggle} onNewFolder={onNewFolder} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} />)}
-    {rootTargets.map((target) => <TargetTreeRow key={target.id} data={data} target={target} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} />)}
+    {roots.map((folder) => <FolderNode key={folder.id} data={data} folder={folder} targets={targets} collapsed={collapsed} onToggle={onToggle} onNewFolder={onNewFolder} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} selecting={selecting} selected={selected} onSelect={onSelect} onSelectMany={onSelectMany} />)}
+    {rootTargets.map((target) => <TargetTreeRow key={target.id} data={data} target={target} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} selecting={selecting} selected={selected.has(target.id)} onSelect={() => onSelect(target.id)} />)}
   </div>;
 }
 
@@ -182,6 +236,10 @@ function FolderNode(props: {
   onEdit: (id: string) => void;
   onDelete: (target: Target) => void;
   deleting: boolean;
+  selecting: boolean;
+  selected: Set<string>;
+  onSelect: (id: string) => void;
+  onSelectMany: (ids: string[], checked: boolean) => void;
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -189,8 +247,12 @@ function FolderNode(props: {
   const children = props.data.targetFolders.filter((folder) => folder.parent_id === props.folder.id);
   const targets = props.targets.filter((target) => target.folder_id === props.folder.id);
   const collapsed = props.collapsed.has(props.folder.id);
+  const folderTargetIDs = targetIDsInFolder(props.folder.id, props.data);
+  const folderChecked = folderTargetIDs.length > 0 && folderTargetIDs.every((id) => props.selected.has(id));
+  const toggleFolder = () => props.onSelectMany(folderTargetIDs, !folderChecked);
   return <div className="target-folder-node">
-    <div className="target-folder-row">
+    <div className={`target-folder-row ${props.selecting ? "selecting" : ""}`}>
+      {props.selecting && <button type="button" className="tree-check" onClick={toggleFolder}>{folderChecked ? <CheckSquare /> : <Square />}</button>}
       <button type="button" className="target-folder-main" onClick={() => props.onToggle(props.folder.id)}>
         {collapsed ? <ChevronRight /> : <ChevronDown />}<Folder /><strong>{props.folder.name}</strong>
       </button>
@@ -201,16 +263,17 @@ function FolderNode(props: {
     </div>
     {!collapsed && <div className="target-folder-children">
       {children.map((folder) => <FolderNode key={folder.id} {...props} folder={folder} />)}
-      {targets.map((target) => <TargetTreeRow key={target.id} data={props.data} target={target} onOpen={props.onOpen} onEdit={props.onEdit} onDelete={props.onDelete} deleting={props.deleting} />)}
+      {targets.map((target) => <TargetTreeRow key={target.id} data={props.data} target={target} onOpen={props.onOpen} onEdit={props.onEdit} onDelete={props.onDelete} deleting={props.deleting} selecting={props.selecting} selected={props.selected.has(target.id)} onSelect={() => props.onSelect(target.id)} />)}
     </div>}
   </div>;
 }
 
-function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting }: { data: ConsoleData; target: Target; onOpen: (id: string) => void; onEdit: (id: string) => void; onDelete: (target: Target) => void; deleting: boolean }) {
+function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selecting, selected, onSelect }: { data: ConsoleData; target: Target; onOpen: (id: string) => void; onEdit: (id: string) => void; onDelete: (target: Target) => void; deleting: boolean; selecting: boolean; selected: boolean; onSelect: () => void }) {
   const { t } = useI18n();
   const credential = data.credentials.find((item) => item.id === target.credential_id);
   return <div className="target-tree-row">
     <div className="target-tree-main">
+      {selecting && <button type="button" className="tree-check" onClick={onSelect}>{selected ? <CheckSquare /> : <Square />}</button>}
       {target.target_type === "agent" ? <TerminalSquare /> : <TerminalSquare />}
       <span><strong>{target.name}</strong><code>{target.alias}</code></span>
     </div>
@@ -284,6 +347,57 @@ function ConnectOpenSettingsModal({ data, onClose }: { data: ConsoleData; onClos
       <Select label={t("serviceConnectOpenMode")} name="connect_open_mode" defaultValue={data.userSettings.connect_open_mode} options={[["popup", t("serviceConnectOpenPopup")], ["tab", t("serviceConnectOpenTab")]]} />
       <Toggle name="connect_attach_existing" label={t("serviceConnectAttachExisting")} defaultChecked={data.userSettings.connect_attach_existing} />
       <ModalActions onCancel={onClose} submit={t("save")} />
+    </form>
+  </Modal>;
+}
+
+function TargetMoveCopyModal({ data, targetIDs, action, onClose }: { data: ConsoleData; targetIDs: string[]; action: "move" | "copy"; onClose: () => void }) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const [folderID, setFolderID] = useState("");
+  const move = useMutation({
+    mutationFn: async () => {
+      for (const id of targetIDs) {
+        if (action === "copy") {
+          const copied = await api.copyTarget(id);
+          if (folderID) await api.updateTarget(copied.target.id, { folder_id: folderID });
+        } else {
+          await api.updateTarget(id, { folder_id: folderID });
+        }
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["targets"] });
+      onClose();
+    },
+  });
+  return <Modal title={action === "copy" ? t("serviceBatchCopy") : t("serviceBatchMove")} onClose={onClose} wide>
+    <form className="stack" onSubmit={(event) => { event.preventDefault(); move.mutate(); }}>
+      <div className="folder-picker-tree">
+        <button type="button" className={!folderID ? "active" : ""} onClick={() => setFolderID("")}>Root</button>
+        {data.targetFolders.filter((folder) => !folder.parent_id).map((folder) => (
+          <FolderPickNode key={folder.id} folder={folder} folders={data.targetFolders} selectedID={folderID} onSelect={setFolderID} depth={0} />
+        ))}
+      </div>
+      <ModalActions onCancel={onClose} submit={move.isPending ? t("loading") : t("save")} />
+    </form>
+  </Modal>;
+}
+
+function FolderPickNode({ folder, folders, selectedID, onSelect, depth }: { folder: TargetFolder; folders: TargetFolder[]; selectedID: string; onSelect: (id: string) => void; depth: number }) {
+  const children = folders.filter((item) => item.parent_id === folder.id);
+  return <>
+    <button type="button" className={selectedID === folder.id ? "active" : ""} style={{ "--tree-depth": depth } as CSSProperties} onClick={() => onSelect(folder.id)}><Folder />{folder.name}</button>
+    {children.map((child) => <FolderPickNode key={child.id} folder={child} folders={folders} selectedID={selectedID} onSelect={onSelect} depth={depth + 1} />)}
+  </>;
+}
+
+function BatchCommandModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (command: string) => void }) {
+  const { t } = useI18n();
+  return <Modal title={t("serviceBatchCommand")} onClose={onClose}>
+    <form className="stack" onSubmit={(event) => formSubmit(event, (body) => onSubmit(body.command || ""))}>
+      <label className="field"><span>{t("serviceBatchCommandInput")}</span><textarea name="command" required /></label>
+      <ModalActions onCancel={onClose} submit={t("serviceBatchCommandRun")} />
     </form>
   </Modal>;
 }
@@ -535,4 +649,23 @@ function targetFolderName(folder: TargetFolder, folders: TargetFolder[]) {
     current = current.parent_id ? byID.get(current.parent_id) : undefined;
   }
   return names.join("/");
+}
+
+function selectedTargets(selected: Set<string>, data: ConsoleData) {
+  return data.targets.filter((target) => selected.has(target.id)).map((target) => target.id);
+}
+
+function targetIDsInFolder(folderID: string, data: ConsoleData) {
+  const folderIDs = new Set<string>([folderID]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const folder of data.targetFolders) {
+      if (folder.parent_id && folderIDs.has(folder.parent_id) && !folderIDs.has(folder.id)) {
+        folderIDs.add(folder.id);
+        changed = true;
+      }
+    }
+  }
+  return data.targets.filter((target) => target.folder_id && folderIDs.has(target.folder_id)).map((target) => target.id);
 }
