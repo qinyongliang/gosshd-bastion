@@ -225,12 +225,24 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const clearOnline = () => {
+      try {
+        window.localStorage.removeItem("gosshd-connect-window-online");
+      } catch {
+        // Ignore storage failures during page teardown.
+      }
+    };
     const markOnline = () => {
       window.localStorage.setItem("gosshd-connect-window-online", JSON.stringify({ at: Date.now() }));
     };
     markOnline();
-    const timer = window.setInterval(markOnline, 1500);
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(markOnline, 1000);
+    window.addEventListener("pagehide", clearOnline);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pagehide", clearOnline);
+      clearOnline();
+    };
   }, []);
 
   useEffect(() => {
