@@ -3733,9 +3733,9 @@ html[data-theme="dark"] .server-switcher-search {
   position: relative;
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   gap: 9px;
-  min-height: 0;
+  min-height: 58px;
   width: 100%;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -3832,7 +3832,7 @@ html[data-theme="dark"] .server-switcher-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 1px 8px;
+  gap: 2px 8px;
   min-width: 0;
   line-height: 1.18;
 }
@@ -3841,8 +3841,9 @@ html[data-theme="dark"] .server-switcher-item {
 .server-switcher-main code,
 .server-switcher-main small {
   min-width: 0;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .server-switcher-main strong {
@@ -3853,6 +3854,7 @@ html[data-theme="dark"] .server-switcher-item {
 
 .server-switcher-main code,
 .server-switcher-main small {
+  grid-column: 1;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.2;
@@ -3866,14 +3868,14 @@ html[data-theme="dark"] .server-switcher-item {
 .server-switcher-tags {
   display: flex;
   grid-column: 2 / 3;
-  grid-row: 1 / span 3;
-  align-self: center;
+  grid-row: 1 / span 4;
+  align-self: start;
   justify-self: end;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 4px;
   max-width: 116px;
   min-height: 0;
-  max-height: 20px;
+  max-height: 42px;
   overflow: hidden;
 }
 
@@ -6021,7 +6023,10 @@ html[data-theme="dark"] .manual-review-card {
 }
 
 .editor-pane > .connect-zone-empty,
-.editor-pane > .monaco-editor {
+.editor-pane > .monaco-editor,
+.editor-pane > section,
+.editor-pane .monaco-editor,
+.editor-pane .monaco-editor .overflow-guard {
   min-height: 0;
   height: 100%;
 }

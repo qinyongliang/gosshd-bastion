@@ -92,6 +92,7 @@ type TerminalRuntime = {
   onClose?: () => void;
   onPendingCommandConsumed?: () => void;
   connect?: () => void;
+  fit?: () => void;
   listeners: Set<() => void>;
   disposables: Array<{ dispose: () => void }>;
 };
@@ -136,6 +137,8 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const [tabMenu, setTabMenu] = useState<{ tabID: string; x: number; y: number } | null>(null);
   const [switcherOpenSignal, setSwitcherOpenSignal] = useState(0);
   const expectedRouteTabIDRef = useRef("");
+  const suppressedRouteTargetIDRef = useRef("");
+  const seenOpenMessageIDsRef = useRef<Set<string>>(new Set());
   const bodyRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const activeTab = tabs.find((item) => item.id === activeTabID) || tabs[0] || null;
@@ -154,6 +157,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const appendConnectionTab = (nextTargetID: string, command = "") => {
     const next = newConnectionTab(nextTargetID, command);
     expectedRouteTabIDRef.current = next.id;
+    suppressedRouteTargetIDRef.current = "";
     setTabs((current) => [...current, next]);
     setActiveTabID(next.id);
     navigate(`/targets/${nextTargetID}/connect`, { replace: true });
@@ -165,6 +169,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       return;
     }
     if (!activeTab) return;
+    if (suppressedRouteTargetIDRef.current === target.id) return;
     if (activeTab.targetID === target.id) return;
     const existing = tabs.find((item) => item.targetID === target.id);
     if (existing) {
@@ -179,9 +184,18 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
 
   useEffect(() => {
     const openFromMessage = (raw: unknown) => {
-      const message = raw as { type?: string; targetID?: string; command?: string } | null;
+      const message = raw as { type?: string; targetID?: string; command?: string; messageID?: string } | null;
       if (!message || message.type !== "gosshd-connect-open-target" || !message.targetID) return;
       if (!targets.some((item) => item.id === message.targetID)) return;
+      if (message.messageID) {
+        if (seenOpenMessageIDsRef.current.has(message.messageID)) return;
+        seenOpenMessageIDsRef.current.add(message.messageID);
+        if (seenOpenMessageIDsRef.current.size > 100) {
+          const recent = Array.from(seenOpenMessageIDsRef.current).slice(-50);
+          seenOpenMessageIDsRef.current.clear();
+          for (const id of recent) seenOpenMessageIDsRef.current.add(id);
+        }
+      }
       appendConnectionTab(message.targetID, message.command || "");
     };
     const onMessage = (event: MessageEvent) => {
@@ -261,6 +275,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       activePaneID: nextPane.id,
       targetID: nextTargetID,
     }));
+    scheduleAllTerminalFits();
   };
 
   const splitTabIntoActiveTab = (sourceTabID: string, side: PaneSide) => {
@@ -279,6 +294,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
           activePaneID: destination.activePaneID,
         } : item);
     });
+    scheduleAllTerminalFits();
   };
 
   const closeActivePane = () => {
@@ -301,6 +317,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       const fallbackPane = findPane(result.node, fallbackID);
       return { ...tab, layout: result.node, activePaneID: fallbackID, targetID: fallbackPane && fallbackPane.type !== "split" ? fallbackPane.targetID : tab.targetID };
     }));
+    scheduleAllTerminalFits();
   };
 
   const openEditorForActiveTarget = (filePath: string) => {
@@ -319,6 +336,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     setTabs((current) => {
       const index = current.findIndex((item) => item.id === tabID);
       if (index < 0) return current;
+      const closedRouteTarget = current[index]?.targetID || "";
       const closingActive = activeTabID === tabID || (mode !== "one" && tabSelectionIncludes(current, index, mode, activeTabID));
       let next = current;
       if (mode === "one") next = current.filter((item) => item.id !== tabID);
@@ -332,6 +350,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       }
 
       if (!next.length) {
+        suppressedRouteTargetIDRef.current = closedRouteTarget || target.id;
         setActiveTabID("");
         setTerminalFullscreen(false);
         return next;
@@ -339,11 +358,13 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       if (closingActive || !next.some((item) => item.id === activeTabID)) {
         const fallback = next[Math.min(index, next.length - 1)];
         expectedRouteTabIDRef.current = fallback.id;
+        suppressedRouteTargetIDRef.current = closedRouteTarget;
         setActiveTabID(fallback.id);
         window.setTimeout(() => navigate(`/targets/${fallback.targetID}/connect`, { replace: true }), 0);
       }
       return next;
     });
+    scheduleAllTerminalFits();
   };
 
   useEffect(() => {
@@ -532,8 +553,12 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                             targetID: nextPane.targetID,
                           };
                         }));
+                        scheduleAllTerminalFits();
                       }}
-                      onResizeSplit={(splitID, ratio) => setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, layout: resizeSplit(item.layout, splitID, ratio) } : item))}
+                      onResizeSplit={(splitID, ratio) => {
+                        setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, layout: resizeSplit(item.layout, splitID, ratio) } : item));
+                        scheduleAllTerminalFits();
+                      }}
                     />
                   </div>
                 ))
@@ -1249,6 +1274,13 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       fitTerminal(terminal);
     });
   };
+  runtime.fit = () => {
+    const terminal = runtime.terminal;
+    if (!terminal) return;
+    scheduleTerminalFit(terminal);
+    window.setTimeout(() => scheduleTerminalFit(terminal), 80);
+    window.setTimeout(() => scheduleTerminalFit(terminal), 220);
+  };
 
   const fitTerminal = (terminal: Terminal) => {
     if (!containerRef.current) return;
@@ -1645,6 +1677,12 @@ function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
 function setRuntimeSnapshot(runtime: TerminalRuntime, patch: Partial<Pick<TerminalRuntime, "status" | "error" | "dims" | "sessionID" | "aiEnabled">>) {
   Object.assign(runtime, patch);
   for (const listener of runtime.listeners) listener();
+}
+
+function scheduleAllTerminalFits() {
+  window.requestAnimationFrame(() => {
+    for (const runtime of terminalRuntimes.values()) runtime.fit?.();
+  });
 }
 
 function disposePaneRuntime(node: PaneNode | null) {

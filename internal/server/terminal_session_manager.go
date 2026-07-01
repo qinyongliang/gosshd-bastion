@@ -362,6 +362,10 @@ if [ -n "$GOSSHD_BASHRC" ]; then
   rm -f "$GOSSHD_BASHRC"
   unset GOSSHD_BASHRC
 fi
+case ":$HISTCONTROL:" in
+  *:ignorespace:*|*:ignoreboth:*) ;;
+  *) HISTCONTROL="${HISTCONTROL:+$HISTCONTROL:}ignorespace"; export HISTCONTROL ;;
+esac
 __gosshd_command_running=0
 __gosshd_original_prompt_command=${PROMPT_COMMAND-}
 __gosshd_preexec() {
@@ -452,11 +456,18 @@ func (s *terminalSession) trySendCommandLocked(ctx context.Context, command stri
 	s.commandWaiters = append(s.commandWaiters, waiter)
 	s.mu.Unlock()
 	defer s.removeCommandWaiter(waiter)
-	if err := s.writeInput(command + "\r"); err != nil {
+	if err := s.writeInput(historySuppressedTerminalCommand(command) + "\r"); err != nil {
 		return terminalCommandResult{}, false, err
 	}
 	result, err := collectCommandOutput(ctx, s.ctx, waiter)
 	return result, true, err
+}
+
+func historySuppressedTerminalCommand(command string) string {
+	if strings.HasPrefix(command, " ") {
+		return command
+	}
+	return " " + command
 }
 
 func (s *terminalSession) commandReadinessError() error {

@@ -689,7 +689,7 @@ function openInExistingConnectWindow(path: string, targetID: string) {
   }
   if (!online) return false;
   const command = new URL(path, window.location.origin).searchParams.get("command") || "";
-  const message = { type: "gosshd-connect-open-target", targetID, command, at: Date.now() };
+  const message = { type: "gosshd-connect-open-target", targetID, command, at: Date.now(), messageID: `${targetID}:${Date.now()}:${Math.random().toString(36).slice(2)}` };
   const connectWindow = window.open("", "gosshd-connect");
   connectWindow?.postMessage(message, window.location.origin);
   try {
