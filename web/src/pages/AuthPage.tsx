@@ -3,9 +3,9 @@ import clsx from "clsx";
 import { KeyRound, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Field, Segmented } from "../components/ui";
+import { BrandMark, Field, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
-import { appDescription, appName, documentTitle, type Branding } from "../lib/branding";
+import { appDescription, appName, documentTitle, updateFavicon, type Branding } from "../lib/branding";
 import { formSubmit, localizeError } from "../lib/forms";
 import { useTheme } from "../theme";
 
@@ -26,13 +26,14 @@ export function AuthPage({ dingTalkEnabled, registrationEnabled, branding }: { d
   const name = appName(branding);
   const description = appDescription(branding);
   useEffect(() => {
+    updateFavicon(branding);
     document.title = documentTitle(t("login"), branding);
   }, [branding, t]);
 
   return (
     <section className="auth-screen">
       <div className="brand-panel">
-        <div className="brand-row"><div className="mark">g</div><span>{name}</span></div>
+        <div className="brand-row"><BrandMark branding={branding} /><span>{name}</span></div>
         <h1>{name}</h1>
         <p>{description}</p>
       </div>

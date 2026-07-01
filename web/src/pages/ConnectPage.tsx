@@ -44,7 +44,7 @@ type ConnectionTab = {
 
 type PaneNode = TerminalPaneNode | EditorPaneNode | SplitPaneNode;
 type PaneDirection = "row" | "column";
-type PaneSide = "left" | "right" | "down";
+type PaneSide = "left" | "right" | "up" | "down";
 type TerminalPaneNode = {
   type: "terminal";
   id: string;
@@ -352,7 +352,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     const editorPane: EditorPaneNode = { type: "editor", id: newPaneID("editor"), targetID: paneTargetID, path: filePath };
     updateActiveTab((tab) => ({
       ...tab,
-      layout: splitPane(tab.layout, tab.activePaneID, editorPane, "down"),
+      layout: splitPane(tab.layout, tab.activePaneID, editorPane, "up"),
       activePaneID: editorPane.id,
     }));
   };
@@ -856,15 +856,10 @@ function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const saveShortcut = (event.ctrlKey || event.altKey) && !event.metaKey && keyMatches(event, "s", "KeyS");
-      const closeShortcut = (event.ctrlKey || event.altKey) && !event.metaKey && keyMatches(event, "w", "KeyW");
       if (saveShortcut) {
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) void save();
-      } else if (closeShortcut) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!event.repeat) close();
       }
     };
     document.addEventListener("keydown", onKeyDown, true);
@@ -974,7 +969,7 @@ function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: {
             beforeMount={beforeMountEditor}
             onMount={mountEditor}
             onChange={(value) => setContent(value ?? "")}
-            options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true, fixedOverflowWidgets: true }}
+            options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true }}
           />
         </div>
       )}
@@ -1407,8 +1402,18 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       runtime.terminal = terminal;
 
       terminal.attachCustomKeyEventHandler((event) => {
-        if (runtime.status !== "disconnected" && runtime.status !== "error") return true;
         if (event.type !== "keydown") return true;
+        const pasteShortcut = event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "v", "KeyV");
+        if (pasteShortcut && runtime.status === "connected") {
+          if (!event.repeat) {
+            void readClipboardText().then((text) => {
+              if (!text) return;
+              sendTerminalInput(text);
+            });
+          }
+          return false;
+        }
+        if (runtime.status !== "disconnected" && runtime.status !== "error") return true;
         const ctrlD = event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "d", "KeyD");
         if (ctrlD) {
           if (!event.repeat && runtime.active) runtime.onClose?.();
@@ -1906,6 +1911,14 @@ function isTerminalSessionClosedOutput(data: string) {
   return data.includes("Session closed:");
 }
 
+async function readClipboardText() {
+  try {
+    return await navigator.clipboard.readText();
+  } catch {
+    return "";
+  }
+}
+
 function scheduleAllTerminalFits() {
   window.requestAnimationFrame(() => {
     for (const runtime of terminalRuntimes.values()) runtime.fit?.();
@@ -1949,10 +1962,10 @@ function splitPane(node: PaneNode, paneID: string, nextPane: PaneNode, side: Pan
     return {
       type: "split",
       id: newPaneID("split"),
-      direction: side === "down" ? "column" : "row",
+      direction: side === "up" || side === "down" ? "column" : "row",
       ratio: 0.5,
-      first: side === "left" ? nextPane : node,
-      second: side === "left" ? node : nextPane,
+      first: side === "left" || side === "up" ? nextPane : node,
+      second: side === "left" || side === "up" ? node : nextPane,
     };
   }
   if (node.type !== "split") return node;

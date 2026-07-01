@@ -27,6 +27,7 @@ export type Runtime = {
   local_terminal_target_id?: string;
   app_name: string;
   app_description: string;
+  app_icon?: string;
 };
 
 export type PublicKey = {
@@ -268,6 +269,7 @@ export type Providers = {
   branding?: {
     app_name: string;
     app_description: string;
+    app_icon?: string;
   };
 };
 

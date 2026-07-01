@@ -7,6 +7,7 @@ import { useI18n } from "../i18n";
 import type { AuditLog, Member, Target } from "../types";
 import { copyText, tagColor } from "../utils";
 import { formatDate } from "../lib/forms";
+import { appIcon, type Branding } from "../lib/branding";
 
 const modalStack: symbol[] = [];
 
@@ -191,7 +192,11 @@ export function SelectButton({ label, items, onSelect }: { label: string; items:
 }
 
 export function Loading() {
-  return <section className="loading-view"><div className="mark">g</div><p>Loading...</p></section>;
+  return <section className="loading-view"><BrandMark /><p>Loading...</p></section>;
+}
+
+export function BrandMark({ branding, className = "" }: { branding?: Branding; className?: string }) {
+  return <span className={clsx("mark", className)}><img src={appIcon(branding)} alt="" /></span>;
 }
 
 export function Fatal({ error }: { error: unknown }) {

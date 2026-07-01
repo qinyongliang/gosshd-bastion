@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Drawer, Field, Modal, ModalActions, SimpleTable, Toggle, UserCell } from "../components/ui";
+import { BrandMark, Drawer, Field, Modal, ModalActions, SimpleTable, Toggle, UserCell } from "../components/ui";
 import { useI18n } from "../i18n";
-import { appDescription, appName } from "../lib/branding";
+import { appDescription, appIcon, appName } from "../lib/branding";
 import { formSubmit, roleText } from "../lib/forms";
 import type { AdminOrg, AdminUser, ConsoleData } from "../types";
 
@@ -41,11 +41,16 @@ function BrandingSettingsModal({ data, onClose }: { data: ConsoleData; onClose: 
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ["admin-settings"], queryFn: api.adminSettings });
-  const branding = (settings.data?.branding || {}) as { app_name?: string; app_description?: string };
+  const branding = (settings.data?.branding || {}) as { app_name?: string; app_description?: string; app_icon?: string };
+  const [iconValue, setIconValue] = useState("");
+  useEffect(() => {
+    if (settings.data) setIconValue(branding.app_icon || data.runtime.app_icon || "");
+  }, [settings.data, branding.app_icon, data.runtime.app_icon]);
   const mutation = useMutation({
     mutationFn: (body: Record<string, string>) => api.updateBrandingSettings({
       app_name: body.app_name,
       app_description: body.app_description,
+      app_icon: body.app_icon,
     }),
     onSuccess: async () => {
       await Promise.all([
@@ -56,10 +61,25 @@ function BrandingSettingsModal({ data, onClose }: { data: ConsoleData; onClose: 
       onClose();
     },
   });
+  const onIconFile = (file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setIconValue(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  };
   return <Modal title={t("adminBrandingSettings")} onClose={onClose} closeOnEscape={false}>
     {!settings.data ? <p>{t("loading")}</p> : <form className="stack" onSubmit={(event) => formSubmit(event, (body) => mutation.mutate(body))}>
+      <div className="branding-icon-editor">
+        <BrandMark branding={{ app_icon: iconValue || appIcon(data.runtime) }} />
+        <label className="field">
+          <span>{t("adminAppIcon")}</span>
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/x-icon" onChange={(event) => onIconFile(event.target.files?.[0])} />
+        </label>
+      </div>
+      <input type="hidden" name="app_icon" value={iconValue} />
       <Field label={t("adminAppName")} name="app_name" defaultValue={branding.app_name || appName(data.runtime)} required />
       <Field label={t("adminAppDescription")} name="app_description" defaultValue={branding.app_description || appDescription(data.runtime)} required />
+      <button type="button" onClick={() => setIconValue("")}>{t("adminUseDefaultIcon")}</button>
       <ModalActions onCancel={onClose} submit={t("save")} />
     </form>}
   </Modal>;

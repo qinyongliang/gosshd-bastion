@@ -1,7 +1,9 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -63,6 +65,10 @@ func (a *App) handleUpdateBrandingSettings(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	branding := normalizeBrandingSettings(req)
+	if err := validateBrandingIcon(branding.AppIcon); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	payload, err := json.Marshal(branding)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -72,6 +78,7 @@ func (a *App) handleUpdateBrandingSettings(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	a.clearBrandingCache()
 	writeJSON(w, http.StatusOK, map[string]any{settingBranding: branding})
 }
 
@@ -259,6 +266,28 @@ func redactSecretFields(value map[string]any) {
 			value[key] = ""
 		}
 	}
+}
+
+func validateBrandingIcon(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	const maxIconBytes = 512 * 1024
+	if !strings.HasPrefix(value, "data:image/png;base64,") && !strings.HasPrefix(value, "data:image/jpeg;base64,") && !strings.HasPrefix(value, "data:image/webp;base64,") && !strings.HasPrefix(value, "data:image/x-icon;base64,") && !strings.HasPrefix(value, "data:image/vnd.microsoft.icon;base64,") {
+		return errors.New("icon must be a png, jpeg, webp, or ico data url")
+	}
+	_, encoded, ok := strings.Cut(value, ",")
+	if !ok {
+		return errors.New("invalid icon data url")
+	}
+	if base64.StdEncoding.DecodedLen(len(encoded)) > maxIconBytes {
+		return errors.New("icon must be smaller than 512 KiB")
+	}
+	if _, err := base64.StdEncoding.DecodeString(encoded); err != nil {
+		return errors.New("invalid icon base64")
+	}
+	return nil
 }
 
 func apiOrganizationMemberFromStore(member store.OrganizationMemberWithUser) apiOrganizationMember {
