@@ -2211,6 +2211,76 @@ html[data-theme="dark"] .tag-input-menu {
   box-shadow: none;
 }
 
+.batch-command-history {
+  display: grid;
+  gap: 10px;
+}
+
+.batch-command-history-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.55fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.batch-command-history-head label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+}
+
+.batch-command-history-list {
+  display: grid;
+  gap: 4px;
+  max-height: min(280px, 34dvh);
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 6px;
+  background: rgba(2, 6, 12, 0.28);
+}
+
+.batch-command-history-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  padding: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.batch-command-history-list button:hover {
+  transform: none;
+  background: rgba(103, 232, 249, 0.1);
+  box-shadow: none;
+}
+
+.batch-command-history-list code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+
+.batch-command-history-list span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.pager.compact {
+  margin: 0;
+  padding: 6px;
+  box-shadow: none;
+}
+
 .member-card-list {
   display: grid;
   gap: 12px;

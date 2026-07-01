@@ -173,6 +173,37 @@ type TargetFolder struct {
 	UpdatedAt time.Time
 }
 
+type BatchCommandHistory struct {
+	ID           string
+	OwnerType    string
+	OwnerID      string
+	Command      string
+	ExecuteCount int
+	CreatedBy    string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type UpsertBatchCommandHistoryParams struct {
+	OwnerType string
+	OwnerID   string
+	Command   string
+	CreatedBy string
+}
+
+type BatchCommandHistoryFilter struct {
+	OwnerType string
+	OwnerID   string
+	Query     string
+	Limit     int
+	Offset    int
+}
+
+type BatchCommandHistoryPage struct {
+	Histories []BatchCommandHistory
+	Total     int
+}
+
 type TargetTag struct {
 	ID        string
 	OwnerType string

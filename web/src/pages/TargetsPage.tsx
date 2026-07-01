@@ -1,6 +1,6 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { CheckSquare, ChevronDown, ChevronRight, Copy, Edit3, Folder, FolderPlus, KeyRound, Move, Play, Plus, Settings, Square, TerminalSquare, Trash2 } from "lucide-react";
+import { CheckSquare, ChevronDown, ChevronRight, Copy, Edit3, Folder, FolderPlus, KeyRound, Move, Play, Plus, Search, Settings, Square, TerminalSquare, Trash2 } from "lucide-react";
 import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -108,7 +108,13 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
     });
   }
 
-  function runBatchCommand(command: string) {
+  async function runBatchCommand(command: string) {
+    await api.recordBatchCommandHistory({
+      owner_type: "organization",
+      owner_id: data.activeOrg.id,
+      command,
+    });
+    await queryClient.invalidateQueries({ queryKey: ["batch-command-histories", data.activeOrg.id] });
     for (const id of selectedTargetIDs) {
       openConnectPath(`/targets/${id}/connect?command=${encodeURIComponent(command)}`, id);
     }
@@ -182,7 +188,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
       {folderModal && <FolderModal data={data} parentID={folderModal.parent_id || ""} onClose={() => setFolderModal(null)} />}
       {settingsModal && <ConnectOpenSettingsModal data={data} onClose={() => setSettingsModal(false)} />}
       {moveModal && <TargetMoveCopyModal data={data} targetIDs={selectedTargetIDs} action={moveModal} onClose={() => setMoveModal(null)} />}
-      {commandModal && <BatchCommandModal onClose={() => setCommandModal(false)} onSubmit={runBatchCommand} />}
+      {commandModal && <BatchCommandModal data={data} onClose={() => setCommandModal(false)} onSubmit={runBatchCommand} />}
       {drawerTarget && <TargetDrawer data={data} target={drawerTarget} onClose={() => setDrawerTargetID("")} onEnrollment={setEnrollment} onSaved={() => showTip(t("serviceSaveSuccess"))} />}
       {enrollment && <InstallDrawer enrollment={enrollment} onClose={() => { setEnrollment(null); refreshTargets(); }} />}
       {tip && <div className="page-toast" role="status">{tip}</div>}
@@ -399,12 +405,66 @@ function FolderPickNode({ folder, folders, selectedID, onSelect, depth }: { fold
   </>;
 }
 
-function BatchCommandModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (command: string) => void }) {
+function BatchCommandModal({ data, onClose, onSubmit }: { data: ConsoleData; onClose: () => void; onSubmit: (command: string) => Promise<void> }) {
   const { t } = useI18n();
-  return <Modal title={t("serviceBatchCommand")} onClose={onClose}>
-    <form className="stack" onSubmit={(event) => formSubmit(event, (body) => onSubmit(body.command || ""))}>
-      <label className="field"><span>{t("serviceBatchCommandInput")}</span><textarea name="command" required /></label>
-      <ModalActions onCancel={onClose} submit={t("serviceBatchCommandRun")} />
+  const [command, setCommand] = useState("");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const histories = useQuery({
+    queryKey: ["batch-command-histories", data.activeOrg.id, query, page],
+    queryFn: () => api.batchCommandHistories({
+      owner_type: "organization",
+      owner_id: data.activeOrg.id,
+      query,
+      page,
+      page_size: 10,
+    }),
+  });
+  const historyRows = histories.data?.histories || [];
+  const total = histories.data?.total || 0;
+  const pageSize = histories.data?.page_size || 10;
+  return <Modal title={t("serviceBatchCommand")} onClose={onClose} wide>
+    <form className="stack" onSubmit={async (event) => {
+      event.preventDefault();
+      const nextCommand = command.trim();
+      if (!nextCommand) return;
+      setSubmitting(true);
+      setSubmitError("");
+      try {
+        await onSubmit(nextCommand);
+      } catch (error) {
+        setSubmitError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setSubmitting(false);
+      }
+    }}>
+      <label className="field"><span>{t("serviceBatchCommandInput")}</span><textarea name="command" required value={command} onChange={(event) => setCommand(event.target.value)} /></label>
+      <div className="batch-command-history">
+        <div className="batch-command-history-head">
+          <strong>{t("serviceBatchCommandHistory")}</strong>
+          <label>
+            <Search />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder={t("serviceBatchCommandHistorySearch")} />
+          </label>
+        </div>
+        <div className="batch-command-history-list">
+          {histories.isLoading ? <p className="muted">{t("loading")}</p> : historyRows.length ? historyRows.map((item) => (
+            <button key={item.id} type="button" onClick={() => setCommand(item.command)}>
+              <code>{item.command}</code>
+              <span>{t("serviceBatchCommandHistoryCount").replace("{0}", String(item.execute_count))}</span>
+            </button>
+          )) : <p className="muted">{t("serviceBatchCommandHistoryEmpty")}</p>}
+        </div>
+        <div className="pager compact">
+          <button type="button" disabled={page <= 1 || histories.isFetching} onClick={() => setPage(page - 1)}>{t("commonPrevious")}</button>
+          <span>{t("commonPage")} {page}</span>
+          <button type="button" disabled={total <= page * pageSize || histories.isFetching} onClick={() => setPage(page + 1)}>{t("commonNext")}</button>
+        </div>
+      </div>
+      {submitError && <p className="form-error">{submitError}</p>}
+      <ModalActions onCancel={onClose} submit={submitting ? t("loading") : t("serviceBatchCommandRun")} />
     </form>
   </Modal>;
 }

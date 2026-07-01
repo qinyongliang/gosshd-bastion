@@ -1637,6 +1637,76 @@ func (r *Repository) ListUserSettings(ctx context.Context, userID string) (map[s
 	return settings, rows.Err()
 }
 
+func (r *Repository) UpsertBatchCommandHistory(ctx context.Context, params UpsertBatchCommandHistoryParams) (BatchCommandHistory, error) {
+	command := strings.TrimSpace(params.Command)
+	if command == "" {
+		return BatchCommandHistory{}, errors.New("command is required")
+	}
+	ownerType := strings.TrimSpace(params.OwnerType)
+	ownerID := strings.TrimSpace(params.OwnerID)
+	if ownerType == "" || ownerID == "" {
+		return BatchCommandHistory{}, errors.New("owner is required")
+	}
+	now := time.Now().UTC()
+	if _, err := r.db.ExecContext(ctx, `
+		INSERT INTO batch_command_histories (
+			id, owner_type, owner_id, command, execute_count, created_by, created_at, updated_at
+		) VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+		ON CONFLICT(owner_type, owner_id, command) DO UPDATE SET
+			execute_count = batch_command_histories.execute_count + 1,
+			updated_at = excluded.updated_at
+	`, uuid.NewString(), ownerType, ownerID, command, params.CreatedBy, formatTime(now), formatTime(now)); err != nil {
+		return BatchCommandHistory{}, err
+	}
+	return r.GetBatchCommandHistory(ctx, ownerType, ownerID, command)
+}
+
+func (r *Repository) GetBatchCommandHistory(ctx context.Context, ownerType, ownerID, command string) (BatchCommandHistory, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_type, owner_id, command, execute_count, created_by, created_at, updated_at
+		FROM batch_command_histories
+		WHERE owner_type = ? AND owner_id = ? AND command = ?
+	`, strings.TrimSpace(ownerType), strings.TrimSpace(ownerID), strings.TrimSpace(command))
+	return scanBatchCommandHistory(row)
+}
+
+func (r *Repository) ListBatchCommandHistories(ctx context.Context, filter BatchCommandHistoryFilter) (BatchCommandHistoryPage, error) {
+	limit := normalizePageLimit(filter.Limit, 10, 100)
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	where := ` WHERE owner_type = ? AND owner_id = ?`
+	args := []any{strings.TrimSpace(filter.OwnerType), strings.TrimSpace(filter.OwnerID)}
+	if query := strings.ToLower(strings.TrimSpace(filter.Query)); query != "" {
+		where += ` AND LOWER(command) LIKE ?`
+		args = append(args, "%"+query+"%")
+	}
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM batch_command_histories`+where, args...).Scan(&total); err != nil {
+		return BatchCommandHistoryPage{}, err
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, owner_type, owner_id, command, execute_count, created_by, created_at, updated_at
+		FROM batch_command_histories`+where+`
+		ORDER BY execute_count DESC, updated_at DESC, created_at DESC
+		LIMIT ? OFFSET ?
+	`, append(args, limit, offset)...)
+	if err != nil {
+		return BatchCommandHistoryPage{}, err
+	}
+	defer rows.Close()
+	out := BatchCommandHistoryPage{Total: total}
+	for rows.Next() {
+		item, err := scanBatchCommandHistoryRows(rows)
+		if err != nil {
+			return BatchCommandHistoryPage{}, err
+		}
+		out.Histories = append(out.Histories, item)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) replaceTargetTagsTx(ctx context.Context, tx *sql.Tx, target SSHTarget, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM target_tag_bindings WHERE target_id = ?`, target.ID); err != nil {
 		return err
@@ -2846,6 +2916,26 @@ func scanTargetFolderRows(row targetScanner) (TargetFolder, error) {
 	return folder, nil
 }
 
+func scanBatchCommandHistory(row *sql.Row) (BatchCommandHistory, error) {
+	item, err := scanBatchCommandHistoryRows(row)
+	if err != nil {
+		return BatchCommandHistory{}, wrapScanErr(err)
+	}
+	return item, nil
+}
+
+func scanBatchCommandHistoryRows(row targetScanner) (BatchCommandHistory, error) {
+	var item BatchCommandHistory
+	var created, updated string
+	err := row.Scan(&item.ID, &item.OwnerType, &item.OwnerID, &item.Command, &item.ExecuteCount, &item.CreatedBy, &created, &updated)
+	if err != nil {
+		return BatchCommandHistory{}, err
+	}
+	item.CreatedAt = parseTime(created)
+	item.UpdatedAt = parseTime(updated)
+	return item, nil
+}
+
 func scanLLMPolicyConfig(row *sql.Row) (LLMPolicyConfig, error) {
 	cfg, err := scanLLMPolicyConfigRows(row)
 	if err != nil {
@@ -2943,6 +3033,16 @@ func boolInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func normalizePageLimit(value, fallback, max int) int {
+	if value <= 0 {
+		return fallback
+	}
+	if max > 0 && value > max {
+		return max
+	}
+	return value
 }
 
 func normalizeAuthProvider(provider string) string {

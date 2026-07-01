@@ -136,6 +136,18 @@ var migrations = []string{
 		updated_at TEXT NOT NULL,
 		PRIMARY KEY (user_id, key)
 	)`,
+	`CREATE TABLE IF NOT EXISTS batch_command_histories (
+		id TEXT PRIMARY KEY,
+		owner_type TEXT NOT NULL,
+		owner_id TEXT NOT NULL,
+		command TEXT NOT NULL,
+		execute_count INTEGER NOT NULL,
+		created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		UNIQUE (owner_type, owner_id, command)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_batch_command_histories_owner_count ON batch_command_histories (owner_type, owner_id, execute_count DESC, updated_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS target_tags (
 		id TEXT PRIMARY KEY,
 		owner_type TEXT NOT NULL,

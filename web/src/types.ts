@@ -109,6 +109,16 @@ export type TargetFolder = {
   updated_at: string;
 };
 
+export type BatchCommandHistory = {
+  id: string;
+  owner_type: string;
+  owner_id: string;
+  command: string;
+  execute_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type UserSettings = {
   connect_open_mode: "popup" | "tab";
   connect_attach_existing: boolean;
