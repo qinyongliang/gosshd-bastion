@@ -131,6 +131,8 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/target-folders", a.requireUser(a.handleCreateTargetFolder))
 	mux.HandleFunc("PATCH /api/target-folders/{id}", a.requireUser(a.handleUpdateTargetFolder))
 	mux.HandleFunc("DELETE /api/target-folders/{id}", a.requireUser(a.handleDeleteTargetFolder))
+	mux.HandleFunc("GET /api/batch-command-histories", a.requireUser(a.handleListBatchCommandHistories))
+	mux.HandleFunc("POST /api/batch-command-histories", a.requireUser(a.handleRecordBatchCommandHistory))
 	mux.HandleFunc("GET /api/me/settings", a.requireUser(a.handleMySettings))
 	mux.HandleFunc("PUT /api/me/settings", a.requireUser(a.handleUpdateMySettings))
 	mux.HandleFunc("GET /api/targets/{id}/terminal/ws", a.requireUser(a.handleTargetTerminalWS))

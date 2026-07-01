@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,6 +53,16 @@ type apiTargetFolder struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type apiBatchCommandHistory struct {
+	ID           string `json:"id"`
+	OwnerType    string `json:"owner_type"`
+	OwnerID      string `json:"owner_id"`
+	Command      string `json:"command"`
+	ExecuteCount int    `json:"execute_count"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
 type apiTargetResponse struct {
 	Target apiTarget `json:"target"`
 }
@@ -74,6 +85,17 @@ type apiTargetFoldersResponse struct {
 
 type apiTargetFolderResponse struct {
 	Folder apiTargetFolder `json:"folder"`
+}
+
+type apiBatchCommandHistoriesResponse struct {
+	Histories []apiBatchCommandHistory `json:"histories"`
+	Total     int                      `json:"total"`
+	Page      int                      `json:"page"`
+	PageSize  int                      `json:"page_size"`
+}
+
+type apiBatchCommandHistoryResponse struct {
+	History apiBatchCommandHistory `json:"history"`
 }
 
 func (a *App) handleListTargets(w http.ResponseWriter, r *http.Request, user store.User) {
@@ -581,6 +603,63 @@ func (a *App) handleDeleteTargetFolder(w http.ResponseWriter, r *http.Request, u
 	writeJSON(w, http.StatusNoContent, nil)
 }
 
+func (a *App) handleListBatchCommandHistories(w http.ResponseWriter, r *http.Request, user store.User) {
+	ownerType, ownerID, err := a.resolveOwner(r.Context(), r.URL.Query().Get("owner_type"), r.URL.Query().Get("owner_id"), user.ID)
+	if err != nil {
+		writeOwnerError(w, err)
+		return
+	}
+	page := parsePositiveInt(r.URL.Query().Get("page"), 1)
+	pageSize := parsePositiveInt(r.URL.Query().Get("page_size"), 10)
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	histories, err := a.store.Repository().ListBatchCommandHistories(r.Context(), store.BatchCommandHistoryFilter{
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+		Query:     r.URL.Query().Get("query"),
+		Limit:     pageSize,
+		Offset:    (page - 1) * pageSize,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := apiBatchCommandHistoriesResponse{Total: histories.Total, Page: page, PageSize: pageSize}
+	for _, item := range histories.Histories {
+		out.Histories = append(out.Histories, apiBatchCommandHistoryFromStore(item))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) handleRecordBatchCommandHistory(w http.ResponseWriter, r *http.Request, user store.User) {
+	var req struct {
+		OwnerType string `json:"owner_type"`
+		OwnerID   string `json:"owner_id"`
+		Command   string `json:"command"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
+	if err != nil {
+		writeOwnerError(w, err)
+		return
+	}
+	history, err := a.store.Repository().UpsertBatchCommandHistory(r.Context(), store.UpsertBatchCommandHistoryParams{
+		OwnerType: ownerType,
+		OwnerID:   ownerID,
+		Command:   req.Command,
+		CreatedBy: user.ID,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiBatchCommandHistoryResponse{History: apiBatchCommandHistoryFromStore(history)})
+}
+
 func (a *App) handleMySettings(w http.ResponseWriter, r *http.Request, user store.User) {
 	settings, err := a.store.Repository().ListUserSettings(r.Context(), user.ID)
 	if err != nil {
@@ -725,6 +804,21 @@ func apiTargetFolderFromStore(folder store.TargetFolder) apiTargetFolder {
 		ID: folder.ID, OwnerType: folder.OwnerType, OwnerID: folder.OwnerID, ParentID: folder.ParentID,
 		Name: folder.Name, CreatedAt: formatAPITime(folder.CreatedAt), UpdatedAt: formatAPITime(folder.UpdatedAt),
 	}
+}
+
+func apiBatchCommandHistoryFromStore(item store.BatchCommandHistory) apiBatchCommandHistory {
+	return apiBatchCommandHistory{
+		ID: item.ID, OwnerType: item.OwnerType, OwnerID: item.OwnerID, Command: item.Command,
+		ExecuteCount: item.ExecuteCount, CreatedAt: formatAPITime(item.CreatedAt), UpdatedAt: formatAPITime(item.UpdatedAt),
+	}
+}
+
+func parsePositiveInt(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func formatAPITime(t time.Time) string {
