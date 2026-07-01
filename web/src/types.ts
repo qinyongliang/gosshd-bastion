@@ -148,6 +148,7 @@ export type TargetSystemSnapshot = {
   os?: string;
   hostname?: string;
   ip?: string;
+  public_ip?: string;
   uptime?: string;
   load?: string;
   cpu_percent: number;

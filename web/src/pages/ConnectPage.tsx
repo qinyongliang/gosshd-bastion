@@ -891,6 +891,7 @@ function SystemSnapshotPanel({ targetID }: { targetID: string }) {
           <div className="telemetry-ip-card">
             <span>{t("connectSystemIP")}</span>
             <strong title={snapshot.ip || snapshot.hostname || "-"}>{snapshot.ip || snapshot.hostname || "-"}</strong>
+            <div><b>{t("connectSystemPublicIP")}</b><code title={snapshot.public_ip || "-"}>{snapshot.public_ip || "-"}</code></div>
             <small>{[snapshot.os, snapshot.hostname].filter(Boolean).join(" / ") || "-"}</small>
           </div>
 
