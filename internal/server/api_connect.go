@@ -76,6 +76,7 @@ type apiTargetSystemResponse struct {
 	OS          string                      `json:"os,omitempty"`
 	Hostname    string                      `json:"hostname,omitempty"`
 	IP          string                      `json:"ip,omitempty"`
+	PublicIP    string                      `json:"public_ip,omitempty"`
 	Uptime      string                      `json:"uptime,omitempty"`
 	Load        string                      `json:"load,omitempty"`
 	CPUPercent  float64                     `json:"cpu_percent"`
@@ -212,6 +213,8 @@ printf 'hostname=%s\n' "$(hostname 2>/dev/null || uname -n 2>/dev/null)"
 ipaddr="$(hostname -I 2>/dev/null | awk '{print $1}')"
 if [ -z "$ipaddr" ]; then ipaddr="$(ip -4 addr show scope global 2>/dev/null | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}')"; fi
 printf 'ip=%s\n' "$ipaddr"
+public_ip="$(curl -fsS --max-time 3 ifconfig.me 2>/dev/null | tr -d '\r\n' | awk '{print $1}')"
+printf 'public_ip=%s\n' "$public_ip"
 printf 'uptime=%s\n' "$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
 printf 'load=%s\n' "$(awk '{print $1 ", " $2 ", " $3}' /proc/loadavg 2>/dev/null)"
 awk '/^cpu /{print "cpu1="$0}' /proc/stat 2>/dev/null
@@ -230,6 +233,9 @@ Write-Output "os=windows"
 Write-Output ("hostname={0}" -f $env:COMPUTERNAME)
 $ips = Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -and $_.IPAddress } | Select-Object -First 1
 if ($ips) { Write-Output ("ip={0}" -f ($ips.IPAddress | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)) }
+$publicIP = (& curl.exe -fsS --max-time 3 ifconfig.me) -join ""
+if (-not $publicIP) { $publicIP = Invoke-RestMethod -Uri "https://ifconfig.me" -TimeoutSec 3 }
+if ($publicIP) { Write-Output ("public_ip={0}" -f $publicIP.Trim()) }
 $os = Get-CimInstance Win32_OperatingSystem
 if ($os) {
   $uptime = (Get-Date) - $os.LastBootUpTime
@@ -279,6 +285,8 @@ func parseTargetSystemProbe(out string) (apiTargetSystemResponse, bool) {
 			snapshot.Hostname = value
 		case "ip":
 			snapshot.IP = value
+		case "public_ip":
+			snapshot.PublicIP = value
 		case "uptime":
 			snapshot.Uptime = value
 		case "load":

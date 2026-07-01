@@ -4400,6 +4400,26 @@ body.is-resizing-connect {
   font-size: 15px;
 }
 
+.telemetry-ip-card div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.telemetry-ip-card code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
 .telemetry-summary {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -4933,8 +4953,9 @@ body.is-resizing-connect {
 }
 
 .terminal-ai-button img {
-  width: 18px;
-  height: 18px;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   filter: grayscale(1) saturate(0) brightness(0.72);
   opacity: 0.72;
   transition: filter 140ms ease, opacity 140ms ease;
