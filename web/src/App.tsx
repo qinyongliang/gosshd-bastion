@@ -6,7 +6,7 @@ import { ManualReviewPoller } from "./components/ManualReviewPoller";
 import { Fatal, Loading } from "./components/ui";
 import { useConsoleData } from "./hooks/useConsoleData";
 import { Shell } from "./layout/Shell";
-import { documentTitle } from "./lib/branding";
+import { documentTitle, updateFavicon } from "./lib/branding";
 import { AuditPage } from "./pages/AuditPage";
 import { AuthPage } from "./pages/AuthPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -44,6 +44,7 @@ function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[];
   const isClientMode = Boolean(data.runtime.client_mode);
 
   useEffect(() => {
+    updateFavicon(data.runtime);
     if (isConnectPage) return;
     document.title = documentTitle("", data.runtime);
   }, [data.runtime, isConnectPage]);

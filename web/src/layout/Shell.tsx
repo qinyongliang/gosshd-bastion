@@ -4,7 +4,7 @@ import { KeyRound, LayoutDashboard, ListChecks, LockKeyhole, Menu, Server, Setti
 import { ComponentType, ReactNode, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { Field, Modal, ModalActions, NavButton, Segmented } from "../components/ui";
+import { BrandMark, Field, Modal, ModalActions, NavButton, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appName } from "../lib/branding";
 import { formSubmit, pageTitle } from "../lib/forms";
@@ -50,7 +50,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
     <section className={clsx("console", sidebarOpen && "sidebar-open")}>
       <aside className="sidebar">
         <div className="brand-row">
-          <div className="mark">g</div>
+          <BrandMark branding={data.runtime} />
           <strong>{name}</strong>
           <button className="mobile-sidebar-close icon-button" type="button" aria-label={t("close")} onClick={() => setSidebarOpen(false)}><X /></button>
         </div>

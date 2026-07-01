@@ -56,6 +56,7 @@ type apiRuntime struct {
 	LocalTerminalTargetID string `json:"local_terminal_target_id,omitempty"`
 	AppName               string `json:"app_name"`
 	AppDescription        string `json:"app_description"`
+	AppIcon               string `json:"app_icon"`
 }
 
 type apiOrganizationResponse struct {
@@ -79,6 +80,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
 	mux.HandleFunc("GET /api/auth/providers", a.handleAuthProviders)
+	mux.HandleFunc("GET /favicon.ico", a.handleFavicon)
 	mux.HandleFunc("GET /api/auth/dingtalk/start", a.handleDingTalkStart)
 	mux.HandleFunc("GET /api/auth/dingtalk/callback", a.handleDingTalkCallback)
 	mux.HandleFunc("GET /api/me", a.requireUser(a.handleMe))

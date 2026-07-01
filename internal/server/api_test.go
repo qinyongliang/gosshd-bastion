@@ -111,6 +111,7 @@ func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 	putJSON(t, adminClient, srv.URL+"/api/admin/settings/branding", map[string]any{
 		"app_name":        "吉时雨堡垒机",
 		"app_description": "内部 SSH 安全控制台",
+		"app_icon":        "data:image/png;base64,aWNvbg==",
 	}, http.StatusOK, nil)
 	putJSON(t, adminClient, srv.URL+"/api/admin/settings/dingtalk", map[string]any{
 		"enabled":        true,
@@ -138,7 +139,7 @@ func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 		t.Fatalf("settings response missing providers: %+v", settings)
 	}
 	branding, _ := settings["branding"].(map[string]any)
-	if branding["app_name"] != "吉时雨堡垒机" || branding["app_description"] != "内部 SSH 安全控制台" {
+	if branding["app_name"] != "吉时雨堡垒机" || branding["app_description"] != "内部 SSH 安全控制台" || branding["app_icon"] != "data:image/png;base64,aWNvbg==" {
 		t.Fatalf("settings response missing branding: %+v", settings)
 	}
 	var providers ProvidersForTest
@@ -146,12 +147,12 @@ func TestAPIBootstrapAdminAndAdminSettings(t *testing.T) {
 	if !providers.RegistrationEnabled {
 		t.Fatalf("provider response should expose public registration setting: %+v", providers)
 	}
-	if providers.Branding.AppName != "吉时雨堡垒机" || providers.Branding.AppDescription != "内部 SSH 安全控制台" {
+	if providers.Branding.AppName != "吉时雨堡垒机" || providers.Branding.AppDescription != "内部 SSH 安全控制台" || providers.Branding.AppIcon == "" {
 		t.Fatalf("provider response should expose branding: %+v", providers)
 	}
 	var me apiMeResponse
 	getJSON(t, adminClient, srv.URL+"/api/me", http.StatusOK, &me)
-	if me.Runtime.AppName != "吉时雨堡垒机" || me.Runtime.AppDescription != "内部 SSH 安全控制台" {
+	if me.Runtime.AppName != "吉时雨堡垒机" || me.Runtime.AppDescription != "内部 SSH 安全控制台" || me.Runtime.AppIcon == "" {
 		t.Fatalf("me response should expose branding: %+v", me.Runtime)
 	}
 
@@ -1380,6 +1381,7 @@ type ProvidersForTest struct {
 	Branding            struct {
 		AppName        string `json:"app_name"`
 		AppDescription string `json:"app_description"`
+		AppIcon        string `json:"app_icon"`
 	} `json:"branding"`
 }
 

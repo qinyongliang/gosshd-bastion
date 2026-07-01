@@ -31,6 +31,9 @@ type App struct {
 	manualReviews       *manualReviewHub
 	terminalSessions    *terminalSessionManager
 	auditRecordingsPath string
+	brandingCache       brandingSettings
+	brandingCacheValid  bool
+	brandingCacheMu     sync.RWMutex
 	localAgentCancel    context.CancelFunc
 	localTargetID       string
 	initMu              sync.Mutex
@@ -303,6 +306,7 @@ func (a *App) runtimeInfo(ctx context.Context, r *http.Request) (apiRuntime, err
 		LocalTerminalTargetID: a.localTargetID,
 		AppName:               branding.AppName,
 		AppDescription:        branding.AppDescription,
+		AppIcon:               branding.AppIcon,
 	}, nil
 }
 

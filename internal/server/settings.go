@@ -20,6 +20,7 @@ type authSettings struct {
 type brandingSettings struct {
 	AppName        string `json:"app_name"`
 	AppDescription string `json:"app_description"`
+	AppIcon        string `json:"app_icon"`
 }
 
 func defaultBrandingSettings() brandingSettings {
@@ -45,6 +46,14 @@ func (a *App) loadAuthSettings(ctx context.Context) (authSettings, error) {
 }
 
 func (a *App) loadBrandingSettings(ctx context.Context) (brandingSettings, error) {
+	a.brandingCacheMu.RLock()
+	if a.brandingCacheValid {
+		out := a.brandingCache
+		a.brandingCacheMu.RUnlock()
+		return out, nil
+	}
+	a.brandingCacheMu.RUnlock()
+
 	out := defaultBrandingSettings()
 	if a.store == nil {
 		return out, nil
@@ -59,13 +68,19 @@ func (a *App) loadBrandingSettings(ctx context.Context) (brandingSettings, error
 	if err := json.Unmarshal([]byte(setting.ValueJSON), &out); err != nil {
 		return brandingSettings{}, err
 	}
-	return normalizeBrandingSettings(out), nil
+	out = normalizeBrandingSettings(out)
+	a.brandingCacheMu.Lock()
+	a.brandingCache = out
+	a.brandingCacheValid = true
+	a.brandingCacheMu.Unlock()
+	return out, nil
 }
 
 func normalizeBrandingSettings(value brandingSettings) brandingSettings {
 	defaults := defaultBrandingSettings()
 	value.AppName = strings.TrimSpace(value.AppName)
 	value.AppDescription = strings.TrimSpace(value.AppDescription)
+	value.AppIcon = strings.TrimSpace(value.AppIcon)
 	if value.AppName == "" {
 		value.AppName = defaults.AppName
 	}
@@ -73,4 +88,11 @@ func normalizeBrandingSettings(value brandingSettings) brandingSettings {
 		value.AppDescription = defaults.AppDescription
 	}
 	return value
+}
+
+func (a *App) clearBrandingCache() {
+	a.brandingCacheMu.Lock()
+	a.brandingCache = brandingSettings{}
+	a.brandingCacheValid = false
+	a.brandingCacheMu.Unlock()
 }
