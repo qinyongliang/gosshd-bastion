@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Editor from "@monaco-editor/react";
 import { Terminal } from "@xterm/xterm";
-import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Folder, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
+import { Activity, ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Cpu, Folder, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -31,6 +31,7 @@ type ConnectionTab = {
   targetID: string;
   layout: PaneNode;
   activePaneID: string;
+  pendingCommand?: string;
 };
 
 type PaneNode = TerminalPaneNode | EditorPaneNode | SplitPaneNode;
@@ -63,6 +64,7 @@ const MAX_SYSTEM_SAMPLES = 60;
 type TerminalPanelProps = {
   data: ConsoleData;
   target: Target;
+  paneID: string;
   active?: boolean;
   isFullscreen: boolean;
   onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
@@ -72,6 +74,29 @@ type TerminalPanelProps = {
   onPendingCommandConsumed?: () => void;
   manualReview?: boolean;
 };
+
+type TerminalRuntime = {
+  paneID: string;
+  targetID: string;
+  terminal: Terminal | null;
+  socket: WebSocket | null;
+  heartbeat: number | null;
+  status: ConnectionStatus;
+  error: string;
+  dims: { cols: number; rows: number };
+  sessionID: string;
+  aiEnabled: boolean;
+  pendingCommand: string;
+  active: boolean;
+  disposed: boolean;
+  onClose?: () => void;
+  onPendingCommandConsumed?: () => void;
+  connect?: () => void;
+  listeners: Set<() => void>;
+  disposables: Array<{ dispose: () => void }>;
+};
+
+const terminalRuntimes = new Map<string, TerminalRuntime>();
 
 export function ConnectPage({ data }: { data: ConsoleData }) {
   const { targetID } = useParams<{ targetID: string }>();
@@ -106,7 +131,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const [hostWidth, setHostWidth] = useState(248);
   const [filesWidth, setFilesWidth] = useState(330);
-  const [tabs, setTabs] = useState<ConnectionTab[]>(() => [newConnectionTab(target.id)]);
+  const [tabs, setTabs] = useState<ConnectionTab[]>(() => [newConnectionTab(target.id, getConnectCommandParam())]);
   const [activeTabID, setActiveTabID] = useState(() => tabs[0]?.id || "");
   const [tabMenu, setTabMenu] = useState<{ tabID: string; x: number; y: number } | null>(null);
   const [switcherOpenSignal, setSwitcherOpenSignal] = useState(0);
@@ -124,7 +149,15 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const endpoint = targetEndpoint(activeTarget);
   const name = appName(data.runtime);
   const description = appDescription(data.runtime);
-  const pendingCommand = getConnectCommandParam();
+  const routePendingCommand = getConnectCommandParam();
+
+  const appendConnectionTab = (nextTargetID: string, command = "") => {
+    const next = newConnectionTab(nextTargetID, command);
+    expectedRouteTabIDRef.current = next.id;
+    setTabs((current) => [...current, next]);
+    setActiveTabID(next.id);
+    navigate(`/targets/${nextTargetID}/connect`, { replace: true });
+  };
 
   useEffect(() => {
     if (expectedRouteTabIDRef.current) {
@@ -138,14 +171,52 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       setActiveTabID(existing.id);
       return;
     }
-    const next = newConnectionTab(target.id);
+    const next = newConnectionTab(target.id, getConnectCommandParam());
+    expectedRouteTabIDRef.current = next.id;
     setActiveTabID(next.id);
     setTabs((current) => [...current, next]);
   }, [activeTab?.targetID, tabs, target.id]);
 
   useEffect(() => {
+    const openFromMessage = (raw: unknown) => {
+      const message = raw as { type?: string; targetID?: string; command?: string } | null;
+      if (!message || message.type !== "gosshd-connect-open-target" || !message.targetID) return;
+      if (!targets.some((item) => item.id === message.targetID)) return;
+      appendConnectionTab(message.targetID, message.command || "");
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      openFromMessage(event.data);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== "gosshd-connect-open" || !event.newValue) return;
+      try {
+        openFromMessage(JSON.parse(event.newValue));
+      } catch {
+        // Ignore malformed messages from stale tabs.
+      }
+    };
+    window.addEventListener("message", onMessage);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [targets]);
+
+  useEffect(() => {
     document.title = documentTitle(serverTitle(activeTarget), data.runtime);
   }, [activeTarget, data.runtime]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const markOnline = () => {
+      window.localStorage.setItem("gosshd-connect-window-online", JSON.stringify({ at: Date.now() }));
+    };
+    markOnline();
+    const timer = window.setInterval(markOnline, 1500);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (data.runtime.client_mode) return;
@@ -171,11 +242,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   }, []);
 
   const activateTarget = (nextTargetID: string) => {
-    const next = newConnectionTab(nextTargetID);
-    expectedRouteTabIDRef.current = next.id;
-    setTabs((current) => [...current, next]);
-    setActiveTabID(next.id);
-    navigate(`/targets/${nextTargetID}/connect`, { replace: true });
+    appendConnectionTab(nextTargetID);
   };
 
   const updateActiveTab = (updater: (tab: ConnectionTab) => ConnectionTab) => {
@@ -209,8 +276,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         .map((item) => item.id === destination.id ? {
           ...item,
           layout: nextLayout,
-          activePaneID: source.activePaneID,
-          targetID: source.targetID,
+          activePaneID: destination.activePaneID,
         } : item);
     });
   };
@@ -221,6 +287,12 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   };
 
   const closePane = (tabID: string, paneID: string) => {
+    const tab = tabs.find((item) => item.id === tabID);
+    if (tab && tab.layout.id === paneID) {
+      closeTabs("one", tabID);
+      return;
+    }
+    if (tab) disposePaneRuntime(findPane(tab.layout, paneID));
     setTabs((current) => current.map((tab) => {
       if (tab.id !== tabID) return tab;
       const result = removePane(tab.layout, paneID);
@@ -254,6 +326,10 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       if (mode === "right") next = current.slice(0, index + 1);
       if (mode === "others") next = [current[index]];
       if (mode === "all") next = [];
+
+      for (const tab of current) {
+        if (!next.some((item) => item.id === tab.id)) disposePaneRuntime(tab.layout);
+      }
 
       if (!next.length) {
         setActiveTabID("");
@@ -431,8 +507,11 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                       activePaneID={tab.activePaneID}
                       isFullscreen={terminalFullscreen && tab.id === activeTabID}
                       tabActive={tab.id === activeTabID}
-                      pendingCommand={tab.id === activeTabID ? pendingCommand : ""}
-                      onPendingCommandConsumed={clearConnectCommandParam}
+                      pendingCommand={tab.id === activeTabID ? (tab.pendingCommand || routePendingCommand) : ""}
+                      onPendingCommandConsumed={() => {
+                        clearConnectCommandParam();
+                        setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, pendingCommand: "" } : item));
+                      }}
                       onActivate={(paneID) => {
                         setActiveTabID(tab.id);
                         setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, activePaneID: paneID } : item));
@@ -618,6 +697,7 @@ function PaneTree({
         onFullscreenChange={onFullscreenChange}
         onClose={() => onClose(node.id)}
         onSplit={onSplit}
+        paneID={node.id}
         pendingCommand={pendingCommand}
         onPendingCommandConsumed={onPendingCommandConsumed}
       />
@@ -921,54 +1001,58 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-export function TerminalPanel({ data, target, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, pendingCommand = "", onPendingCommandConsumed, manualReview = true }: TerminalPanelProps) {
+export function TerminalPanel({ data, target, paneID, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, pendingCommand = "", onPendingCommandConsumed, manualReview = true }: TerminalPanelProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<Terminal | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const heartbeatRef = useRef<number | null>(null);
-  const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const [error, setError] = useState("");
-  const [dims, setDims] = useState({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS });
-  const [sessionID, setSessionID] = useState("");
-  const [aiEnabled, setAIEnabled] = useState(true);
+  const runtime = useMemo(() => getTerminalRuntime(paneID, target.id), [paneID, target.id]);
+  const [status, setStatus] = useState<ConnectionStatus>(runtime.status);
+  const [error, setError] = useState(runtime.error);
+  const [dims, setDims] = useState(runtime.dims);
+  const [sessionID, setSessionID] = useState(runtime.sessionID);
+  const [aiEnabled, setAIEnabled] = useState(runtime.aiEnabled);
   const fitRetryRef = useRef<number | null>(null);
   const fitFrameRef = useRef<number | null>(null);
-  const activeRef = useRef(active);
-  const onCloseRef = useRef(onClose);
-  const statusRef = useRef<ConnectionStatus>("connecting");
-  const pendingCommandRef = useRef("");
 
   useEffect(() => {
-    activeRef.current = active;
-  }, [active]);
+    const sync = () => {
+      setStatus(runtime.status);
+      setError(runtime.error);
+      setDims(runtime.dims);
+      setSessionID(runtime.sessionID);
+      setAIEnabled(runtime.aiEnabled);
+    };
+    runtime.listeners.add(sync);
+    sync();
+    return () => {
+      runtime.listeners.delete(sync);
+    };
+  }, [runtime]);
 
   useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
+    runtime.active = active;
+    runtime.onClose = onClose;
+    runtime.onPendingCommandConsumed = onPendingCommandConsumed;
+  }, [active, onClose, onPendingCommandConsumed, runtime]);
 
   const updateStatus = (next: ConnectionStatus) => {
-    statusRef.current = next;
-    setStatus(next);
+    setRuntimeSnapshot(runtime, { status: next });
   };
 
   const sendAICollaborationState = (enabled: boolean) => {
-    const socket = socketRef.current;
+    const socket = runtime.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "ai-collaboration", enabled }));
     }
   };
 
   const toggleAI = () => {
-    setAIEnabled((current) => {
-      const next = !current;
-      sendAICollaborationState(next);
-      return next;
-    });
+    const next = !runtime.aiEnabled;
+    setRuntimeSnapshot(runtime, { aiEnabled: next });
+    sendAICollaborationState(next);
   };
 
   const sendTerminalInput = (value: string) => {
-    const socket = socketRef.current;
+    const socket = runtime.socket;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "input", data: value }));
       return true;
@@ -977,22 +1061,21 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   };
 
   const runPendingCommand = () => {
-    const command = pendingCommandRef.current.trim();
-    if (!command || statusRef.current !== "connected") return;
+    const command = runtime.pendingCommand.trim();
+    if (!command || runtime.status !== "connected") return;
     if (!sendTerminalInput(`${command}\r`)) return;
-    pendingCommandRef.current = "";
-    onPendingCommandConsumed?.();
+    runtime.pendingCommand = "";
+    runtime.onPendingCommandConsumed?.();
   };
 
   const connect = () => {
-    if (socketRef.current) {
-      socketRef.current.close();
-      socketRef.current = null;
+    if (runtime.socket) {
+      runtime.socket.close();
+      runtime.socket = null;
     }
     updateStatus("connecting");
-    setError("");
-    setSessionID("");
-    const terminal = terminalRef.current;
+    setRuntimeSnapshot(runtime, { error: "", sessionID: "" });
+    const terminal = runtime.terminal;
     if (!terminal) return;
     fitTerminal(terminal);
 
@@ -1000,8 +1083,9 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
     const rows = terminal.rows || DEFAULT_ROWS;
     const url = api.targetTerminalURL(target.id, cols, rows);
     const socket = new WebSocket(url);
-    socketRef.current = socket;
-    const isCurrentSocket = () => socketRef.current === socket;
+    runtime.socket = socket;
+    runtime.targetID = target.id;
+    const isCurrentSocket = () => runtime.socket === socket;
 
     socket.onopen = () => {
       if (!isCurrentSocket()) return;
@@ -1009,12 +1093,12 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
       terminal.focus();
       const currentCols = terminal.cols || cols;
       const currentRows = terminal.rows || rows;
-      setDims({ cols: currentCols, rows: currentRows });
+      setRuntimeSnapshot(runtime, { dims: { cols: currentCols, rows: currentRows } });
       socket.send(JSON.stringify({ type: "resize", cols: currentCols, rows: currentRows }));
-      socket.send(JSON.stringify({ type: "ai-collaboration", enabled: aiEnabled }));
+      socket.send(JSON.stringify({ type: "ai-collaboration", enabled: runtime.aiEnabled }));
       window.setTimeout(runPendingCommand, 80);
-      if (heartbeatRef.current) window.clearInterval(heartbeatRef.current);
-      heartbeatRef.current = window.setInterval(() => {
+      if (runtime.heartbeat) window.clearInterval(runtime.heartbeat);
+      runtime.heartbeat = window.setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ type: "heartbeat" }));
         }
@@ -1030,14 +1114,14 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
         } else if (message.type === "error" && message.data !== undefined) {
           terminal.write(`\r\n\x1b[1;31m${message.data}\x1b[0m\r\n`);
           updateStatus("error");
-          setError(message.data);
+          setRuntimeSnapshot(runtime, { error: message.data });
         } else if (message.type === "exit") {
           terminal.write(`\r\n\x1b[2;37mSession ended (exit ${message.code ?? "-"})\x1b[0m\r\n`);
           updateStatus("disconnected");
-          setSessionID("");
+          setRuntimeSnapshot(runtime, { sessionID: "" });
           socket.close();
         } else if (message.type === "session" && message.session_id) {
-          setSessionID(message.session_id);
+          setRuntimeSnapshot(runtime, { sessionID: message.session_id });
         }
       } catch {
         terminal.write(event.data);
@@ -1047,66 +1131,80 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
     socket.onerror = () => {
       if (!isCurrentSocket()) return;
       updateStatus("error");
-      setError(t("connectStatusError"));
+      setRuntimeSnapshot(runtime, { error: t("connectStatusError") });
     };
 
     socket.onclose = () => {
       if (!isCurrentSocket()) return;
-      if (heartbeatRef.current) {
-        window.clearInterval(heartbeatRef.current);
-        heartbeatRef.current = null;
+      if (runtime.heartbeat) {
+        window.clearInterval(runtime.heartbeat);
+        runtime.heartbeat = null;
       }
-      updateStatus(statusRef.current === "connected" ? "disconnected" : statusRef.current);
-      setSessionID("");
+      updateStatus(runtime.status === "connected" ? "disconnected" : runtime.status);
+      setRuntimeSnapshot(runtime, { sessionID: "" });
     };
   };
+  runtime.connect = connect;
 
   useEffect(() => {
     if (!active || !pendingCommand.trim()) return;
-    pendingCommandRef.current = pendingCommand;
+    runtime.pendingCommand = pendingCommand;
     runPendingCommand();
-  }, [active, pendingCommand]);
+  }, [active, pendingCommand, runtime]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    if (terminalRef.current) return;
 
-    const terminal = new Terminal({
-      cols: DEFAULT_COLS,
-      rows: DEFAULT_ROWS,
-      convertEol: true,
-      cursorBlink: true,
-      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-      fontSize: 13,
-      theme: { background: "#08111e", foreground: "#dbeafe", cursor: "#67e8f9", selectionBackground: "#0e7490" },
-      screenReaderMode: true,
-    });
-    terminal.open(container);
-    terminalRef.current = terminal;
+    let terminal = runtime.terminal;
+    if (!terminal) {
+      terminal = new Terminal({
+        cols: DEFAULT_COLS,
+        rows: DEFAULT_ROWS,
+        convertEol: true,
+        cursorBlink: true,
+        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+        fontSize: 13,
+        theme: { background: "#08111e", foreground: "#dbeafe", cursor: "#67e8f9", selectionBackground: "#0e7490" },
+        screenReaderMode: true,
+      });
+      terminal.open(container);
+      runtime.terminal = terminal;
+
+      runtime.disposables.push(terminal.onData((value) => {
+        if (runtime.status === "disconnected" || runtime.status === "error") {
+          if (value === "\x04") {
+            if (runtime.active) runtime.onClose?.();
+            return;
+          }
+          if (value === "\r" || value === "\n") {
+            runtime.connect?.();
+            return;
+          }
+        }
+        sendTerminalInput(value);
+      }));
+
+      runtime.disposables.push(terminal.onResize(({ cols, rows }) => {
+        setRuntimeSnapshot(runtime, { dims: { cols, rows } });
+        const socket = runtime.socket;
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "resize", cols, rows }));
+        }
+      }));
+      connect();
+    } else if (terminal.element && terminal.element.parentElement !== container) {
+      container.appendChild(terminal.element);
+    }
     const focusTerminal = () => terminal.focus();
-    if (activeRef.current) terminal.focus();
+    if (runtime.active) terminal.focus();
     container.addEventListener("pointerdown", focusTerminal);
 
     const reconnectIfInactive = () => {
-      if (statusRef.current !== "disconnected" && statusRef.current !== "error") return false;
-      connect();
+      if (runtime.status !== "disconnected" && runtime.status !== "error") return false;
+      runtime.connect?.();
       return true;
     };
-
-    terminal.onData((value) => {
-      if (statusRef.current === "disconnected" || statusRef.current === "error") {
-        if (value === "\x04") {
-          if (activeRef.current) onCloseRef.current?.();
-          return;
-        }
-        if (value === "\r" || value === "\n") {
-          reconnectIfInactive();
-          return;
-        }
-      }
-      sendTerminalInput(value);
-    });
 
     const onTerminalKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter") return;
@@ -1114,30 +1212,20 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
     };
     container.addEventListener("keydown", onTerminalKeyDown);
 
-    terminal.onResize(({ cols, rows }) => {
-      setDims({ cols, rows });
-      const socket = socketRef.current;
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "resize", cols, rows }));
-      }
-    });
-
     const resizeObserver = new ResizeObserver(() => {
       scheduleTerminalFit(terminal);
     });
     resizeObserver.observe(container);
     scheduleTerminalFit(terminal);
 
-    connect();
-
     const closeTerminalSession = () => {
-      const socket = socketRef.current;
+      const socket = runtime.socket;
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "close" }));
       }
     };
     const focusTerminalOnWindowFocus = () => {
-      if (activeRef.current) terminal.focus();
+      if (runtime.active) terminal.focus();
     };
     window.addEventListener("pagehide", closeTerminalSession);
     window.addEventListener("focus", focusTerminalOnWindowFocus);
@@ -1145,19 +1233,13 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
     return () => {
       if (fitRetryRef.current) window.clearTimeout(fitRetryRef.current);
       if (fitFrameRef.current) window.cancelAnimationFrame(fitFrameRef.current);
-      if (heartbeatRef.current) window.clearInterval(heartbeatRef.current);
-      closeTerminalSession();
       window.removeEventListener("pagehide", closeTerminalSession);
       window.removeEventListener("focus", focusTerminalOnWindowFocus);
       resizeObserver.disconnect();
       container.removeEventListener("pointerdown", focusTerminal);
       container.removeEventListener("keydown", onTerminalKeyDown);
-      socketRef.current?.close();
-      socketRef.current = null;
-      terminalRef.current = null;
-      terminal.dispose();
     };
-  }, [target.id]);
+  }, [runtime, target.id]);
 
   const scheduleTerminalFit = (terminal: Terminal) => {
     if (fitFrameRef.current) window.cancelAnimationFrame(fitFrameRef.current);
@@ -1202,34 +1284,34 @@ export function TerminalPanel({ data, target, active = true, isFullscreen, onFul
   }, []);
 
   useEffect(() => {
-    const terminal = terminalRef.current;
+    const terminal = runtime.terminal;
     if (!terminal) return;
     if (fitRetryRef.current) window.clearTimeout(fitRetryRef.current);
     scheduleTerminalFit(terminal);
     fitRetryRef.current = window.setTimeout(() => scheduleTerminalFit(terminal), 120);
     if (active) terminal.focus();
-  }, [active, isFullscreen, target.id]);
+  }, [active, isFullscreen, runtime, target.id]);
 
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const inactive = statusRef.current === "disconnected" || statusRef.current === "error";
+      const inactive = runtime.status === "disconnected" || runtime.status === "error";
       if (!inactive) return;
       const targetElement = event.target as HTMLElement | null;
       if (isEditableElementOutsideTerminal(targetElement, containerRef.current)) return;
       if (event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "d", "KeyD")) {
         event.preventDefault();
         event.stopPropagation();
-        if (!event.repeat) onCloseRef.current?.();
+        if (!event.repeat) runtime.onClose?.();
         return;
       }
       if (event.key !== "Enter") return;
       event.preventDefault();
-      connect();
+      runtime.connect?.();
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [active, target.id]);
+  }, [active, runtime, target.id]);
 
   return (
     <section className={`terminal-panel ${active ? "active" : "inactive"} ${isFullscreen ? "fullscreen" : ""}`} aria-hidden={!active}>
@@ -1271,6 +1353,7 @@ function ServerSwitcher({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -1291,7 +1374,17 @@ function ServerSwitcher({
       ...(item.tags || []),
     ].join(" ").toLowerCase().includes(text));
   }, [folderPathByTarget, query, targets]);
-  const treeItems = useMemo(() => buildSwitcherTree(filteredTargets, folders, folderPathByTarget), [filteredTargets, folderPathByTarget, folders]);
+  const toggleFolder = (folderID: string) => {
+    setCollapsedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(folderID)) next.delete(folderID); else next.add(folderID);
+      return next;
+    });
+  };
+  const treeItems = useMemo(
+    () => buildSwitcherTree(filteredTargets, folders, folderPathByTarget, query.trim() ? new Set() : collapsedFolders, toggleFolder),
+    [collapsedFolders, filteredTargets, folderPathByTarget, folders, query],
+  );
 
   useEffect(() => {
     if (openSignal <= 0) return;
@@ -1397,10 +1490,17 @@ function ServerSwitcher({
           </label>
           <div className="server-switcher-list">
             {treeItems.map((treeItem, index) => treeItem.type === "folder" ? (
-              <div key={treeItem.id} className="server-switcher-folder" style={{ "--tree-depth": treeItem.depth } as CSSProperties}>
+              <button
+                type="button"
+                key={treeItem.id}
+                className="server-switcher-folder"
+                style={{ "--tree-depth": treeItem.depth } as CSSProperties}
+                onClick={() => treeItem.onToggle()}
+              >
+                {treeItem.collapsed ? <ChevronRight /> : <ChevronDown />}
                 <FolderIcon />
                 <strong>{treeItem.name}</strong>
-              </div>
+              </button>
             ) : (
               <button
                 type="button"
@@ -1446,10 +1546,10 @@ function isEditableElementOutsideTerminal(element: HTMLElement | null, terminalC
 }
 
 type SwitcherTreeItem =
-  | { type: "folder"; id: string; name: string; depth: number }
+  | { type: "folder"; id: string; name: string; depth: number; collapsed: boolean; onToggle: () => void }
   | { type: "target"; target: Target; depth: number };
 
-function buildSwitcherTree(targets: Target[], folders: ConsoleData["targetFolders"], folderPathByTarget: Record<string, string>): SwitcherTreeItem[] {
+function buildSwitcherTree(targets: Target[], folders: ConsoleData["targetFolders"], folderPathByTarget: Record<string, string>, collapsedFolders: Set<string>, onToggleFolder: (folderID: string) => void): SwitcherTreeItem[] {
   const out: SwitcherTreeItem[] = [];
   const targetIDs = new Set(targets.map((item) => item.id));
   const children = new Map<string, typeof folders>();
@@ -1462,7 +1562,9 @@ function buildSwitcherTree(targets: Target[], folders: ConsoleData["targetFolder
       const folderPath = folderPathFromFolder(folder, folders);
       const descendants = targets.filter((target) => target.folder_id === folder.id || folderPathByTarget[target.id]?.startsWith(`${folderPath}/`));
       if (!descendants.length) continue;
-      out.push({ type: "folder", id: folder.id, name: folder.name, depth });
+      const collapsed = collapsedFolders.has(folder.id);
+      out.push({ type: "folder", id: folder.id, name: folder.name, depth, collapsed, onToggle: () => onToggleFolder(folder.id) });
+      if (collapsed) continue;
       for (const target of targets.filter((item) => item.folder_id === folder.id && targetIDs.has(item.id)).sort((a, b) => a.name.localeCompare(b.name))) {
         out.push({ type: "target", target, depth: depth + 1 });
       }
@@ -1502,9 +1604,9 @@ function contextMenuPointInTabs(clientX: number, clientY: number, container: HTM
   };
 }
 
-function newConnectionTab(targetID: string): ConnectionTab {
+function newConnectionTab(targetID: string, pendingCommand = ""): ConnectionTab {
   const pane = newTerminalPane(targetID);
-  return { id: `${targetID}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`, targetID, layout: pane, activePaneID: pane.id };
+  return { id: `${targetID}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`, targetID, layout: pane, activePaneID: pane.id, pendingCommand };
 }
 
 function newPaneID(prefix: string) {
@@ -1513,6 +1615,61 @@ function newPaneID(prefix: string) {
 
 function newTerminalPane(targetID: string): TerminalPaneNode {
   return { type: "terminal", id: newPaneID("terminal"), targetID };
+}
+
+function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
+  const current = terminalRuntimes.get(paneID);
+  if (current && current.targetID === targetID && !current.disposed) return current;
+  const runtime: TerminalRuntime = {
+    paneID,
+    targetID,
+    terminal: null,
+    socket: null,
+    heartbeat: null,
+    status: "connecting",
+    error: "",
+    dims: { cols: DEFAULT_COLS, rows: DEFAULT_ROWS },
+    sessionID: "",
+    aiEnabled: true,
+    pendingCommand: "",
+    active: false,
+    disposed: false,
+    listeners: new Set(),
+    disposables: [],
+  };
+  terminalRuntimes.set(paneID, runtime);
+  return runtime;
+}
+
+function setRuntimeSnapshot(runtime: TerminalRuntime, patch: Partial<Pick<TerminalRuntime, "status" | "error" | "dims" | "sessionID" | "aiEnabled">>) {
+  Object.assign(runtime, patch);
+  for (const listener of runtime.listeners) listener();
+}
+
+function disposePaneRuntime(node: PaneNode | null) {
+  if (!node) return;
+  if (node.type === "split") {
+    disposePaneRuntime(node.first);
+    disposePaneRuntime(node.second);
+    return;
+  }
+  if (node.type !== "terminal") return;
+  const runtime = terminalRuntimes.get(node.id);
+  if (!runtime || runtime.disposed) return;
+  runtime.disposed = true;
+  if (runtime.heartbeat) window.clearInterval(runtime.heartbeat);
+  runtime.heartbeat = null;
+  const socket = runtime.socket;
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "close" }));
+  }
+  socket?.close();
+  runtime.socket = null;
+  for (const disposable of runtime.disposables) disposable.dispose();
+  runtime.disposables = [];
+  runtime.terminal?.dispose();
+  runtime.terminal = null;
+  terminalRuntimes.delete(node.id);
 }
 
 function findPane(node: PaneNode, paneID: string): PaneNode | null {
