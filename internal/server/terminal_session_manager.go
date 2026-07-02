@@ -552,6 +552,7 @@ func (s *terminalSession) writeOutput(typ string, data []byte) {
 	}
 	s.mu.Lock()
 	cleanText, events := s.consumeTerminalIntegration(string(data))
+	cleanText = filterLegacyWindowsCmdPromptEcho(cleanText)
 	if cleanText == "" && len(events) == 0 {
 		s.mu.Unlock()
 		return
@@ -597,6 +598,37 @@ func (s *terminalSession) writeOutput(typ string, data []byte) {
 		s.broadcastLocked(terminalWSMessage{Type: typ, Data: cleanText})
 	}
 	s.mu.Unlock()
+}
+
+func filterLegacyWindowsCmdPromptEcho(text string) string {
+	if text == "" || !strings.Contains(strings.ToLower(text), "delims=") {
+		return text
+	}
+	var out strings.Builder
+	for len(text) > 0 {
+		lineEnd := strings.IndexByte(text, '\n')
+		var line string
+		if lineEnd < 0 {
+			line = text
+			text = ""
+		} else {
+			line = text[:lineEnd+1]
+			text = text[lineEnd+1:]
+		}
+		if isLegacyWindowsCmdPromptEchoLine(line) {
+			continue
+		}
+		out.WriteString(line)
+	}
+	return out.String()
+}
+
+func isLegacyWindowsCmdPromptEchoLine(line string) bool {
+	normalized := strings.ToLower(stripANSI(strings.TrimSpace(line)))
+	return strings.Contains(normalized, "for /f") &&
+		strings.Contains(normalized, "delims=") &&
+		strings.Contains(normalized, "echo prompt") &&
+		strings.Contains(normalized, "633;d")
 }
 
 func (s *terminalSession) consumeTerminalIntegration(text string) (string, []terminalIntegrationEvent) {

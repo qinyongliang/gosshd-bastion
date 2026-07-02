@@ -77,6 +77,8 @@ type apiTargetSystemResponse struct {
 	Hostname    string                      `json:"hostname,omitempty"`
 	IP          string                      `json:"ip,omitempty"`
 	PublicIP    string                      `json:"public_ip,omitempty"`
+	PublicIPv4  string                      `json:"public_ipv4,omitempty"`
+	PublicIPv6  string                      `json:"public_ipv6,omitempty"`
 	Uptime      string                      `json:"uptime,omitempty"`
 	Load        string                      `json:"load,omitempty"`
 	CPUPercent  float64                     `json:"cpu_percent"`
@@ -213,9 +215,12 @@ printf 'hostname=%s\n' "$(hostname 2>/dev/null || uname -n 2>/dev/null)"
 ipaddr="$(hostname -I 2>/dev/null | awk '{print $1}')"
 if [ -z "$ipaddr" ]; then ipaddr="$(ip -4 addr show scope global 2>/dev/null | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}')"; fi
 printf 'ip=%s\n' "$ipaddr"
-public_ip="$(curl -A curl/8.0.0 -fsS --max-time 3 https://ifconfig.me/ip 2>/dev/null || curl -A curl/8.0.0 -fsS --max-time 3 https://api.ipify.org 2>/dev/null)"
-public_ip="$(printf '%s' "$public_ip" | tr -d '\r\n' | awk '{print $1}')"
-printf 'public_ip=%s\n' "$public_ip"
+public_ipv4="$(curl -4 -A curl/8.0.0 -fsS --max-time 3 https://ifconfig.me/ip 2>/dev/null || curl -4 -A curl/8.0.0 -fsS --max-time 3 https://api.ipify.org 2>/dev/null)"
+public_ipv4="$(printf '%s' "$public_ipv4" | tr -d '\r\n' | awk '{print $1}')"
+public_ipv6="$(curl -6 -A curl/8.0.0 -fsS --max-time 3 https://ifconfig.me/ip 2>/dev/null || curl -6 -A curl/8.0.0 -fsS --max-time 3 https://api64.ipify.org 2>/dev/null)"
+public_ipv6="$(printf '%s' "$public_ipv6" | tr -d '\r\n' | awk '{print $1}')"
+printf 'public_ipv4=%s\n' "$public_ipv4"
+printf 'public_ipv6=%s\n' "$public_ipv6"
 printf 'uptime=%s\n' "$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
 printf 'load=%s\n' "$(awk '{print $1 ", " $2 ", " $3}' /proc/loadavg 2>/dev/null)"
 awk '/^cpu /{print "cpu1="$0}' /proc/stat 2>/dev/null
@@ -234,10 +239,13 @@ Write-Output "os=windows"
 Write-Output ("hostname={0}" -f $env:COMPUTERNAME)
 $ips = Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -and $_.IPAddress } | Select-Object -First 1
 if ($ips) { Write-Output ("ip={0}" -f ($ips.IPAddress | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)) }
-$publicIP = (& curl.exe -A curl/8.0.0 -fsS --max-time 3 https://ifconfig.me/ip) -join ""
-if (-not $publicIP) { $publicIP = (& curl.exe -A curl/8.0.0 -fsS --max-time 3 https://api.ipify.org) -join "" }
-if (-not $publicIP) { $publicIP = Invoke-RestMethod -Uri "https://ifconfig.me/ip" -Headers @{ "User-Agent" = "curl/8.0.0"; "Accept" = "*/*" } -TimeoutSec 3 }
-if ($publicIP) { Write-Output ("public_ip={0}" -f (($publicIP -join "").Trim())) }
+$publicIPv4 = (& curl.exe -4 -A curl/8.0.0 -fsS --max-time 3 https://ifconfig.me/ip) -join ""
+if (-not $publicIPv4) { $publicIPv4 = (& curl.exe -4 -A curl/8.0.0 -fsS --max-time 3 https://api.ipify.org) -join "" }
+if (-not $publicIPv4) { $publicIPv4 = Invoke-RestMethod -Uri "https://ifconfig.me/ip" -Headers @{ "User-Agent" = "curl/8.0.0"; "Accept" = "*/*" } -TimeoutSec 3 }
+$publicIPv6 = (& curl.exe -6 -A curl/8.0.0 -fsS --max-time 3 https://ifconfig.me/ip) -join ""
+if (-not $publicIPv6) { $publicIPv6 = (& curl.exe -6 -A curl/8.0.0 -fsS --max-time 3 https://api64.ipify.org) -join "" }
+if ($publicIPv4) { Write-Output ("public_ipv4={0}" -f (($publicIPv4 -join "").Trim())) }
+if ($publicIPv6) { Write-Output ("public_ipv6={0}" -f (($publicIPv6 -join "").Trim())) }
 $os = Get-CimInstance Win32_OperatingSystem
 if ($os) {
   $uptime = (Get-Date) - $os.LastBootUpTime
@@ -289,6 +297,15 @@ func parseTargetSystemProbe(out string) (apiTargetSystemResponse, bool) {
 			snapshot.IP = value
 		case "public_ip":
 			snapshot.PublicIP = normalizePublicIP(value)
+			if isIPv4Literal(snapshot.PublicIP) {
+				snapshot.PublicIPv4 = snapshot.PublicIP
+			} else if isIPv6Literal(snapshot.PublicIP) {
+				snapshot.PublicIPv6 = snapshot.PublicIP
+			}
+		case "public_ipv4":
+			snapshot.PublicIPv4 = normalizePublicIPv4(value)
+		case "public_ipv6":
+			snapshot.PublicIPv6 = normalizePublicIPv6(value)
 		case "uptime":
 			snapshot.Uptime = value
 		case "load":
@@ -322,6 +339,13 @@ func parseTargetSystemProbe(out string) (apiTargetSystemResponse, bool) {
 	}
 	if snapshot.OS == "" {
 		snapshot.OS = "unknown"
+	}
+	if snapshot.PublicIP == "" {
+		if snapshot.PublicIPv4 != "" {
+			snapshot.PublicIP = snapshot.PublicIPv4
+		} else {
+			snapshot.PublicIP = snapshot.PublicIPv6
+		}
 	}
 	return snapshot, true
 }
@@ -391,6 +415,22 @@ func normalizePublicIP(value string) string {
 	candidate := strings.Trim(fields[0], " \t\r\n,;")
 	if isIPv4Literal(candidate) || isIPv6Literal(candidate) {
 		return candidate
+	}
+	return ""
+}
+
+func normalizePublicIPv4(value string) string {
+	value = normalizePublicIP(value)
+	if isIPv4Literal(value) {
+		return value
+	}
+	return ""
+}
+
+func normalizePublicIPv6(value string) string {
+	value = normalizePublicIP(value)
+	if isIPv6Literal(value) {
+		return value
 	}
 	return ""
 }

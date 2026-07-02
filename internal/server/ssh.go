@@ -264,9 +264,21 @@ func (a *App) bridgeFramedSession(id string, ch gossh.Channel, req protocol.Stre
 		}
 		switch frame.Type {
 		case protocol.FrameStdout:
-			_, _ = ch.Write(frame.Data)
+			data := frame.Data
+			if req.Type == protocol.StreamShell {
+				data = []byte(filterLegacyWindowsCmdPromptEcho(string(data)))
+			}
+			if len(data) > 0 {
+				_, _ = ch.Write(data)
+			}
 		case protocol.FrameStderr:
-			_, _ = ch.Stderr().Write(frame.Data)
+			data := frame.Data
+			if req.Type == protocol.StreamShell {
+				data = []byte(filterLegacyWindowsCmdPromptEcho(string(data)))
+			}
+			if len(data) > 0 {
+				_, _ = ch.Stderr().Write(data)
+			}
 		case protocol.FrameExit:
 			exitCode = protocol.ExitCode(frame)
 			sendExit(ch, exitCode)

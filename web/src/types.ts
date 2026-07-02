@@ -160,6 +160,8 @@ export type TargetSystemSnapshot = {
   hostname?: string;
   ip?: string;
   public_ip?: string;
+  public_ipv4?: string;
+  public_ipv6?: string;
   uptime?: string;
   load?: string;
   cpu_percent: number;

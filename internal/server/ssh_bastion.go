@@ -958,15 +958,29 @@ func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.
 		}
 		switch frame.Type {
 		case protocol.FrameStdout:
-			if recorder != nil {
-				recorder.WriteOutput(frame.Data)
+			data := frame.Data
+			if req.Type == protocol.StreamShell {
+				data = []byte(filterLegacyWindowsCmdPromptEcho(string(data)))
 			}
-			_, _ = ch.Write(frame.Data)
+			if len(data) == 0 {
+				continue
+			}
+			if recorder != nil {
+				recorder.WriteOutput(data)
+			}
+			_, _ = ch.Write(data)
 		case protocol.FrameStderr:
-			if recorder != nil {
-				recorder.WriteOutput(frame.Data)
+			data := frame.Data
+			if req.Type == protocol.StreamShell {
+				data = []byte(filterLegacyWindowsCmdPromptEcho(string(data)))
 			}
-			_, _ = ch.Stderr().Write(frame.Data)
+			if len(data) == 0 {
+				continue
+			}
+			if recorder != nil {
+				recorder.WriteOutput(data)
+			}
+			_, _ = ch.Stderr().Write(data)
 		case protocol.FrameExit:
 			exitCode = protocol.ExitCode(frame)
 			_ = ch.CloseWrite()

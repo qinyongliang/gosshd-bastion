@@ -1117,7 +1117,8 @@ function SystemSnapshotPanel({ targetID, system }: { targetID: string; system: U
           <div className="telemetry-ip-card">
             <span>{t("connectSystemIP")}</span>
             <strong title={snapshot.ip || snapshot.hostname || "-"}>{snapshot.ip || snapshot.hostname || "-"}</strong>
-            <div><b>{t("connectSystemPublicIP")}</b><code title={snapshot.public_ip || "-"}>{snapshot.public_ip || "-"}</code></div>
+            {snapshot.public_ipv4 && <div><b>{t("connectSystemPublicIPv4")}</b><code title={snapshot.public_ipv4}>{snapshot.public_ipv4}</code></div>}
+            {snapshot.public_ipv6 && <div><b>{t("connectSystemPublicIPv6")}</b><code title={snapshot.public_ipv6}>{snapshot.public_ipv6}</code></div>}
             <small>{[snapshot.os, snapshot.hostname].filter(Boolean).join(" / ") || "-"}</small>
           </div>
 
