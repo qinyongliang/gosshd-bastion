@@ -3833,7 +3833,7 @@ html[data-theme="dark"] .server-switcher-search {
   width: 100%;
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 6px 8px 6px calc(8px + var(--tree-depth, 0) * 18px);
   text-align: left;
   color: var(--ink);
   background: transparent;
@@ -3860,10 +3860,10 @@ html[data-theme="dark"] .server-switcher-item {
   grid-template-columns: 14px 18px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
-  min-height: 30px;
+  min-height: 40px;
   width: 100%;
   border: 0;
-  padding: 4px 8px 4px calc(8px + var(--tree-depth, 0) * 16px);
+  padding: 7px 8px 7px calc(8px + var(--tree-depth, 0) * 18px);
   color: var(--muted);
   background: transparent;
   box-shadow: none;
@@ -5645,6 +5645,73 @@ html[data-theme="light"] .file-name:hover {
 html[data-theme="light"] .file-context-menu {
   background: #ffffff;
   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+}
+
+html[data-theme="light"] .file-breadcrumb {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+html[data-theme="light"] .file-manager-path input {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+html[data-theme="light"] .file-breadcrumb-menu {
+  color: var(--ink);
+  background: #ffffff;
+  border-color: rgba(22, 96, 122, 0.18);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+}
+
+html[data-theme="light"] .file-breadcrumb-search {
+  color: #64748b;
+  border-bottom-color: rgba(22, 96, 122, 0.14);
+}
+
+html[data-theme="light"] .file-breadcrumb-search input {
+  color: #102033;
+}
+
+html[data-theme="light"] .file-breadcrumb-search input::placeholder {
+  color: #94a3b8;
+}
+
+html[data-theme="light"] .file-breadcrumb-options {
+  scrollbar-color: rgba(14, 116, 144, 0.42) transparent;
+  scrollbar-width: thin;
+}
+
+html[data-theme="light"] .file-breadcrumb-options button {
+  color: #102033;
+}
+
+html[data-theme="light"] .file-breadcrumb-options button:hover {
+  background: rgba(14, 165, 183, 0.12);
+}
+
+html[data-theme="light"] .file-breadcrumb-options svg {
+  color: #64748b;
+}
+
+html[data-theme="light"] .file-breadcrumb-empty {
+  color: #64748b;
+}
+
+html[data-theme="light"] .file-breadcrumb-options::-webkit-scrollbar {
+  width: 10px;
+}
+
+html[data-theme="light"] .file-breadcrumb-options::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html[data-theme="light"] .file-breadcrumb-options::-webkit-scrollbar-thumb {
+  background: rgba(14, 116, 144, 0.28);
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+}
+
+html[data-theme="light"] .file-breadcrumb-options::-webkit-scrollbar-thumb:hover {
+  background: rgba(14, 116, 144, 0.42);
 }
 
 html[data-theme="light"] .terminal-viewport .xterm,
