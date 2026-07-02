@@ -95,6 +95,22 @@ func TestTerminalIntegrationPromptEventClearsBusy(t *testing.T) {
 	}
 }
 
+func TestTerminalOutputFiltersLegacyWindowsCmdPromptEcho(t *testing.T) {
+	session := &terminalSession{
+		screen:  newTerminalScreenBuffer(24),
+		clients: map[*terminalWSWriter]bool{},
+	}
+
+	session.writeOutput("output", []byte("for /F \"delims=\" %i in ('echo prompt $E]633;D;0$E\\$E]633;A$E\\$_$P$G') do @%i\r\nC:\\ProgramData\\gosshd>"))
+
+	if got := session.output.String(); strings.Contains(got, "delims=") || !strings.Contains(got, `C:\ProgramData\gosshd>`) {
+		t.Fatalf("legacy prompt echo filter mismatch: %q", got)
+	}
+	if got := session.currentScreen(); strings.Contains(got, "delims=") {
+		t.Fatalf("screen leaked legacy prompt echo: %q", got)
+	}
+}
+
 func TestParseTerminalIntegrationPromptEvent(t *testing.T) {
 	event, ok := parseTerminalIntegrationEvent("A")
 	if !ok || event.Kind != "A" {

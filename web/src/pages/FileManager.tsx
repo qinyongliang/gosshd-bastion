@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Trash2, Upload } from "lucide-react";
+import { ChevronRight, Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -11,6 +11,8 @@ import { copyText } from "../utils";
 
 type FileSortKey = "name" | "size" | "mode" | "modified";
 type SortOrder = "asc" | "desc";
+type BreadcrumbItem = { key: string; label: string; kind: "drives" | "dirs"; menuPath: string };
+type BreadcrumbMenuState = { kind: "drives" | "dirs"; path: string; left: number; top: number; width: number };
 
 export function FileManager({ target, system, nativeOpen = false, onEditFile }: { target: Target; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
   const { t } = useI18n();
@@ -21,16 +23,35 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
   const [uploading, setUploading] = useState(false);
   const [mkdirModal, setMkdirModal] = useState(false);
   const [touchModal, setTouchModal] = useState(false);
+  const [pathEditing, setPathEditing] = useState(false);
   const [sort, setSort] = useState<{ key: FileSortKey; order: SortOrder }>({ key: "name", order: "asc" });
   const [transfer, setTransfer] = useState<{ action: "move" | "copy"; entry: FileEntry } | null>(null);
   const [properties, setProperties] = useState<FileProperties | null>(null);
   const [contextMenu, setContextMenu] = useState<{ entry: FileEntry | null; x: number; y: number; left: number; top: number } | null>(null);
+  const [crumbMenu, setCrumbMenu] = useState<BreadcrumbMenuState | null>(null);
+  const [crumbFilter, setCrumbFilter] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setPathDraft(path);
   }, [path]);
+
+  useEffect(() => {
+    setPath(".");
+    setPathDraft(".");
+    setSelected(null);
+    setTransfer(null);
+    setProperties(null);
+    setContextMenu(null);
+    setCrumbMenu(null);
+    setPathEditing(false);
+  }, [target.id]);
+
+  useEffect(() => {
+    if (pathEditing) pathInputRef.current?.focus();
+  }, [pathEditing]);
 
   useLayoutEffect(() => {
     if (!contextMenu) return;
@@ -60,9 +81,32 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
     };
   }, [contextMenu]);
 
+  useEffect(() => {
+    if (!crumbMenu) return;
+    const close = () => setCrumbMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [crumbMenu]);
+
   const listing = useQuery({
     queryKey: ["target-files", target.id, path, sort.key, sort.order],
     queryFn: () => api.listFiles(target.id, path, sort.key, sort.order),
+  });
+  const breadcrumbListing = useQuery({
+    queryKey: ["target-files", target.id, crumbMenu?.path || "", "name", "asc", "breadcrumb"],
+    queryFn: () => api.listFiles(target.id, crumbMenu?.path || ".", "name", "asc"),
+    enabled: crumbMenu?.kind === "dirs",
   });
 
   const upload = useMutation({
@@ -113,7 +157,9 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
   });
 
   const entries = listing.data?.entries || [];
-  const drives = windowsDrives(system?.filesystems || []);
+  const drives = system?.os === "windows" ? windowsDrives(system.filesystems || []) : [];
+  const breadcrumbDirectories = (breadcrumbListing.data?.entries || []).filter((entry) => entry.type === "dir" && entry.name !== "." && entry.name !== "..");
+  const canOpenParent = path !== "/" && !isWindowsDriveRoot(path);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -210,13 +256,15 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
   };
 
   const submitPath = () => {
-    const nextPath = pathDraft.trim();
+    const nextPath = normalizeRemotePath(pathDraft.trim());
     if (!nextPath || nextPath === path) {
       setPathDraft(path);
+      setPathEditing(false);
       return;
     }
     setPath(nextPath);
     setSelected(null);
+    setPathEditing(false);
   };
 
   const fileMenu = (entry: FileEntry | null) => contextMenu ? createPortal(
@@ -288,49 +336,88 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
     document.body
   ) : null;
 
+  const breadcrumbMenu = crumbMenu ? createPortal(
+    <div
+      className="file-breadcrumb-menu"
+      style={{ left: crumbMenu.left, top: crumbMenu.top, minWidth: crumbMenu.width }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <label className="file-breadcrumb-search">
+        <Search />
+        <input value={crumbFilter} onChange={(event) => setCrumbFilter(event.target.value)} autoFocus />
+      </label>
+      <div className="file-breadcrumb-options">
+        {crumbMenu.kind === "drives" ? (
+          filterDrives(drives, crumbFilter).map((drive) => (
+            <button key={drive.path} type="button" onClick={() => {
+              setPath(windowsDriveRoot(drive.path));
+              setSelected(null);
+              setCrumbMenu(null);
+            }}>
+              <HardDrive />{drive.path}
+            </button>
+          ))
+        ) : (
+          filterEntries(breadcrumbDirectories, crumbFilter).map((entry) => (
+            <button key={entry.path} type="button" onClick={() => {
+              setPath(entry.path);
+              setSelected(null);
+              setCrumbMenu(null);
+            }}>
+              <FolderOpen />{entry.name}
+            </button>
+          ))
+        )}
+        {crumbMenu.kind === "dirs" && breadcrumbListing.isLoading && <div className="file-breadcrumb-empty">{t("loading")}</div>}
+        {crumbMenu.kind === "dirs" && !breadcrumbListing.isLoading && !filterEntries(breadcrumbDirectories, crumbFilter).length && <div className="file-breadcrumb-empty">{t("connectFileEmpty")}</div>}
+        {crumbMenu.kind === "drives" && !filterDrives(drives, crumbFilter).length && <div className="file-breadcrumb-empty">{t("connectSystemNoData")}</div>}
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
+  const openBreadcrumbMenu = (item: BreadcrumbItem, event: React.MouseEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setCrumbFilter("");
+    setCrumbMenu({
+      kind: item.kind,
+      path: item.menuPath,
+      left: rect.left,
+      top: rect.bottom + 4,
+      width: Math.max(180, rect.width),
+    });
+  };
+
   return (
     <section className="file-manager">
       <header className="file-manager-head">
-        <div className="file-manager-path" title={path}>
+        <div className="file-manager-path" title={path} onDoubleClick={() => setPathEditing(true)}>
           <HardDrive />
-          <input
-            value={pathDraft}
-            onChange={(event) => setPathDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                submitPath();
-              } else if (event.key === "Escape") {
+          {pathEditing ? (
+            <input
+              ref={pathInputRef}
+              value={pathDraft}
+              onChange={(event) => setPathDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitPath();
+                } else if (event.key === "Escape") {
+                  setPathDraft(path);
+                  setPathEditing(false);
+                }
+              }}
+              onBlur={() => {
                 setPathDraft(path);
-              }
-            }}
-            onBlur={() => setPathDraft(path)}
-            aria-label="File path"
-          />
+                setPathEditing(false);
+              }}
+              aria-label="File path"
+            />
+          ) : (
+            <PathBreadcrumb path={path} drives={drives} driveLabel={t("connectSystemFilesystems")} onOpenMenu={openBreadcrumbMenu} />
+          )}
         </div>
         <div className="file-manager-actions">
-          {drives.length > 0 && (
-            <label className="file-drive-select" title={t("connectSystemFilesystems")}>
-              <HardDrive />
-              <select
-                value={driveForPath(path)}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  if (!next) return;
-                  setPath(next);
-                  setSelected(null);
-                }}
-                aria-label={t("connectSystemFilesystems")}
-              >
-                <option value="">{t("connectSystemFilesystems")}</option>
-                {drives.map((drive) => (
-                  <option key={drive.path} value={windowsDriveRoot(drive.path)}>
-                    {drive.path}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")}>
             <RefreshCw />
           </button>
@@ -346,6 +433,7 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
           </button>
         </div>
       </header>
+      {breadcrumbMenu}
       <div className="file-manager-body" onContextMenu={(event) => openFileMenu(null, event)}>
         <table>
           <thead>
@@ -357,7 +445,7 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
             </tr>
           </thead>
           <tbody>
-            {path !== "/" && (
+            {canOpenParent && (
               <tr className="file-row directory">
                 <td>
                   <button type="button" className="file-name" onClick={() => setPath(remoteParent(path))} onDoubleClick={() => setPath(remoteParent(path))}>
@@ -459,6 +547,63 @@ function SortButton({ active, order, onClick, children }: { active: boolean; ord
   );
 }
 
+function PathBreadcrumb({ path, drives, driveLabel, onOpenMenu }: { path: string; drives: TargetSystemFilesystem[]; driveLabel: string; onOpenMenu: (item: BreadcrumbItem, event: React.MouseEvent<HTMLElement>) => void }) {
+  const items = breadcrumbItems(path, drives, driveLabel);
+  return (
+    <nav className="file-breadcrumb" aria-label="File path">
+      {items.map((item, index) => (
+        <span key={item.key} className="file-breadcrumb-part">
+          {index > 0 && <ChevronRight />}
+          <button type="button" onClick={(event) => onOpenMenu(item, event)} title={item.label}>
+            {item.label}
+          </button>
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+function breadcrumbItems(path: string, drives: TargetSystemFilesystem[], driveLabel: string): BreadcrumbItem[] {
+  const normalized = normalizeRemotePath(path || ".");
+  const driveMatch = normalized.match(/^([A-Za-z]:)(?:\/(.*))?$/);
+  if (driveMatch) {
+    const drive = `${driveMatch[1].toUpperCase()}/`;
+    const items: BreadcrumbItem[] = [{ key: drive, label: driveMatch[1].toUpperCase(), kind: drives.length ? "drives" : "dirs", menuPath: drive }];
+    let current = drive;
+    for (const segment of (driveMatch[2] || "").split("/").filter(Boolean)) {
+      const parent = current;
+      current = remoteJoin(current, segment);
+      items.push({ key: current, label: segment, kind: "dirs", menuPath: parent });
+    }
+    return items;
+  }
+  if (drives.length) {
+    return [{ key: "drives", label: driveLabel, kind: "drives", menuPath: "" }];
+  }
+  if (normalized.startsWith("/")) {
+    const items: BreadcrumbItem[] = [{ key: "/", label: "/", kind: "dirs", menuPath: "/" }];
+    let current = "/";
+    for (const segment of normalized.split("/").filter(Boolean)) {
+      const parent = current;
+      current = remoteJoin(current, segment);
+      items.push({ key: current, label: segment, kind: "dirs", menuPath: parent });
+    }
+    return items;
+  }
+  const parts = normalized.split("/").filter(Boolean);
+  if (!parts.length || normalized === ".") {
+    return [{ key: ".", label: ".", kind: "dirs", menuPath: "." }];
+  }
+  const items: BreadcrumbItem[] = [];
+  let current = "";
+  for (const segment of parts) {
+    const parent = current || ".";
+    current = current ? remoteJoin(current, segment) : segment;
+    items.push({ key: current, label: segment, kind: "dirs", menuPath: parent });
+  }
+  return items;
+}
+
 function windowsDrives(filesystems: TargetSystemFilesystem[]) {
   return filesystems
     .filter((item) => /^[A-Za-z]:\\?$/.test(item.path.trim()))
@@ -470,9 +615,18 @@ function windowsDriveRoot(path: string) {
   return match ? `${match[1].toUpperCase()}:/` : path;
 }
 
-function driveForPath(path: string) {
-  const match = path.trim().match(/^([A-Za-z]):/);
-  return match ? `${match[1].toUpperCase()}:/` : "";
+function isWindowsDriveRoot(path: string) {
+  return /^[A-Za-z]:[\/\\]?$/.test(path.trim());
+}
+
+function filterDrives(drives: TargetSystemFilesystem[], filter: string) {
+  const needle = filter.trim().toLowerCase();
+  return needle ? drives.filter((drive) => drive.path.toLowerCase().includes(needle)) : drives;
+}
+
+function filterEntries(entries: FileEntry[], filter: string) {
+  const needle = filter.trim().toLowerCase();
+  return needle ? entries.filter((entry) => entry.name.toLowerCase().includes(needle)) : entries;
 }
 
 function TransferModal({
@@ -500,6 +654,7 @@ function TransferModal({
     queryFn: () => api.listFiles(target.id, browsePath, sort.key, sort.order),
   });
   const directories = (listing.data?.entries || []).filter((entry) => entry.type === "dir");
+  const canOpenParent = browsePath !== "/" && !isWindowsDriveRoot(browsePath);
 
   useEffect(() => {
     setBrowsePath(initialDir || ".");
@@ -576,7 +731,7 @@ function TransferModal({
                 </tr>
               </thead>
               <tbody>
-                {browsePath !== "/" && (
+                {canOpenParent && (
                   <tr className="file-row directory">
                     <td>
                       <button type="button" className="file-name" onClick={() => setBrowsePath(remoteParent(browsePath))}>

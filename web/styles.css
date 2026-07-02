@@ -5158,6 +5158,56 @@ body.is-resizing-connect {
   font-size: 12px;
 }
 
+.file-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  color: var(--ink);
+  background: rgba(2, 6, 12, 0.18);
+}
+
+.file-breadcrumb-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.file-breadcrumb-part > svg {
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+}
+
+.file-breadcrumb-part button {
+  max-width: 118px;
+  min-height: 22px;
+  border: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.file-breadcrumb-part button:hover {
+  transform: none;
+  color: var(--accent);
+  background: rgba(103, 232, 249, 0.10);
+  box-shadow: none;
+}
+
 .file-manager-path input {
   min-height: 32px;
   border-color: var(--line-soft);
@@ -5171,39 +5221,90 @@ body.is-resizing-connect {
   white-space: nowrap;
 }
 
+.file-breadcrumb-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  gap: 6px;
+  width: min(260px, calc(100vw - 20px));
+  max-height: min(340px, calc(100vh - 24px));
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.98);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.36);
+}
+
+.file-breadcrumb-search {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 7px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--muted);
+}
+
+.file-breadcrumb-search svg {
+  width: 14px;
+  height: 14px;
+}
+
+.file-breadcrumb-search input {
+  min-height: 26px;
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  background: transparent;
+  font-size: 12px;
+}
+
+.file-breadcrumb-options {
+  display: grid;
+  gap: 2px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.file-breadcrumb-options button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  border: 0;
+  padding: 4px 7px;
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  font-size: 12px;
+}
+
+.file-breadcrumb-options button:hover {
+  transform: none;
+  background: rgba(103, 232, 249, 0.12);
+  box-shadow: none;
+}
+
+.file-breadcrumb-options svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.file-breadcrumb-empty {
+  padding: 12px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .file-manager-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-}
-
-.file-drive-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  padding: 0 6px;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  color: var(--muted);
-  background: rgba(2, 6, 12, 0.12);
-}
-
-.file-drive-select svg {
-  width: 14px;
-  height: 14px;
-}
-
-.file-drive-select select {
-  width: 68px;
-  min-height: 24px;
-  border: 0;
-  padding: 0;
-  color: var(--ink);
-  background: transparent;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
 }
 
 .file-manager-actions button,
