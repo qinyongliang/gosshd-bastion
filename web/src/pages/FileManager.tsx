@@ -6,13 +6,13 @@ import { createPortal } from "react-dom";
 import { api } from "../api";
 import { Modal, ModalActions } from "../components/ui";
 import { useI18n } from "../i18n";
-import type { FileEntry, FileProperties, Target } from "../types";
+import type { FileEntry, FileProperties, Target, TargetSystemFilesystem, TargetSystemSnapshot } from "../types";
 import { copyText } from "../utils";
 
 type FileSortKey = "name" | "size" | "mode" | "modified";
 type SortOrder = "asc" | "desc";
 
-export function FileManager({ target, nativeOpen = false, onEditFile }: { target: Target; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
+export function FileManager({ target, system, nativeOpen = false, onEditFile }: { target: Target; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [path, setPath] = useState(".");
@@ -113,6 +113,7 @@ export function FileManager({ target, nativeOpen = false, onEditFile }: { target
   });
 
   const entries = listing.data?.entries || [];
+  const drives = windowsDrives(system?.filesystems || []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -308,6 +309,28 @@ export function FileManager({ target, nativeOpen = false, onEditFile }: { target
           />
         </div>
         <div className="file-manager-actions">
+          {drives.length > 0 && (
+            <label className="file-drive-select" title={t("connectSystemFilesystems")}>
+              <HardDrive />
+              <select
+                value={driveForPath(path)}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (!next) return;
+                  setPath(next);
+                  setSelected(null);
+                }}
+                aria-label={t("connectSystemFilesystems")}
+              >
+                <option value="">{t("connectSystemFilesystems")}</option>
+                {drives.map((drive) => (
+                  <option key={drive.path} value={windowsDriveRoot(drive.path)}>
+                    {drive.path}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")}>
             <RefreshCw />
           </button>
@@ -434,6 +457,22 @@ function SortButton({ active, order, onClick, children }: { active: boolean; ord
       <small>{active ? (order === "asc" ? "▲" : "▼") : ""}</small>
     </button>
   );
+}
+
+function windowsDrives(filesystems: TargetSystemFilesystem[]) {
+  return filesystems
+    .filter((item) => /^[A-Za-z]:\\?$/.test(item.path.trim()))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function windowsDriveRoot(path: string) {
+  const match = path.trim().match(/^([A-Za-z]):/);
+  return match ? `${match[1].toUpperCase()}:/` : path;
+}
+
+function driveForPath(path: string) {
+  const match = path.trim().match(/^([A-Za-z]):/);
+  return match ? `${match[1].toUpperCase()}:/` : "";
 }
 
 function TransferModal({
@@ -608,19 +647,29 @@ function clampNumber(value: number, min: number, max: number) {
 function remoteJoin(dir: string, name: string) {
   const trimmedName = name.trim();
   if (!trimmedName) return dir;
+  if (/^[A-Za-z]:[/\\]?/.test(trimmedName)) return normalizeRemotePath(trimmedName.replace(/\\/g, "/"));
   if (trimmedName.startsWith("/")) return normalizeRemotePath(trimmedName);
   if (!dir || dir === ".") return normalizeRemotePath(trimmedName);
   return normalizeRemotePath(`${dir.replace(/\/+$/, "")}/${trimmedName}`);
 }
 
 function remoteParent(path: string) {
-  const trimmed = path.replace(/\/$/, "");
+  const trimmed = path.replace(/\\/g, "/").replace(/\/$/, "");
+  if (/^[A-Za-z]:$/.test(trimmed)) return `${trimmed.toUpperCase()}/`;
   const index = trimmed.lastIndexOf("/");
+  if (index === 2 && /^[A-Za-z]:/.test(trimmed)) return `${trimmed.slice(0, 2).toUpperCase()}/`;
   if (index <= 0) return "/";
   return trimmed.slice(0, index) || "/";
 }
 
-function normalizeRemotePath(value: string) {
+function normalizeRemotePath(value: string): string {
+  value = value.replace(/\\/g, "/");
+  const drive = value.match(/^([A-Za-z]:)(?:\/|$)(.*)$/);
+  if (drive) {
+    const normalized = normalizeRemotePath(drive[2] || ".");
+    const suffix = normalized === "." ? "" : normalized.replace(/^\//, "");
+    return suffix ? `${drive[1].toUpperCase()}/${suffix}` : `${drive[1].toUpperCase()}/`;
+  }
   const absolute = value.startsWith("/");
   const parts: string[] = [];
   for (const part of value.split("/")) {

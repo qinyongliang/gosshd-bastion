@@ -508,7 +508,7 @@ func windowsInteractiveShellArgs(shell string) []string {
 }
 
 func windowsCmdIntegrationCommand() string {
-	return `for /F "delims=" %i in ('echo prompt $E]633;D;0$E\$E]633;A$E\$_$P$G') do @%i`
+	return `prompt $E]633;D;0$E\$E]633;A$E\$_$P$G`
 }
 
 func windowsPowerShellIntegrationCommand() string {

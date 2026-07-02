@@ -2124,6 +2124,9 @@ html[data-theme="dark"] .tag-input-menu {
 .target-folder-row {
   grid-template-columns: minmax(180px, 1fr) auto;
   background: rgba(103, 232, 249, 0.06);
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 8px;
 }
 
 .target-folder-row.selecting {
@@ -2141,6 +2144,7 @@ html[data-theme="dark"] .tag-input-menu {
   color: var(--ink);
   text-align: left;
   justify-self: start;
+  justify-content: flex-start;
   min-height: 28px;
 }
 
@@ -5172,6 +5176,34 @@ body.is-resizing-connect {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.file-drive-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(2, 6, 12, 0.12);
+}
+
+.file-drive-select svg {
+  width: 14px;
+  height: 14px;
+}
+
+.file-drive-select select {
+  width: 68px;
+  min-height: 24px;
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  background: transparent;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
 }
 
 .file-manager-actions button,
