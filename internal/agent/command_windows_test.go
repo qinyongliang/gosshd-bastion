@@ -90,6 +90,9 @@ func TestWindowsInteractiveShellArgsKeepInteractiveEcho(t *testing.T) {
 	if strings.Contains(got, " /Q ") {
 		t.Fatalf("interactive cmd should not disable echo: %q", got)
 	}
+	if strings.Contains(got, "delims=") {
+		t.Fatalf("interactive cmd should not expose for/F delimiters: %q", got)
+	}
 	if !strings.Contains(got, "633;D") || !strings.Contains(got, "633;A") {
 		t.Fatalf("interactive cmd should install terminal integration prompt: %q", got)
 	}

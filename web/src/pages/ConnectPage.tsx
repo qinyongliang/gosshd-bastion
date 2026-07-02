@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { UseQueryResult } from "@tanstack/react-query";
 import Editor, { loader } from "@monaco-editor/react";
 import type { BeforeMount, Monaco, OnMount } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
@@ -162,6 +163,13 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const name = appName(data.runtime);
   const description = appDescription(data.runtime);
   const routePendingCommand = getConnectCommandParam();
+  const system = useQuery({
+    queryKey: ["target-system", activeTarget.id],
+    queryFn: () => api.targetSystem(activeTarget.id),
+    refetchInterval: SYSTEM_REFRESH_MS,
+    staleTime: 4000,
+    retry: 1,
+  });
 
   const appendConnectionTab = (nextTargetID: string, command = "") => {
     const next = newConnectionTab(nextTargetID, command);
@@ -522,7 +530,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                   <div><dt>{t("commonTag")}</dt><dd>{(activeTarget.tags || []).join(", ") || "-"}</dd></div>
                 </dl>
               </section>
-              <SystemSnapshotPanel targetID={activeTarget.id} />
+              <SystemSnapshotPanel targetID={activeTarget.id} system={system} />
             </>
           ) : (
             <button type="button" className="collapsed-zone-button" onClick={() => setHostOpen(true)} title={t("connectExpandSidebar")}>
@@ -611,7 +619,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
               </button>
             </div>
             {hasOpenTabs ? (
-              <FileManager target={activeTarget} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} />
+              <FileManager target={activeTarget} system={system.data} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} />
             ) : (
               <div className="connect-zone-empty">
                 <span>{t("connectFilesNoOpenTabs")}</span>
@@ -1071,16 +1079,9 @@ function configureMonaco(instance: Monaco) {
   });
 }
 
-function SystemSnapshotPanel({ targetID }: { targetID: string }) {
+function SystemSnapshotPanel({ targetID, system }: { targetID: string; system: UseQueryResult<TargetSystemSnapshot, Error> }) {
   const { t } = useI18n();
   const [samples, setSamples] = useState<MetricSample[]>([]);
-  const system = useQuery({
-    queryKey: ["target-system", targetID],
-    queryFn: () => api.targetSystem(targetID),
-    refetchInterval: SYSTEM_REFRESH_MS,
-    staleTime: 4000,
-    retry: 1,
-  });
   const snapshot = system.data;
   const networkTrend = buildNetworkRates(samples);
   const interfaceRates = buildInterfaceNetworkRates(samples);

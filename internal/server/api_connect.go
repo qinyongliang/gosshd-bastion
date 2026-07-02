@@ -213,7 +213,8 @@ printf 'hostname=%s\n' "$(hostname 2>/dev/null || uname -n 2>/dev/null)"
 ipaddr="$(hostname -I 2>/dev/null | awk '{print $1}')"
 if [ -z "$ipaddr" ]; then ipaddr="$(ip -4 addr show scope global 2>/dev/null | awk '/inet /{sub(/\/.*/,"",$2); print $2; exit}')"; fi
 printf 'ip=%s\n' "$ipaddr"
-public_ip="$(curl -fsS --max-time 3 ifconfig.me 2>/dev/null | tr -d '\r\n' | awk '{print $1}')"
+public_ip="$(curl -A curl/8.0.0 -fsS --max-time 3 https://ifconfig.me/ip 2>/dev/null || curl -A curl/8.0.0 -fsS --max-time 3 https://api.ipify.org 2>/dev/null)"
+public_ip="$(printf '%s' "$public_ip" | tr -d '\r\n' | awk '{print $1}')"
 printf 'public_ip=%s\n' "$public_ip"
 printf 'uptime=%s\n' "$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
 printf 'load=%s\n' "$(awk '{print $1 ", " $2 ", " $3}' /proc/loadavg 2>/dev/null)"
@@ -233,9 +234,10 @@ Write-Output "os=windows"
 Write-Output ("hostname={0}" -f $env:COMPUTERNAME)
 $ips = Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -and $_.IPAddress } | Select-Object -First 1
 if ($ips) { Write-Output ("ip={0}" -f ($ips.IPAddress | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1)) }
-$publicIP = (& curl.exe -fsS --max-time 3 ifconfig.me) -join ""
-if (-not $publicIP) { $publicIP = Invoke-RestMethod -Uri "https://ifconfig.me" -TimeoutSec 3 }
-if ($publicIP) { Write-Output ("public_ip={0}" -f $publicIP.Trim()) }
+$publicIP = (& curl.exe -A curl/8.0.0 -fsS --max-time 3 https://ifconfig.me/ip) -join ""
+if (-not $publicIP) { $publicIP = (& curl.exe -A curl/8.0.0 -fsS --max-time 3 https://api.ipify.org) -join "" }
+if (-not $publicIP) { $publicIP = Invoke-RestMethod -Uri "https://ifconfig.me/ip" -Headers @{ "User-Agent" = "curl/8.0.0"; "Accept" = "*/*" } -TimeoutSec 3 }
+if ($publicIP) { Write-Output ("public_ip={0}" -f (($publicIP -join "").Trim())) }
 $os = Get-CimInstance Win32_OperatingSystem
 if ($os) {
   $uptime = (Get-Date) - $os.LastBootUpTime
@@ -286,7 +288,7 @@ func parseTargetSystemProbe(out string) (apiTargetSystemResponse, bool) {
 		case "ip":
 			snapshot.IP = value
 		case "public_ip":
-			snapshot.PublicIP = value
+			snapshot.PublicIP = normalizePublicIP(value)
 		case "uptime":
 			snapshot.Uptime = value
 		case "load":
@@ -375,6 +377,51 @@ func parseSystemFilesystem(value string) (apiTargetSystemFilesystem, bool) {
 		TotalBytes: total,
 		Percent:    firstPositive(parseFloat(parts[3]), percent(used, total)),
 	}, true
+}
+
+func normalizePublicIP(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.Contains(value, "<") || strings.Contains(value, ">") {
+		return ""
+	}
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return ""
+	}
+	candidate := strings.Trim(fields[0], " \t\r\n,;")
+	if isIPv4Literal(candidate) || isIPv6Literal(candidate) {
+		return candidate
+	}
+	return ""
+}
+
+func isIPv4Literal(value string) bool {
+	parts := strings.Split(value, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || n > 255 {
+			return false
+		}
+	}
+	return true
+}
+
+func isIPv6Literal(value string) bool {
+	if !strings.Contains(value, ":") {
+		return false
+	}
+	for _, r := range value {
+		if !(r == ':' || r == '.' || r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func parseCPUPercent(start, end string) float64 {
