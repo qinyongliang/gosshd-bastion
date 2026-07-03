@@ -962,6 +962,44 @@ func TestSSHInteractiveShellReturnsAfterRemoteExitWithoutClientEOF(t *testing.T)
 	}
 }
 
+func TestWebDirectTerminalStartsShellBeforeBootstrap(t *testing.T) {
+	app, _, _, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner := testSSHSigner(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestBootstrapShellServer(t)
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        personal.ID,
+		Alias:          "bootstrap-shellbox",
+		TargetType:     store.TargetDirect,
+		Host:           host,
+		Port:           port,
+		RemoteUsername: "remote",
+		AuthType:       store.AuthPassword,
+		CreatedBy:      user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := app.terminalSessions.create("web-bootstrap", user.ID, target, "127.0.0.1", 80, 24, nil)
+	exitCode := app.webDirectTerminal(session)
+	if exitCode != 0 {
+		t.Fatalf("web direct terminal exit = %d, want 0; output=%q", exitCode, session.output.String())
+	}
+	if !strings.Contains(session.output.String(), "bootstrap-ok") {
+		t.Fatalf("web direct terminal did not bootstrap through shell: %q", session.output.String())
+	}
+}
+
 func startBastionTestApp(t *testing.T) (*App, string, string, func()) {
 	t.Helper()
 	httpLn, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1260,6 +1298,32 @@ func startTestShellExitServer(t *testing.T) (string, func()) {
 	}
 }
 
+func startTestBootstrapShellServer(t *testing.T) (string, func()) {
+	t.Helper()
+	hostSigner := testSSHSigner(t)
+	cfg := &gossh.ServerConfig{NoClientAuth: true}
+	cfg.AddHostKey(hostSigner)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			raw, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go handleTestBootstrapShellConn(raw, cfg)
+		}
+	}()
+	return ln.Addr().String(), func() {
+		_ = ln.Close()
+		<-done
+	}
+}
+
 type testSFTPMode int
 
 const (
@@ -1396,6 +1460,65 @@ func serveTestSFTP(rwc io.ReadWriteCloser) {
 	}
 	_ = server.Serve()
 	_ = server.Close()
+}
+
+func handleTestBootstrapShellConn(raw net.Conn, cfg *gossh.ServerConfig) {
+	conn, chans, reqs, err := gossh.NewServerConn(raw, cfg)
+	if err != nil {
+		_ = raw.Close()
+		return
+	}
+	defer conn.Close()
+	go gossh.DiscardRequests(reqs)
+	for ch := range chans {
+		if ch.ChannelType() != "session" {
+			_ = ch.Reject(gossh.UnknownChannelType, "unsupported")
+			continue
+		}
+		channel, requests, err := ch.Accept()
+		if err != nil {
+			continue
+		}
+		go func() {
+			defer channel.Close()
+			for req := range requests {
+				switch req.Type {
+				case "pty-req":
+					req.Reply(true, nil)
+				case "exec":
+					req.Reply(true, nil)
+					_, _ = channel.Stderr().Write([]byte("bootstrap exec failed\n"))
+					sendExit(channel, 2)
+					return
+				case "shell":
+					req.Reply(true, nil)
+					dataCh := make(chan string, 1)
+					go func() {
+						buf := make([]byte, 32*1024)
+						n, _ := channel.Read(buf)
+						dataCh <- string(buf[:n])
+					}()
+					select {
+					case data := <-dataCh:
+						if strings.Contains(data, "__GOSSHD_BASHRC__") {
+							_, _ = channel.Write([]byte("bootstrap-ok\r\n"))
+							sendExit(channel, 0)
+							return
+						}
+						_, _ = channel.Stderr().Write([]byte("missing bootstrap\n"))
+						sendExit(channel, 3)
+						return
+					case <-time.After(time.Second):
+						_, _ = channel.Stderr().Write([]byte("bootstrap timeout\n"))
+						sendExit(channel, 3)
+						return
+					}
+				default:
+					req.Reply(false, nil)
+				}
+			}
+		}()
+	}
 }
 
 func handleTestShellExitConn(raw net.Conn, cfg *gossh.ServerConfig) {
