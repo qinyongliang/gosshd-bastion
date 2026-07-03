@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -19,6 +20,12 @@ import (
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
 	gossh "golang.org/x/crypto/ssh"
+)
+
+const (
+	sshExecStdinReviewLimit   = 1024 * 1024
+	sshExecStdinReviewTimeout = 2 * time.Second
+	sshExecStdinReviewIdle    = 150 * time.Millisecond
 )
 
 func (a *App) handleBastionSSHConn(conn *gossh.ServerConn, chans <-chan gossh.NewChannel, reqs <-chan *gossh.Request, userID, publicKeyFingerprint string) {
@@ -157,7 +164,13 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 	ctx := context.Background()
 	sessionID := newAuditSessionID()
 	startedAt := time.Now().UTC()
-	if run, routedSessionID, routedThroughTerminal := a.tryExecInOpenTerminalSession(ctx, userID, target, command, sourceIP, startedAt); routedThroughTerminal {
+	execInput, err := prepareBastionExecInput(ch, command)
+	if err != nil {
+		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
+		sendExit(ch, 126)
+		return
+	}
+	if run, routedSessionID, routedThroughTerminal := a.tryExecInOpenTerminalSession(ctx, userID, target, execInput.RouteCommand, sourceIP, startedAt); routedThroughTerminal {
 		if routedSessionID != "" {
 			sessionID = routedSessionID
 		}
@@ -177,7 +190,7 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 			OrganizationID:       organizationIDForTarget(target),
 			PublicKeyFingerprint: publicKeyFingerprint,
 			SessionID:            sessionID,
-			Command:              command,
+			Command:              execInput.ReviewCommand,
 			RequestType:          store.RequestExec,
 			PolicyDecision:       run.Decision.Action,
 			PolicyReason:         run.Decision.Reason,
@@ -189,7 +202,7 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		sendExit(ch, run.ExitCode)
 		return
 	}
-	decision, err := a.bastion.EvaluateCommandForSource(ctx, userID, target.ID, command, sourceIP)
+	decision, err := a.bastion.EvaluateCommandForSource(ctx, userID, target.ID, execInput.ReviewCommand, sourceIP)
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 		sendExit(ch, 255)
@@ -197,7 +210,7 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 	}
 	if decision.Action == store.DecisionDeny && decision.AllowManualReview {
 		_, _ = ch.Stderr().Write([]byte("command pending manual review: " + decision.Reason + "\n"))
-		decision = a.reviewDeniedCommand(ctx, userID, target, command, decision)
+		decision = a.reviewDeniedCommand(ctx, userID, target, execInput.ReviewCommand, decision)
 		if decision.Action == store.DecisionAllow {
 			_, _ = ch.Stderr().Write([]byte("manual review approved\n"))
 		}
@@ -212,7 +225,7 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 			OrganizationID:       organizationIDForTarget(target),
 			PublicKeyFingerprint: publicKeyFingerprint,
 			SessionID:            sessionID,
-			Command:              command,
+			Command:              execInput.ReviewCommand,
 			RequestType:          store.RequestExec,
 			PolicyDecision:       store.DecisionDeny,
 			PolicyReason:         decision.Reason,
@@ -224,7 +237,7 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		sendExit(ch, code)
 		return
 	}
-	exitCode := a.execOnTarget(ctx, target, ch, command)
+	exitCode := a.execOnTarget(ctx, target, ch, execInput.ExecuteCommand, execInput.StdinPrefix)
 	endedAt := time.Now().UTC()
 	_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
 		UserID:               userID,
@@ -232,7 +245,7 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		OrganizationID:       organizationIDForTarget(target),
 		PublicKeyFingerprint: publicKeyFingerprint,
 		SessionID:            sessionID,
-		Command:              command,
+		Command:              execInput.ReviewCommand,
 		RequestType:          store.RequestExec,
 		PolicyDecision:       decision.Action,
 		PolicyReason:         decision.Reason,
@@ -242,6 +255,197 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		RemoteAddress:        sourceIP,
 	})
 	sendExit(ch, exitCode)
+}
+
+type bastionExecInput struct {
+	ReviewCommand  string
+	RouteCommand   string
+	ExecuteCommand string
+	StdinPrefix    []byte
+}
+
+func prepareBastionExecInput(ch gossh.Channel, command string) (bastionExecInput, error) {
+	input := bastionExecInput{
+		ReviewCommand:  command,
+		RouteCommand:   command,
+		ExecuteCommand: command,
+	}
+	stdinMode, normalizedCommand := stdinScriptShellMode(command)
+	if !stdinMode {
+		return input, nil
+	}
+	script, err := readSSHExecStdinForReview(ch, sshExecStdinReviewLimit, sshExecStdinReviewTimeout)
+	if err != nil {
+		return input, err
+	}
+	input.StdinPrefix = script
+	input.ExecuteCommand = normalizedCommand
+	trimmed := strings.TrimSpace(string(script))
+	if trimmed != "" {
+		input.ReviewCommand = strings.TrimSpace(command) + "\n# stdin script\n" + trimmed
+		input.RouteCommand = trimmed
+	}
+	return input, nil
+}
+
+func readSSHExecStdinForReview(ch gossh.Channel, limit int64, timeout time.Duration) ([]byte, error) {
+	type chunk struct {
+		data []byte
+		err  error
+	}
+	chunks := make(chan chunk, 1)
+	go func() {
+		buf := make([]byte, 16*1024)
+		for {
+			n, err := ch.Read(buf)
+			if n > 0 {
+				data := append([]byte(nil), buf[:n]...)
+				chunks <- chunk{data: data}
+			}
+			if err != nil {
+				chunks <- chunk{err: err}
+				return
+			}
+		}
+	}()
+	var buf bytes.Buffer
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	resetTimer := func(d time.Duration) {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(d)
+	}
+	select {
+	case part := <-chunks:
+		if part.err != nil {
+			if errors.Is(part.err, io.EOF) {
+				return nil, nil
+			}
+			return nil, part.err
+		}
+		buf.Write(part.data)
+		if int64(buf.Len()) > limit {
+			return nil, fmt.Errorf("stdin script exceeds review limit of %d bytes", limit)
+		}
+		resetTimer(sshExecStdinReviewIdle)
+	case <-timer.C:
+		return nil, fmt.Errorf("timed out waiting for stdin script to review")
+	}
+	for {
+		select {
+		case part := <-chunks:
+			if part.err != nil {
+				if errors.Is(part.err, io.EOF) {
+					return buf.Bytes(), nil
+				}
+				return nil, part.err
+			}
+			buf.Write(part.data)
+			if int64(buf.Len()) > limit {
+				return nil, fmt.Errorf("stdin script exceeds review limit of %d bytes", limit)
+			}
+			resetTimer(sshExecStdinReviewIdle)
+		case <-timer.C:
+			return buf.Bytes(), nil
+		}
+	}
+}
+
+func stdinScriptShellMode(command string) (bool, string) {
+	words := splitShellWords(command)
+	if len(words) == 0 {
+		return false, command
+	}
+	shell := shellTokenBaseServer(words[0])
+	if !isStdinScriptShell(shell) {
+		return false, command
+	}
+	if len(words) == 1 {
+		return true, command
+	}
+	for i := 1; i < len(words); i++ {
+		word := words[i]
+		if word == "-s" || strings.HasPrefix(word, "-s") && !strings.Contains(word, "c") {
+			return true, command
+		}
+		if word == "-c" {
+			if i == len(words)-1 {
+				return true, words[0] + " -s"
+			}
+			return false, command
+		}
+		if strings.HasPrefix(word, "-") {
+			continue
+		}
+		return false, command
+	}
+	return false, command
+}
+
+func isStdinScriptShell(shell string) bool {
+	switch shell {
+	case "sh", "bash", "zsh", "ksh", "dash":
+		return true
+	default:
+		return false
+	}
+}
+
+func shellTokenBaseServer(token string) string {
+	token = strings.TrimRight(token, "/")
+	if index := strings.LastIndexByte(token, '/'); index >= 0 {
+		return token[index+1:]
+	}
+	return token
+}
+
+func splitShellWords(command string) []string {
+	var words []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		word := strings.TrimSpace(current.String())
+		if word != "" {
+			words = append(words, word)
+		}
+		current.Reset()
+	}
+	for _, r := range command {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+				continue
+			}
+			current.WriteRune(r)
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
+			flush()
+			continue
+		}
+		current.WriteRune(r)
+	}
+	flush()
+	return words
 }
 
 func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, target store.SSHTarget, command, sourceIP string, startedAt time.Time) (terminalSessionCommandRun, string, bool) {
@@ -565,14 +769,14 @@ func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target stor
 	sendExit(ch, exitCode)
 }
 
-func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh.Channel, command string) int {
+func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh.Channel, command string, stdinPrefix []byte) int {
 	if target.TargetType == store.TargetAgent {
 		return a.agentFramedSession(target.AgentID, ch, protocol.StreamRequest{
 			Type:    protocol.StreamExec,
 			Command: command,
 			Width:   80,
 			Height:  24,
-		}, nil)
+		}, nil, stdinPrefix)
 	}
 	client, err := a.openTargetSSHClient(ctx, target)
 	if err != nil {
@@ -586,6 +790,11 @@ func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 		return 255
 	}
 	defer session.Close()
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
+		return 255
+	}
 	stdout, err := session.StdoutPipe()
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
@@ -600,6 +809,15 @@ func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 		return 255
 	}
+	go func() {
+		if len(stdinPrefix) > 0 {
+			_, _ = stdin.Write(stdinPrefix)
+			_ = closeWriter(stdin)
+			return
+		}
+		_, _ = io.Copy(stdin, ch)
+		_ = closeWriter(stdin)
+	}()
 	done := make(chan struct{}, 2)
 	go func() {
 		_, _ = io.Copy(ch, stdout)
@@ -927,7 +1145,7 @@ func (r *targetSFTPRunner) close() error {
 	return r.channel.Close()
 }
 
-func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.StreamRequest, recorder *terminalRecorder) int {
+func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.StreamRequest, recorder *terminalRecorder, stdinPrefix ...[]byte) int {
 	reader, stream, err := a.openAgentStream(agentID, req)
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
@@ -936,6 +1154,10 @@ func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.
 	defer stream.Close()
 
 	go func() {
+		if len(stdinPrefix) > 0 && len(stdinPrefix[0]) > 0 {
+			_ = protocol.WriteFrame(stream, protocol.Frame{Type: protocol.FrameStdin, Data: append([]byte(nil), stdinPrefix[0]...)})
+			return
+		}
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := ch.Read(buf)
