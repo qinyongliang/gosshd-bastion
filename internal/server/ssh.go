@@ -410,6 +410,9 @@ func closeWriter(v any) error {
 	if c, ok := v.(interface{ CloseWrite() error }); ok {
 		return c.CloseWrite()
 	}
+	if c, ok := v.(io.Closer); ok {
+		return c.Close()
+	}
 	return nil
 }
 

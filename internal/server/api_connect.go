@@ -104,7 +104,18 @@ func (a *App) handleTargetSystem(w http.ResponseWriter, r *http.Request, user st
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	snapshot, err := a.collectTargetSystem(ctx, target)
+	var snapshot apiTargetSystemResponse
+	switch strings.TrimSpace(r.URL.Query().Get("scope")) {
+	case "", "full":
+		snapshot, err = a.collectTargetSystem(ctx, target)
+	case "metrics":
+		snapshot, err = a.collectTargetSystemMetrics(ctx, target)
+	case "filesystems":
+		snapshot, err = a.collectTargetSystemFilesystems(ctx, target)
+	default:
+		writeError(w, http.StatusBadRequest, "invalid system scope")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -113,21 +124,33 @@ func (a *App) handleTargetSystem(w http.ResponseWriter, r *http.Request, user st
 }
 
 func (a *App) collectTargetSystem(ctx context.Context, target store.SSHTarget) (apiTargetSystemResponse, error) {
-	linuxOut, linuxErr := a.runTargetSystemCommand(ctx, target, linuxSystemProbeCommand)
+	return a.collectTargetSystemWithCommands(ctx, target, linuxSystemProbeCommand, windowsSystemProbeCommand(), "collect system metrics")
+}
+
+func (a *App) collectTargetSystemMetrics(ctx context.Context, target store.SSHTarget) (apiTargetSystemResponse, error) {
+	return a.collectTargetSystemWithCommands(ctx, target, linuxSystemMetricsCommand, windowsSystemMetricsCommand(), "collect system metrics")
+}
+
+func (a *App) collectTargetSystemFilesystems(ctx context.Context, target store.SSHTarget) (apiTargetSystemResponse, error) {
+	return a.collectTargetSystemWithCommands(ctx, target, linuxSystemFilesystemsCommand, windowsSystemFilesystemsCommand(), "collect system filesystems")
+}
+
+func (a *App) collectTargetSystemWithCommands(ctx context.Context, target store.SSHTarget, linuxCommand, windowsCommand, label string) (apiTargetSystemResponse, error) {
+	linuxOut, linuxErr := a.runTargetSystemCommand(ctx, target, linuxCommand)
 	if snapshot, ok := parseTargetSystemProbe(linuxOut); ok && snapshot.OS != "windows" {
 		return snapshot, nil
 	}
-	winOut, winErr := a.runTargetSystemCommand(ctx, target, windowsSystemProbeCommand())
+	winOut, winErr := a.runTargetSystemCommand(ctx, target, windowsCommand)
 	if snapshot, ok := parseTargetSystemProbe(winOut); ok {
 		return snapshot, nil
 	}
 	if winErr != nil {
-		return apiTargetSystemResponse{}, fmt.Errorf("collect system metrics: %v", winErr)
+		return apiTargetSystemResponse{}, fmt.Errorf("%s: %v", label, winErr)
 	}
 	if linuxErr != nil {
-		return apiTargetSystemResponse{}, fmt.Errorf("collect system metrics: %v", linuxErr)
+		return apiTargetSystemResponse{}, fmt.Errorf("%s: %v", label, linuxErr)
 	}
-	return apiTargetSystemResponse{}, fmt.Errorf("collect system metrics: unsupported probe output")
+	return apiTargetSystemResponse{}, fmt.Errorf("%s: unsupported probe output", label)
 }
 
 func (a *App) runTargetSystemCommand(ctx context.Context, target store.SSHTarget, command string) (string, error) {
@@ -231,6 +254,20 @@ ps -eo rss,pcpu,comm --sort=-rss 2>/dev/null | awk 'NR>1 && NR<=6{printf "proces
 awk 'NR>2{line=$0; sub(/^[[:space:]]*/,"",line); split(line, p, ":"); name=p[1]; if(name=="lo" || name=="") next; split(p[2], v, /[[:space:]]+/); printf "net=%s|%s|%s\n", name, v[2], v[10]}' /proc/net/dev 2>/dev/null | head -4
 df -Pk 2>/dev/null | awk 'NR>1 && NR<=24{gsub("%","",$5); printf "disk=%s|%s|%s|%s\n",$6,$3,$2,$5}'`
 
+const linuxSystemMetricsCommand = `printf '__GOSSHD_SYSTEM_V1__\n'
+printf 'uptime=%s\n' "$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
+printf 'load=%s\n' "$(awk '{print $1 ", " $2 ", " $3}' /proc/loadavg 2>/dev/null)"
+awk '/^cpu /{print "cpu1="$0}' /proc/stat 2>/dev/null
+sleep 1
+awk '/^cpu /{print "cpu2="$0}' /proc/stat 2>/dev/null
+awk '/MemTotal/{mt=$2}/MemAvailable/{ma=$2}/MemFree/{mf=$2}/SwapTotal/{st=$2}/SwapFree/{sf=$2} END{if(ma==0)ma=mf; printf "memory_kb=%d %d\nswap_kb=%d %d\n", mt, mt-ma, st, st-sf}' /proc/meminfo 2>/dev/null
+ps -eo rss,pcpu,comm --sort=-rss 2>/dev/null | awk 'NR>1 && NR<=6{printf "process=%s|%s|%s\n",$1,$2,$3}'
+awk 'NR>2{line=$0; sub(/^[[:space:]]*/,"",line); split(line, p, ":"); name=p[1]; if(name=="lo" || name=="") next; split(p[2], v, /[[:space:]]+/); printf "net=%s|%s|%s\n", name, v[2], v[10]}' /proc/net/dev 2>/dev/null | head -4`
+
+const linuxSystemFilesystemsCommand = `printf '__GOSSHD_SYSTEM_V1__\n'
+printf 'os=linux\n'
+df -Pk 2>/dev/null | awk 'NR>1 && NR<=24{gsub("%","",$5); printf "disk=%s|%s|%s|%s\n",$6,$3,$2,$5}'`
+
 func windowsSystemProbeCommand() string {
 	script := `$ci = [System.Globalization.CultureInfo]::InvariantCulture
 $ErrorActionPreference = "SilentlyContinue"
@@ -259,6 +296,35 @@ $cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage
 if ($cpu) { Write-Output ("cpu_percent={0}" -f ([math]::Round([double]$cpu.Average, 1)).ToString($ci)) }
 Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 | ForEach-Object { Write-Output ("process={0}|{1}|{2}" -f [int64]($_.WorkingSet64/1KB), 0, $_.ProcessName) }
 Get-NetAdapterStatistics | Select-Object -First 4 | ForEach-Object { Write-Output ("net={0}|{1}|{2}" -f $_.Name, [int64]$_.ReceivedBytes, [int64]$_.SentBytes) }
+Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object { $total=[int64]$_.Size; $free=[int64]$_.FreeSpace; if($total -gt 0){ $pct = [math]::Round(((($total-$free)/$total)*100), 0); Write-Output ("disk={0}|{1}|{2}|{3}" -f $_.DeviceID, [int64](($total-$free)/1KB), [int64]($total/1KB), $pct.ToString($ci)) } }`
+	return "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16LEBase64(script)
+}
+
+func windowsSystemMetricsCommand() string {
+	script := `$ci = [System.Globalization.CultureInfo]::InvariantCulture
+$ErrorActionPreference = "SilentlyContinue"
+Write-Output "__GOSSHD_SYSTEM_V1__"
+$os = Get-CimInstance Win32_OperatingSystem
+if ($os) {
+  $uptime = (Get-Date) - $os.LastBootUpTime
+  Write-Output ("uptime={0} days {1:hh\:mm}" -f [int]$uptime.TotalDays, $uptime)
+  $totalKB=[int64]$os.TotalVisibleMemorySize; $freeKB=[int64]$os.FreePhysicalMemory
+  Write-Output ("memory_kb={0} {1}" -f $totalKB, ($totalKB-$freeKB))
+  $totalVirtual=[int64]$os.TotalVirtualMemorySize; $freeVirtual=[int64]$os.FreeVirtualMemory
+  Write-Output ("swap_kb={0} {1}" -f $totalVirtual, ($totalVirtual-$freeVirtual))
+}
+$cpu = Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average
+if ($cpu) { Write-Output ("cpu_percent={0}" -f ([math]::Round([double]$cpu.Average, 1)).ToString($ci)) }
+Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 | ForEach-Object { Write-Output ("process={0}|{1}|{2}" -f [int64]($_.WorkingSet64/1KB), 0, $_.ProcessName) }
+Get-NetAdapterStatistics | Select-Object -First 4 | ForEach-Object { Write-Output ("net={0}|{1}|{2}" -f $_.Name, [int64]$_.ReceivedBytes, [int64]$_.SentBytes) }`
+	return "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16LEBase64(script)
+}
+
+func windowsSystemFilesystemsCommand() string {
+	script := `$ci = [System.Globalization.CultureInfo]::InvariantCulture
+$ErrorActionPreference = "SilentlyContinue"
+Write-Output "__GOSSHD_SYSTEM_V1__"
+Write-Output "os=windows"
 Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object { $total=[int64]$_.Size; $free=[int64]$_.FreeSpace; if($total -gt 0){ $pct = [math]::Round(((($total-$free)/$total)*100), 0); Write-Output ("disk={0}|{1}|{2}|{3}" -f $_.DeviceID, [int64](($total-$free)/1KB), [int64]($total/1KB), $pct.ToString($ci)) } }`
 	return "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16LEBase64(script)
 }

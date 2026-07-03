@@ -208,6 +208,122 @@ func TestSSHDeniesBlacklistedExecAndAudits(t *testing.T) {
 	}
 }
 
+func TestSSHExecReviewsStdinScriptBeforeExec(t *testing.T) {
+	app, _, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner := testSSHSigner(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	org, err := app.store.Repository().CreateOrganization(ctx, store.CreateOrganizationParams{Name: "Pipe Ops", Slug: "pipe-ops", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, err := app.store.Repository().ListOrganizationUserGroups(ctx, org.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetAddr, closeTarget := startTestSSHServer(t)
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        org.ID,
+		Alias:          "pipebox",
+		TargetType:     store.TargetDirect,
+		Host:           host,
+		Port:           port,
+		RemoteUsername: "remote",
+		AuthType:       store.AuthPassword,
+		CreatedBy:      user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := app.store.Repository().CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
+		OwnerType:     store.OwnerOrganization,
+		OwnerID:       org.ID,
+		Name:          "deny piped rm",
+		DefaultAction: store.DecisionAllow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.store.Repository().CreatePolicyRule(ctx, store.CreatePolicyRuleParams{
+		PolicyID: policy.ID, RuleType: store.RuleBlacklist, PatternType: store.PatternContains, Pattern: "rm -rf",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.store.Repository().AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.store.Repository().AttachPolicyToUserGroup(ctx, policy.ID, groups[0].ID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = runBastionSSHCommandWithStdin(sshAddr, "pipebox", userSigner, "bash -s", "echo before\nrm -rf /tmp/example\n")
+	if err == nil {
+		t.Fatalf("expected stdin script to be denied")
+	}
+	page, err := app.audit.Repository().ListCommandAuditLogs(ctx, store.AuditLogFilter{UserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Logs) != 1 {
+		t.Fatalf("expected one audit log, got %+v", page.Logs)
+	}
+	log := page.Logs[0]
+	if log.PolicyDecision != store.DecisionDeny || !strings.Contains(log.Command, "bash -s") || !strings.Contains(log.Command, "rm -rf /tmp/example") {
+		t.Fatalf("stdin review audit mismatch: %+v", log)
+	}
+}
+
+func TestSSHExecStreamsBareBashCStdinScriptToDirectTarget(t *testing.T) {
+	app, _, sshAddr, stop := startBastionTestApp(t)
+	defer stop()
+	ctx := context.Background()
+	userSigner := testSSHSigner(t)
+	user := seedBastionUserWithKey(t, app, userSigner)
+	targetAddr, closeTarget := startTestSSHServer(t)
+	defer closeTarget()
+	host, portText, _ := net.SplitHostPort(targetAddr)
+	port := mustAtoi(t, portText)
+	personal, err := app.store.Repository().GetPersonalOrganizationForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := app.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType:      store.OwnerOrganization,
+		OwnerID:        personal.ID,
+		Alias:          "stdinbox",
+		TargetType:     store.TargetDirect,
+		Host:           host,
+		Port:           port,
+		RemoteUsername: "remote",
+		AuthType:       store.AuthPassword,
+		CreatedBy:      user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachAllowPolicyForTarget(t, app, personal.ID, target.ID, false)
+
+	out, err := runBastionSSHCommandWithStdin(sshAddr, "stdinbox", userSigner, "bash -c", "echo stdin-ok\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "stdin-ok" {
+		t.Fatalf("unexpected stdin script output %q", out)
+	}
+	page, err := app.audit.Repository().ListCommandAuditLogs(ctx, store.AuditLogFilter{UserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Logs) != 1 || !strings.Contains(page.Logs[0].Command, "bash -c") || !strings.Contains(page.Logs[0].Command, "echo stdin-ok") {
+		t.Fatalf("stdin script audit mismatch: %+v", page.Logs)
+	}
+}
+
 func TestSSHExecReusesOpenTerminalSessionWithSessionReview(t *testing.T) {
 	app, _, _, stop := startBastionTestApp(t)
 	defer stop()
@@ -1052,6 +1168,10 @@ func runOpenSSHSCPUpload(t *testing.T, sshAddr, alias string, privateKey []byte,
 }
 
 func runBastionSSHCommand(addr, alias string, signer gossh.Signer, command string) (string, error) {
+	return runBastionSSHCommandWithStdin(addr, alias, signer, command, "")
+}
+
+func runBastionSSHCommandWithStdin(addr, alias string, signer gossh.Signer, command, stdin string) (string, error) {
 	client, err := gossh.Dial("tcp", addr, &gossh.ClientConfig{
 		User:            alias,
 		Auth:            []gossh.AuthMethod{gossh.PublicKeys(signer)},
@@ -1069,6 +1189,9 @@ func runBastionSSHCommand(addr, alias string, signer gossh.Signer, command strin
 	defer session.Close()
 	var out bytes.Buffer
 	session.Stdout = &out
+	if stdin != "" {
+		session.Stdin = strings.NewReader(stdin)
+	}
 	err = session.Run(command)
 	return out.String(), err
 }
@@ -1342,6 +1465,16 @@ func handleTestSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 				case "whoami":
 					_, _ = channel.Write([]byte("remote\n"))
 					sendExit(channel, 0)
+				case "bash -s", "sh -s", "/bin/bash -s", "/bin/sh -s":
+					script, _ := io.ReadAll(channel)
+					switch strings.TrimSpace(string(script)) {
+					case "echo stdin-ok":
+						_, _ = channel.Write([]byte("stdin-ok\n"))
+						sendExit(channel, 0)
+					default:
+						_, _ = channel.Stderr().Write([]byte("unknown stdin script\n"))
+						sendExit(channel, 1)
+					}
 				default:
 					_, _ = channel.Stderr().Write([]byte("unknown command\n"))
 					sendExit(channel, 1)

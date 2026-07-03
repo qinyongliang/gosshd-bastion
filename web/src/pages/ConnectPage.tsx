@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import type { UseQueryResult } from "@tanstack/react-query";
 import Editor, { loader } from "@monaco-editor/react";
 import type { BeforeMount, Monaco, OnMount } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
@@ -68,7 +67,8 @@ type SplitPaneNode = {
 
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
-const SYSTEM_REFRESH_MS = 5000;
+const SYSTEM_METRICS_REFRESH_MS = 5000;
+const SYSTEM_DISK_REFRESH_MS = 60_000;
 const MAX_SYSTEM_SAMPLES = 60;
 const EDITOR_PANE_CLOSE_REQUEST = "gosshd-editor-pane-close-request";
 type TerminalPanelProps = {
@@ -166,10 +166,32 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const system = useQuery({
     queryKey: ["target-system", activeTarget.id],
     queryFn: () => api.targetSystem(activeTarget.id),
-    refetchInterval: SYSTEM_REFRESH_MS,
+    staleTime: Infinity,
+    retry: 1,
+  });
+  const systemMetrics = useQuery({
+    queryKey: ["target-system", activeTarget.id, "metrics"],
+    queryFn: () => api.targetSystemMetrics(activeTarget.id),
+    refetchInterval: SYSTEM_METRICS_REFRESH_MS,
     staleTime: 4000,
     retry: 1,
   });
+  const systemFilesystems = useQuery({
+    queryKey: ["target-system", activeTarget.id, "filesystems"],
+    queryFn: () => api.targetSystemFilesystems(activeTarget.id),
+    refetchInterval: SYSTEM_DISK_REFRESH_MS,
+    staleTime: SYSTEM_DISK_REFRESH_MS - 1000,
+    retry: 1,
+  });
+  const systemSnapshot = useMemo(
+    () => mergeSystemSnapshot(system.data, systemMetrics.data, systemFilesystems.data),
+    [system.data, systemMetrics.data, systemFilesystems.data],
+  );
+  const refreshSystem = () => {
+    void system.refetch();
+    void systemMetrics.refetch();
+    void systemFilesystems.refetch();
+  };
 
   const appendConnectionTab = (nextTargetID: string, command = "") => {
     const next = newConnectionTab(nextTargetID, command);
@@ -530,7 +552,15 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                   <div><dt>{t("commonTag")}</dt><dd>{(activeTarget.tags || []).join(", ") || "-"}</dd></div>
                 </dl>
               </section>
-              <SystemSnapshotPanel targetID={activeTarget.id} system={system} />
+              <SystemSnapshotPanel
+                targetID={activeTarget.id}
+                snapshot={systemSnapshot}
+                sampleSnapshot={systemMetrics.data || system.data}
+                isLoading={system.isLoading}
+                isFetching={system.isFetching || systemMetrics.isFetching || systemFilesystems.isFetching}
+                error={system.error || systemMetrics.error || systemFilesystems.error}
+                onRefresh={refreshSystem}
+              />
             </>
           ) : (
             <button type="button" className="collapsed-zone-button" onClick={() => setHostOpen(true)} title={t("connectExpandSidebar")}>
@@ -619,7 +649,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
               </button>
             </div>
             {hasOpenTabs ? (
-              <FileManager target={activeTarget} system={system.data} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} />
+              <FileManager target={activeTarget} system={systemSnapshot} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} />
             ) : (
               <div className="connect-zone-empty">
                 <span>{t("connectFilesNoOpenTabs")}</span>
@@ -1079,10 +1109,25 @@ function configureMonaco(instance: Monaco) {
   });
 }
 
-function SystemSnapshotPanel({ targetID, system }: { targetID: string; system: UseQueryResult<TargetSystemSnapshot, Error> }) {
+function SystemSnapshotPanel({
+  targetID,
+  snapshot,
+  sampleSnapshot,
+  isLoading,
+  isFetching,
+  error,
+  onRefresh,
+}: {
+  targetID: string;
+  snapshot?: TargetSystemSnapshot;
+  sampleSnapshot?: TargetSystemSnapshot;
+  isLoading: boolean;
+  isFetching: boolean;
+  error: Error | null;
+  onRefresh: () => void;
+}) {
   const { t } = useI18n();
   const [samples, setSamples] = useState<MetricSample[]>([]);
-  const snapshot = system.data;
   const networkTrend = buildNetworkRates(samples);
   const interfaceRates = buildInterfaceNetworkRates(samples);
 
@@ -1091,24 +1136,24 @@ function SystemSnapshotPanel({ targetID, system }: { targetID: string; system: U
   }, [targetID]);
 
   useEffect(() => {
-    if (!snapshot) return;
-    const sample = snapshotToSample(snapshot);
+    if (!sampleSnapshot) return;
+    const sample = snapshotToSample(sampleSnapshot);
     setSamples((current) => [...current, sample].slice(-MAX_SYSTEM_SAMPLES));
-  }, [snapshot]);
+  }, [sampleSnapshot]);
 
   return (
     <section className="connect-panel compact telemetry-panel">
       <header className="telemetry-head">
         <h3><Activity />{t("connectSystemInfo")}</h3>
-        <button type="button" className="icon-button" onClick={() => system.refetch()} disabled={system.isFetching} title={t("commonRefresh")}>
+        <button type="button" className="icon-button" onClick={onRefresh} disabled={isFetching} title={t("commonRefresh")}>
           <RefreshCw />
         </button>
       </header>
 
       {!snapshot && (
         <div className="telemetry-empty">
-          <strong>{system.isLoading ? t("loading") : t("connectSystemUnavailable")}</strong>
-          {system.error && <span>{String((system.error as Error).message || "")}</span>}
+          <strong>{isLoading ? t("loading") : t("connectSystemUnavailable")}</strong>
+          {error && <span>{String(error.message || "")}</span>}
         </div>
       )}
 
@@ -2064,6 +2109,23 @@ function clearConnectCommandParam() {
   if (!url.searchParams.has("command")) return;
   url.searchParams.delete("command");
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function mergeSystemSnapshot(base?: TargetSystemSnapshot, metrics?: TargetSystemSnapshot, filesystems?: TargetSystemSnapshot): TargetSystemSnapshot | undefined {
+  if (!base) return undefined;
+  const metricSource = metrics || base;
+  return {
+    ...base,
+    uptime: metricSource.uptime || base.uptime,
+    load: metricSource.load || base.load,
+    cpu_percent: metricSource.cpu_percent,
+    memory: metricSource.memory || base.memory,
+    swap: metricSource.swap || base.swap,
+    processes: metricSource.processes || base.processes,
+    network: metricSource.network || base.network,
+    filesystems: filesystems?.filesystems || base.filesystems,
+    collected_at: metricSource.collected_at || base.collected_at,
+  };
 }
 
 function snapshotToSample(snapshot: TargetSystemSnapshot): MetricSample {

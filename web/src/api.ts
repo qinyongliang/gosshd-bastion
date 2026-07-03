@@ -125,6 +125,8 @@ export const api = {
   audit: (params: Record<string, unknown>) => request<{ logs: AuditLog[]; total: number; page: number; page_size: number }>(`/api/audit?${queryString(params)}`),
   auditRecording: (id: string) => request<AuditRecording>(`/api/audit/${id}/recording`),
   targetSystem: (targetID: string) => request<TargetSystemSnapshot>(`/api/targets/${targetID}/system`),
+  targetSystemMetrics: (targetID: string) => request<TargetSystemSnapshot>(`/api/targets/${targetID}/system?scope=metrics`),
+  targetSystemFilesystems: (targetID: string) => request<TargetSystemSnapshot>(`/api/targets/${targetID}/system?scope=filesystems`),
   manualReviews: (orgID: string, timeoutSeconds = 25, knownIDs: string[] = [], sessionID = "") =>
     request<{ reviews: ManualReview[] }>(`/api/manual-reviews?${queryString({
       organization_id: orgID,
