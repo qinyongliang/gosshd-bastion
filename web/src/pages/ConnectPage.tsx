@@ -103,6 +103,8 @@ type TerminalRuntime = {
   onPendingCommandConsumed?: () => void;
   connect?: () => void;
   fit?: () => void;
+  outputQueue: string[];
+  outputFrame: number | null;
   listeners: Set<() => void>;
   disposables: Array<{ dispose: () => void }>;
 };
@@ -1346,6 +1348,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       runtime.socket.close();
       runtime.socket = null;
     }
+    clearQueuedTerminalOutput(runtime);
     updateStatus("connecting");
     setRuntimeSnapshot(runtime, { error: "", sessionID: "" });
     const terminal = runtime.terminal;
@@ -1383,17 +1386,17 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       try {
         const message = JSON.parse(event.data) as { type: string; data?: string; code?: number; cols?: number; rows?: number; session_id?: string };
         if (message.type === "output" && message.data !== undefined) {
-          terminal.write(message.data);
+          enqueueTerminalOutput(runtime, terminal, message.data);
           if (isTerminalSessionClosedOutput(message.data)) {
             updateStatus("disconnected");
             setRuntimeSnapshot(runtime, { sessionID: "" });
           }
         } else if (message.type === "error" && message.data !== undefined) {
-          terminal.write(`\r\n\x1b[1;31m${message.data}\x1b[0m\r\n`);
+          enqueueTerminalOutput(runtime, terminal, `\r\n\x1b[1;31m${message.data}\x1b[0m\r\n`);
           updateStatus("error");
           setRuntimeSnapshot(runtime, { error: message.data });
         } else if (message.type === "exit") {
-          terminal.write(`\r\n\x1b[2;37mSession ended (exit ${message.code ?? "-"})\x1b[0m\r\n`);
+          enqueueTerminalOutput(runtime, terminal, `\r\n\x1b[2;37mSession ended (exit ${message.code ?? "-"})\x1b[0m\r\n`);
           updateStatus("disconnected");
           setRuntimeSnapshot(runtime, { sessionID: "" });
           socket.close();
@@ -1401,7 +1404,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
           setRuntimeSnapshot(runtime, { sessionID: message.session_id });
         }
       } catch {
-        terminal.write(event.data);
+        enqueueTerminalOutput(runtime, terminal, event.data);
       }
     };
 
@@ -1942,6 +1945,8 @@ function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
     pendingCommand: "",
     active: false,
     disposed: false,
+    outputQueue: [],
+    outputFrame: null,
     listeners: new Set(),
     disposables: [],
   };
@@ -1956,6 +1961,32 @@ function setRuntimeSnapshot(runtime: TerminalRuntime, patch: Partial<Pick<Termin
 
 function isTerminalSessionClosedOutput(data: string) {
   return data.includes("Session closed:");
+}
+
+function enqueueTerminalOutput(runtime: TerminalRuntime, terminal: Terminal, data: string) {
+  if (!data || runtime.disposed) return;
+  runtime.outputQueue.push(data);
+  if (runtime.outputFrame !== null) return;
+  runtime.outputFrame = window.requestAnimationFrame(() => flushQueuedTerminalOutput(runtime, terminal));
+}
+
+function flushQueuedTerminalOutput(runtime: TerminalRuntime, terminal: Terminal) {
+  runtime.outputFrame = null;
+  if (runtime.disposed || !runtime.outputQueue.length) return;
+  const output = runtime.outputQueue.join("");
+  runtime.outputQueue = [];
+  terminal.write(output);
+  if (runtime.outputQueue.length && runtime.outputFrame === null) {
+    runtime.outputFrame = window.requestAnimationFrame(() => flushQueuedTerminalOutput(runtime, terminal));
+  }
+}
+
+function clearQueuedTerminalOutput(runtime: TerminalRuntime) {
+  runtime.outputQueue = [];
+  if (runtime.outputFrame !== null) {
+    window.cancelAnimationFrame(runtime.outputFrame);
+    runtime.outputFrame = null;
+  }
 }
 
 async function readClipboardText() {
@@ -1991,6 +2022,7 @@ function disposePaneRuntime(node: PaneNode | null) {
   }
   socket?.close();
   runtime.socket = null;
+  clearQueuedTerminalOutput(runtime);
   for (const disposable of runtime.disposables) disposable.dispose();
   runtime.disposables = [];
   runtime.terminal?.dispose();
