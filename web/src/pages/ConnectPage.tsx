@@ -2,6 +2,41 @@ import { useQuery } from "@tanstack/react-query";
 import Editor, { loader } from "@monaco-editor/react";
 import type { BeforeMount, Monaco, OnMount } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
+import "monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution";
+import "monaco-editor/esm/vs/basic-languages/csharp/csharp.contribution";
+import "monaco-editor/esm/vs/basic-languages/css/css.contribution";
+import "monaco-editor/esm/vs/basic-languages/dart/dart.contribution";
+import "monaco-editor/esm/vs/basic-languages/dockerfile/dockerfile.contribution";
+import "monaco-editor/esm/vs/basic-languages/elixir/elixir.contribution";
+import "monaco-editor/esm/vs/basic-languages/go/go.contribution";
+import "monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution";
+import "monaco-editor/esm/vs/basic-languages/hcl/hcl.contribution";
+import "monaco-editor/esm/vs/basic-languages/html/html.contribution";
+import "monaco-editor/esm/vs/basic-languages/ini/ini.contribution";
+import "monaco-editor/esm/vs/basic-languages/java/java.contribution";
+import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution";
+import "monaco-editor/esm/vs/basic-languages/kotlin/kotlin.contribution";
+import "monaco-editor/esm/vs/basic-languages/less/less.contribution";
+import "monaco-editor/esm/vs/basic-languages/lua/lua.contribution";
+import "monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution";
+import "monaco-editor/esm/vs/basic-languages/perl/perl.contribution";
+import "monaco-editor/esm/vs/basic-languages/php/php.contribution";
+import "monaco-editor/esm/vs/basic-languages/powershell/powershell.contribution";
+import "monaco-editor/esm/vs/basic-languages/protobuf/protobuf.contribution";
+import "monaco-editor/esm/vs/basic-languages/python/python.contribution";
+import "monaco-editor/esm/vs/basic-languages/r/r.contribution";
+import "monaco-editor/esm/vs/basic-languages/ruby/ruby.contribution";
+import "monaco-editor/esm/vs/basic-languages/rust/rust.contribution";
+import "monaco-editor/esm/vs/basic-languages/scala/scala.contribution";
+import "monaco-editor/esm/vs/basic-languages/scss/scss.contribution";
+import "monaco-editor/esm/vs/basic-languages/shell/shell.contribution";
+import "monaco-editor/esm/vs/basic-languages/solidity/solidity.contribution";
+import "monaco-editor/esm/vs/basic-languages/sql/sql.contribution";
+import "monaco-editor/esm/vs/basic-languages/swift/swift.contribution";
+import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution";
+import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution";
+import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution";
+import "monaco-editor/esm/vs/language/json/monaco.contribution";
 import "monaco-editor-nginx";
 import { Terminal } from "@xterm/xterm";
 import { Activity, ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Cpu, Folder, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
@@ -1076,29 +1111,15 @@ function configureMonaco(instance: Monaco) {
   if (!fallbackLanguageRegistered) {
     instance.languages.register({ id: FALLBACK_EDITOR_LANGUAGE });
   }
-  instance.languages.setLanguageConfiguration(FALLBACK_EDITOR_LANGUAGE, {
-    comments: { lineComment: "#" },
-    brackets: [["{", "}"], ["(", ")"], ["[", "]"]],
-    autoClosingPairs: [
-      { open: "{", close: "}" },
-      { open: "(", close: ")" },
-      { open: "[", close: "]" },
-      { open: "\"", close: "\"" },
-      { open: "'", close: "'" },
-    ],
-  });
-  instance.languages.setLanguageConfiguration("dockerfile", {
-    comments: { lineComment: "#" },
-    brackets: [["{", "}"], ["(", ")"], ["[", "]"]],
-    autoClosingPairs: [
-      { open: "{", close: "}" },
-      { open: "(", close: ")" },
-      { open: "[", close: "]" },
-      { open: "\"", close: "\"" },
-      { open: "'", close: "'" },
-    ],
-  });
-  instance.languages.setLanguageConfiguration("nginx", {
+  setHashCommentLanguageConfiguration(instance, FALLBACK_EDITOR_LANGUAGE);
+  setHashCommentLanguageConfiguration(instance, "dockerfile");
+  setHashCommentLanguageConfiguration(instance, "nginx");
+}
+
+function setHashCommentLanguageConfiguration(instance: Monaco, languageID: string) {
+  const languageRegistered = instance.languages.getLanguages().some((language: { id: string }) => language.id === languageID);
+  if (!languageRegistered) return;
+  instance.languages.setLanguageConfiguration(languageID, {
     comments: { lineComment: "#" },
     brackets: [["{", "}"], ["(", ")"], ["[", "]"]],
     autoClosingPairs: [
