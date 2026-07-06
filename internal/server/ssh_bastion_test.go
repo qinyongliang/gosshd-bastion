@@ -962,7 +962,7 @@ func TestSSHInteractiveShellReturnsAfterRemoteExitWithoutClientEOF(t *testing.T)
 	}
 }
 
-func TestWebDirectTerminalStartsShellBeforeBootstrap(t *testing.T) {
+func TestWebDirectTerminalStartsBashIntegrationViaExec(t *testing.T) {
 	app, _, _, stop := startBastionTestApp(t)
 	defer stop()
 	ctx := context.Background()
@@ -996,10 +996,13 @@ func TestWebDirectTerminalStartsShellBeforeBootstrap(t *testing.T) {
 		t.Fatalf("web direct terminal exit = %d, want 0; output=%q", exitCode, session.output.String())
 	}
 	if !strings.Contains(session.output.String(), "bootstrap-ok") {
-		t.Fatalf("web direct terminal did not bootstrap through shell: %q", session.output.String())
+		t.Fatalf("web direct terminal did not bootstrap through exec: %q", session.output.String())
 	}
 	if strings.Contains(session.output.String(), "if command -v bash") || strings.Contains(session.output.String(), "__GOSSHD_BASHRC__") {
 		t.Fatalf("web direct terminal should not echo bootstrap script: %q", session.output.String())
+	}
+	if strings.Contains(session.output.String(), "> > >") || strings.Contains(session.output.String(), "__gosshd_precmd: command not found") {
+		t.Fatalf("web direct terminal fed bootstrap through an interactive shell: %q", session.output.String())
 	}
 }
 
@@ -1484,43 +1487,30 @@ func handleTestBootstrapShellConn(raw net.Conn, cfg *gossh.ServerConfig) {
 		}
 		go func() {
 			defer channel.Close()
-			echoInput := true
 			for req := range requests {
 				switch req.Type {
 				case "pty-req":
-					echoInput = !ptyRequestDisablesEcho(req.Payload)
 					req.Reply(true, nil)
 				case "exec":
 					req.Reply(true, nil)
-					_, _ = channel.Stderr().Write([]byte("bootstrap exec failed\n"))
-					sendExit(channel, 2)
-					return
-				case "shell":
-					req.Reply(true, nil)
-					dataCh := make(chan string, 1)
-					go func() {
-						buf := make([]byte, 32*1024)
-						n, _ := channel.Read(buf)
-						dataCh <- string(buf[:n])
-					}()
-					select {
-					case data := <-dataCh:
-						if echoInput {
-							_, _ = channel.Write([]byte(data))
-						}
-						if strings.Contains(data, "__GOSSHD_BASHRC__") {
-							_, _ = channel.Write([]byte("bootstrap-ok\r\n"))
-							sendExit(channel, 0)
-							return
-						}
-						_, _ = channel.Stderr().Write([]byte("missing bootstrap\n"))
-						sendExit(channel, 3)
-						return
-					case <-time.After(time.Second):
-						_, _ = channel.Stderr().Write([]byte("bootstrap timeout\n"))
-						sendExit(channel, 3)
+					var payload struct{ Command string }
+					if err := gossh.Unmarshal(req.Payload, &payload); err != nil {
+						_, _ = channel.Stderr().Write([]byte("bad exec payload\n"))
+						sendExit(channel, 2)
 						return
 					}
+					if strings.Contains(payload.Command, "__GOSSHD_BASHRC__") {
+						_, _ = channel.Write([]byte("bootstrap-ok\r\n"))
+						sendExit(channel, 0)
+						return
+					}
+					_, _ = channel.Stderr().Write([]byte("missing bootstrap\n"))
+					sendExit(channel, 3)
+					return
+				case "shell":
+					req.Reply(false, nil)
+					sendExit(channel, 4)
+					return
 				default:
 					req.Reply(false, nil)
 				}

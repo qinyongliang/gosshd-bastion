@@ -745,15 +745,11 @@ func (a *App) webDirectTerminal(terminalSession *terminalSession) int {
 		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
-	if err := session.RequestPty("xterm-256color", terminalSession.rows, terminalSession.cols, gossh.TerminalModes{gossh.ECHO: 0}); err != nil {
+	if err := session.RequestPty("xterm-256color", terminalSession.rows, terminalSession.cols, gossh.TerminalModes{}); err != nil {
 		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
-	if err := session.Shell(); err != nil {
-		terminalSession.writeOutput("error", []byte(err.Error()))
-		return 255
-	}
-	if _, err := io.WriteString(stdin, bashShellIntegrationCommand()+"\n"); err != nil {
+	if err := session.Start(bashShellIntegrationCommand()); err != nil {
 		terminalSession.writeOutput("error", []byte(err.Error()))
 		return 255
 	}
