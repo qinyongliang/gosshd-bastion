@@ -20,7 +20,7 @@ export function MembersPage({ data }: { data: ConsoleData }) {
   const members = useMemo(() => sortMembers(data.members, query, sort), [data.members, query, sort]);
   return (
     <>
-      <section className="resource-head">
+      <section className="resource-head members-head">
         <div><small>{t("orgs")}</small><h2>{t("members")}</h2><p>{t("membersBody")}</p></div>
         <div className="resource-actions">
           <button type="button" onClick={() => setModal("groups")}>{t("membersGroups")}</button>
@@ -28,6 +28,11 @@ export function MembersPage({ data }: { data: ConsoleData }) {
           <button type="button" className="primary" onClick={() => setModal("add")}><Plus />{t("addMember")}</button>
         </div>
       </section>
+      <div className="member-access-summary">
+        <span><strong>{data.members.length}</strong><small>{t("members")}</small></span>
+        <span><strong>{data.members.filter((item) => item.role === "owner" || item.role === "admin").length}</strong><small>{t("roleAdmin")}</small></span>
+        <span><strong>{data.groups.length}</strong><small>{t("membersGroups")}</small></span>
+      </div>
       <Toolbar query={query} setQuery={setQuery}>
         <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
           <option value="role">{t("membersSortRole")}</option>
@@ -35,7 +40,7 @@ export function MembersPage({ data }: { data: ConsoleData }) {
           <option value="newest">{t("membersSortNewest")}</option>
         </select>
       </Toolbar>
-      <Panel title={t("members")} subtitle={t("membersCannotOwnerAgain")}>
+      <Panel title={t("members")} subtitle={t("membersCannotOwnerAgain")} className="members-table-panel">
         <SimpleTable headers={[t("auditTableUser"), t("commonRole"), t("membersJoinedAt"), t("commonActions")]} rows={members.map((member) => [
           <UserCell member={member} />,
           roleText(member.role, t),

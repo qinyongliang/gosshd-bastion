@@ -13,8 +13,6 @@
 </head>
 <body>
   <div class="ambient-grid" aria-hidden="true"></div>
-  <div class="ambient-orb" aria-hidden="true"></div>
-
   <header class="nav">
     <div class="container nav-inner">
       <a class="brand" href="#top" aria-label="GOSSHD Bastion 首页">
@@ -35,10 +33,19 @@
         </a>
         <a class="btn btn-primary nav-cta" href="#start">快速开始</a>
       </nav>
-      <button class="mobile-menu-btn" aria-label="切换菜单">
+      <button class="mobile-menu-btn" type="button" aria-label="切换菜单" aria-expanded="false" aria-controls="mobile-links">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
     </div>
+    <nav class="mobile-links" id="mobile-links" aria-label="移动端导航">
+      <a href="#workflow">工作流</a>
+      <a href="#review">AI 审查</a>
+      <a href="#replay">审计回放</a>
+      <a href="#features">能力</a>
+      <a href="#audience">适用人群</a>
+      <a class="lang-switch" href="index.html">English</a>
+      <a class="btn btn-primary" href="#start">快速开始</a>
+    </nav>
   </header>
 
   <main id="top">

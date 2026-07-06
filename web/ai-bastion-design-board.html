@@ -1,0 +1,1694 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI 堡垒机整体设计稿</title>
+  <script>
+    (function () {
+      try {
+        localStorage.setItem("ai-bastion-design-theme", "light");
+        document.documentElement.setAttribute("data-theme", "light");
+      } catch (_) {}
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: oklch(16% 0.025 248);
+      --bg-2: oklch(20% 0.035 246);
+      --surface: oklch(23% 0.035 245);
+      --surface-2: oklch(28% 0.04 245);
+      --fg: oklch(94% 0.018 235);
+      --muted: oklch(68% 0.032 236);
+      --quiet: oklch(53% 0.034 237);
+      --border: oklch(36% 0.035 242);
+      --border-soft: oklch(31% 0.03 244);
+      --accent: oklch(73% 0.145 196);
+      --accent-strong: oklch(65% 0.15 194);
+      --success: oklch(72% 0.15 154);
+      --warn: oklch(78% 0.135 80);
+      --danger: oklch(66% 0.19 22);
+      --terminal: oklch(12% 0.025 247);
+      --terminal-text: oklch(82% 0.045 230);
+      --terminal-muted: oklch(58% 0.035 232);
+      --terminal-panel: oklch(12% 0.025 247);
+      --terminal-chrome: oklch(17% 0.03 246);
+      --terminal-border: oklch(29% 0.035 244);
+      --terminal-tab-bg: oklch(22% 0.032 246);
+      --terminal-cmd: oklch(76% 0.14 196);
+      --terminal-ok: oklch(72% 0.15 154);
+      --terminal-bad: oklch(66% 0.19 22);
+      --bg-end: oklch(13% 0.022 248);
+      --grid-line: rgba(78, 215, 231, 0.045);
+      --grid-line-strong: rgba(78, 215, 231, 0.04);
+      --signal-line: rgba(103, 232, 249, 0.14);
+      --signal-line-soft: rgba(114, 242, 166, 0.075);
+      --button-bg: oklch(25% 0.035 245);
+      --topbar-start: rgba(12, 19, 31, 0.96);
+      --topbar-end: rgba(12, 19, 31, 0.72);
+      --brand-start: oklch(26% 0.052 214);
+      --brand-end: oklch(17% 0.03 245);
+      --terminal-bar: oklch(18% 0.03 245);
+      --panel-rail: oklch(15% 0.025 246);
+      --tab-active: oklch(22% 0.032 246);
+      --cockpit-bg: var(--terminal-panel);
+      --cockpit-border: var(--border);
+      --cockpit-top-bg: var(--terminal-bar);
+      --cockpit-grid-bg: var(--terminal-panel);
+      --cockpit-side-bg: var(--panel-rail);
+      --cockpit-split-border: var(--border-soft);
+      --cockpit-active-bg: color-mix(in oklch, var(--accent) 8%, transparent);
+      --cockpit-active-border: color-mix(in oklch, var(--accent) 28%, var(--border));
+      --cockpit-active-fg: var(--fg);
+      --meter-track: oklch(20% 0.028 245);
+      --row-bg: oklch(19% 0.026 245);
+      --input-bg: oklch(19% 0.025 245);
+      --sidebar-bg: oklch(17% 0.025 246);
+      --nav-line-bg: oklch(23% 0.03 246);
+      --pill-bg: oklch(25% 0.03 244);
+      --pill-fg: oklch(74% 0.03 236);
+      --pill-warn-bg: oklch(28% 0.045 80);
+      --pill-warn-fg: oklch(83% 0.14 82);
+      --pill-success-bg: oklch(25% 0.045 154);
+      --pill-success-fg: oklch(78% 0.15 154);
+      --pill-danger-bg: oklch(26% 0.055 22);
+      --pill-danger-fg: oklch(72% 0.18 22);
+      --tag-bg: var(--pill-bg);
+      --tag-fg: var(--pill-fg);
+      --tag-warn-bg: var(--pill-warn-bg);
+      --tag-warn-fg: var(--pill-warn-fg);
+      --screen-head-bg: color-mix(in oklch, var(--surface-2) 40%, transparent);
+      --swatch-label-bg: rgba(8, 13, 22, 0.72);
+      --swatch-label-fg: oklch(96% 0.012 235);
+      --playbar-bg: oklch(22% 0.03 246);
+      --cta-fg: oklch(12% 0.02 245);
+      --brand-icon: url("src/assets/system-icon.png");
+      --backdrop-mark-fill: linear-gradient(135deg, oklch(76% 0.14 196), oklch(70% 0.12 154));
+      --backdrop-mark-opacity: 0.105;
+      --hero-mark-opacity: 0.11;
+      --motion-fast: 160ms;
+      --motion-normal: 240ms;
+      --motion-slow: 520ms;
+      --ease-standard: cubic-bezier(0.2, 0.86, 0.2, 1);
+      --ease-control: cubic-bezier(0.42, 0, 0.2, 1);
+      --font-display: "Aptos Display", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Aptos", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+      --radius: 8px;
+      --shadow: 0 28px 70px rgba(0, 0, 0, 0.28);
+      --card-shadow: 0 18px 46px rgba(0, 0, 0, 0.18);
+    }
+
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: oklch(98% 0.006 236);
+      --bg-2: oklch(95% 0.012 235);
+      --surface: oklch(100% 0 0);
+      --surface-2: oklch(96% 0.009 235);
+      --fg: oklch(20% 0.022 245);
+      --muted: oklch(44% 0.026 244);
+      --quiet: oklch(56% 0.028 244);
+      --border: oklch(84% 0.012 240);
+      --border-soft: oklch(91% 0.008 240);
+      --accent: oklch(56% 0.135 204);
+      --accent-strong: oklch(48% 0.145 206);
+      --success: oklch(54% 0.14 154);
+      --warn: oklch(62% 0.13 78);
+      --danger: oklch(56% 0.18 24);
+      --terminal: oklch(17% 0.026 247);
+      --terminal-text: oklch(88% 0.036 230);
+      --terminal-muted: oklch(70% 0.035 232);
+      --terminal-panel: oklch(14% 0.028 247);
+      --terminal-chrome: oklch(18% 0.03 246);
+      --terminal-border: oklch(28% 0.032 244);
+      --terminal-tab-bg: oklch(24% 0.035 246);
+      --terminal-cmd: oklch(79% 0.13 195);
+      --terminal-ok: oklch(75% 0.14 154);
+      --terminal-bad: oklch(72% 0.18 24);
+      --bg-end: oklch(92% 0.016 238);
+      --grid-line: rgba(29, 116, 143, 0.07);
+      --grid-line-strong: rgba(29, 116, 143, 0.055);
+      --signal-line: rgba(14, 116, 144, 0.12);
+      --signal-line-soft: rgba(14, 116, 144, 0.07);
+      --button-bg: oklch(98% 0.004 235);
+      --topbar-start: rgba(248, 251, 253, 0.96);
+      --topbar-end: rgba(248, 251, 253, 0.8);
+      --brand-start: oklch(97% 0.018 218);
+      --brand-end: oklch(91% 0.026 224);
+      --terminal-bar: oklch(20% 0.028 246);
+      --panel-rail: oklch(97% 0.006 238);
+      --tab-active: oklch(94% 0.012 236);
+      --cockpit-bg: oklch(98% 0.005 238);
+      --cockpit-border: oklch(82% 0.018 230);
+      --cockpit-top-bg: oklch(100% 0 0);
+      --cockpit-grid-bg: oklch(97% 0.008 238);
+      --cockpit-side-bg: oklch(98% 0.006 238);
+      --cockpit-split-border: oklch(82% 0.018 230);
+      --cockpit-active-bg: oklch(94% 0.022 210);
+      --cockpit-active-border: oklch(78% 0.06 205);
+      --cockpit-active-fg: oklch(18% 0.024 244);
+      --meter-track: oklch(90% 0.009 240);
+      --row-bg: oklch(98% 0.005 238);
+      --input-bg: oklch(97% 0.006 238);
+      --sidebar-bg: oklch(97% 0.008 238);
+      --nav-line-bg: oklch(91% 0.012 238);
+      --pill-bg: oklch(93% 0.012 238);
+      --pill-fg: oklch(32% 0.026 244);
+      --pill-warn-bg: oklch(93% 0.052 82);
+      --pill-warn-fg: oklch(36% 0.105 74);
+      --pill-success-bg: oklch(93% 0.055 154);
+      --pill-success-fg: oklch(34% 0.11 154);
+      --pill-danger-bg: oklch(94% 0.045 24);
+      --pill-danger-fg: oklch(38% 0.15 24);
+      --tag-bg: var(--pill-bg);
+      --tag-fg: var(--pill-fg);
+      --tag-warn-bg: var(--pill-warn-bg);
+      --tag-warn-fg: var(--pill-warn-fg);
+      --screen-head-bg: oklch(98% 0.004 238);
+      --swatch-label-bg: rgba(255, 255, 255, 0.82);
+      --swatch-label-fg: oklch(21% 0.025 245);
+      --playbar-bg: oklch(89% 0.012 238);
+      --cta-fg: oklch(99% 0.002 235);
+      --backdrop-mark-fill: linear-gradient(135deg, oklch(50% 0.13 205), oklch(52% 0.12 154));
+      --backdrop-mark-opacity: 0.075;
+      --hero-mark-opacity: 0.08;
+      --shadow: 0 24px 58px rgba(26, 42, 66, 0.14);
+      --card-shadow: 0 18px 40px rgba(26, 42, 66, 0.1);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+      color: var(--fg);
+      background: #ffffff;
+      font-family: var(--font-body);
+      letter-spacing: 0;
+    }
+    body::before {
+      position: fixed;
+      top: 120px;
+      right: max(-220px, -14vw);
+      width: min(760px, 58vw);
+      aspect-ratio: 1;
+      background: var(--backdrop-mark-fill);
+      content: "";
+      opacity: 0.028;
+      pointer-events: none;
+      -webkit-mask: var(--brand-icon) center / contain no-repeat;
+      mask: var(--brand-icon) center / contain no-repeat;
+    }
+
+    button, a { font: inherit; }
+    button {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--fg);
+      background: var(--button-bg);
+      cursor: pointer;
+    }
+    button:focus-visible, a:focus-visible {
+      outline: 3px solid color-mix(in oklch, var(--accent) 38%, transparent);
+      outline-offset: 3px;
+    }
+
+    .page {
+      width: min(1500px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: center;
+      padding: 14px 0;
+      background: linear-gradient(180deg, var(--topbar-start), var(--topbar-end));
+      backdrop-filter: blur(18px);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in oklch, var(--accent) 45%, var(--border));
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--brand-start), var(--brand-end));
+      box-shadow: inset 0 0 18px color-mix(in oklch, var(--accent) 18%, transparent);
+      overflow: hidden;
+    }
+    .brand-mark img {
+      width: 24px;
+      height: 24px;
+      display: block;
+      object-fit: contain;
+    }
+    .brand strong {
+      display: block;
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 620;
+      letter-spacing: 0.01em;
+    }
+    .brand span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      min-width: 0;
+    }
+    .nav a {
+      border: 1px solid var(--border-soft);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+    }
+    .nav a:hover { color: var(--fg); border-color: var(--border); }
+
+    .theme-toggle {
+      display: inline-grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--border-soft);
+      border-radius: 999px;
+      background: color-mix(in oklch, var(--surface-2) 72%, transparent);
+    }
+    .theme-toggle button {
+      min-height: 31px;
+      min-width: 54px;
+      border: 0;
+      border-radius: 999px;
+      padding: 0 11px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+    }
+    .theme-toggle button[aria-pressed="true"] {
+      color: var(--cta-fg);
+      background: var(--accent);
+      box-shadow: 0 8px 18px color-mix(in oklch, var(--accent) 22%, transparent);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.2fr);
+      gap: 28px;
+      align-items: stretch;
+      padding: 48px 0 32px;
+    }
+    .hero-copy {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 560px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: clamp(24px, 4vw, 42px);
+      background:
+        linear-gradient(135deg, color-mix(in oklch, var(--accent) 12%, transparent), transparent 36%),
+        var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .hero-copy::after {
+      position: absolute;
+      right: -96px;
+      bottom: -110px;
+      width: min(420px, 54%);
+      aspect-ratio: 1;
+      background: var(--backdrop-mark-fill);
+      content: "";
+      opacity: var(--hero-mark-opacity);
+      pointer-events: none;
+      -webkit-mask: var(--brand-icon) center / contain no-repeat;
+      mask: var(--brand-icon) center / contain no-repeat;
+    }
+    .hero-copy > * {
+      position: relative;
+      z-index: 1;
+    }
+    .eyebrow {
+      margin: 0 0 18px;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    h1, h2, h3 {
+      font-family: var(--font-display);
+      letter-spacing: -0.018em;
+      text-wrap: balance;
+    }
+    h1 {
+      max-width: 12ch;
+      margin: 0;
+      font-size: clamp(46px, 7vw, 86px);
+      line-height: 0.96;
+      font-weight: 640;
+    }
+    .hero-copy p {
+      max-width: 58ch;
+      margin: 24px 0 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.68;
+    }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+    .cta, .ghost-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 40px;
+      border-radius: var(--radius);
+      padding: 0 14px;
+      text-decoration: none;
+      font-size: 13px;
+      letter-spacing: 0.02em;
+    }
+    .cta {
+      color: var(--cta-fg);
+      background: var(--accent);
+      border: 1px solid var(--accent-strong);
+      font-weight: 620;
+    }
+    .ghost-link {
+      color: var(--fg);
+      border: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface-2) 58%, transparent);
+    }
+    .principles {
+      display: grid;
+      gap: 10px;
+      margin-top: 34px;
+    }
+    .principle {
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      border-top: 1px solid var(--border-soft);
+      padding-top: 12px;
+    }
+    .principle b {
+      display: block;
+      font-size: 13px;
+      font-weight: 620;
+    }
+    .principle small {
+      display: block;
+      color: var(--quiet);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .index-dot {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .cockpit {
+      min-height: 560px;
+      border: 1px solid var(--cockpit-border);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--cockpit-bg);
+      box-shadow: var(--shadow);
+    }
+    .cockpit-top {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      border-bottom: 1px solid var(--cockpit-split-border);
+      padding: 14px;
+      background: var(--cockpit-top-bg);
+    }
+    .window-dots { display: flex; gap: 7px; }
+    .window-dots span {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--quiet);
+    }
+    .cockpit-title {
+      min-width: 0;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ai-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid color-mix(in oklch, var(--accent) 48%, var(--border));
+      border-radius: 999px;
+      padding: 6px 10px;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+    }
+    .cockpit-grid {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr) 300px;
+      min-height: 510px;
+      background: var(--cockpit-grid-bg);
+    }
+    .rail, .inspector {
+      border-right: 1px solid var(--cockpit-split-border);
+      padding: 16px;
+      background: var(--cockpit-side-bg);
+    }
+    .inspector {
+      border-right: 0;
+      border-left: 1px solid var(--cockpit-split-border);
+    }
+    .rail-title, .panel-title {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .server-row {
+      display: grid;
+      grid-template-columns: 10px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      padding: 10px;
+      color: var(--muted);
+    }
+    .server-row.active {
+      border-color: var(--cockpit-active-border);
+      background: var(--cockpit-active-bg);
+      color: var(--cockpit-active-fg);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--success);
+    }
+    .status-dot.warn { background: var(--warn); }
+    .server-row strong,
+    .server-row small {
+      display: block;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .server-row strong { font-size: 12px; font-weight: 610; }
+    .server-row small { color: var(--quiet); font-family: var(--font-mono); font-size: 11px; }
+    .terminal-area {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-width: 0;
+      background: var(--terminal-panel);
+    }
+    .terminal-toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--terminal-border);
+      padding: 12px 14px;
+      background: var(--terminal-chrome);
+      color: var(--terminal-text);
+    }
+    .tab-strip {
+      display: flex;
+      gap: 8px;
+      min-width: 0;
+    }
+    .tab {
+      border: 1px solid var(--terminal-border);
+      border-radius: var(--radius);
+      padding: 7px 10px;
+      color: var(--terminal-muted);
+      font-size: 12px;
+    }
+    .tab.active {
+      color: var(--terminal-text);
+      background: var(--terminal-tab-bg);
+      border-color: color-mix(in oklch, var(--accent) 38%, var(--terminal-border));
+    }
+    .risk-chip {
+      border-radius: 999px;
+      padding: 6px 10px;
+      color: var(--pill-warn-fg);
+      background: var(--pill-warn-bg);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+    .terminal {
+      padding: 18px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.72;
+      color: var(--terminal-text);
+      overflow: hidden;
+    }
+    .terminal span { display: block; }
+    .terminal .cmd { color: var(--terminal-cmd); }
+    .terminal .deny { color: var(--terminal-bad); }
+    .terminal .allow { color: var(--terminal-ok); }
+    .comment { color: var(--quiet); }
+    .terminal .comment { color: var(--terminal-muted); }
+    .review-card {
+      border: 1px solid color-mix(in oklch, var(--warn) 35%, var(--border));
+      border-radius: var(--radius);
+      padding: 14px;
+      background: color-mix(in oklch, var(--warn) 8%, var(--surface));
+    }
+    .review-card h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+    .review-card p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .review-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .review-actions button {
+      min-height: 34px;
+      font-size: 12px;
+    }
+    .review-actions .approve { color: var(--success); }
+    .review-actions .reject { color: var(--danger); }
+    .meter-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .meter-label {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .meter {
+      height: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--meter-track);
+    }
+    .meter span {
+      display: block;
+      height: 100%;
+      background: var(--accent);
+    }
+    .meter.warn span { background: var(--warn); }
+    .meter.success span { background: var(--success); }
+
+    .section {
+      margin-top: 44px;
+    }
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+    .section h2 {
+      margin: 0;
+      font-size: clamp(26px, 4vw, 42px);
+      line-height: 1.05;
+      font-weight: 630;
+    }
+    .section-head p {
+      max-width: 58ch;
+      margin: 10px 0 0;
+      color: var(--muted);
+      line-height: 1.62;
+    }
+    .section-kicker {
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .mini-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .mini-tabs button {
+      min-height: 34px;
+      padding: 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .mini-tabs button.active {
+      color: var(--cta-fg);
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .board-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .screen-card {
+      min-height: 310px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--surface);
+      box-shadow: var(--card-shadow);
+    }
+    .screen-card.featured {
+      grid-column: span 2;
+    }
+    .screen-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-soft);
+      padding: 12px 14px;
+      background: var(--screen-head-bg);
+    }
+    .screen-head strong {
+      font-size: 13px;
+      font-weight: 630;
+    }
+    .screen-head span {
+      color: var(--quiet);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+    .screen-body {
+      padding: 14px;
+    }
+    .login-mini {
+      display: grid;
+      grid-template-columns: 1fr 0.78fr;
+      gap: 14px;
+      min-height: 258px;
+    }
+    .login-brand {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 18px;
+      background:
+        linear-gradient(135deg, color-mix(in oklch, var(--accent) 10%, transparent), transparent 44%),
+        var(--terminal-panel);
+      color: var(--terminal-text);
+    }
+    .login-brand::before,
+    .login-brand::after {
+      position: absolute;
+      left: -18%;
+      right: -18%;
+      height: 1px;
+      content: "";
+      background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--accent) 62%, transparent), transparent);
+      animation: loginMiniSignal 4800ms linear infinite;
+    }
+    .login-brand::before {
+      top: 28%;
+      transform: rotate(-8deg);
+    }
+    .login-brand::after {
+      bottom: 25%;
+      animation-delay: -2100ms;
+      transform: rotate(9deg);
+    }
+    .login-brand h3 {
+      position: relative;
+      z-index: 1;
+      max-width: 9ch;
+      margin: 0;
+      font-size: 38px;
+      line-height: 0.98;
+    }
+    [data-od-id="login-screen-card"] .login-brand {
+      background:
+        linear-gradient(135deg, color-mix(in oklch, var(--accent) 14%, transparent), transparent 42%),
+        var(--terminal-panel);
+    }
+    [data-od-id="login-screen-card"] .login-brand h3 {
+      color: var(--terminal-text);
+      text-shadow: 0 1px 16px rgba(0, 0, 0, 0.32);
+    }
+    [data-od-id="login-screen-card"] .login-brand .comment {
+      position: relative;
+      z-index: 1;
+      color: var(--terminal-muted);
+      font-weight: 520;
+      text-shadow: 0 1px 10px rgba(0, 0, 0, 0.26);
+    }
+    .login-form {
+      position: relative;
+      display: grid;
+      gap: 10px;
+      align-content: center;
+      overflow: hidden;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 12px;
+    }
+    .login-form::before {
+      position: absolute;
+      inset: -40% -70%;
+      content: "";
+      background: linear-gradient(90deg, transparent 44%, color-mix(in oklch, var(--accent) 16%, transparent) 50%, transparent 56%);
+      transform: translateX(-28%) rotate(12deg);
+      animation: loginMiniScan 5600ms cubic-bezier(0.42, 0, 0.2, 1) infinite;
+    }
+    .login-form > * {
+      position: relative;
+      z-index: 1;
+    }
+    .input-line {
+      height: 34px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--input-bg);
+    }
+    .login-form .input-line:first-child {
+      border-color: color-mix(in oklch, var(--accent) 62%, var(--border));
+      box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 12%, transparent);
+    }
+    .input-line.short { width: 68%; }
+    .button-line {
+      height: 36px;
+      border-radius: var(--radius);
+      background: var(--accent);
+    }
+    .overview-mini {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 10px;
+      min-height: 258px;
+    }
+    .sidebar-mini {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 10px;
+      background: var(--sidebar-bg);
+    }
+    .sidebar-brand-mini {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding-bottom: 9px;
+      border-bottom: 1px solid var(--border-soft);
+      color: var(--fg);
+      font-size: 10px;
+      font-weight: 620;
+    }
+    .sidebar-brand-mini span {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in oklch, var(--accent) 42%, var(--border));
+      border-radius: 6px;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      overflow: hidden;
+      background: linear-gradient(180deg, var(--brand-start), var(--brand-end));
+    }
+    .sidebar-brand-mini img {
+      width: 16px;
+      height: 16px;
+      display: block;
+      object-fit: contain;
+    }
+    .user-mini {
+      display: grid;
+      gap: 4px;
+      padding-bottom: 9px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .user-mini strong,
+    .user-mini small {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .user-mini strong { font-size: 10px; }
+    .user-mini small { color: var(--quiet); font-size: 9px; }
+    .side-nav-mini {
+      display: grid;
+      gap: 6px;
+    }
+    .nav-line {
+      height: 28px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      border-radius: 6px;
+      padding: 0 8px;
+      background: var(--nav-line-bg);
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .nav-line::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 2px;
+      background: currentColor;
+      content: "";
+      opacity: 0.7;
+    }
+    .nav-line.active {
+      color: var(--cta-fg);
+      background: linear-gradient(135deg, var(--accent), color-mix(in oklch, var(--success) 58%, var(--accent)));
+    }
+    .dashboard-mini {
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+      gap: 8px;
+      min-width: 0;
+    }
+    .mini-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .mini-topbar small,
+    .mini-topbar h3 {
+      display: block;
+      margin: 0;
+    }
+    .mini-topbar small {
+      color: var(--quiet);
+      font-size: 9px;
+    }
+    .mini-topbar h3 {
+      margin-top: 2px;
+      font-size: 16px;
+      line-height: 1.05;
+    }
+    .mini-segmented {
+      display: inline-flex;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--border-soft);
+      border-radius: 999px;
+      color: var(--quiet);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+    .mini-segmented span {
+      border-radius: 999px;
+      padding: 3px 6px;
+    }
+    .mini-segmented span:first-child {
+      color: var(--cta-fg);
+      background: var(--accent);
+    }
+    .summary-panels-mini {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+      gap: 8px;
+    }
+    .summary-panel-mini {
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 9px;
+      background: var(--row-bg);
+    }
+    .summary-panel-mini b,
+    .summary-panel-mini small {
+      display: block;
+    }
+    .summary-panel-mini b {
+      font-size: 11px;
+      font-weight: 620;
+    }
+    .summary-panel-mini small {
+      margin-top: 4px;
+      color: var(--quiet);
+      font-size: 9px;
+      line-height: 1.35;
+    }
+    .summary-grid-mini {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .stat-box {
+      min-height: 48px;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 8px;
+      background: var(--row-bg);
+    }
+    .stat-box b {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--fg);
+    }
+    .stat-box small {
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.3;
+    }
+    .metric-row-mini {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .metric-pill-mini {
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 7px;
+      background: color-mix(in oklch, var(--surface) 68%, var(--row-bg));
+    }
+    .metric-pill-mini b,
+    .metric-pill-mini small {
+      display: block;
+    }
+    .metric-pill-mini b {
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+    .metric-pill-mini small {
+      color: var(--quiet);
+      font-size: 8px;
+    }
+    .recent-audit-mini {
+      display: grid;
+      gap: 5px;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 8px;
+      background: var(--row-bg);
+    }
+    .recent-audit-mini strong {
+      font-size: 10px;
+      font-weight: 620;
+    }
+    .recent-audit-mini b {
+      color: var(--accent);
+      letter-spacing: 0.08em;
+    }
+    .recent-audit-mini em {
+      color: var(--quiet);
+      font-style: normal;
+    }
+    .recent-audit-mini span {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) 40px;
+      gap: 6px;
+      align-items: center;
+      color: var(--quiet);
+      font-family: var(--font-mono);
+      font-size: 8px;
+    }
+    .recent-audit-mini code {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--muted);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .asset-mini {
+      display: grid;
+      gap: 8px;
+    }
+    .asset-row {
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr) 88px 70px;
+      gap: 10px;
+      align-items: center;
+      min-height: 40px;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 8px;
+      background: var(--row-bg);
+    }
+    .asset-name {
+      min-width: 0;
+    }
+    .asset-name b, .asset-name small {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .asset-name b { font-size: 12px; }
+    .asset-name small { color: var(--quiet); font-family: var(--font-mono); font-size: 10px; }
+    .tag {
+      justify-self: start;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--tag-fg);
+      background: var(--tag-bg);
+      font-size: 10px;
+      font-weight: 560;
+    }
+    .tag.warn {
+      color: var(--tag-warn-fg);
+      background: var(--tag-warn-bg);
+    }
+    .policy-mini {
+      display: grid;
+      gap: 10px;
+    }
+    .policy-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: var(--row-bg);
+    }
+    .policy-row b, .policy-row small { display: block; }
+    .policy-row b { font-size: 12px; }
+    .policy-row small { color: var(--quiet); font-size: 11px; margin-top: 3px; }
+    .decision {
+      align-self: start;
+      border-radius: 999px;
+      padding: 5px 8px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 620;
+      letter-spacing: 0.04em;
+    }
+    .decision.allow {
+      color: var(--pill-success-fg);
+      background: var(--pill-success-bg);
+    }
+    .decision.deny {
+      color: var(--pill-danger-fg);
+      background: var(--pill-danger-bg);
+    }
+    .decision.review {
+      color: var(--pill-warn-fg);
+      background: var(--pill-warn-bg);
+    }
+    .audit-mini {
+      display: grid;
+      gap: 8px;
+    }
+    .audit-row {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) 58px;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid var(--border-soft);
+      padding: 9px 0;
+      font-size: 11px;
+    }
+    .audit-row code {
+      min-width: 0;
+      color: var(--fg);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .playback {
+      margin-top: 12px;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: var(--terminal-panel);
+      font-family: var(--font-mono);
+      color: var(--terminal-text);
+      font-size: 11px;
+    }
+    .playbar {
+      height: 7px;
+      margin-top: 10px;
+      border-radius: 999px;
+      background: var(--playbar-bg);
+      overflow: hidden;
+    }
+    .playbar span {
+      display: block;
+      width: 58%;
+      height: 100%;
+      background: var(--accent);
+    }
+
+    [data-od-id="audit-screen-card"] .screen-head span {
+      color: var(--muted);
+      font-weight: 620;
+    }
+    [data-od-id="audit-screen-card"] .decision {
+      font-weight: 620;
+      letter-spacing: 0.07em;
+    }
+    [data-od-id="audit-screen-card"] .audit-row code {
+      color: var(--fg);
+      font-weight: 560;
+    }
+    [data-od-id="audit-screen-card"] .audit-row > span:last-child {
+      color: var(--fg);
+      font-weight: 560;
+    }
+    [data-od-id="audit-screen-card"] .playback {
+      color: var(--terminal-text);
+      font-weight: 560;
+    }
+
+    .compact-cockpit {
+      min-height: 262px;
+      box-shadow: none;
+    }
+
+    .compact-cockpit-grid {
+      min-height: 262px;
+      grid-template-columns: 150px minmax(0, 1fr) 210px;
+    }
+
+    .compact-cockpit .terminal-area {
+      border-left: 1px solid var(--cockpit-split-border);
+      border-right: 1px solid var(--cockpit-split-border);
+    }
+
+    .system-grid {
+      display: grid;
+      grid-template-columns: 0.78fr 1.22fr;
+      gap: 16px;
+    }
+    .rules-card, .palette-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      background: var(--surface);
+    }
+    .rules-card h3, .palette-card h3 {
+      margin: 0 0 14px;
+      font-size: 20px;
+    }
+    .rule-list {
+      display: grid;
+      gap: 11px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .rule-list li {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .rule-list b { color: var(--fg); font-weight: 620; }
+    .swatches {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .swatch {
+      min-height: 112px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 10px;
+      background: var(--chip);
+    }
+    .swatch span {
+      align-self: flex-start;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: var(--swatch-label-bg);
+      color: var(--swatch-label-fg);
+      font-size: 12px;
+      font-weight: 610;
+    }
+    .swatch code {
+      align-self: flex-start;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--swatch-label-fg);
+      background: var(--swatch-label-bg);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+    .component-strip {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .component {
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: var(--row-bg);
+    }
+    .component strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .component small {
+      color: var(--quiet);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .footer {
+      margin-top: 44px;
+      border-top: 1px solid var(--border);
+      padding-top: 18px;
+      color: var(--quiet);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 1180px) {
+      .hero { grid-template-columns: 1fr; }
+      .hero-copy { min-height: auto; }
+      .cockpit-grid { grid-template-columns: 190px minmax(0, 1fr); }
+      .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border-soft); }
+      .board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .system-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .page { width: min(100% - 24px, 1500px); padding-top: 16px; }
+      .topbar, .section-head { grid-template-columns: 1fr; }
+      .topbar-actions { align-items: flex-start; flex-direction: column; }
+      .nav, .mini-tabs { justify-content: flex-start; }
+      .hero { padding-top: 28px; }
+      .cockpit-grid, .login-mini, .overview-mini, .board-grid, .component-strip, .swatches {
+        grid-template-columns: 1fr;
+      }
+      .screen-card.featured { grid-column: auto; }
+      .asset-row { grid-template-columns: 20px minmax(0, 1fr); }
+      .asset-row .tag, .asset-row .decision { display: none; }
+      .cockpit-top { grid-template-columns: auto minmax(0, 1fr); }
+      .ai-pill { grid-column: 1 / -1; justify-self: start; }
+      h1 { max-width: none; }
+    }
+
+    @keyframes loginMiniSignal {
+      0% { opacity: 0; clip-path: inset(0 100% 0 0); }
+      18% { opacity: 0.8; }
+      48% { clip-path: inset(0 0 0 0); }
+      76%, 100% { opacity: 0; clip-path: inset(0 0 0 100%); }
+    }
+
+    @keyframes loginMiniScan {
+      0%, 44% { transform: translateX(-30%) rotate(12deg); }
+      66%, 100% { transform: translateX(32%) rotate(12deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition: none !important; animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page" data-od-id="design-board-page">
+    <header class="topbar" data-od-id="board-topbar">
+      <div class="brand" data-od-id="brand-identity">
+        <span class="brand-mark" aria-hidden="true"><img src="src/assets/system-icon.png" alt="" /></span>
+        <div>
+          <strong>GoSSHD AI Bastion</strong>
+          <span>整体设计稿 · 安全控制平面方向</span>
+        </div>
+      </div>
+      <div class="topbar-actions" data-od-id="board-topbar-actions">
+        <nav class="nav" aria-label="设计稿导航" data-od-id="board-nav">
+          <a href="#north-star">方向</a>
+          <a href="#screens">关键页面</a>
+          <a href="#system">视觉系统</a>
+          <a href="#handoff">交付说明</a>
+        </nav>
+        <div class="theme-toggle" role="group" aria-label="风格切换" data-od-id="theme-toggle">
+          <button type="button" data-theme-option="dark" aria-pressed="false" data-od-id="theme-dark-button">深色</button>
+          <button type="button" data-theme-option="light" aria-pressed="true" data-od-id="theme-light-button">白色</button>
+        </div>
+      </div>
+    </header>
+
+    <section id="north-star" class="hero" data-od-id="north-star">
+      <div class="hero-copy" data-od-id="hero-copy">
+        <div>
+          <p class="eyebrow">AI SSH Bastion · Control Plane</p>
+          <h1 data-od-id="hero-title">把 SSH 风险变成可审核的工作流</h1>
+          <p data-od-id="hero-description">这套视觉方向把堡垒机从“连接工具”提升为安全控制平面：目标资产、AI 审核、人工确认、终端协作、文件操作和审计回放在同一套清晰层级里工作。</p>
+          <div class="hero-actions" data-od-id="hero-actions">
+            <a class="cta" href="#screens" data-od-id="hero-primary-action">查看关键页面</a>
+            <a class="ghost-link" href="#system" data-od-id="hero-secondary-action">查看视觉规则</a>
+          </div>
+        </div>
+        <div class="principles" data-od-id="design-principles">
+          <div class="principle">
+            <span class="index-dot">01</span>
+            <span><b>风险先于装饰</b><small>拒绝、待审核、危险命令要比背景光效更醒目。</small></span>
+          </div>
+          <div class="principle">
+            <span class="index-dot">02</span>
+            <span><b>终端是主画布</b><small>连接工作台里终端、文件和遥测各有边界，不互相抢焦点。</small></span>
+          </div>
+          <div class="principle">
+            <span class="index-dot">03</span>
+            <span><b>AI 是协作者</b><small>AI 负责解释、建议和拦截，不抢走操作者的判断权。</small></span>
+          </div>
+        </div>
+      </div>
+
+      <article class="cockpit" data-od-id="main-cockpit-preview">
+        <div class="cockpit-top">
+          <div class="window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="cockpit-title">prod-db-01 / terminal / session requires approval</div>
+          <span class="ai-pill">AI 审核开启</span>
+        </div>
+        <div class="cockpit-grid">
+          <aside class="rail" data-od-id="cockpit-server-rail">
+            <p class="rail-title">资产树</p>
+            <div class="server-row active"><span class="status-dot"></span><span><strong>prod-db-01</strong><small>ssh: db-prod</small></span></div>
+            <div class="server-row"><span class="status-dot"></span><span><strong>edge-gateway</strong><small>agent: cn-east</small></span></div>
+            <div class="server-row"><span class="status-dot warn"></span><span><strong>payment-api</strong><small>pending review</small></span></div>
+            <div class="server-row"><span class="status-dot"></span><span><strong>audit-node</strong><small>recording on</small></span></div>
+          </aside>
+          <section class="terminal-area" data-od-id="cockpit-terminal">
+            <div class="terminal-toolbar">
+              <div class="tab-strip">
+                <span class="tab active">prod-db-01</span>
+                <span class="tab">edge-gateway</span>
+              </div>
+              <span class="risk-chip">待人工确认 · 24s</span>
+            </div>
+            <div class="terminal">
+              <span class="comment"># AI 已识别高风险写操作，进入人工审核</span>
+              <span class="cmd">$ sudo systemctl restart postgresql</span>
+              <span class="deny">policy: deny by default_action, matched prefix sudo</span>
+              <span class="comment">reason: 生产数据库重启会中断当前连接池</span>
+              <span class="allow">suggestion: 先查看连接数与复制延迟，再申请重启窗口</span>
+              <span class="cmd">$ psql -c "select count(*) from pg_stat_activity;"</span>
+              <span>active_sessions: 48</span>
+            </div>
+          </section>
+          <aside class="inspector" data-od-id="cockpit-inspector">
+            <p class="panel-title">AI 审核卡片</p>
+            <div class="review-card">
+              <h3>需要管理员确认</h3>
+              <p>命令触发生产库重启规则。AI 建议先执行只读诊断命令，并记录变更窗口。</p>
+              <div class="review-actions">
+                <button class="approve">允许一次</button>
+                <button class="reject">拒绝</button>
+              </div>
+            </div>
+            <div class="meter-list">
+              <div><div class="meter-label"><span>CPU</span><span>42%</span></div><div class="meter"><span style="width: 42%"></span></div></div>
+              <div><div class="meter-label"><span>内存</span><span>68%</span></div><div class="meter warn"><span style="width: 68%"></span></div></div>
+              <div><div class="meter-label"><span>审计录制</span><span>开启</span></div><div class="meter success"><span style="width: 100%"></span></div></div>
+            </div>
+          </aside>
+        </div>
+      </article>
+    </section>
+
+    <section id="screens" class="section" data-od-id="screens-section">
+      <div class="section-head">
+        <div>
+          <span class="section-kicker">Screen System</span>
+          <h2 data-od-id="screens-title">关键页面缩略稿</h2>
+          <p>这不是最终代码结构，而是整体视觉稿：每个缩略页表达一个页面的主任务和层级关系，后续可逐页落到 React 组件里。</p>
+        </div>
+        <div class="mini-tabs" data-od-id="screen-filter-tabs">
+          <button class="active" data-filter="all">全部</button>
+          <button data-filter="ops">运维</button>
+          <button data-filter="risk">风险</button>
+          <button data-filter="access">访问</button>
+        </div>
+      </div>
+
+      <div class="board-grid" data-od-id="screen-grid">
+        <article class="screen-card featured" data-kind="access" data-od-id="login-screen-card">
+          <header class="screen-head"><strong>登录 / 品牌入口</strong><span>Auth</span></header>
+          <div class="screen-body login-mini">
+            <div class="login-brand">
+              <h3>AI 堡垒机</h3>
+              <p class="comment">统一 SSH 入口、AI 风险审核、全链路审计。</p>
+            </div>
+            <div class="login-form">
+              <div class="input-line"></div>
+              <div class="input-line"></div>
+              <div class="button-line"></div>
+              <div class="input-line short"></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="screen-card" data-kind="ops" data-od-id="overview-screen-card">
+          <header class="screen-head"><strong>控制台总览</strong><span>Dashboard</span></header>
+          <div class="screen-body overview-mini">
+            <div class="sidebar-mini">
+              <div class="sidebar-brand-mini"><span aria-hidden="true"><img src="src/assets/system-icon.png" alt="" /></span><b>GoSSHD</b></div>
+              <div class="user-mini"><strong>安全管理员</strong><small>ops@example.com</small></div>
+              <div class="side-nav-mini">
+                <div class="nav-line active">控制台</div>
+                <div class="nav-line">组织</div>
+                <div class="nav-line">授权</div>
+                <div class="nav-line">SSH 服务</div>
+                <div class="nav-line">审计</div>
+              </div>
+            </div>
+            <div class="dashboard-mini">
+              <div class="mini-topbar">
+                <span><small>AI SSH 安全控制平面</small><h3>控制台</h3></span>
+                <div class="mini-segmented"><span>深色</span><span>中文</span></div>
+              </div>
+              <div class="summary-panels-mini">
+                <div class="summary-panel-mini">
+                  <b>访问路径</b>
+                  <small>密钥、策略、SSH 服务和审计按现有 Dashboard 的引导卡组织。</small>
+                  <div class="summary-grid-mini">
+                    <div class="stat-box"><b>01</b><small>授权</small></div>
+                    <div class="stat-box"><b>02</b><small>策略</small></div>
+                    <div class="stat-box"><b>03</b><small>服务</small></div>
+                    <div class="stat-box"><b>04</b><small>审计</small></div>
+                  </div>
+                </div>
+                <div class="summary-panel-mini">
+                  <b>控制摘要</b>
+                  <small>沿用现有控制台的信息密度，数字仅作视觉占位。</small>
+                  <div class="summary-grid-mini">
+                    <div class="stat-box"><b>24</b><small>密钥</small></div>
+                    <div class="stat-box"><b>128</b><small>服务</small></div>
+                    <div class="stat-box"><b>17</b><small>策略</small></div>
+                    <div class="stat-box"><b>96</b><small>审计</small></div>
+                  </div>
+                </div>
+              </div>
+              <div class="metric-row-mini">
+                <div class="metric-pill-mini"><b>128</b><small>SSH 服务</small></div>
+                <div class="metric-pill-mini"><b>17</b><small>策略</small></div>
+                <div class="metric-pill-mini"><b>8</b><small>成员组</small></div>
+                <div class="metric-pill-mini"><b>96</b><small>审计记录</small></div>
+              </div>
+              <div class="recent-audit-mini">
+                <strong>最近审计</strong>
+                <span><b>ALLOW</b><code>journalctl -u api</code><em>10:24</em></span>
+                <span><b>REVIEW</b><code>scp report.log</code><em>10:42</em></span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="screen-card" data-kind="ops" data-od-id="assets-screen-card">
+          <header class="screen-head"><strong>SSH 服务资产</strong><span>Targets</span></header>
+          <div class="screen-body asset-mini">
+            <div class="asset-row"><span class="status-dot"></span><span class="asset-name"><b>prod-db-01</b><small>db-prod / 10.0.4.12</small></span><span class="tag warn">生产</span><span class="decision allow">可连接</span></div>
+            <div class="asset-row"><span class="status-dot"></span><span class="asset-name"><b>edge-gateway</b><small>agent / cn-east</small></span><span class="tag">私有节点</span><span class="decision allow">在线</span></div>
+            <div class="asset-row"><span class="status-dot warn"></span><span class="asset-name"><b>payment-api</b><small>api-prod / 10.0.7.8</small></span><span class="tag warn">受控</span><span class="decision deny">限制</span></div>
+            <div class="asset-row"><span class="status-dot"></span><span class="asset-name"><b>audit-node</b><small>recording / 10.0.9.2</small></span><span class="tag">审计</span><span class="decision allow">录制</span></div>
+          </div>
+        </article>
+
+        <article class="screen-card" data-kind="risk" data-od-id="policy-screen-card">
+          <header class="screen-head"><strong>命令安全组</strong><span>Policy</span></header>
+          <div class="screen-body policy-mini">
+            <div class="policy-row"><span><b>生产数据库保护</b><small>默认拒绝 · 绑定 5 台主机 · 需人工审核</small></span><span class="decision deny">DENY</span></div>
+            <div class="policy-row"><span><b>只读诊断命令</b><small>允许 top / ps / df / journalctl 只读查看</small></span><span class="decision allow">ALLOW</span></div>
+            <div class="policy-row"><span><b>文件传输限制</b><small>上传关闭 · 下载需记录原因</small></span><span class="decision review">REVIEW</span></div>
+          </div>
+        </article>
+
+        <article class="screen-card featured" data-kind="ops" data-od-id="connect-screen-card">
+          <header class="screen-head"><strong>连接工作台</strong><span>Connect</span></header>
+          <div class="screen-body">
+            <div class="cockpit compact-cockpit">
+              <div class="cockpit-grid compact-cockpit-grid">
+                <aside class="rail"><p class="rail-title">主机</p><div class="server-row active"><span class="status-dot"></span><span><strong>prod-db</strong><small>10.0.4.12</small></span></div><div class="server-row"><span class="status-dot"></span><span><strong>edge</strong><small>agent</small></span></div></aside>
+                <section class="terminal"><span class="cmd">$ ssh db-prod</span><span>session recording enabled</span><span class="cmd">$ tail -f /var/log/app.log</span><span class="comment">AI: 检测到只读日志命令，已放行。</span></section>
+                <aside class="inspector"><p class="panel-title">文件 / 遥测</p><div class="meter-list"><div><div class="meter-label"><span>CPU</span><span>37%</span></div><div class="meter"><span style="width:37%"></span></div></div><div><div class="meter-label"><span>磁盘</span><span>72%</span></div><div class="meter warn"><span style="width:72%"></span></div></div></div></aside>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="screen-card" data-kind="risk" data-od-id="audit-screen-card">
+          <header class="screen-head"><strong>审计与回放</strong><span>Audit</span></header>
+          <div class="screen-body audit-mini">
+            <div class="audit-row"><span class="decision allow">ALLOW</span><code>journalctl -u api</code><span>10:24</span></div>
+            <div class="audit-row"><span class="decision deny">DENY</span><code>sudo reboot</code><span>10:31</span></div>
+            <div class="audit-row"><span class="decision review">REVIEW</span><code>scp report.log</code><span>10:42</span></div>
+            <div class="playback">终端回放 · prod-db-01<div class="playbar"><span></span></div></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="system" class="section" data-od-id="visual-system-section">
+      <div class="section-head">
+        <div>
+          <span class="section-kicker">Visual System</span>
+          <h2 data-od-id="visual-system-title">视觉系统规则</h2>
+          <p>这套方向保留 AI 协作的可感知特征，但把装饰收回到边界、状态和终端语境里，避免做成泛 AI 模板。</p>
+        </div>
+      </div>
+      <div class="system-grid">
+        <article class="rules-card" data-od-id="rules-card">
+          <h3>设计原则</h3>
+          <ul class="rule-list">
+            <li><span class="index-dot">1</span><span><b>可审计优先：</b>所有危险动作必须有状态、原因、操作者和时间线。</span></li>
+            <li><span class="index-dot">2</span><span><b>AI 不喧宾夺主：</b>AI 只在建议、解释、拦截处出现，终端输入仍是主任务。</span></li>
+            <li><span class="index-dot">3</span><span><b>密度服务判断：</b>资产、策略、审计表格保留高密度，但用行状态和标签帮助扫描。</span></li>
+            <li><span class="index-dot">4</span><span><b>动效只表达状态：</b>连接、审核倒计时、录制进度、文件操作反馈可以动；背景不做炫技。</span></li>
+            <li><span class="index-dot">5</span><span><b>节奏统一：</b>160ms 反馈、240ms 控件、520ms 页面入场；所有循环动效必须支持 reduced motion。</span></li>
+          </ul>
+        </article>
+        <article class="palette-card" data-od-id="palette-card">
+          <h3>色彩和组件</h3>
+          <div class="swatches">
+            <div class="swatch" style="--chip: var(--terminal)"><span>Terminal</span><code>主画布</code></div>
+            <div class="swatch" style="--chip: var(--surface)"><span>Surface</span><code>面板</code></div>
+            <div class="swatch" style="--chip: var(--accent)"><span>AI Cyan</span><code>协作/主行动</code></div>
+            <div class="swatch" style="--chip: var(--warn)"><span>Review</span><code>待确认</code></div>
+            <div class="swatch" style="--chip: var(--danger)"><span>Danger</span><code>拒绝/高危</code></div>
+          </div>
+          <div class="component-strip">
+            <div class="component"><strong>状态标签</strong><small>用于 allow / deny / review，不用于装饰。</small></div>
+            <div class="component"><strong>终端窗格</strong><small>低亮度背景，命令和 AI 建议分色。</small></div>
+            <div class="component"><strong>审核卡片</strong><small>风险原因、倒计时、允许/拒绝并列。</small></div>
+            <div class="component"><strong>审计回放</strong><small>时间轴和终端输出绑定，强调取证感。</small></div>
+            <div class="component"><strong>Motion 反馈</strong><small>页面错层入场、行状态 hover、登录扫描线共用同一套节奏。</small></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="handoff" class="footer" data-od-id="handoff-notes">
+      <strong>落地建议：</strong>第一轮先把这套视觉系统映射到 `web/styles.css` 的 token、表格、面板、按钮、状态标签和连接工作台布局；第二轮再逐页重构信息层级。设计板中的数字为视觉占位，不作为真实产品指标。
+    </section>
+  </main>
+
+  <script>
+    const THEME_KEY = "ai-bastion-design-theme";
+    const themeButtons = Array.from(document.querySelectorAll("[data-theme-option]"));
+    function setTheme(theme) {
+      const nextTheme = theme === "light" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", nextTheme);
+      themeButtons.forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.getAttribute("data-theme-option") === nextTheme));
+      });
+      try {
+        localStorage.setItem(THEME_KEY, nextTheme);
+      } catch (_) {}
+    }
+
+    const activeTheme = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+    setTheme(activeTheme);
+    themeButtons.forEach((button) => {
+      button.addEventListener("click", () => setTheme(button.getAttribute("data-theme-option")));
+    });
+
+    const filterButtons = Array.from(document.querySelectorAll("[data-filter]"));
+    const cards = Array.from(document.querySelectorAll(".screen-card[data-kind]"));
+    filterButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const filter = button.getAttribute("data-filter") || "all";
+        filterButtons.forEach((item) => item.classList.toggle("active", item === button));
+        cards.forEach((card) => {
+          const visible = filter === "all" || card.getAttribute("data-kind") === filter;
+          card.style.display = visible ? "" : "none";
+        });
+      });
+    });
+  </script>
+</body>
+</html>
