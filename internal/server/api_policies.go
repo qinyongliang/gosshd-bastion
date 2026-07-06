@@ -19,7 +19,8 @@ type apiPolicy struct {
 	AllowPortForward           bool            `json:"allow_port_forward"`
 	AllowUpload                bool            `json:"allow_upload"`
 	AllowDownload              bool            `json:"allow_download"`
-	AllowInteractive           bool            `json:"allow_interactive"`
+	AllowSSHInteractive        bool            `json:"allow_ssh_interactive"`
+	AllowWebTerminal           bool            `json:"allow_web_terminal"`
 	AllowManualReview          bool            `json:"allow_manual_review"`
 	ManualReviewTimeoutSeconds int             `json:"manual_review_timeout_seconds"`
 	TargetIDs                  []string        `json:"target_ids"`
@@ -319,7 +320,8 @@ func (a *App) handleCreatePolicy(w http.ResponseWriter, r *http.Request, user st
 		AllowPortForward           bool   `json:"allow_port_forward"`
 		AllowUpload                bool   `json:"allow_upload"`
 		AllowDownload              bool   `json:"allow_download"`
-		AllowInteractive           bool   `json:"allow_interactive"`
+		AllowSSHInteractive        bool   `json:"allow_ssh_interactive"`
+		AllowWebTerminal           bool   `json:"allow_web_terminal"`
 		AllowManualReview          bool   `json:"allow_manual_review"`
 		ManualReviewTimeoutSeconds int    `json:"manual_review_timeout_seconds"`
 		PromptTitle                string `json:"prompt_title"`
@@ -363,7 +365,8 @@ func (a *App) handleCreatePolicy(w http.ResponseWriter, r *http.Request, user st
 		AllowPortForward:           req.AllowPortForward,
 		AllowUpload:                req.AllowUpload,
 		AllowDownload:              req.AllowDownload,
-		AllowInteractive:           req.AllowInteractive,
+		AllowSSHInteractive:        req.AllowSSHInteractive,
+		AllowWebTerminal:           req.AllowWebTerminal,
 		AllowManualReview:          req.AllowManualReview,
 		ManualReviewTimeoutSeconds: req.ManualReviewTimeoutSeconds,
 	})
@@ -389,7 +392,8 @@ func (a *App) handleUpdatePolicy(w http.ResponseWriter, r *http.Request, user st
 		AllowPortForward           bool   `json:"allow_port_forward"`
 		AllowUpload                bool   `json:"allow_upload"`
 		AllowDownload              bool   `json:"allow_download"`
-		AllowInteractive           bool   `json:"allow_interactive"`
+		AllowSSHInteractive        bool   `json:"allow_ssh_interactive"`
+		AllowWebTerminal           bool   `json:"allow_web_terminal"`
 		AllowManualReview          bool   `json:"allow_manual_review"`
 		ManualReviewTimeoutSeconds int    `json:"manual_review_timeout_seconds"`
 	}
@@ -409,7 +413,8 @@ func (a *App) handleUpdatePolicy(w http.ResponseWriter, r *http.Request, user st
 		AllowPortForward:           req.AllowPortForward,
 		AllowUpload:                req.AllowUpload,
 		AllowDownload:              req.AllowDownload,
-		AllowInteractive:           req.AllowInteractive,
+		AllowSSHInteractive:        req.AllowSSHInteractive,
+		AllowWebTerminal:           req.AllowWebTerminal,
 		AllowManualReview:          req.AllowManualReview,
 		ManualReviewTimeoutSeconds: req.ManualReviewTimeoutSeconds,
 	})
@@ -698,7 +703,8 @@ func apiPolicyFromStore(policy store.CommandPolicy) apiPolicy {
 		AllowPortForward:           policy.AllowPortForward,
 		AllowUpload:                policy.AllowUpload,
 		AllowDownload:              policy.AllowDownload,
-		AllowInteractive:           policy.AllowInteractive,
+		AllowSSHInteractive:        policy.AllowSSHInteractive,
+		AllowWebTerminal:           policy.AllowWebTerminal,
 		AllowManualReview:          policy.AllowManualReview,
 		ManualReviewTimeoutSeconds: policy.ManualReviewTimeoutSeconds,
 		TargetIDs:                  policy.TargetIDs,

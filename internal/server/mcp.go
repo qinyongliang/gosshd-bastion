@@ -618,7 +618,8 @@ func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 				AllowPortForward:           in.AllowPortForward,
 				AllowUpload:                in.AllowUpload,
 				AllowDownload:              in.AllowDownload,
-				AllowInteractive:           in.AllowInteractive,
+				AllowSSHInteractive:        in.AllowSSHInteractive,
+				AllowWebTerminal:           in.AllowWebTerminal,
 				AllowManualReview:          in.AllowManualReview,
 				ManualReviewTimeoutSeconds: in.ManualReviewTimeoutSeconds,
 			})
@@ -913,7 +914,8 @@ type mcpPolicyCreateInput struct {
 	AllowPortForward           bool   `json:"allow_port_forward,omitempty"`
 	AllowUpload                bool   `json:"allow_upload,omitempty"`
 	AllowDownload              bool   `json:"allow_download,omitempty"`
-	AllowInteractive           bool   `json:"allow_interactive,omitempty"`
+	AllowSSHInteractive        bool   `json:"allow_ssh_interactive,omitempty"`
+	AllowWebTerminal           bool   `json:"allow_web_terminal,omitempty"`
 	AllowManualReview          bool   `json:"allow_manual_review,omitempty"`
 	ManualReviewTimeoutSeconds int    `json:"manual_review_timeout_seconds,omitempty"`
 }

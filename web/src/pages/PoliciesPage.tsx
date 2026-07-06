@@ -134,7 +134,8 @@ function PolicyBindingSummary({ policy, data }: { policy: Policy; data: ConsoleD
 function PolicyCapabilities({ policy }: { policy: Policy }) {
   const { t } = useI18n();
   const items = [
-    policy.allow_interactive && t("policyTerminal"),
+    policy.allow_ssh_interactive && t("policySSHTerminal"),
+    policy.allow_web_terminal && t("policyWebTerminal"),
     policy.allow_port_forward && t("policyForward"),
     policy.allow_upload && t("policyUpload"),
     policy.allow_download && t("policyDownload"),
@@ -152,7 +153,8 @@ function PolicyFormModal({ data, onClose, onSubmit }: { data: ConsoleData; onClo
       <Select label={t("policyLLM")} name="llm_config_id" options={[["", t("commonNotUse")], ...data.llms.map((item): [string, string] => [item.id, item.name])]} />
       <Select label={t("policyPrompt")} name="llm_prompt_id" options={[["", t("commonDefault")], ...data.prompts.map((item): [string, string] => [item.id, item.title])]} />
       <label className="field span-two"><span>{t("policyIPAllowlist")}</span><textarea name="ip_allowlist" placeholder="private, 10.0.0.0/8, 192.168.1.1-192.168.1.20" /></label>
-      <Toggle name="allow_interactive" label={t("policyAllowInteractive")} />
+      <Toggle name="allow_ssh_interactive" label={t("policyAllowSSHInteractive")} />
+      <Toggle name="allow_web_terminal" label={t("policyAllowWebTerminal")} />
       <Toggle name="allow_port_forward" label={t("policyAllowPortForward")} />
       <Toggle name="allow_upload" label={t("policyAllowUpload")} />
       <Toggle name="allow_download" label={t("policyAllowDownload")} />
@@ -184,7 +186,8 @@ function PolicyDrawer({ data, policy, onClose }: { data: ConsoleData; policy: Po
           <ResourceSelect label={t("policyPrompt")} name="llm_prompt_id" value={policy.llm_prompt_id || ""} emptyLabel={t("commonDefault")} items={data.prompts.map((item): [string, string] => [item.id, item.title])} onCreate={() => setResourceMode("prompts")} onManage={() => setResourceMode("prompts")} />
           <label className="field span-two"><span>{t("policyIPAllowlist")}</span><textarea name="ip_allowlist" defaultValue={policy.ip_allowlist || ""} placeholder="private, 10.0.0.0/8, 192.168.1.1-192.168.1.20" /></label>
           <div className="policy-toggle-grid span-two">
-            <Toggle name="allow_interactive" label={t("policyAllowInteractive")} defaultChecked={policy.allow_interactive} />
+            <Toggle name="allow_ssh_interactive" label={t("policyAllowSSHInteractive")} defaultChecked={policy.allow_ssh_interactive} />
+            <Toggle name="allow_web_terminal" label={t("policyAllowWebTerminal")} defaultChecked={policy.allow_web_terminal} />
             <Toggle name="allow_port_forward" label={t("policyAllowPortForward")} defaultChecked={policy.allow_port_forward} />
             <Toggle name="allow_upload" label={t("policyAllowUpload")} defaultChecked={policy.allow_upload} />
             <Toggle name="allow_download" label={t("policyAllowDownload")} defaultChecked={policy.allow_download} />
@@ -483,13 +486,16 @@ function ResourceRow({ title, detail, meta, active, onSelect, onDelete, disabled
 }
 
 function policyToPayload(policy: Policy, overrides: Partial<Policy> = {}) {
+  const allowSSHInteractive = Boolean(policy.allow_ssh_interactive);
+  const allowWebTerminal = Boolean(policy.allow_web_terminal);
   return {
     name: policy.name,
     default_action: policy.default_action,
     llm_config_id: policy.llm_config_id || "",
     llm_prompt_id: policy.llm_prompt_id || "",
     ip_allowlist: policy.ip_allowlist || "",
-    allow_interactive: Boolean(policy.allow_interactive),
+    allow_ssh_interactive: allowSSHInteractive,
+    allow_web_terminal: allowWebTerminal,
     allow_port_forward: Boolean(policy.allow_port_forward),
     allow_upload: Boolean(policy.allow_upload),
     allow_download: Boolean(policy.allow_download),

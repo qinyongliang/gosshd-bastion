@@ -446,7 +446,8 @@ func TestRepositoryCreatesUserOrganizationKeyTargetPolicyAndAudit(t *testing.T) 
 		AllowPortForward:           true,
 		AllowUpload:                true,
 		AllowDownload:              false,
-		AllowInteractive:           true,
+		AllowSSHInteractive:        true,
+		AllowWebTerminal:           false,
 		AllowManualReview:          true,
 		ManualReviewTimeoutSeconds: 12,
 	}); err != nil {

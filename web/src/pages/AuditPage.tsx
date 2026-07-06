@@ -44,6 +44,7 @@ export function AuditPage({ data }: { data: ConsoleData }) {
           <option value="">{t("commonAll")}</option>
           <option value="exec">{t("auditTypeExec")}</option>
           <option value="shell">{t("auditTypeInteractive")}</option>
+          <option value="web_terminal">{t("auditTypeWebTerminal")}</option>
         </select>
         <input name="started_from" type="datetime-local" defaultValue={filters.started_from} />
         <input name="started_to" type="datetime-local" defaultValue={filters.started_to} />
