@@ -33,11 +33,17 @@ export function AuthPage({ dingTalkEnabled, registrationEnabled, branding }: { d
   return (
     <section className="auth-screen">
       <div className="brand-panel">
+        <div className="auth-signal-map" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
         <div className="brand-row"><BrandMark branding={branding} /><span>{name}</span></div>
         <h1>{name}</h1>
         <p>{description}</p>
       </div>
       <div className="auth-card">
+        <div className="auth-card-scan" aria-hidden="true" />
         <div className="auth-card-head">
           <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
           <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />

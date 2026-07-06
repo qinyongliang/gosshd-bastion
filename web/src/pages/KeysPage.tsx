@@ -52,7 +52,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
   const tokens = mcpTokens.data?.tokens || [];
   return (
     <>
-      <section className="resource-head">
+      <section className="resource-head keys-head">
         <div>
           <small>{isClientMode ? "MCP" : t("keysPageEyebrow")}</small>
           <h2>{isClientMode ? t("mcpServiceConfigTitle") : t("keys")}</h2>
@@ -61,7 +61,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
         {!isClientMode && <button type="button" className="primary" onClick={() => setModal(true)}><Plus />{t("addPublicKey")}</button>}
       </section>
       {!isClientMode && (
-        <Panel title={t("keysListTitle")} subtitle={t("keysListBody")}>
+        <Panel title={t("keysListTitle")} subtitle={t("keysListBody")} className="keys-list-panel">
           {data.keys.length ? <SimpleTable headers={[t("commonName"), t("keysFingerprint"), t("commonCreatedAt"), t("commonActions")]} rows={data.keys.map((key) => [
             <strong>{key.name}</strong>,
             <code>{key.fingerprint}</code>,
