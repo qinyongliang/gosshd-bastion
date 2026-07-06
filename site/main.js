@@ -24,13 +24,19 @@
   const mobileBtn = $('.mobile-menu-btn');
   const mobileLinks = $('.mobile-links');
   if (mobileBtn && mobileLinks) {
+    const setMobileMenu = (open) => {
+      mobileLinks.classList.toggle('open', open);
+      mobileBtn.setAttribute('aria-expanded', String(open));
+    };
     mobileBtn.addEventListener('click', () => {
-      const open = mobileLinks.style.display === 'flex';
-      mobileLinks.style.display = open ? 'none' : 'flex';
+      setMobileMenu(!mobileLinks.classList.contains('open'));
     });
     mobileLinks.querySelectorAll('a').forEach((a) =>
-      a.addEventListener('click', () => (mobileLinks.style.display = 'none'))
+      a.addEventListener('click', () => setMobileMenu(false))
     );
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 900) setMobileMenu(false);
+    });
   }
 
   /* ---------- Reveal on scroll ---------- */

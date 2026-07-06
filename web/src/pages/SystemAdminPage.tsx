@@ -14,7 +14,7 @@ export function SystemAdminPage({ data }: { data: ConsoleData }) {
   const adminOrgs = useQuery({ queryKey: ["admin-orgs"], queryFn: api.adminOrgs, enabled: data.user.is_system_admin && modal === "orgs" });
   return (
     <>
-      <section className="resource-head">
+      <section className="resource-head system-admin-head">
         <div><small>{appDescription(data.runtime)}</small><h2>{t("systemAdminTitle")}</h2><p>{t("systemAdminBody")}</p></div>
         <div className="resource-actions">
           <button type="button" onClick={() => setModal("branding")}>{t("adminBrandingSettings")}</button>
@@ -23,7 +23,7 @@ export function SystemAdminPage({ data }: { data: ConsoleData }) {
           <button type="button" className="primary" onClick={() => setModal("ldap")}>{t("adminProviderLDAP")}</button>
         </div>
       </section>
-      <div className="identity-grid">
+      <div className="identity-grid system-admin-grid">
         <button type="button" className="admin-card" onClick={() => setModal("users")}><strong>{t("adminAccountsTitle")}</strong><span>{t("adminAccountsBody")}</span></button>
         <button type="button" className="admin-card" onClick={() => setModal("orgs")}><strong>{t("adminOrgsTitle")}</strong><span>{t("adminOrgsBody")}</span></button>
       </div>

@@ -71,8 +71,8 @@ export function NavButton({ to, label, icon, onClick }: { to: string; label: str
   return <Link className={clsx("nav-link", active && "active")} to={to} onClick={onClick}>{icon}{label}</Link>;
 }
 
-export function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
-  return <section className="panel"><div className="panel-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div></div>{children}</section>;
+export function Panel({ title, subtitle, children, className = "" }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
+  return <section className={clsx("panel", className)}><div className="panel-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div></div>{children}</section>;
 }
 
 export function SummaryCard({ index, title, body }: { index: string; title: string; body: string }) {
