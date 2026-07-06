@@ -6,10 +6,10 @@
   --line: oklch(84% 0.012 240);
   --line-soft: oklch(91% 0.008 240);
   --line-strong: oklch(74% 0.035 225);
-  --panel: rgba(255, 255, 255, 0.9);
-  --panel-strong: rgba(255, 255, 255, 0.98);
+  --panel: #ffffff;
+  --panel-strong: #ffffff;
   --bg: #ffffff;
-  --bg-end: oklch(97% 0.004 238);
+  --bg-end: #ffffff;
   --accent: oklch(56% 0.135 204);
   --accent-2: oklch(54% 0.14 154);
   --warning: oklch(62% 0.13 78);
@@ -18,8 +18,8 @@
   --terminal-chrome: oklch(18% 0.03 246);
   --terminal-text: oklch(88% 0.036 230);
   --terminal-muted: oklch(70% 0.035 232);
-  --control-surface: oklch(98% 0.005 238);
-  --control-side: oklch(98% 0.006 238);
+  --control-surface: #ffffff;
+  --control-side: #ffffff;
   --brand-icon: url("./src/assets/system-icon.png");
   --brand-watermark: linear-gradient(135deg, oklch(50% 0.13 205), oklch(52% 0.12 154));
   --brand-watermark-opacity: 0.035;
@@ -107,6 +107,10 @@ body::after {
   opacity: 0.028;
   -webkit-mask: var(--brand-icon) center / contain no-repeat;
   mask: var(--brand-icon) center / contain no-repeat;
+}
+
+html[data-theme="light"] body::after {
+  display: none;
 }
 
 button, input, textarea, select {
@@ -4453,7 +4457,7 @@ html[data-theme="light"] .resource-guide,
 html[data-theme="light"] .section-block,
 html[data-theme="light"] .cloud-table,
 html[data-theme="light"] .modal {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 252, 255, 0.82));
+  background: #ffffff;
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
@@ -4461,20 +4465,16 @@ html[data-theme="light"] .resource-head.org-head,
 html[data-theme="light"] .resource-head.members-head,
 html[data-theme="light"] .resource-head.keys-head,
 html[data-theme="light"] .resource-head.system-admin-head {
-  background:
-    linear-gradient(118deg, rgba(14, 165, 183, 0.11), transparent 34%, rgba(20, 184, 166, 0.08) 100%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 252, 255, 0.86));
+  background: #ffffff;
 }
 
 html[data-theme="light"] .drawer {
-  background: #f8fcff;
+  background: #ffffff;
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 html[data-theme="light"] .sidebar {
-  background:
-    linear-gradient(180deg, color-mix(in oklch, var(--accent) 7%, transparent), transparent 36%),
-    rgba(246, 250, 253, 0.9);
+  background: #ffffff;
 }
 
 html[data-theme="light"] .tabs,
@@ -4627,12 +4627,12 @@ html[data-theme="light"] .surface-head,
 html[data-theme="light"] .modal > header,
 html[data-theme="light"] .drawer > header,
 html[data-theme="light"] .modal-actions {
-  background: rgba(248, 252, 255, 0.96);
+  background: #ffffff;
 }
 
 html[data-theme="light"] .drawer .surface-head,
 html[data-theme="light"] .drawer > header {
-  background: #f8fcff;
+  background: #ffffff;
 }
 
 html[data-theme="light"] .drawer-scrim,
@@ -4668,6 +4668,10 @@ html[data-theme="light"] .tag-row .tag-chip {
     var(--bg);
   background-size: 40px 40px, 40px 40px, 100% 100%, 100% 100%, auto, auto;
   animation: workspaceIn var(--motion-slow) var(--ease-standard) both;
+}
+
+html[data-theme="light"] .connect-workspace {
+  background: #ffffff;
 }
 
 .connect-workspace::before {
