@@ -390,8 +390,10 @@ __gosshd_precmd() {
 PROMPT_COMMAND='__gosshd_precmd'
 trap '__gosshd_preexec' DEBUG
 __GOSSHD_BASHRC__
+  stty echo 2>/dev/null || true
   GOSSHD_BASHRC="$__gosshd_rc" exec bash --rcfile "$__gosshd_rc" -i
 fi
+stty echo 2>/dev/null || true
 exec "${SHELL:-/bin/sh}" -i
 `
 }

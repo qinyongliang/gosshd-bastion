@@ -998,6 +998,9 @@ func TestWebDirectTerminalStartsShellBeforeBootstrap(t *testing.T) {
 	if !strings.Contains(session.output.String(), "bootstrap-ok") {
 		t.Fatalf("web direct terminal did not bootstrap through shell: %q", session.output.String())
 	}
+	if strings.Contains(session.output.String(), "if command -v bash") || strings.Contains(session.output.String(), "__GOSSHD_BASHRC__") {
+		t.Fatalf("web direct terminal should not echo bootstrap script: %q", session.output.String())
+	}
 }
 
 func startBastionTestApp(t *testing.T) (*App, string, string, func()) {
@@ -1481,9 +1484,11 @@ func handleTestBootstrapShellConn(raw net.Conn, cfg *gossh.ServerConfig) {
 		}
 		go func() {
 			defer channel.Close()
+			echoInput := true
 			for req := range requests {
 				switch req.Type {
 				case "pty-req":
+					echoInput = !ptyRequestDisablesEcho(req.Payload)
 					req.Reply(true, nil)
 				case "exec":
 					req.Reply(true, nil)
@@ -1500,6 +1505,9 @@ func handleTestBootstrapShellConn(raw net.Conn, cfg *gossh.ServerConfig) {
 					}()
 					select {
 					case data := <-dataCh:
+						if echoInput {
+							_, _ = channel.Write([]byte(data))
+						}
 						if strings.Contains(data, "__GOSSHD_BASHRC__") {
 							_, _ = channel.Write([]byte("bootstrap-ok\r\n"))
 							sendExit(channel, 0)
@@ -1519,6 +1527,37 @@ func handleTestBootstrapShellConn(raw net.Conn, cfg *gossh.ServerConfig) {
 			}
 		}()
 	}
+}
+
+func ptyRequestDisablesEcho(payload []byte) bool {
+	var p struct {
+		Term   string
+		Width  uint32
+		Height uint32
+		PxW    uint32
+		PxH    uint32
+		Modes  string
+	}
+	if err := gossh.Unmarshal(payload, &p); err != nil {
+		return false
+	}
+	modes := []byte(p.Modes)
+	for i := 0; i < len(modes); {
+		op := modes[i]
+		i++
+		if op == 0 {
+			return false
+		}
+		if i+4 > len(modes) {
+			return false
+		}
+		value := binary.BigEndian.Uint32(modes[i : i+4])
+		i += 4
+		if op == gossh.ECHO && value == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func handleTestShellExitConn(raw net.Conn, cfg *gossh.ServerConfig) {
