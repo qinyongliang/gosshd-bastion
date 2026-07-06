@@ -206,7 +206,8 @@ export type Policy = {
   allow_port_forward?: boolean;
   allow_upload?: boolean;
   allow_download?: boolean;
-  allow_interactive?: boolean;
+  allow_ssh_interactive?: boolean;
+  allow_web_terminal?: boolean;
   allow_manual_review?: boolean;
   manual_review_timeout_seconds?: number;
   rules?: PolicyRule[];

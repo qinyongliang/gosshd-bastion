@@ -131,8 +131,12 @@ func (s *Service) EvaluateAccess(ctx context.Context, userID, targetID, requestT
 		}
 		switch requestType {
 		case store.RequestShell:
-			if !policy.AllowInteractive {
-				return Decision{Action: store.DecisionDeny, Reason: "interactive terminal disabled by policy: " + policy.Name}, nil
+			if !policy.AllowSSHInteractive {
+				return Decision{Action: store.DecisionDeny, Reason: "ssh interactive terminal disabled by policy: " + policy.Name}, nil
+			}
+		case store.RequestWebTerminal:
+			if !policy.AllowWebTerminal {
+				return Decision{Action: store.DecisionDeny, Reason: "web terminal disabled by policy: " + policy.Name}, nil
 			}
 		case store.RequestSFTP:
 			if !policy.AllowUpload && !policy.AllowDownload {

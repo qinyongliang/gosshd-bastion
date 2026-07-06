@@ -459,13 +459,13 @@ func TestPolicyAccessCapabilitiesAndSourceIPAllowlist(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy, err := repo.CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
-		OwnerType:        store.OwnerOrganization,
-		OwnerID:          org.ID,
-		Name:             "private-readonly",
-		DefaultAction:    store.DecisionAllow,
-		IPAllowlist:      "10.0.0.0/8, 192.168.1.10-192.168.1.20",
-		AllowInteractive: true,
-		AllowUpload:      true,
+		OwnerType:           store.OwnerOrganization,
+		OwnerID:             org.ID,
+		Name:                "private-readonly",
+		DefaultAction:       store.DecisionAllow,
+		IPAllowlist:         "10.0.0.0/8, 192.168.1.10-192.168.1.20",
+		AllowSSHInteractive: true,
+		AllowUpload:         true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -509,5 +509,85 @@ func TestPolicyAccessCapabilitiesAndSourceIPAllowlist(t *testing.T) {
 	}
 	if decision.Action != store.DecisionDeny || allowUpload || allowDownload {
 		t.Fatalf("sftp should be denied outside allowlist: decision=%+v upload=%v download=%v", decision, allowUpload, allowDownload)
+	}
+}
+
+func TestAccessPolicySplitsSSHInteractiveAndWebTerminal(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+	user, err := repo.CreateUser(ctx, store.CreateUserParams{Email: "split@example.com", DisplayName: "Split User", PasswordHash: []byte("x")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := repo.CreateOrganization(ctx, store.CreateOrganizationParams{Name: "Split Access", Slug: "split-access", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := repo.CreateSSHTarget(ctx, store.CreateSSHTargetParams{
+		OwnerType: store.OwnerOrganization, OwnerID: org.ID, Alias: "splitbox",
+		TargetType: store.TargetDirect, Host: "10.0.0.9", Port: 22,
+		RemoteUsername: "root", AuthType: store.AuthPassword, CreatedBy: user.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := repo.CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
+		OwnerType:           store.OwnerOrganization,
+		OwnerID:             org.ID,
+		Name:                "web-only",
+		DefaultAction:       store.DecisionAllow,
+		AllowSSHInteractive: false,
+		AllowWebTerminal:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AttachPolicyToTarget(ctx, policy.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(repo)
+	decision, err := svc.EvaluateAccess(ctx, user.ID, target.ID, store.RequestShell, "10.1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionDeny || !strings.Contains(decision.Reason, "ssh interactive terminal disabled") {
+		t.Fatalf("ssh interactive should be denied independently: %+v", decision)
+	}
+	decision, err = svc.EvaluateAccess(ctx, user.ID, target.ID, store.RequestWebTerminal, "10.1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionAllow {
+		t.Fatalf("web terminal should be allowed independently: %+v", decision)
+	}
+
+	_, err = repo.UpdateCommandPolicy(ctx, policy.ID, store.UpdateCommandPolicyParams{
+		Name:                policy.Name,
+		DefaultAction:       policy.DefaultAction,
+		AllowSSHInteractive: true,
+		AllowWebTerminal:    false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err = svc.EvaluateAccess(ctx, user.ID, target.ID, store.RequestShell, "10.1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionAllow {
+		t.Fatalf("ssh interactive should be allowed after toggle: %+v", decision)
+	}
+	decision, err = svc.EvaluateAccess(ctx, user.ID, target.ID, store.RequestWebTerminal, "10.1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != store.DecisionDeny || !strings.Contains(decision.Reason, "web terminal disabled") {
+		t.Fatalf("web terminal should be denied after toggle: %+v", decision)
 	}
 }

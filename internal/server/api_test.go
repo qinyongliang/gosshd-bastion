@@ -968,12 +968,13 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 		"llm_config_id":                 llm.Config.ID,
 		"llm_prompt_id":                 prompt.Prompt.ID,
 		"ip_allowlist":                  "10.0.0.0/8",
-		"allow_interactive":             true,
+		"allow_ssh_interactive":         true,
+		"allow_web_terminal":            true,
 		"allow_manual_review":           true,
 		"manual_review_timeout_seconds": 45,
 	}, http.StatusCreated, &policy)
 	if policy.Policy.LLMConfigID != llm.Config.ID || policy.Policy.LLMPromptID != prompt.Prompt.ID ||
-		policy.Policy.IPAllowlist != "10.0.0.0/8" || !policy.Policy.AllowInteractive || !policy.Policy.AllowManualReview ||
+		policy.Policy.IPAllowlist != "10.0.0.0/8" || !policy.Policy.AllowSSHInteractive || !policy.Policy.AllowWebTerminal || !policy.Policy.AllowManualReview ||
 		policy.Policy.ManualReviewTimeoutSeconds != 45 {
 		t.Fatalf("policy llm config mismatch: %+v", policy)
 	}
@@ -1018,13 +1019,14 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 		"allow_port_forward":            true,
 		"allow_upload":                  true,
 		"allow_download":                false,
-		"allow_interactive":             true,
+		"allow_ssh_interactive":         true,
+		"allow_web_terminal":            false,
 		"allow_manual_review":           true,
 		"manual_review_timeout_seconds": 12,
 	}, http.StatusOK, &updatedPolicy)
 	if updatedPolicy.Policy.Name != "strict edited" || updatedPolicy.Policy.DefaultAction != "allow" ||
 		updatedPolicy.Policy.IPAllowlist != "private" || !updatedPolicy.Policy.AllowPortForward ||
-		!updatedPolicy.Policy.AllowUpload || updatedPolicy.Policy.AllowDownload || !updatedPolicy.Policy.AllowInteractive ||
+		!updatedPolicy.Policy.AllowUpload || updatedPolicy.Policy.AllowDownload || !updatedPolicy.Policy.AllowSSHInteractive || updatedPolicy.Policy.AllowWebTerminal ||
 		!updatedPolicy.Policy.AllowManualReview || updatedPolicy.Policy.ManualReviewTimeoutSeconds != 12 {
 		t.Fatalf("policy update mismatch: %+v", updatedPolicy.Policy)
 	}
@@ -1034,7 +1036,7 @@ func TestAPITargetPolicyUserGroupAndAuditFlow(t *testing.T) {
 	}, http.StatusCreated, &copiedPolicy)
 	if copiedPolicy.Policy.Name != "strict copy" || len(copiedPolicy.Policy.Rules) != 1 || len(copiedPolicy.Policy.TargetIDs) != 1 ||
 		len(copiedPolicy.Policy.TargetTags) != 1 || len(copiedPolicy.Policy.UserGroupIDs) != 1 ||
-		copiedPolicy.Policy.IPAllowlist != "private" || !copiedPolicy.Policy.AllowUpload || !copiedPolicy.Policy.AllowManualReview ||
+		copiedPolicy.Policy.IPAllowlist != "private" || !copiedPolicy.Policy.AllowUpload || !copiedPolicy.Policy.AllowSSHInteractive || copiedPolicy.Policy.AllowWebTerminal || !copiedPolicy.Policy.AllowManualReview ||
 		copiedPolicy.Policy.ManualReviewTimeoutSeconds != 12 {
 		t.Fatalf("policy copy mismatch: %+v", copiedPolicy.Policy)
 	}

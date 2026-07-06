@@ -221,7 +221,8 @@ func TestAgentWSRepeatedEnrollmentCreatesNumberedTargetAndCopiesConfig(t *testin
 		OwnerID:                    personal.ID,
 		Name:                       "allow tmp",
 		DefaultAction:              store.DecisionAllow,
-		AllowInteractive:           true,
+		AllowSSHInteractive:        true,
+		AllowWebTerminal:           true,
 		ManualReviewTimeoutSeconds: 30,
 	})
 	if err != nil {

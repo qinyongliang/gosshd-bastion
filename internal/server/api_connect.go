@@ -602,7 +602,7 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	sourceIP := sshSourceIPFromRequest(r)
-	decision, err := a.bastion.EvaluateAccess(ctx, user.ID, target.ID, store.RequestShell, sourceIP)
+	decision, err := a.bastion.EvaluateAccess(ctx, user.ID, target.ID, store.RequestWebTerminal, sourceIP)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -617,7 +617,7 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 			PublicKeyName:  webConsolePublicKeyName,
 			SessionID:      newAuditSessionID(),
 			Command:        "web terminal",
-			RequestType:    store.RequestShell,
+			RequestType:    store.RequestWebTerminal,
 			PolicyDecision: store.DecisionDeny,
 			PolicyReason:   decision.Reason,
 			ExitCode:       &code,
@@ -644,7 +644,7 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 		PublicKeyName:  webConsolePublicKeyName,
 		SessionID:      sessionID,
 		Command:        "web terminal",
-		RequestType:    store.RequestShell,
+		RequestType:    store.RequestWebTerminal,
 		PolicyDecision: decision.Action,
 		PolicyReason:   decision.Reason,
 		StartedAt:      startedAt,

@@ -25,10 +25,11 @@ const (
 	PatternPrefix   = "prefix"
 	PatternContains = "contains"
 
-	RequestExec    = "exec"
-	RequestShell   = "shell"
-	RequestSFTP    = "sftp"
-	RequestForward = "forward"
+	RequestExec        = "exec"
+	RequestShell       = "shell"
+	RequestWebTerminal = "web_terminal"
+	RequestSFTP        = "sftp"
+	RequestForward     = "forward"
 
 	DefaultLLMPromptTitle   = "Default SSH Command Review"
 	DefaultLLMPromptContent = "You are reviewing an SSH command for a bastion host. Respond with JSON only: {\"allow\":true|false,\"reason\":\"short reason\"}. When allow is true, reason may be omitted or empty. When allow is false, include a short reason. Do not output chain-of-thought, analysis, or reasoning steps. Deny destructive, privilege-escalation, persistence, credential-exfiltration, and unclear high-risk commands unless there is an explicit safe operational reason."
@@ -250,7 +251,8 @@ type CommandPolicy struct {
 	AllowPortForward           bool
 	AllowUpload                bool
 	AllowDownload              bool
-	AllowInteractive           bool
+	AllowSSHInteractive        bool
+	AllowWebTerminal           bool
 	AllowManualReview          bool
 	ManualReviewTimeoutSeconds int
 	CreatedAt                  time.Time
@@ -548,7 +550,8 @@ type CreateCommandPolicyParams struct {
 	AllowPortForward           bool
 	AllowUpload                bool
 	AllowDownload              bool
-	AllowInteractive           bool
+	AllowSSHInteractive        bool
+	AllowWebTerminal           bool
 	AllowManualReview          bool
 	ManualReviewTimeoutSeconds int
 }
@@ -562,7 +565,8 @@ type UpdateCommandPolicyParams struct {
 	AllowPortForward           bool
 	AllowUpload                bool
 	AllowDownload              bool
-	AllowInteractive           bool
+	AllowSSHInteractive        bool
+	AllowWebTerminal           bool
 	AllowManualReview          bool
 	ManualReviewTimeoutSeconds int
 }

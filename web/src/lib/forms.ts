@@ -19,13 +19,16 @@ export function formValues(form: HTMLFormElement) {
 }
 
 export function policyPayload(body: Record<string, string>): Record<string, unknown> {
+  const allowSSHInteractive = body.allow_ssh_interactive === "on";
+  const allowWebTerminal = body.allow_web_terminal === "on";
   return {
     name: body.name,
     default_action: body.default_action || "deny",
     llm_config_id: body.llm_config_id || "",
     llm_prompt_id: body.llm_prompt_id || "",
     ip_allowlist: body.ip_allowlist || "",
-    allow_interactive: body.allow_interactive === "on",
+    allow_ssh_interactive: allowSSHInteractive,
+    allow_web_terminal: allowWebTerminal,
     allow_port_forward: body.allow_port_forward === "on",
     allow_upload: body.allow_upload === "on",
     allow_download: body.allow_download === "on",

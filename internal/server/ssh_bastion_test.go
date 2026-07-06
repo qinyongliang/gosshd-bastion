@@ -1073,11 +1073,12 @@ func attachAllowPolicyForTarget(t *testing.T, app *App, orgID, targetID string, 
 		t.Fatalf("organization %s has no user groups", orgID)
 	}
 	policy, err := app.store.Repository().CreateCommandPolicy(ctx, store.CreateCommandPolicyParams{
-		OwnerType:        store.OwnerOrganization,
-		OwnerID:          orgID,
-		Name:             "allow test target",
-		DefaultAction:    store.DecisionAllow,
-		AllowInteractive: allowInteractive,
+		OwnerType:           store.OwnerOrganization,
+		OwnerID:             orgID,
+		Name:                "allow test target",
+		DefaultAction:       store.DecisionAllow,
+		AllowSSHInteractive: allowInteractive,
+		AllowWebTerminal:    allowInteractive,
 	})
 	if err != nil {
 		t.Fatal(err)
