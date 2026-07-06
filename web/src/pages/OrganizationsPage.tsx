@@ -16,19 +16,19 @@ export function OrganizationsPage({ data }: { data: ConsoleData }) {
   const join = useMutation({ mutationFn: (body: Record<string, string>) => api.joinOrg(body.code), onSuccess: async (out) => { data.setActiveOrgID(out.organization.id); setModal(""); await queryClient.invalidateQueries(); } });
   return (
     <>
-      <section className="resource-head">
+      <section className="resource-head org-head">
         <div><small>{appDescription(data.runtime)}</small><h2>{t("orgs")}</h2><p>{t("orgPageBody")}</p></div>
         <div className="resource-actions">
           <button type="button" onClick={() => setModal("join")}>{t("orgJoin")}</button>
           <button type="button" className="primary" onClick={() => setModal("create")}><Plus />{t("orgCreate")}</button>
         </div>
       </section>
-      <div className="metrics">
+      <div className="metrics org-metrics">
         <Metric label={t("orgMetricTotal")} value={data.orgs.length} />
         <Metric label={t("orgMetricShared")} value={data.orgs.filter((item) => !item.is_personal).length} />
         <Metric label={t("orgMetricPersonal")} value={data.orgs.filter((item) => item.is_personal).length} />
       </div>
-      <Panel title={t("orgListTitle")} subtitle={t("orgListBody")}>
+      <Panel title={t("orgListTitle")} subtitle={t("orgListBody")} className="org-list-panel">
         <SimpleTable headers={[t("commonName"), t("orgType"), t("commonRole"), t("commonActions")]} rows={data.orgs.map((org) => [
           <strong>{org.name}</strong>,
           org.is_personal ? t("orgPersonal") : t("orgShared"),
