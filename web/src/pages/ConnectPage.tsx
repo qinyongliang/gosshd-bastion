@@ -1479,7 +1479,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
           if (!event.repeat) {
             void readClipboardText().then((text) => {
               if (!text) return;
-              sendTerminalInput(text);
+              sendTerminalInput(normalizeTerminalInputText(text));
             });
           }
           return false;
@@ -1508,7 +1508,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
             return;
           }
         }
-        sendTerminalInput(value);
+        sendTerminalInput(normalizeTerminalInputText(value));
       }));
 
       runtime.disposables.push(terminal.onResize(({ cols, rows }) => {
@@ -2016,6 +2016,34 @@ async function readClipboardText() {
   } catch {
     return "";
   }
+}
+
+function normalizeTerminalInputText(text: string) {
+  if (!text || !/-encodedcommand/i.test(text) || !/\bawk\b/i.test(text)) return text;
+  let normalized = text.replace(/\bawk\s+(\/(?:\\.|[^/\r\n])+\/)\s+-encodedcommand\s+([A-Za-z0-9+/=]+)/gi, (_match, pattern: string, encoded: string) => {
+    const decoded = decodePowerShellEncodedCommand(encoded);
+    if (!decoded) return _match;
+    return `awk '${escapeSingleQuotedShell(`${pattern} {${decoded}}`)}'`;
+  });
+  normalized = normalized.replace(/\s+-inputformat\s+xml\s+-outputformat\s+text\b/gi, "");
+  return normalized;
+}
+
+function decodePowerShellEncodedCommand(encoded: string) {
+  try {
+    const binary = atob(encoded);
+    let out = "";
+    for (let index = 0; index + 1 < binary.length; index += 2) {
+      out += String.fromCharCode(binary.charCodeAt(index) | (binary.charCodeAt(index + 1) << 8));
+    }
+    return out.trim();
+  } catch {
+    return "";
+  }
+}
+
+function escapeSingleQuotedShell(value: string) {
+  return value.replace(/'/g, "'\\''");
 }
 
 function scheduleAllTerminalFits() {
