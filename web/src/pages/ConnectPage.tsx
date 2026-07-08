@@ -525,7 +525,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   };
 
   return (
-    <main className={`connect-workspace ${terminalFullscreen ? "terminal-fullscreen-active" : ""}`}>
+    <main className={`connect-workspace ${terminalFullscreen ? "terminal-fullscreen-active" : ""} ${hasOpenTabs ? "" : "no-tabs"}`}>
       <header className="connect-appbar">
         <div className="connect-appbar-brand">
           <div className="connect-appbar-mark">g</div>
