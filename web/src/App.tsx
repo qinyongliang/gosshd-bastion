@@ -39,7 +39,7 @@ function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[];
   const location = useLocation();
   if (!data) return <Fatal error={new Error("No organization available")} />;
 
-  const isConnectPage = /^\/targets\/[^/]+\/connect\/?$/.test(location.pathname);
+  const isConnectPage = /^\/connect\/?$/.test(location.pathname) || /^\/targets\/[^/]+\/connect\/?$/.test(location.pathname);
   const isClientTerminalPage = runtime.client_mode && location.pathname === "/local-terminal";
   const isClientMode = Boolean(data.runtime.client_mode);
 
@@ -53,6 +53,7 @@ function ConsoleApp({ user, orgs, runtime }: { user: User; orgs: Organization[];
     <>
       {!isConnectPage && !isClientTerminalPage && <ManualReviewPoller data={data} />}
       <Routes>
+        <Route path="/connect" element={<Suspense fallback={<Loading />}><ConnectPage data={data} /></Suspense>} />
         <Route path="/targets/:targetID/connect" element={<Suspense fallback={<Loading />}><ConnectPage data={data} /></Suspense>} />
         {isClientMode && <Route path="/local-terminal" element={<LocalTerminalPage data={data} />} />}
         <Route path="*" element={isClientMode ? (

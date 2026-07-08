@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { KeyRound, LayoutDashboard, ListChecks, LockKeyhole, Menu, Server, Settings, Shield, Users, X } from "lucide-react";
-import { ComponentType, ReactNode, useState } from "react";
+import { ComponentType, ReactNode, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { BrandMark, Field, Modal, ModalActions, NavButton, Segmented } from "../components/ui";
@@ -45,6 +45,18 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
         ["/audit", t("audit"), ListChecks],
       ];
   if (!isClientMode && data.user.is_system_admin) nav.push(["/system-admin", t("settings"), Settings]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const openBlankTerminal = key === "n" && !event.shiftKey && !event.metaKey && (event.ctrlKey || event.altKey);
+      if (!openBlankTerminal) return;
+      event.preventDefault();
+      if (!event.repeat) navigate("/connect");
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [navigate]);
 
   return (
     <section className={clsx("console", sidebarOpen && "sidebar-open")}>

@@ -151,6 +151,9 @@ export function ConnectPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
   const target = data.targets.find((item) => item.id === targetID);
 
+  if (!targetID) {
+    return <ConnectWorkspace data={data} targets={data.targets} />;
+  }
   if (!target) {
     return (
       <main className="connect-workspace empty">
@@ -169,7 +172,7 @@ export function ConnectPage({ data }: { data: ConsoleData }) {
   return <ConnectWorkspace data={data} target={target} targets={data.targets} />;
 }
 
-export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target: Target; targets: Target[] }) {
+export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData; target?: Target; targets: Target[] }) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
@@ -179,7 +182,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const [hostWidth, setHostWidth] = useState(248);
   const [filesWidth, setFilesWidth] = useState(330);
-  const [tabs, setTabs] = useState<ConnectionTab[]>(() => [newConnectionTab(target.id, getConnectCommandParam())]);
+  const [tabs, setTabs] = useState<ConnectionTab[]>(() => target ? [newConnectionTab(target.id, getConnectCommandParam())] : []);
   const [activeTabID, setActiveTabID] = useState(() => tabs[0]?.id || "");
   const [tabMenu, setTabMenu] = useState<{ tabID: string; x: number; y: number } | null>(null);
   const [switcherOpenSignal, setSwitcherOpenSignal] = useState(0);
@@ -191,31 +194,34 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const activeTab = tabs.find((item) => item.id === activeTabID) || tabs[0] || null;
   const activePane = activeTab ? findPane(activeTab.layout, activeTab.activePaneID) : null;
   const activeTargetID = activePane && activePane.type !== "split" ? activePane.targetID : activeTab?.targetID;
-  const activeTarget = (activeTargetID ? targets.find((item) => item.id === activeTargetID) : null) || target;
+  const activeTarget = (activeTargetID ? targets.find((item) => item.id === activeTargetID) : null) || target || null;
   const openTabs = tabs
     .map((tab) => ({ tab, target: targets.find((item) => item.id === tab.targetID) }))
     .filter((item): item is { tab: ConnectionTab; target: Target } => Boolean(item.target));
   const hasOpenTabs = openTabs.length > 0;
-  const endpoint = targetEndpoint(activeTarget);
+  const endpoint = activeTarget ? targetEndpoint(activeTarget) : "";
   const name = appName(data.runtime);
   const description = appDescription(data.runtime);
   const routePendingCommand = getConnectCommandParam();
   const system = useQuery({
-    queryKey: ["target-system", activeTarget.id],
-    queryFn: () => api.targetSystem(activeTarget.id),
+    queryKey: ["target-system", activeTarget?.id || ""],
+    queryFn: () => api.targetSystem(activeTarget!.id),
+    enabled: Boolean(activeTarget),
     staleTime: Infinity,
     retry: 1,
   });
   const systemMetrics = useQuery({
-    queryKey: ["target-system", activeTarget.id, "metrics"],
-    queryFn: () => api.targetSystemMetrics(activeTarget.id),
+    queryKey: ["target-system", activeTarget?.id || "", "metrics"],
+    queryFn: () => api.targetSystemMetrics(activeTarget!.id),
+    enabled: Boolean(activeTarget),
     refetchInterval: SYSTEM_METRICS_REFRESH_MS,
     staleTime: 4000,
     retry: 1,
   });
   const systemFilesystems = useQuery({
-    queryKey: ["target-system", activeTarget.id, "filesystems"],
-    queryFn: () => api.targetSystemFilesystems(activeTarget.id),
+    queryKey: ["target-system", activeTarget?.id || "", "filesystems"],
+    queryFn: () => api.targetSystemFilesystems(activeTarget!.id),
+    enabled: Boolean(activeTarget),
     refetchInterval: SYSTEM_DISK_REFRESH_MS,
     staleTime: SYSTEM_DISK_REFRESH_MS - 1000,
     retry: 1,
@@ -240,6 +246,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   };
 
   useEffect(() => {
+    if (!target) return;
     if (expectedRouteTabIDRef.current) {
       expectedRouteTabIDRef.current = "";
       return;
@@ -256,7 +263,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     expectedRouteTabIDRef.current = next.id;
     setActiveTabID(next.id);
     setTabs((current) => [...current, next]);
-  }, [activeTab?.targetID, tabs, target.id]);
+  }, [activeTab?.targetID, tabs, target]);
 
   useEffect(() => {
     const openFromMessage = (raw: unknown) => {
@@ -295,7 +302,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   }, [targets]);
 
   useEffect(() => {
-    document.title = documentTitle(serverTitle(activeTarget), data.runtime);
+    document.title = documentTitle(activeTarget ? serverTitle(activeTarget) : "", data.runtime);
   }, [activeTarget, data.runtime]);
 
   useEffect(() => {
@@ -414,7 +421,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   };
 
   const openEditorForActiveTarget = (filePath: string) => {
-    if (!activeTab) return;
+    if (!activeTab || !activeTarget) return;
     const paneTargetID = activeTarget.id;
     const editorPane: EditorPaneNode = { type: "editor", id: newPaneID("editor"), targetID: paneTargetID, path: filePath };
     updateActiveTab((tab) => ({
@@ -443,9 +450,10 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       }
 
       if (!next.length) {
-        suppressedRouteTargetIDRef.current = closedRouteTarget || target.id;
+        suppressedRouteTargetIDRef.current = closedRouteTarget || target?.id || "";
         setActiveTabID("");
         setTerminalFullscreen(false);
+        window.setTimeout(() => navigate("/connect", { replace: true }), 0);
         return next;
       }
       if (closingActive || !next.some((item) => item.id === activeTabID)) {
@@ -527,23 +535,23 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
           </div>
         </div>
 
-        <ServerSwitcher targets={targets} folders={data.targetFolders} currentTargetID={activeTarget.id} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} />
+        <ServerSwitcher targets={targets} folders={data.targetFolders} currentTargetID={activeTarget?.id || ""} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} />
 
-        <div className="connect-appbar-host">
+        {activeTarget && <div className="connect-appbar-host">
           <Server />
           <div>
             <strong>{activeTarget.name}</strong>
             <code>{activeTarget.alias}</code>
           </div>
-        </div>
+        </div>}
 
-        <div className="connect-appbar-meta">
+        {activeTarget && <div className="connect-appbar-meta">
           <span className="connect-appbar-endpoint"><Globe />{endpoint}</span>
           <span className="connect-appbar-type">
             {activeTarget.target_type === "agent" ? <Monitor /> : <HardDrive />}
             {activeTarget.target_type === "agent" ? t("privateNode") : t("serviceDirect")}
           </span>
-        </div>
+        </div>}
 
         <div className="connect-appbar-actions">
           <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
@@ -580,16 +588,16 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                     <ChevronLeft />
                   </button>
                 </header>
-                <dl className="connect-host-list">
+                {activeTarget ? <dl className="connect-host-list">
                   <div><dt>{t("serviceName")}</dt><dd>{activeTarget.name}</dd></div>
                   <div><dt>{t("serviceAlias")}</dt><dd><code>{activeTarget.alias}</code></dd></div>
                   <div><dt>{t("targetHost")}</dt><dd>{activeTarget.host || "-"}</dd></div>
                   <div><dt>{t("targetPort")}</dt><dd>{activeTarget.port || 22}</dd></div>
                   <div><dt>{t("serviceRemoteUser")}</dt><dd>{activeTarget.remote_username}</dd></div>
                   <div><dt>{t("commonTag")}</dt><dd>{(activeTarget.tags || []).join(", ") || "-"}</dd></div>
-                </dl>
+                </dl> : <div className="connect-zone-empty"><span>{t("connectNoOpenTabsBody")}</span></div>}
               </section>
-              <SystemSnapshotPanel
+              {activeTarget && <SystemSnapshotPanel
                 targetID={activeTarget.id}
                 snapshot={systemSnapshot}
                 sampleSnapshot={systemMetrics.data || system.data}
@@ -597,7 +605,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                 isFetching={system.isFetching || systemMetrics.isFetching || systemFilesystems.isFetching}
                 error={system.error || systemMetrics.error || systemFilesystems.error}
                 onRefresh={refreshSystem}
-              />
+              />}
             </>
           ) : (
             <button type="button" className="collapsed-zone-button" onClick={() => setHostOpen(true)} title={t("connectExpandSidebar")}>
@@ -685,7 +693,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                 <ChevronRight />
               </button>
             </div>
-            {hasOpenTabs ? (
+            {hasOpenTabs && activeTarget ? (
               <FileManager target={activeTarget} system={systemSnapshot} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} />
             ) : (
               <div className="connect-zone-empty">
