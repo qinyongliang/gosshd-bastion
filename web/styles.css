@@ -5333,9 +5333,17 @@ html[data-theme="dark"] .connection-tab.active {
   padding: 0;
 }
 
+.connect-workspace.no-tabs .connect-body,
+.connect-workspace.no-tabs .connect-main {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .connect-workspace.terminal-fullscreen-active .connect-host-panel,
 .connect-workspace.terminal-fullscreen-active .files-zone,
-.connect-workspace.terminal-fullscreen-active .connect-resizer {
+.connect-workspace.terminal-fullscreen-active .connect-resizer,
+.connect-workspace.no-tabs .connect-host-panel,
+.connect-workspace.no-tabs .files-zone,
+.connect-workspace.no-tabs .connect-resizer {
   display: none;
 }
 
