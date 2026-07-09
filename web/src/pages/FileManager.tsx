@@ -51,6 +51,7 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
 
   useEffect(() => {
     if (pathEditing) pathInputRef.current?.focus();
+    if (pathEditing) pathInputRef.current?.select();
   }, [pathEditing]);
 
   useLayoutEffect(() => {
@@ -103,6 +104,13 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
     queryKey: ["target-files", target.id, path, sort.key, sort.order],
     queryFn: () => api.listFiles(target.id, path, sort.key, sort.order),
   });
+
+  useEffect(() => {
+    const resolvedPath = listing.data?.path;
+    if (!resolvedPath || resolvedPath === path) return;
+    setPath(resolvedPath);
+    setSelected(null);
+  }, [listing.data?.path, path]);
   const breadcrumbListing = useQuery({
     queryKey: ["target-files", target.id, crumbMenu?.path || "", "name", "asc", "breadcrumb"],
     queryFn: () => api.listFiles(target.id, crumbMenu?.path || ".", "name", "asc"),

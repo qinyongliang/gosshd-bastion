@@ -862,16 +862,20 @@ func (a *App) handleTargetFiles(w http.ResponseWriter, r *http.Request, user sto
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	out := apiTargetFilesResponse{Path: dir}
+	resolvedDir := dir
+	if realPath, err := client.RealPath(dir); err == nil && strings.TrimSpace(realPath) != "" {
+		resolvedDir = realPath
+	}
+	out := apiTargetFilesResponse{Path: resolvedDir}
 	for _, info := range infos {
-		entryPath := remoteJoin(dir, info.Name())
+		entryPath := remoteJoin(resolvedDir, info.Name())
 		var targetInfo fs.FileInfo
 		if info.Mode()&fs.ModeSymlink != 0 {
 			if stat, err := client.Stat(entryPath); err == nil {
 				targetInfo = stat
 			}
 		}
-		out.Entries = append(out.Entries, apiFileEntry(dir, info, targetInfo))
+		out.Entries = append(out.Entries, apiFileEntry(resolvedDir, info, targetInfo))
 	}
 	sortFileEntries(out.Entries, r.URL.Query().Get("sort"), r.URL.Query().Get("order"))
 	a.auditWebSFTP(r.Context(), user, target, decision, "sftp list "+dir, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r))
