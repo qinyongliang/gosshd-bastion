@@ -44,14 +44,16 @@ func testUIE2EWithBrowser(t *testing.T, mobileOnly bool) {
 
 	cmd := exec.CommandContext(context.Background(), nodePath, filepath.Join("web", "e2e", "ui_e2e.mjs"))
 	cmd.Dir = repoRoot(t)
+	mobileOnlyValue := "0"
+	if mobileOnly {
+		mobileOnlyValue = "1"
+	}
 	cmd.Env = append(os.Environ(),
 		"GOSSHD_UI_E2E_BASE_URL="+srv.URL,
 		"PLAYWRIGHT_REQUIRE_PATH="+playwrightPath,
 		"PLAYWRIGHT_CHROMIUM_EXECUTABLE="+browserPath,
+		"GOSSHD_UI_E2E_MOBILE_ONLY="+mobileOnlyValue,
 	)
-	if mobileOnly {
-		cmd.Env = append(cmd.Env, "GOSSHD_UI_E2E_MOBILE_ONLY=1")
-	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("ui e2e failed: %v\n%s", err, out)
