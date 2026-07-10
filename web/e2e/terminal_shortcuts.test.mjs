@@ -27,7 +27,7 @@ assert.equal(terminalShortcutSequence("pageDown"), "\x1b[6~");
 assert.equal(applyTerminalModifier("c", "ctrl"), "\x03");
 assert.equal(applyTerminalModifier("[", "ctrl"), "\x1b");
 assert.equal(applyTerminalModifier("x", "alt"), "\x1bx");
-assert.equal(applyTerminalModifier("echo", "ctrl"), "echo");
-assert.equal(applyTerminalModifier(null, "alt"), null);
+assert.equal(applyTerminalModifier("paste", "ctrl"), "paste");
+assert.equal(applyTerminalModifier("x", null), "x");
 
 console.log("terminal shortcut checks passed");
