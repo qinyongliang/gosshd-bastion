@@ -4,7 +4,7 @@ export const MOBILE_TERMINAL_KEY_ROWS = [
 ] as const;
 
 export type TerminalShortcutKey = (typeof MOBILE_TERMINAL_KEY_ROWS)[number][number];
-export type TerminalModifier = "ctrl" | "alt" | null;
+export type TerminalModifier = Extract<TerminalShortcutKey, "ctrl" | "alt">;
 
 export const TERMINAL_SHORTCUT_LABELS: Record<TerminalShortcutKey, string> = {
   escape: "Esc",
@@ -40,12 +40,11 @@ export function terminalShortcutSequence(key: TerminalShortcutKey): string | nul
   return TERMINAL_SHORTCUT_SEQUENCES[key];
 }
 
-export function applyTerminalModifier(input: string | null, modifier: TerminalModifier): string | null {
-  if (input === null) return null;
-  if (modifier === "alt") return `\x1b${input}`;
-  if (modifier !== "ctrl" || input.length !== 1) return input;
+export function applyTerminalModifier(value: string, modifier: TerminalModifier | null): string {
+  if (modifier === "alt") return `\x1b${value}`;
+  if (modifier !== "ctrl" || value.length !== 1) return value;
 
-  const inputCode = input.charCodeAt(0);
+  const inputCode = value.charCodeAt(0);
   const code = inputCode >= 97 && inputCode <= 122 ? inputCode - 32 : inputCode;
-  return code >= 64 && code <= 95 ? String.fromCharCode(code - 64) : input;
+  return code >= 64 && code <= 95 ? String.fromCharCode(code - 64) : value;
 }
