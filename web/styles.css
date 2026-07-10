@@ -6203,6 +6203,10 @@ body.is-resizing-connect {
   backdrop-filter: blur(10px);
 }
 
+.mobile-terminal-keys {
+  display: none;
+}
+
 .terminal-viewport {
   position: relative;
   min-height: 0;
@@ -7006,6 +7010,12 @@ html[data-theme="dark"] .xterm-rows {
 }
 
 @media (max-width: 760px) {
+  .server-switcher-menu {
+    position: fixed;
+    inset: 46px 8px 8px;
+    width: auto;
+    max-height: none;
+  }
   .resource-head.org-head,
   .resource-head.members-head,
   .resource-head.keys-head,
@@ -7042,27 +7052,148 @@ html[data-theme="dark"] .xterm-rows {
     flex-wrap: wrap;
   }
   .connect-body {
-    padding: 4px;
-    gap: 4px;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    padding: 0;
+    gap: 0;
+  }
+  .connect-body.host-collapsed {
+    grid-template-columns: 1fr;
+    grid-template-rows: 34px minmax(0, 1fr);
   }
   .connect-host-panel {
     flex-direction: column;
+    max-height: min(38dvh, 300px);
+    padding: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    overflow: auto;
+  }
+  .connect-host-panel.collapsed {
+    display: block;
+    width: 100%;
+    height: 34px;
+  }
+  .connect-panel.compact {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .connect-panel-title,
+  .connect-zone-head {
+    min-height: 34px;
+    margin: 0;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .connect-panel-title h3 {
+    margin: 0;
   }
   .connect-host-list {
     grid-template-columns: 1fr;
+    padding: 8px;
+  }
+  .collapsed-zone-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 34px;
+    border-radius: 0;
+    padding: 0 8px;
+  }
+  .collapsed-zone-button span {
+    order: -1;
+    writing-mode: horizontal-tb;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+  .connect-host-panel .collapsed-zone-button svg {
+    transform: rotate(90deg);
+  }
+  .files-zone .collapsed-zone-button svg {
+    transform: rotate(-90deg);
   }
   .connect-main {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(300px, 1fr) minmax(240px, auto);
+    grid-template-rows: minmax(280px, 1fr) minmax(220px, 0.65fr);
+  }
+  .connect-main.files-collapsed {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) 34px;
   }
   .connect-zone {
-    padding: 4px;
+    padding: 0;
   }
   .terminal-panel {
+    grid-template-rows: 34px minmax(0, 1fr) auto;
     min-height: 280px;
   }
+  .terminal-panel.fullscreen {
+    grid-template-rows: 34px minmax(0, 1fr) auto;
+  }
+  .terminal-pane-toolbar {
+    position: static;
+    grid-row: 1;
+    justify-self: end;
+    justify-content: flex-end;
+    align-items: center;
+    width: 100%;
+    height: 34px;
+    padding: 3px 6px;
+    border-bottom: 1px solid rgba(103, 232, 249, 0.16);
+    background: rgba(2, 6, 12, 0.88);
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+  .terminal-pane-toolbar .icon-button {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 4px;
+  }
+  .terminal-reconnect-button {
+    position: static;
+    grid-row: 1;
+    align-self: center;
+    justify-self: start;
+    z-index: 3;
+    min-height: 28px;
+    margin-left: 6px;
+    padding: 0 8px;
+  }
   .terminal-zone .terminal-viewport {
+    grid-row: 2;
     min-height: 0;
+  }
+  .mobile-terminal-keys {
+    display: grid;
+    grid-row: 3;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 4px;
+    padding: 4px 6px;
+    background: #02060c;
+  }
+  .mobile-terminal-keys button {
+    min-width: 0;
+    min-height: 34px;
+    border-color: rgba(103, 232, 249, 0.2);
+    border-radius: 4px;
+    padding: 0 2px;
+    color: #dbeafe;
+    background: rgba(15, 30, 50, 0.94);
+    font-size: 11px;
+  }
+  .mobile-terminal-keys button.active {
+    color: #06101c;
+    border-color: #67e8f9;
+    background: #67e8f9;
+  }
+  .mobile-terminal-keys button:disabled {
+    opacity: 0.45;
   }
   .file-manager-head {
     flex-direction: column;
