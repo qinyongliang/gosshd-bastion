@@ -7118,7 +7118,7 @@ html[data-theme="dark"] .xterm-rows {
   }
   .connect-main {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(280px, 1fr) minmax(220px, 0.65fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 0.65fr);
   }
   .connect-main.files-collapsed {
     grid-template-columns: 1fr;
@@ -7129,7 +7129,7 @@ html[data-theme="dark"] .xterm-rows {
   }
   .terminal-panel {
     grid-template-rows: 34px minmax(0, 1fr) auto;
-    min-height: 280px;
+    min-height: 0;
   }
   .terminal-panel.fullscreen {
     grid-template-rows: 34px minmax(0, 1fr) auto;
