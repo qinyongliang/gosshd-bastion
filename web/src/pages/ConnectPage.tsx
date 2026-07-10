@@ -1380,7 +1380,10 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
         setModifier(runtime.mobileModifier === key ? null : key);
         return;
       }
-      const sequence = terminalShortcutSequence(key);
+      const sequence = terminalShortcutSequence(key, {
+        applicationCursorMode: runtime.terminal?.modes.applicationCursorKeysMode || false,
+        modifier: runtime.mobileModifier,
+      });
       if (sequence && sendTerminalInput(sequence)) setModifier(null);
     } finally {
       runtime.terminal?.focus();
@@ -1396,6 +1399,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
   };
 
   const connect = () => {
+    setRuntimeSnapshot(runtime, { mobileModifier: null });
     if (runtime.socket) {
       runtime.socket.close();
       runtime.socket = null;
@@ -1441,7 +1445,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
           enqueueTerminalOutput(runtime, terminal, message.data);
           if (isTerminalSessionClosedOutput(message.data)) {
             updateStatus("disconnected");
-            setRuntimeSnapshot(runtime, { sessionID: "" });
+            setRuntimeSnapshot(runtime, { sessionID: "", mobileModifier: null });
           }
         } else if (message.type === "error" && message.data !== undefined) {
           enqueueTerminalOutput(runtime, terminal, `\r\n\x1b[1;31m${message.data}\x1b[0m\r\n`);
@@ -1450,7 +1454,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
         } else if (message.type === "exit") {
           enqueueTerminalOutput(runtime, terminal, `\r\n\x1b[2;37mSession ended (exit ${message.code ?? "-"})\x1b[0m\r\n`);
           updateStatus("disconnected");
-          setRuntimeSnapshot(runtime, { sessionID: "" });
+          setRuntimeSnapshot(runtime, { sessionID: "", mobileModifier: null });
           socket.close();
         } else if (message.type === "session" && message.session_id) {
           setRuntimeSnapshot(runtime, { sessionID: message.session_id });
@@ -1473,7 +1477,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
         runtime.heartbeat = null;
       }
       updateStatus(runtime.status === "connected" ? "disconnected" : runtime.status);
-      setRuntimeSnapshot(runtime, { sessionID: "" });
+      setRuntimeSnapshot(runtime, { sessionID: "", mobileModifier: null });
     };
   };
   runtime.connect = connect;
@@ -1717,7 +1721,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
             data-terminal-key={key}
             className={modifier && mobileModifier === key ? "active" : ""}
             aria-pressed={modifier ? mobileModifier === key : undefined}
-            disabled={!connected}
+            disabled={!connected || !active}
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => pressMobileShortcut(key)}
           >{TERMINAL_SHORTCUT_LABELS[key]}</button>;

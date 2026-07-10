@@ -5,6 +5,10 @@ export const MOBILE_TERMINAL_KEY_ROWS = [
 
 export type TerminalShortcutKey = (typeof MOBILE_TERMINAL_KEY_ROWS)[number][number];
 export type TerminalModifier = Extract<TerminalShortcutKey, "ctrl" | "alt">;
+export type TerminalShortcutOptions = {
+  applicationCursorMode?: boolean;
+  modifier?: TerminalModifier | null;
+};
 
 export const TERMINAL_SHORTCUT_LABELS: Record<TerminalShortcutKey, string> = {
   escape: "Esc",
@@ -36,7 +40,33 @@ const TERMINAL_SHORTCUT_SEQUENCES: Record<TerminalShortcutKey, string | null> = 
   pageDown: "\x1b[6~",
 };
 
-export function terminalShortcutSequence(key: TerminalShortcutKey): string | null {
+const CURSOR_KEY_FINALS = {
+  home: "H",
+  end: "F",
+  left: "D",
+  up: "A",
+  down: "B",
+  right: "C",
+} as const;
+
+export function terminalShortcutSequence(
+  key: TerminalShortcutKey,
+  { applicationCursorMode = false, modifier = null }: TerminalShortcutOptions = {},
+): string | null {
+  if (key === "ctrl" || key === "alt") return null;
+  if (key === "escape") return modifier === "alt" ? "\x1b\x1b" : "\x1b";
+  if (key === "tab") return "\t";
+  if (key === "pageUp" || key === "pageDown") {
+    if (modifier === "ctrl") return `\x1b[${key === "pageUp" ? 5 : 6};5~`;
+    return TERMINAL_SHORTCUT_SEQUENCES[key];
+  }
+
+  const final = CURSOR_KEY_FINALS[key];
+  if (modifier) {
+    const modifierCode = modifier === "alt" && (key === "home" || key === "end") ? 3 : 5;
+    return `\x1b[1;${modifierCode}${final}`;
+  }
+  if (applicationCursorMode) return `\x1bO${final}`;
   return TERMINAL_SHORTCUT_SEQUENCES[key];
 }
 
