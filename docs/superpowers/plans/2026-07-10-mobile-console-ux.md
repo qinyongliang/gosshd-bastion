@@ -17,6 +17,7 @@
 - Modify `web/src/pages/ConnectPage.tsx`: mobile key bar, one-shot modifier state, mobile xterm letter spacing, and cell-width measurement.
 - Modify `web/styles.css`: mobile-only static terminal toolbar, key bar, consistent collapsible bars, and fixed server switcher geometry.
 - Modify `web/e2e/ui_e2e.mjs`: 390px integration assertions for the mobile layout.
+- Modify `internal/server/ui_e2e_test.go`: named mobile-console browser E2E entrypoint.
 
 ### Task 1: Terminal Shortcut Protocol
 
@@ -148,6 +149,7 @@ git commit -m "feat: define mobile terminal shortcuts"
 - Modify: `web/e2e/ui_e2e.mjs:175-191`
 - Modify: `web/src/pages/ConnectPage.tsx:41-55,1308-1676,2160-2182`
 - Modify: `web/styles.css:4797-4813,5388-5492,5838-5840,6147-6251,7008-7102`
+- Modify: `internal/server/ui_e2e_test.go`
 
 - [ ] **Step 1: Add failing mobile integration assertions**
 
@@ -200,7 +202,7 @@ pnpm build
 $env:GOSSHD_UI_E2E_NODE='C:\Users\qyl\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
 $env:GOSSHD_UI_E2E_PLAYWRIGHT='C:\Users\qyl\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules\playwright'
 $env:GOSSHD_UI_E2E_BROWSER='C:\Program Files\Google\Chrome\Application\chrome.exe'
-go test ./internal/server -run TestUIE2EWithBrowser -count=1
+go test ./internal/server -run TestMobileConsoleUIE2EWithBrowser -count=1
 ```
 
 Expected: FAIL because `.mobile-terminal-keys` does not exist.
@@ -466,7 +468,7 @@ pnpm build
 $env:GOSSHD_UI_E2E_NODE='C:\Users\qyl\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
 $env:GOSSHD_UI_E2E_PLAYWRIGHT='C:\Users\qyl\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules\playwright'
 $env:GOSSHD_UI_E2E_BROWSER='C:\Program Files\Google\Chrome\Application\chrome.exe'
-go test ./internal/server -run TestUIE2EWithBrowser -count=1
+go test ./internal/server -run TestMobileConsoleUIE2EWithBrowser -count=1
 ```
 
 Expected: all commands exit 0; the Node check prints `terminal shortcut checks passed`; Go prints `ok`.
@@ -474,7 +476,7 @@ Expected: all commands exit 0; the Node check prints `terminal shortcut checks p
 - [ ] **Step 7: Commit the mobile UI**
 
 ```powershell
-git add web/src/pages/ConnectPage.tsx web/styles.css web/e2e/ui_e2e.mjs
+git add web/src/pages/ConnectPage.tsx web/styles.css web/e2e/ui_e2e.mjs internal/server/ui_e2e_test.go
 git commit -m "feat: improve mobile web terminal controls"
 ```
 
@@ -505,9 +507,9 @@ $env:GOSSHD_UI_E2E_NODE='C:\Users\qyl\.cache\codex-runtimes\codex-primary-runtim
 $env:GOSSHD_UI_E2E_PLAYWRIGHT='C:\Users\qyl\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\node_modules\playwright'
 $env:GOSSHD_UI_E2E_BROWSER='C:\Program Files\Google\Chrome\Application\chrome.exe'
 $env:GOSSHD_UI_E2E_VIEWPORT_WIDTH='390'
-go test ./internal/server -run TestUIE2EWithBrowser -count=1
+go test ./internal/server -run TestMobileConsoleUIE2EWithBrowser -count=1
 $env:GOSSHD_UI_E2E_VIEWPORT_WIDTH='315'
-go test ./internal/server -run TestUIE2EWithBrowser -count=1
+go test ./internal/server -run TestMobileConsoleUIE2EWithBrowser -count=1
 Remove-Item Env:GOSSHD_UI_E2E_VIEWPORT_WIDTH
 ```
 
@@ -532,4 +534,4 @@ git status --short
 git diff --stat HEAD~2
 ```
 
-Expected: only the five files in the File Map plus this plan/spec history are changed by the feature; no generated `.superpowers` content is tracked.
+Expected: only the six files in the File Map plus this plan/spec history are changed by the feature; no generated `.superpowers` content is tracked.

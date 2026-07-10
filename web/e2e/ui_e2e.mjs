@@ -73,6 +73,37 @@ try {
     await expectCount(page.locator(".mobile-terminal-keys button"), 12);
     await expectCount(page.locator(".connect-host-panel > .collapsed-zone-button"), 1);
     await expectCount(page.locator(".files-zone > .collapsed-zone-button"), 1);
+    await page.locator(".connect-host-panel > .collapsed-zone-button").click();
+    await page.locator(".files-zone > .collapsed-zone-button").click();
+    const expandedLayout = await page.evaluate(() => {
+      const selectors = {
+        body: ".connect-body",
+        host: ".connect-host-panel",
+        main: ".connect-main",
+        files: ".files-zone",
+        keybar: ".mobile-terminal-keys",
+      };
+      const rectangles = Object.fromEntries(Object.entries(selectors).map(([name, selector]) => {
+        const element = document.querySelector(selector);
+        if (!(element instanceof HTMLElement)) throw new Error(`${selector} is missing`);
+        const bounds = element.getBoundingClientRect();
+        return [name, { top: bounds.top, right: bounds.right, bottom: bounds.bottom, left: bounds.left }];
+      }));
+      return { ...rectangles, innerWidth, innerHeight };
+    });
+    const within = (item, container) => item.top >= container.top - 1
+      && item.right <= container.right + 1
+      && item.bottom <= container.bottom + 1
+      && item.left >= container.left - 1;
+    if (!within(expandedLayout.host, expandedLayout.body)
+      || !within(expandedLayout.main, expandedLayout.body)
+      || !within(expandedLayout.files, expandedLayout.main)
+      || !within(expandedLayout.keybar, expandedLayout.main)
+      || expandedLayout.body.left < -1
+      || expandedLayout.body.right > expandedLayout.innerWidth + 1
+      || expandedLayout.body.bottom > expandedLayout.innerHeight + 1) {
+      throw new Error(`expanded mobile layout is clipped: ${JSON.stringify(expandedLayout)}`);
+    }
     const terminalLayout = await page.evaluate(() => {
       const toolbar = document.querySelector(".terminal-pane-toolbar");
       const viewport = document.querySelector(".terminal-viewport");

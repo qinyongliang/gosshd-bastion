@@ -11,6 +11,14 @@ import (
 )
 
 func TestUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false)
+}
+
+func TestMobileConsoleUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, true)
+}
+
+func testUIE2EWithBrowser(t *testing.T, mobileOnly bool) {
 	nodePath := os.Getenv("GOSSHD_UI_E2E_NODE")
 	playwrightPath := os.Getenv("GOSSHD_UI_E2E_PLAYWRIGHT")
 	browserPath := os.Getenv("GOSSHD_UI_E2E_BROWSER")
@@ -41,6 +49,9 @@ func TestUIE2EWithBrowser(t *testing.T) {
 		"PLAYWRIGHT_REQUIRE_PATH="+playwrightPath,
 		"PLAYWRIGHT_CHROMIUM_EXECUTABLE="+browserPath,
 	)
+	if mobileOnly {
+		cmd.Env = append(cmd.Env, "GOSSHD_UI_E2E_MOBILE_ONLY=1")
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("ui e2e failed: %v\n%s", err, out)

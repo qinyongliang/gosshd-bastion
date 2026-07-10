@@ -133,6 +133,7 @@ type TerminalRuntime = {
   dims: { cols: number; rows: number };
   sessionID: string;
   aiEnabled: boolean;
+  mobileModifier: TerminalModifier | null;
   pendingCommand: string;
   active: boolean;
   disposed: boolean;
@@ -1316,15 +1317,13 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
   const [dims, setDims] = useState(runtime.dims);
   const [sessionID, setSessionID] = useState(runtime.sessionID);
   const [aiEnabled, setAIEnabled] = useState(runtime.aiEnabled);
-  const [mobileModifier, setMobileModifier] = useState<TerminalModifier | null>(null);
-  const mobileModifierRef = useRef<TerminalModifier | null>(null);
+  const [mobileModifier, setMobileModifier] = useState<TerminalModifier | null>(runtime.mobileModifier);
   const fitRetryRef = useRef<number | null>(null);
   const fitFrameRef = useRef<number | null>(null);
   const connected = status === "connected";
 
   const setModifier = (modifier: TerminalModifier | null) => {
-    mobileModifierRef.current = modifier;
-    setMobileModifier(modifier);
+    setRuntimeSnapshot(runtime, { mobileModifier: modifier });
   };
 
   useEffect(() => {
@@ -1334,6 +1333,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       setDims(runtime.dims);
       setSessionID(runtime.sessionID);
       setAIEnabled(runtime.aiEnabled);
+      setMobileModifier(runtime.mobileModifier);
     };
     runtime.listeners.add(sync);
     sync();
@@ -1377,11 +1377,11 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
   const pressMobileShortcut = (key: TerminalShortcutKey) => {
     try {
       if (key === "ctrl" || key === "alt") {
-        setModifier(mobileModifierRef.current === key ? null : key);
+        setModifier(runtime.mobileModifier === key ? null : key);
         return;
       }
       const sequence = terminalShortcutSequence(key);
-      if (sequence && sendTerminalInput(applyTerminalModifier(sequence, mobileModifierRef.current))) setModifier(null);
+      if (sequence && sendTerminalInput(sequence)) setModifier(null);
     } finally {
       runtime.terminal?.focus();
     }
@@ -1541,9 +1541,9 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
             return;
           }
         }
-        const modifier = mobileModifierRef.current;
+        const modifier = runtime.mobileModifier;
         const normalized = normalizeTerminalInputText(value);
-        if (modifier) setModifier(null);
+        if (modifier) setRuntimeSnapshot(runtime, { mobileModifier: null });
         sendTerminalInput(applyTerminalModifier(normalized, modifier));
       }));
 
@@ -2021,6 +2021,7 @@ function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
     dims: { cols: DEFAULT_COLS, rows: DEFAULT_ROWS },
     sessionID: "",
     aiEnabled: true,
+    mobileModifier: null,
     pendingCommand: "",
     active: false,
     disposed: false,
@@ -2033,7 +2034,7 @@ function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
   return runtime;
 }
 
-function setRuntimeSnapshot(runtime: TerminalRuntime, patch: Partial<Pick<TerminalRuntime, "status" | "error" | "dims" | "sessionID" | "aiEnabled">>) {
+function setRuntimeSnapshot(runtime: TerminalRuntime, patch: Partial<Pick<TerminalRuntime, "status" | "error" | "dims" | "sessionID" | "aiEnabled" | "mobileModifier">>) {
   Object.assign(runtime, patch);
   for (const listener of runtime.listeners) listener();
 }
