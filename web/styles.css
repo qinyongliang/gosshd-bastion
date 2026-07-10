@@ -6137,7 +6137,7 @@ body.is-resizing-connect {
 .terminal-panel.fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 240;
   border-radius: 0;
   padding: 14px;
   background: rgba(3, 8, 16, 0.96);
@@ -7012,7 +7012,8 @@ html[data-theme="dark"] .xterm-rows {
 @media (max-width: 760px) {
   .server-switcher-menu {
     position: fixed;
-    inset: 46px 8px 8px;
+    inset: 54px 8px 8px;
+    z-index: 300;
     width: auto;
     max-height: none;
   }
@@ -7031,6 +7032,8 @@ html[data-theme="dark"] .xterm-rows {
     min-height: auto;
     gap: 8px;
     padding: 8px 10px;
+    animation: none;
+    backdrop-filter: none;
   }
   .connect-appbar-brand {
     flex: 1 1 auto;
@@ -7044,8 +7047,11 @@ html[data-theme="dark"] .xterm-rows {
     flex-basis: 100%;
   }
   .connect-appbar-actions {
-    flex-basis: 100%;
-    justify-content: flex-end;
+    display: none;
+  }
+  .connect-workspace.terminal-fullscreen-active .connect-appbar,
+  .connect-workspace.terminal-fullscreen-active .connection-tabs {
+    display: none;
   }
   .connect-appbar-meta {
     gap: 8px;
@@ -7119,6 +7125,7 @@ html[data-theme="dark"] .xterm-rows {
   .connect-main {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(0, 0.65fr);
+    animation: none;
   }
   .connect-main.files-collapsed {
     grid-template-columns: 1fr;
@@ -7127,6 +7134,12 @@ html[data-theme="dark"] .xterm-rows {
   .connect-zone {
     padding: 0;
   }
+  .connect-workspace.terminal-fullscreen-active .connect-main,
+  .connect-workspace.terminal-fullscreen-active .terminal-zone {
+    overflow: visible;
+    transform: none;
+    backdrop-filter: none;
+  }
   .terminal-panel {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 34px minmax(0, 1fr) auto;
@@ -7134,6 +7147,8 @@ html[data-theme="dark"] .xterm-rows {
   }
   .terminal-panel.fullscreen {
     grid-template-rows: 34px minmax(0, 1fr) auto;
+    width: 100dvw;
+    height: 100dvh;
   }
   .terminal-pane-toolbar {
     position: static;
@@ -7174,13 +7189,16 @@ html[data-theme="dark"] .xterm-rows {
     min-height: 0;
   }
   .mobile-terminal-keys {
-    display: grid;
+    display: none;
     grid-column: 1;
     grid-row: 3;
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px;
     padding: 4px 6px;
     background: #02060c;
+  }
+  .terminal-panel.mobile-input-focused .mobile-terminal-keys {
+    display: grid;
   }
   .mobile-terminal-keys button {
     min-width: 0;

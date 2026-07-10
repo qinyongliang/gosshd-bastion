@@ -69,8 +69,12 @@ try {
 
     await page.setViewportSize({ width: mobileViewportWidth, height: 844 });
     await page.goto(`${baseURL}/targets/${mobileTargetID}/connect`, { waitUntil: "domcontentloaded" });
-    await page.locator(".mobile-terminal-keys").waitFor();
+    await page.locator(".terminal-panel").waitFor();
+    await page.locator(".mobile-terminal-keys").waitFor({ state: "attached" });
     await expectCount(page.locator(".mobile-terminal-keys button"), 12);
+    await expectHidden(page.locator(".mobile-terminal-keys"));
+    await page.locator(".terminal-viewport").click();
+    await expectVisible(page.locator(".mobile-terminal-keys"));
     await expectCount(page.locator(".connect-host-panel > .collapsed-zone-button"), 1);
     await expectCount(page.locator(".files-zone > .collapsed-zone-button"), 1);
     await page.locator(".connect-host-panel > .collapsed-zone-button").click();
@@ -81,7 +85,6 @@ try {
         host: ".connect-host-panel",
         main: ".connect-main",
         files: ".files-zone",
-        keybar: ".mobile-terminal-keys",
       };
       const rectangles = Object.fromEntries(Object.entries(selectors).map(([name, selector]) => {
         const element = document.querySelector(selector);
@@ -98,7 +101,6 @@ try {
     if (!within(expandedLayout.host, expandedLayout.body)
       || !within(expandedLayout.main, expandedLayout.body)
       || !within(expandedLayout.files, expandedLayout.main)
-      || !within(expandedLayout.keybar, expandedLayout.main)
       || expandedLayout.body.left < -1
       || expandedLayout.body.right > expandedLayout.innerWidth + 1
       || expandedLayout.body.bottom > expandedLayout.innerHeight + 1) {
@@ -126,7 +128,7 @@ try {
     });
     if (terminalLayout.toolbarPosition !== "static") throw new Error(`mobile terminal toolbar should be static, got ${terminalLayout.toolbarPosition}`);
     if (terminalLayout.toolbarBottom > terminalLayout.viewportTop + 1) throw new Error(`mobile terminal toolbar overlaps viewport: ${terminalLayout.toolbarBottom} > ${terminalLayout.viewportTop}`);
-    for (const name of ["toolbar", "viewport", "keybar"]) {
+    for (const name of ["toolbar", "viewport"]) {
       const item = terminalLayout[name];
       if (Math.abs(item.left - terminalLayout.panel.left) > 1
         || Math.abs(item.right - terminalLayout.panel.right) > 1
@@ -135,14 +137,44 @@ try {
       }
     }
 
+    await page.locator(".terminal-pane-toolbar button[aria-label]").click();
+    const fullscreenLayout = await page.evaluate(() => {
+      const panel = document.querySelector(".terminal-panel.fullscreen");
+      const viewport = document.querySelector(".terminal-panel.fullscreen .terminal-viewport");
+      if (!(panel instanceof HTMLElement) || !(viewport instanceof HTMLElement)) throw new Error("fullscreen terminal is missing");
+      const rect = (element) => {
+        const bounds = element.getBoundingClientRect();
+        return { top: bounds.top, right: bounds.right, bottom: bounds.bottom, left: bounds.left, width: bounds.width, height: bounds.height };
+      };
+      return { panel: rect(panel), viewport: rect(viewport), innerWidth, innerHeight };
+    });
+    if (fullscreenLayout.panel.width < fullscreenLayout.innerWidth - 2
+      || fullscreenLayout.panel.height < fullscreenLayout.innerHeight - 2
+      || fullscreenLayout.viewport.width <= 0
+      || fullscreenLayout.viewport.height <= 120) {
+      throw new Error(`mobile fullscreen terminal is blank-sized: ${JSON.stringify(fullscreenLayout)}`);
+    }
+    await page.locator(".terminal-pane-toolbar button[aria-label]").click();
+
     await page.keyboard.press("Alt+N");
     const switcherSearch = page.locator("[data-connect-switcher-search]");
     await switcherSearch.waitFor();
+    await expectHidden(page.locator(".mobile-terminal-keys"));
+    const searchFocusedBeforeTap = await switcherSearch.evaluate((element) => document.activeElement === element);
+    if (searchFocusedBeforeTap) throw new Error("mobile server search should not autofocus");
+    await switcherSearch.focus();
+    await expectHidden(page.locator(".mobile-terminal-keys"));
     const switcherBounds = await page.locator(".server-switcher-menu").evaluate((element) => {
+      const list = element.querySelector(".server-switcher-list");
+      if (!(list instanceof HTMLElement)) throw new Error("server switcher list is missing");
       const bounds = element.getBoundingClientRect();
-      return { left: bounds.left, right: bounds.right, innerWidth };
+      const listBounds = list.getBoundingClientRect();
+      return { left: bounds.left, right: bounds.right, bottom: bounds.bottom, listHeight: listBounds.height, innerWidth, innerHeight };
     });
-    if (switcherBounds.left < 8 || switcherBounds.right > switcherBounds.innerWidth - 8) {
+    if (switcherBounds.left < 8
+      || switcherBounds.right > switcherBounds.innerWidth - 8
+      || switcherBounds.bottom > switcherBounds.innerHeight - 8
+      || switcherBounds.listHeight <= 80) {
       throw new Error(`mobile server switcher is outside viewport: ${JSON.stringify(switcherBounds)}`);
     }
     await switcherSearch.fill(mobileAlias);
@@ -338,6 +370,23 @@ async function expectText(page, text) {
 async function expectCount(locator, expected) {
   const actual = await locator.count();
   if (actual !== expected) throw new Error(`count mismatch: got ${actual}, want ${expected}`);
+}
+
+async function expectVisible(locator) {
+  if (!(await locator.isVisible())) throw new Error("expected locator to be visible");
+}
+
+async function expectHidden(locator) {
+  if (await locator.isVisible()) {
+    const details = await locator.first().evaluate((element) => ({
+      className: element.className,
+      display: getComputedStyle(element).display,
+      parentClassName: element.parentElement?.className,
+      activeTag: document.activeElement?.tagName,
+      activeClassName: document.activeElement?.className,
+    })).catch(() => null);
+    throw new Error(`expected locator to be hidden: ${JSON.stringify(details)}`);
+  }
 }
 
 async function expectStaticEmptyState(page) {
