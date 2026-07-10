@@ -7128,6 +7128,7 @@ html[data-theme="dark"] .xterm-rows {
     padding: 0;
   }
   .terminal-panel {
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 34px minmax(0, 1fr) auto;
     min-height: 0;
   }
@@ -7136,6 +7137,7 @@ html[data-theme="dark"] .xterm-rows {
   }
   .terminal-pane-toolbar {
     position: static;
+    grid-column: 1;
     grid-row: 1;
     justify-self: end;
     justify-content: flex-end;
@@ -7157,6 +7159,7 @@ html[data-theme="dark"] .xterm-rows {
   }
   .terminal-reconnect-button {
     position: static;
+    grid-column: 1;
     grid-row: 1;
     align-self: center;
     justify-self: start;
@@ -7166,11 +7169,13 @@ html[data-theme="dark"] .xterm-rows {
     padding: 0 8px;
   }
   .terminal-zone .terminal-viewport {
+    grid-column: 1;
     grid-row: 2;
     min-height: 0;
   }
   .mobile-terminal-keys {
     display: grid;
+    grid-column: 1;
     grid-row: 3;
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px;

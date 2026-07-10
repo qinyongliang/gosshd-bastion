@@ -105,17 +105,35 @@ try {
       throw new Error(`expanded mobile layout is clipped: ${JSON.stringify(expandedLayout)}`);
     }
     const terminalLayout = await page.evaluate(() => {
+      const panel = document.querySelector(".terminal-panel");
       const toolbar = document.querySelector(".terminal-pane-toolbar");
       const viewport = document.querySelector(".terminal-viewport");
-      if (!(toolbar instanceof HTMLElement) || !(viewport instanceof HTMLElement)) throw new Error("terminal layout is missing");
+      const keybar = document.querySelector(".mobile-terminal-keys");
+      if (!(panel instanceof HTMLElement) || !(toolbar instanceof HTMLElement) || !(viewport instanceof HTMLElement) || !(keybar instanceof HTMLElement)) throw new Error("terminal layout is missing");
+      const rectangle = (element) => {
+        const bounds = element.getBoundingClientRect();
+        return { left: bounds.left, right: bounds.right, width: bounds.width };
+      };
       return {
         toolbarPosition: getComputedStyle(toolbar).position,
         toolbarBottom: toolbar.getBoundingClientRect().bottom,
         viewportTop: viewport.getBoundingClientRect().top,
+        panel: rectangle(panel),
+        toolbar: rectangle(toolbar),
+        viewport: rectangle(viewport),
+        keybar: rectangle(keybar),
       };
     });
     if (terminalLayout.toolbarPosition !== "static") throw new Error(`mobile terminal toolbar should be static, got ${terminalLayout.toolbarPosition}`);
     if (terminalLayout.toolbarBottom > terminalLayout.viewportTop + 1) throw new Error(`mobile terminal toolbar overlaps viewport: ${terminalLayout.toolbarBottom} > ${terminalLayout.viewportTop}`);
+    for (const name of ["toolbar", "viewport", "keybar"]) {
+      const item = terminalLayout[name];
+      if (Math.abs(item.left - terminalLayout.panel.left) > 1
+        || Math.abs(item.right - terminalLayout.panel.right) > 1
+        || Math.abs(item.width - terminalLayout.panel.width) > 1) {
+        throw new Error(`mobile terminal ${name} does not fill panel: ${JSON.stringify(terminalLayout)}`);
+      }
+    }
 
     await page.keyboard.press("Alt+N");
     const switcherSearch = page.locator("[data-connect-switcher-search]");
