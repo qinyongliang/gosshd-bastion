@@ -48,6 +48,8 @@ import { ManualReviewPoller } from "../components/ManualReviewPoller";
 import { Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appName, documentTitle } from "../lib/branding";
+import { MOBILE_TERMINAL_KEY_ROWS, TERMINAL_SHORTCUT_LABELS, applyTerminalModifier, terminalShortcutSequence } from "../terminalShortcuts";
+import type { TerminalModifier, TerminalShortcutKey } from "../terminalShortcuts";
 import { useTheme } from "../theme";
 import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
 import { tagColor, targetEndpoint } from "../utils";
@@ -1314,8 +1316,16 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
   const [dims, setDims] = useState(runtime.dims);
   const [sessionID, setSessionID] = useState(runtime.sessionID);
   const [aiEnabled, setAIEnabled] = useState(runtime.aiEnabled);
+  const [mobileModifier, setMobileModifier] = useState<TerminalModifier | null>(null);
+  const mobileModifierRef = useRef<TerminalModifier | null>(null);
   const fitRetryRef = useRef<number | null>(null);
   const fitFrameRef = useRef<number | null>(null);
+  const connected = status === "connected";
+
+  const setModifier = (modifier: TerminalModifier | null) => {
+    mobileModifierRef.current = modifier;
+    setMobileModifier(modifier);
+  };
 
   useEffect(() => {
     const sync = () => {
@@ -1362,6 +1372,19 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       return true;
     }
     return false;
+  };
+
+  const pressMobileShortcut = (key: TerminalShortcutKey) => {
+    try {
+      if (key === "ctrl" || key === "alt") {
+        setModifier(mobileModifierRef.current === key ? null : key);
+        return;
+      }
+      const sequence = terminalShortcutSequence(key);
+      if (sequence && sendTerminalInput(applyTerminalModifier(sequence, mobileModifierRef.current))) setModifier(null);
+    } finally {
+      runtime.terminal?.focus();
+    }
   };
 
   const runPendingCommand = () => {
@@ -1466,6 +1489,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
     if (!container) return;
 
     let terminal = runtime.terminal;
+    const mobileMedia = window.matchMedia("(max-width: 760px)");
     if (!terminal) {
       terminal = new Terminal({
         cols: DEFAULT_COLS,
@@ -1474,6 +1498,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
         cursorBlink: true,
         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
         fontSize: 13,
+        letterSpacing: mobileMedia.matches ? -1 : 0,
         theme: { background: "#08111e", foreground: "#dbeafe", cursor: "#67e8f9", selectionBackground: "#0e7490" },
         screenReaderMode: true,
       });
@@ -1516,7 +1541,10 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
             return;
           }
         }
-        sendTerminalInput(normalizeTerminalInputText(value));
+        const modifier = mobileModifierRef.current;
+        const normalized = normalizeTerminalInputText(value);
+        if (modifier) setModifier(null);
+        sendTerminalInput(applyTerminalModifier(normalized, modifier));
       }));
 
       runtime.disposables.push(terminal.onResize(({ cols, rows }) => {
@@ -1531,6 +1559,12 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       container.appendChild(terminal.element);
     }
     const focusTerminal = () => terminal.focus();
+    const syncTerminalLetterSpacing = () => {
+      terminal.options.letterSpacing = mobileMedia.matches ? -1 : 0;
+      scheduleTerminalFit(terminal);
+    };
+    mobileMedia.addEventListener("change", syncTerminalLetterSpacing);
+    syncTerminalLetterSpacing();
     if (runtime.active) terminal.focus();
     container.addEventListener("pointerdown", focusTerminal);
 
@@ -1570,6 +1604,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       window.removeEventListener("pagehide", closeTerminalSession);
       window.removeEventListener("focus", focusTerminalOnWindowFocus);
       resizeObserver.disconnect();
+      mobileMedia.removeEventListener("change", syncTerminalLetterSpacing);
       container.removeEventListener("pointerdown", focusTerminal);
       container.removeEventListener("keydown", onTerminalKeyDown);
     };
@@ -1673,6 +1708,21 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       </div>
       {(status === "disconnected" || status === "error") && <button type="button" className="terminal-reconnect-button" onClick={connect}><RefreshCw />{t("connectReconnect")}</button>}
       <div className="terminal-viewport" ref={containerRef} />
+      <div className="mobile-terminal-keys">
+        {MOBILE_TERMINAL_KEY_ROWS.flat().map((key) => {
+          const modifier = key === "ctrl" || key === "alt";
+          return <button
+            type="button"
+            key={key}
+            data-terminal-key={key}
+            className={modifier && mobileModifier === key ? "active" : ""}
+            aria-pressed={modifier ? mobileModifier === key : undefined}
+            disabled={!connected}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={() => pressMobileShortcut(key)}
+          >{TERMINAL_SHORTCUT_LABELS[key]}</button>;
+        })}
+      </div>
     </section>
   );
 }
@@ -2173,6 +2223,7 @@ function measureTerminalCell(container: HTMLElement, terminal: Terminal) {
   probe.style.fontFamily = '"SFMono-Regular", Consolas, "Liberation Mono", monospace';
   probe.style.fontSize = `${fontSize}px`;
   probe.style.lineHeight = String(terminal.options.lineHeight || 1);
+  probe.style.letterSpacing = `${terminal.options.letterSpacing || 0}px`;
   container.appendChild(probe);
   const rect = probe.getBoundingClientRect();
   probe.remove();

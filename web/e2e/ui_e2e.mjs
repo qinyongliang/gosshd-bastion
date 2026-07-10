@@ -1,5 +1,7 @@
 import { createRequire } from "node:module";
 
+const mobileOnly = process.env.GOSSHD_UI_E2E_MOBILE_ONLY === "1";
+const mobileViewportWidth = Number(process.env.GOSSHD_UI_E2E_VIEWPORT_WIDTH || 390);
 const baseURL = mustEnv("GOSSHD_UI_E2E_BASE_URL");
 const playwrightPath = mustEnv("PLAYWRIGHT_REQUIRE_PATH");
 const browserExecutable = mustEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE");
@@ -37,6 +39,67 @@ try {
   await page.getByLabel("Email").fill("admin");
   await page.getByLabel("Password").fill("admin-pass");
   await page.getByRole("button", { name: "Sign in" }).click();
+
+  if (mobileOnly) {
+    await expectText(page, /Access path|访问链路/);
+    const mobileAlias = `mobile-${Date.now()}`;
+    const mobileTargetID = await page.evaluate(async (alias) => {
+      const me = await fetch("/api/me").then((response) => response.json());
+      const ownerID = localStorage.getItem("gosshd_active_org") || me.organizations[0].id;
+      const response = await fetch("/api/targets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          owner_type: "organization",
+          owner_id: ownerID,
+          target_type: "direct",
+          name: "Mobile E2E service",
+          alias,
+          host: "127.0.0.1",
+          port: 22,
+          remote_username: "root",
+          auth_type: "password",
+          secret: "root-pass",
+          tags: ["mobile"],
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      return (await response.json()).target.id;
+    }, mobileAlias);
+
+    await page.setViewportSize({ width: mobileViewportWidth, height: 844 });
+    await page.goto(`${baseURL}/targets/${mobileTargetID}/connect`, { waitUntil: "domcontentloaded" });
+    await page.locator(".mobile-terminal-keys").waitFor();
+    await expectCount(page.locator(".mobile-terminal-keys button"), 12);
+    await expectCount(page.locator(".connect-host-panel > .collapsed-zone-button"), 1);
+    await expectCount(page.locator(".files-zone > .collapsed-zone-button"), 1);
+    const terminalLayout = await page.evaluate(() => {
+      const toolbar = document.querySelector(".terminal-pane-toolbar");
+      const viewport = document.querySelector(".terminal-viewport");
+      if (!(toolbar instanceof HTMLElement) || !(viewport instanceof HTMLElement)) throw new Error("terminal layout is missing");
+      return {
+        toolbarPosition: getComputedStyle(toolbar).position,
+        toolbarBottom: toolbar.getBoundingClientRect().bottom,
+        viewportTop: viewport.getBoundingClientRect().top,
+      };
+    });
+    if (terminalLayout.toolbarPosition !== "static") throw new Error(`mobile terminal toolbar should be static, got ${terminalLayout.toolbarPosition}`);
+    if (terminalLayout.toolbarBottom > terminalLayout.viewportTop + 1) throw new Error(`mobile terminal toolbar overlaps viewport: ${terminalLayout.toolbarBottom} > ${terminalLayout.viewportTop}`);
+
+    await page.keyboard.press("Alt+N");
+    const switcherSearch = page.locator("[data-connect-switcher-search]");
+    await switcherSearch.waitFor();
+    const switcherBounds = await page.locator(".server-switcher-menu").evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { left: bounds.left, right: bounds.right, innerWidth };
+    });
+    if (switcherBounds.left < 8 || switcherBounds.right > switcherBounds.innerWidth - 8) {
+      throw new Error(`mobile server switcher is outside viewport: ${JSON.stringify(switcherBounds)}`);
+    }
+    await switcherSearch.fill(mobileAlias);
+    await page.keyboard.press("Enter");
+    await page.locator(".server-switcher-menu").waitFor({ state: "detached" });
+  } else {
   await expectText(page, "SSH ingress online");
   await expectText(page, /Access path|访问链路/);
   await expectText(page, /Target service|目标服务/);
@@ -189,6 +252,7 @@ try {
   await switcherSearch.fill(privateAlias);
   await page.keyboard.press("Enter");
   await page.waitForFunction((id) => location.pathname === `/targets/${id}/connect`, privateTargetID);
+  }
 } finally {
   await context?.close().catch(() => {});
   await browser.close();
