@@ -206,6 +206,19 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const name = appName(data.runtime);
   const description = appDescription(data.runtime);
   const routePendingCommand = getConnectCommandParam();
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const sync = () => document.documentElement.style.setProperty("--connect-viewport-height", `${viewport.height}px`);
+    sync();
+    viewport.addEventListener("resize", sync);
+    return () => {
+      viewport.removeEventListener("resize", sync);
+      document.documentElement.style.removeProperty("--connect-viewport-height");
+    };
+  }, []);
+
   const system = useQuery({
     queryKey: ["target-system", activeTarget?.id || ""],
     queryFn: () => api.targetSystem(activeTarget!.id),
@@ -1318,7 +1331,6 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
   const [sessionID, setSessionID] = useState(runtime.sessionID);
   const [aiEnabled, setAIEnabled] = useState(runtime.aiEnabled);
   const [mobileModifier, setMobileModifier] = useState<TerminalModifier | null>(runtime.mobileModifier);
-  const [mobileInputFocused, setMobileInputFocused] = useState(false);
   const fitRetryRef = useRef<number | null>(null);
   const fitFrameRef = useRef<number | null>(null);
   const connected = status === "connected";
@@ -1563,10 +1575,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
     } else if (terminal.element && terminal.element.parentElement !== container) {
       container.appendChild(terminal.element);
     }
-    const focusTerminal = () => {
-      if (isMobileViewport()) setMobileInputFocused(true);
-      terminal.focus();
-    };
+    const focusTerminal = () => terminal.focus();
     const syncTerminalLetterSpacing = () => {
       terminal.options.letterSpacing = mobileMedia.matches ? -1 : 0;
       scheduleTerminalFit(terminal);
@@ -1576,11 +1585,8 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
     if (runtime.active && !isMobileViewport()) terminal.focus();
     if (isMobileViewport()) window.setTimeout(() => {
       blurActiveElement();
-      setMobileInputFocused(false);
     }, 0);
-    const onTerminalFocusOut = () => setMobileInputFocused(false);
     container.addEventListener("pointerdown", focusTerminal);
-    container.addEventListener("focusout", onTerminalFocusOut);
 
     const reconnectIfInactive = () => {
       if (runtime.status !== "disconnected" && runtime.status !== "error") return false;
@@ -1600,6 +1606,13 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
     resizeObserver.observe(container);
     scheduleTerminalFit(terminal);
 
+    const onVisualViewportResize = () => {
+      if (!mobileMedia.matches) return;
+      scheduleTerminalFit(terminal);
+      window.requestAnimationFrame(() => terminal.scrollToBottom());
+    };
+    window.visualViewport?.addEventListener("resize", onVisualViewportResize);
+
     const closeTerminalSession = () => {
       const socket = runtime.socket;
       if (socket && socket.readyState === WebSocket.OPEN) {
@@ -1617,10 +1630,10 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
       if (fitFrameRef.current) window.cancelAnimationFrame(fitFrameRef.current);
       window.removeEventListener("pagehide", closeTerminalSession);
       window.removeEventListener("focus", focusTerminalOnWindowFocus);
+      window.visualViewport?.removeEventListener("resize", onVisualViewportResize);
       resizeObserver.disconnect();
       mobileMedia.removeEventListener("change", syncTerminalLetterSpacing);
       container.removeEventListener("pointerdown", focusTerminal);
-      container.removeEventListener("focusout", onTerminalFocusOut);
       container.removeEventListener("keydown", onTerminalKeyDown);
     };
   }, [runtime, target.id]);
@@ -1680,7 +1693,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
     if (fitRetryRef.current) window.clearTimeout(fitRetryRef.current);
     scheduleTerminalFit(terminal);
     fitRetryRef.current = window.setTimeout(() => scheduleTerminalFit(terminal), 120);
-    if (active) terminal.focus();
+    if (active && !isMobileViewport()) terminal.focus();
   }, [active, isFullscreen, runtime, target.id]);
 
   useEffect(() => {
@@ -1705,7 +1718,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
   }, [active, runtime, target.id]);
 
   return (
-    <section className={`terminal-panel ${active ? "active" : "inactive"} ${isFullscreen ? "fullscreen" : ""} ${mobileInputFocused ? "mobile-input-focused" : ""}`} aria-hidden={!active}>
+    <section className={`terminal-panel ${active ? "active" : "inactive"} ${isFullscreen ? "fullscreen" : ""}`} aria-hidden={!active}>
       {manualReview && sessionID && <ManualReviewPoller data={data} sessionID={sessionID} />}
       <div className="terminal-pane-toolbar">
         <button type="button" className={`terminal-ai-button icon-button ${aiEnabled ? "active" : ""}`} onClick={toggleAI} aria-pressed={aiEnabled} title={aiEnabled ? t("connectAICollaborationOn") : t("connectAICollaborationOff")}>
