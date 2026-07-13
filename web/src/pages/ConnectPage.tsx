@@ -1524,16 +1524,6 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
 
       terminal.attachCustomKeyEventHandler((event) => {
         if (event.type !== "keydown") return true;
-        const pasteShortcut = event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "v", "KeyV");
-        if (pasteShortcut && runtime.status === "connected") {
-          if (!event.repeat) {
-            void readClipboardText().then((text) => {
-              if (!text) return;
-              sendTerminalInput(normalizeTerminalInputText(text));
-            });
-          }
-          return false;
-        }
         if (runtime.status !== "disconnected" && runtime.status !== "error") return true;
         const ctrlD = event.ctrlKey && !event.altKey && !event.metaKey && keyMatches(event, "d", "KeyD");
         if (ctrlD) {
@@ -2101,14 +2091,6 @@ function clearQueuedTerminalOutput(runtime: TerminalRuntime) {
   if (runtime.outputFrame !== null) {
     window.cancelAnimationFrame(runtime.outputFrame);
     runtime.outputFrame = null;
-  }
-}
-
-async function readClipboardText() {
-  try {
-    return await navigator.clipboard.readText();
-  } catch {
-    return "";
   }
 }
 
