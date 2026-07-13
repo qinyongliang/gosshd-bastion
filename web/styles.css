@@ -7010,6 +7010,9 @@ html[data-theme="dark"] .xterm-rows {
 }
 
 @media (max-width: 760px) {
+  .connect-workspace {
+    height: var(--connect-viewport-height, 100dvh);
+  }
   .server-switcher-menu {
     position: fixed;
     inset: 54px 8px 8px;
@@ -7148,7 +7151,7 @@ html[data-theme="dark"] .xterm-rows {
   .terminal-panel.fullscreen {
     grid-template-rows: 34px minmax(0, 1fr) auto;
     width: 100dvw;
-    height: 100dvh;
+    height: var(--connect-viewport-height, 100dvh);
   }
   .terminal-pane-toolbar {
     position: static;
@@ -7197,7 +7200,7 @@ html[data-theme="dark"] .xterm-rows {
     padding: 4px 6px;
     background: #02060c;
   }
-  .terminal-panel.mobile-input-focused .mobile-terminal-keys {
+  .terminal-viewport:focus-within ~ .mobile-terminal-keys {
     display: grid;
   }
   .mobile-terminal-keys button {

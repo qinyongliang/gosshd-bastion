@@ -73,8 +73,11 @@ try {
     await page.locator(".mobile-terminal-keys").waitFor({ state: "attached" });
     await expectCount(page.locator(".mobile-terminal-keys button"), 12);
     await expectHidden(page.locator(".mobile-terminal-keys"));
-    await page.locator(".terminal-viewport").click();
+    const terminalInput = page.locator(".xterm-helper-textarea");
+    await terminalInput.focus();
     await expectVisible(page.locator(".mobile-terminal-keys"));
+    await terminalInput.blur();
+    await expectHidden(page.locator(".mobile-terminal-keys"));
     await expectCount(page.locator(".connect-host-panel > .collapsed-zone-button"), 1);
     await expectCount(page.locator(".files-zone > .collapsed-zone-button"), 1);
     await page.locator(".connect-host-panel > .collapsed-zone-button").click();
@@ -154,6 +157,36 @@ try {
       || fullscreenLayout.viewport.height <= 120) {
       throw new Error(`mobile fullscreen terminal is blank-sized: ${JSON.stringify(fullscreenLayout)}`);
     }
+    await page.locator(".terminal-pane-toolbar button[aria-label]").click();
+    await expectHidden(page.locator(".mobile-terminal-keys"));
+
+    await page.locator(".terminal-pane-toolbar button[aria-label]").click();
+    await terminalInput.focus();
+    await page.setViewportSize({ width: mobileViewportWidth, height: 520 });
+    await page.waitForFunction(() => {
+      const height = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--connect-viewport-height"));
+      return Math.abs(height - (window.visualViewport?.height || innerHeight)) < 1;
+    }, undefined, { timeout: 1500 });
+    const keyboardLayout = await page.evaluate(() => {
+      const workspace = document.querySelector(".connect-workspace");
+      const viewport = document.querySelector(".terminal-viewport");
+      const keybar = document.querySelector(".mobile-terminal-keys");
+      if (!(workspace instanceof HTMLElement) || !(viewport instanceof HTMLElement) || !(keybar instanceof HTMLElement)) throw new Error("mobile keyboard layout is missing");
+      const visibleBottom = (window.visualViewport?.offsetTop || 0) + (window.visualViewport?.height || innerHeight);
+      return {
+        workspaceBottom: workspace.getBoundingClientRect().bottom,
+        viewportBottom: viewport.getBoundingClientRect().bottom,
+        keybarBottom: keybar.getBoundingClientRect().bottom,
+        visibleBottom,
+      };
+    });
+    if (keyboardLayout.workspaceBottom > keyboardLayout.visibleBottom + 1
+      || keyboardLayout.viewportBottom > keyboardLayout.visibleBottom + 1
+      || keyboardLayout.keybarBottom > keyboardLayout.visibleBottom + 1) {
+      throw new Error(`mobile terminal is covered by the keyboard: ${JSON.stringify(keyboardLayout)}`);
+    }
+    await terminalInput.blur();
+    await page.setViewportSize({ width: mobileViewportWidth, height: 844 });
     await page.locator(".terminal-pane-toolbar button[aria-label]").click();
 
     await page.keyboard.press("Alt+N");
