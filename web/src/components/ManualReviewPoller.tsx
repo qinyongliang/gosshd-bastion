@@ -109,14 +109,19 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
       closeReviewNotification(notificationsRef.current, variables.id);
       setReviews((prev) =>
         prev.map((item) => {
-          const review = {
-            ...item.review,
-            auto_allow_minutes: result.auto_allow_minutes,
-            auto_allow_expires_at: result.auto_allow_expires_at,
-          };
           return item.review.id === variables.id
-            ? { ...item, review, status: variables.allow ? "allowed" : "denied", submitting: undefined, error: undefined }
-            : { ...item, review };
+            ? {
+                ...item,
+                review: {
+                  ...item.review,
+                  auto_allow_minutes: result.auto_allow_minutes,
+                  auto_allow_expires_at: result.auto_allow_expires_at,
+                },
+                status: variables.allow ? "allowed" : "denied",
+                submitting: undefined,
+                error: undefined,
+              }
+            : item;
         })
       );
       setDismissing((prev) => new Set(prev).add(variables.id));
