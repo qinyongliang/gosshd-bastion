@@ -258,6 +258,7 @@ export type ManualReview = {
   reason: string;
   created_at: string;
   expires_at: string;
+  default_allow: boolean;
   auto_allow_minutes?: number;
   auto_allow_expires_at?: string;
 };

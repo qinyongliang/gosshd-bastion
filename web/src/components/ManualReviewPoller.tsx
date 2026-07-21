@@ -165,8 +165,8 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
           onAllow={(autoAllowMinutes) => {
             if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: true, autoAllowMinutes });
           }}
-          onDeny={() => {
-            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: false });
+          onDeny={(autoAllowMinutes) => {
+            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: false, autoAllowMinutes });
           }}
           onExpire={() => {
             setReviews((prev) => prev.filter((review) => review.review.id !== item.review.id));
@@ -224,7 +224,7 @@ function ReviewCard({
   item: ReviewState;
   dismissing: boolean;
   onAllow: (autoAllowMinutes?: number) => void;
-  onDeny: () => void;
+  onDeny: (autoAllowMinutes?: number) => void;
   onExpire: () => void;
   onDismiss: () => void;
   compact?: boolean;
@@ -234,7 +234,7 @@ function ReviewCard({
   const isSubmitting = Boolean(item.submitting);
   const activeAutoAllow = Boolean(review.auto_allow_expires_at && secondsUntil(review.auto_allow_expires_at) > 0);
   const configuredMinutes = review.auto_allow_minutes || 10;
-  const countdownAt = activeAutoAllow ? review.auto_allow_expires_at! : review.expires_at;
+  const countdownAt = review.expires_at;
   const [autoAllowEnabled, setAutoAllowEnabled] = useState(activeAutoAllow);
   const [autoAllowMinutes, setAutoAllowMinutes] = useState(configuredMinutes);
   const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(countdownAt));
@@ -264,6 +264,7 @@ function ReviewCard({
 
   const isDone = status === "allowed" || status === "denied";
   const validAutoAllowMinutes = Number.isInteger(autoAllowMinutes) && autoAllowMinutes >= 1 && autoAllowMinutes <= 1440;
+  const rememberedMinutes = autoAllowEnabled ? autoAllowMinutes : (activeAutoAllow ? 0 : undefined);
   return (
     <div className={`manual-review-card ${isDone ? "done" : ""} ${dismissing ? "dismissing" : ""}`}>
       <div className="manual-review-header">
@@ -271,9 +272,8 @@ function ReviewCard({
         <strong>{t("manualReviewTitle")}</strong>
         <span className="manual-review-countdown">
           <Clock />
-          {activeAutoAllow
-            ? t("manualReviewAutoAllowCountdown").replace("{time}", formatCountdown(secondsLeft))
-            : `${secondsLeft}${t("manualReviewSecondsLeft")}`}
+          {t(review.default_allow ? "manualReviewDefaultAllowCountdown" : "manualReviewDefaultDenyCountdown")
+            .replace("{seconds}", String(secondsLeft))}
         </span>
         <button type="button" className="manual-review-close" onClick={onDismiss} aria-label={t("close")}>
           <X />
@@ -328,16 +328,12 @@ function ReviewCard({
             <button
               type="button"
               className="primary"
-              onClick={() => onAllow(
-                !autoAllowEnabled
-                  ? (activeAutoAllow ? 0 : undefined)
-                  : (!activeAutoAllow || autoAllowMinutes !== configuredMinutes ? autoAllowMinutes : undefined)
-              )}
+              onClick={() => onAllow(rememberedMinutes)}
               disabled={status !== "pending" || isSubmitting || (autoAllowEnabled && !validAutoAllowMinutes)}
             >
               <Check />{item.submitting === "allow" ? t("manualReviewSubmitting") : t("manualReviewAllow")}
             </button>
-            <button type="button" className="danger" onClick={onDeny} disabled={status !== "pending" || isSubmitting}>
+            <button type="button" className="danger" onClick={() => onDeny(rememberedMinutes)} disabled={status !== "pending" || isSubmitting || (autoAllowEnabled && !validAutoAllowMinutes)}>
               <X />{item.submitting === "deny" ? t("manualReviewSubmitting") : t("manualReviewDeny")}
             </button>
           </>
@@ -488,14 +484,6 @@ async function requestNotificationPermission(): Promise<NotificationPermission |
 function secondsUntil(iso: string): number {
   const delta = new Date(iso).getTime() - Date.now();
   return Math.max(0, Math.ceil(delta / 1000));
-}
-
-function formatCountdown(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const tail = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  return hours > 0 ? `${String(hours).padStart(2, "0")}:${tail}` : tail;
 }
 
 function isReviewActive(review: ManualReview): boolean {

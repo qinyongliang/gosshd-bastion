@@ -21,6 +21,7 @@ type manualReviewHub struct {
 }
 
 type manualReviewAutoAllow struct {
+	Allow     bool
 	Minutes   int
 	ExpiresAt time.Time
 }
@@ -39,10 +40,9 @@ type manualReviewRequest struct {
 	Reason             string
 	CreatedAt          time.Time
 	ExpiresAt          time.Time
-	NormalExpiresAt    time.Time
+	DefaultAllow       bool
 	AutoAllowMinutes   int
 	AutoAllowExpiresAt time.Time
-	AutoAllow          bool
 	timer              *time.Timer
 	decision           chan manualReviewDecision
 }
@@ -68,7 +68,7 @@ type manualReviewSnapshot struct {
 	Reason             string
 	CreatedAt          time.Time
 	ExpiresAt          time.Time
-	NormalExpiresAt    time.Time
+	DefaultAllow       bool
 	AutoAllowMinutes   int
 	AutoAllowExpiresAt time.Time
 }
@@ -91,8 +91,12 @@ func (h *manualReviewHub) Create(req manualReviewRequest, timeout time.Duration)
 	}
 	req.ID = uuid.NewString()
 	req.CreatedAt = now
-	req.NormalExpiresAt = now.Add(timeout)
-	req.ExpiresAt = req.NormalExpiresAt
+	req.ExpiresAt = now.Add(timeout)
+	if state, ok := h.activeAutoAllowLocked(manualReviewPollerKey(req.OrganizationID, req.SessionID), now); ok {
+		req.DefaultAllow = state.Allow
+		req.AutoAllowMinutes = state.Minutes
+		req.AutoAllowExpiresAt = state.ExpiresAt
+	}
 	req.decision = make(chan manualReviewDecision, 1)
 	h.pending[req.ID] = &req
 	h.scheduleLocked(&req, now)
@@ -172,7 +176,7 @@ func (h *manualReviewHub) DecideWithAutoAllow(id string, decision manualReviewDe
 	req.decision <- decision
 	close(req.decision)
 	if autoAllowMinutes != nil {
-		h.updateAutoAllowLocked(req.OrganizationID, req.SessionID, *autoAllowMinutes, now)
+		h.updateAutoAllowLocked(req.OrganizationID, req.SessionID, *autoAllowMinutes, decision.Allow, now)
 	}
 	h.signalLocked()
 	return nil
@@ -241,11 +245,11 @@ func (h *manualReviewHub) activeAutoAllowLocked(key string, now time.Time) (manu
 	return state, ok
 }
 
-func (h *manualReviewHub) updateAutoAllowLocked(organizationID, sessionID string, minutes int, now time.Time) {
+func (h *manualReviewHub) updateAutoAllowLocked(organizationID, sessionID string, minutes int, allow bool, now time.Time) {
 	key := manualReviewPollerKey(organizationID, sessionID)
 	state := manualReviewAutoAllow{}
 	if minutes > 0 {
-		state = manualReviewAutoAllow{Minutes: minutes, ExpiresAt: now.Add(time.Duration(minutes) * time.Minute)}
+		state = manualReviewAutoAllow{Allow: allow, Minutes: minutes, ExpiresAt: now.Add(time.Duration(minutes) * time.Minute)}
 		h.autoAllow[key] = state
 	} else {
 		delete(h.autoAllow, key)
@@ -283,7 +287,11 @@ func (h *manualReviewHub) resolveExpiredLocked(id string, req *manualReviewReque
 	if req.timer != nil {
 		req.timer.Stop()
 	}
-	req.decision <- manualReviewDecision{Allow: true, Reviewer: "automatic deadline", DecidedAt: now}
+	reviewer := "automatic deadline"
+	if req.AutoAllowMinutes > 0 {
+		reviewer = "remembered choice"
+	}
+	req.decision <- manualReviewDecision{Allow: req.DefaultAllow, Reviewer: reviewer, DecidedAt: now}
 	close(req.decision)
 }
 
@@ -317,7 +325,7 @@ func snapshotManualReview(req *manualReviewRequest) manualReviewSnapshot {
 		Reason:             req.Reason,
 		CreatedAt:          req.CreatedAt,
 		ExpiresAt:          req.ExpiresAt,
-		NormalExpiresAt:    req.NormalExpiresAt,
+		DefaultAllow:       req.DefaultAllow,
 		AutoAllowMinutes:   req.AutoAllowMinutes,
 		AutoAllowExpiresAt: req.AutoAllowExpiresAt,
 	}
