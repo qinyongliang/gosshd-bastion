@@ -93,12 +93,6 @@ func (h *manualReviewHub) Create(req manualReviewRequest, timeout time.Duration)
 	req.CreatedAt = now
 	req.NormalExpiresAt = now.Add(timeout)
 	req.ExpiresAt = req.NormalExpiresAt
-	if state, ok := h.activeAutoAllowLocked(manualReviewPollerKey(req.OrganizationID, req.SessionID), now); ok {
-		req.ExpiresAt = state.ExpiresAt
-		req.AutoAllow = true
-		req.AutoAllowMinutes = state.Minutes
-		req.AutoAllowExpiresAt = state.ExpiresAt
-	}
 	req.decision = make(chan manualReviewDecision, 1)
 	h.pending[req.ID] = &req
 	h.scheduleLocked(&req, now)
@@ -256,27 +250,6 @@ func (h *manualReviewHub) updateAutoAllowLocked(organizationID, sessionID string
 	} else {
 		delete(h.autoAllow, key)
 	}
-	for id, req := range h.pending {
-		if manualReviewPollerKey(req.OrganizationID, req.SessionID) != key {
-			continue
-		}
-		if minutes > 0 {
-			req.ExpiresAt = state.ExpiresAt
-			req.AutoAllow = true
-			req.AutoAllowMinutes = state.Minutes
-			req.AutoAllowExpiresAt = state.ExpiresAt
-		} else {
-			req.ExpiresAt = req.NormalExpiresAt
-			req.AutoAllow = false
-			req.AutoAllowMinutes = 0
-			req.AutoAllowExpiresAt = time.Time{}
-		}
-		if !now.Before(req.ExpiresAt) {
-			h.resolveExpiredLocked(id, req, now)
-			continue
-		}
-		h.scheduleLocked(req, now)
-	}
 }
 
 func (h *manualReviewHub) scheduleLocked(req *manualReviewRequest, now time.Time) {
@@ -310,9 +283,7 @@ func (h *manualReviewHub) resolveExpiredLocked(id string, req *manualReviewReque
 	if req.timer != nil {
 		req.timer.Stop()
 	}
-	if req.AutoAllow {
-		req.decision <- manualReviewDecision{Allow: true, Reviewer: "automatic deadline", DecidedAt: now}
-	}
+	req.decision <- manualReviewDecision{Allow: true, Reviewer: "automatic deadline", DecidedAt: now}
 	close(req.decision)
 }
 

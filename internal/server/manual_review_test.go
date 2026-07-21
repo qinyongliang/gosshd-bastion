@@ -98,6 +98,9 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 	postJSON(t, memberClient, srv.URL+"/api/manual-reviews/"+review.ID+"/decision", map[string]bool{"allow": true}, http.StatusForbidden, nil)
 
 	var autoAllowResponse apiManualReviewDecisionResponse
+	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+review.ID+"/decision", map[string]any{"allow": true, "auto_allow_minutes": -1}, http.StatusBadRequest, nil)
+	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+review.ID+"/decision", map[string]any{"allow": true, "auto_allow_minutes": 1441}, http.StatusBadRequest, nil)
+	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+review.ID+"/decision", map[string]any{"allow": false, "auto_allow_minutes": 10}, http.StatusBadRequest, nil)
 	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+review.ID+"/decision", map[string]any{"allow": true, "auto_allow_minutes": 10}, http.StatusOK, &autoAllowResponse)
 	if autoAllowResponse.AutoAllowMinutes != 10 || autoAllowResponse.AutoAllowExpiresAt == "" {
 		t.Fatalf("auto-allow decision response mismatch: %+v", autoAllowResponse)
@@ -112,34 +115,18 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 		t.Fatal("manual review decision did not unblock command")
 	}
 
-	autoPollCh := startManualReviewPoll(ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&timeout_seconds=2")
-	waitForManualReviewPoller(t, app, org.Organization.ID)
-	autoResultCh := make(chan bastion.Decision, 1)
-	go func() {
-		autoResultCh <- app.reviewDeniedCommand(ctx, member.User.ID, storeTarget, "truncate table users", bastion.Decision{
-			Action:                     store.DecisionDeny,
-			Reason:                     "llm: destructive query",
-			AllowManualReview:          true,
-			ManualReviewTimeoutSeconds: 2,
-		})
-	}()
-	autoPending := readManualReviewPoll(t, autoPollCh, http.StatusOK)
-	if len(autoPending.Reviews) != 1 || autoPending.Reviews[0].AutoAllowMinutes != 10 || autoPending.Reviews[0].AutoAllowExpiresAt == "" {
-		t.Fatalf("auto-allow review payload mismatch: %+v", autoPending)
+	automatic := app.reviewDeniedCommand(context.Background(), member.User.ID, storeTarget, "truncate table users", bastion.Decision{
+		Action:                     store.DecisionDeny,
+		Reason:                     "llm: destructive query",
+		AllowManualReview:          true,
+		ManualReviewTimeoutSeconds: 2,
+	})
+	if automatic.Action != store.DecisionAllow || automatic.AllowManualReview || !strings.Contains(automatic.Reason, "manual auto-approved") {
+		t.Fatalf("active auto-allow should immediately allow command: %+v", automatic)
 	}
-	autoReviewURL := srv.URL + "/api/manual-reviews/" + autoPending.Reviews[0].ID + "/decision"
-	postJSON(t, ownerClient, autoReviewURL, map[string]any{"allow": true, "auto_allow_minutes": -1}, http.StatusBadRequest, nil)
-	postJSON(t, ownerClient, autoReviewURL, map[string]any{"allow": true, "auto_allow_minutes": 1441}, http.StatusBadRequest, nil)
-	postJSON(t, ownerClient, autoReviewURL, map[string]any{"allow": false, "auto_allow_minutes": 10}, http.StatusBadRequest, nil)
-	postJSON(t, ownerClient, autoReviewURL, map[string]bool{"allow": false}, http.StatusOK, nil)
-	select {
-	case decision := <-autoResultCh:
-		if decision.Action != store.DecisionDeny || !strings.Contains(decision.Reason, "manual rejected by") {
-			t.Fatalf("auto-allow review rejection mismatch: %+v", decision)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("auto-allow review rejection did not unblock command")
-	}
+	app.manualReviews.mu.Lock()
+	app.manualReviews.updateAutoAllowLocked(org.Organization.ID, "", 0, time.Now().UTC())
+	app.manualReviews.mu.Unlock()
 
 	skipped := app.reviewDeniedCommand(context.Background(), member.User.ID, storeTarget, "useradd blocked", bastion.Decision{
 		Action:                     store.DecisionDeny,
@@ -198,48 +185,31 @@ func TestManualReviewHubAutoAllow(t *testing.T) {
 		t.Fatalf("initial approval mismatch: %+v", result)
 	}
 
-	second, _ := hub.Create(manualReviewRequest{OrganizationID: "org-1"}, time.Second)
-	third, thirdDecision := hub.Create(manualReviewRequest{OrganizationID: "org-1"}, time.Second)
-	if second.AutoAllowMinutes != 10 || second.AutoAllowExpiresAt.IsZero() || !second.ExpiresAt.Equal(second.AutoAllowExpiresAt) {
-		t.Fatalf("active auto-allow snapshot mismatch: %+v", second)
+	state, ok := hub.AutoAllowState("org-1", "")
+	if !ok || state.Minutes != 10 {
+		t.Fatalf("active auto-allow state mismatch: %+v %v", state, ok)
 	}
 	renewed := 20
-	if err := hub.DecideWithAutoAllow(second.ID, manualReviewDecision{Allow: true, Reviewer: "owner"}, &renewed); err != nil {
-		t.Fatal(err)
-	}
-	updated, ok := hub.Get(third.ID)
-	if !ok || updated.AutoAllowMinutes != 20 || !updated.AutoAllowExpiresAt.After(second.AutoAllowExpiresAt) {
-		t.Fatalf("renewed auto-allow snapshot mismatch: %+v", updated)
-	}
-
-	disabled := 0
-	fourth, _ := hub.Create(manualReviewRequest{OrganizationID: "org-1"}, time.Second)
-	if err := hub.DecideWithAutoAllow(fourth.ID, manualReviewDecision{Allow: true, Reviewer: "owner"}, &disabled); err != nil {
-		t.Fatal(err)
-	}
-	updated, ok = hub.Get(third.ID)
-	if !ok || updated.AutoAllowMinutes != 0 || !updated.AutoAllowExpiresAt.IsZero() || !updated.ExpiresAt.Equal(updated.NormalExpiresAt) {
-		t.Fatalf("disabled auto-allow snapshot mismatch: %+v", updated)
-	}
-	hub.Expire(third.ID)
-	if _, ok := <-thirdDecision; ok {
-		t.Fatal("disabled request should close without an allow decision")
-	}
-
 	hub.mu.Lock()
-	hub.autoAllow[manualReviewPollerKey("org-2", "")] = manualReviewAutoAllow{Minutes: 10, ExpiresAt: time.Now().Add(25 * time.Millisecond)}
+	hub.updateAutoAllowLocked("org-1", "", renewed, time.Now().UTC())
 	hub.mu.Unlock()
-	automatic, automaticDecision := hub.Create(manualReviewRequest{OrganizationID: "org-2"}, time.Second)
-	if automatic.AutoAllowMinutes != 10 {
-		t.Fatalf("automatic request snapshot mismatch: %+v", automatic)
+	state, ok = hub.AutoAllowState("org-1", "")
+	if !ok || state.Minutes != 20 {
+		t.Fatalf("renewed auto-allow state mismatch: %+v %v", state, ok)
 	}
+}
+
+func TestManualReviewHubAllowsWhenReviewTimesOut(t *testing.T) {
+	hub := newManualReviewHub()
+	_, decision := hub.Create(manualReviewRequest{OrganizationID: "org-1"}, 25*time.Millisecond)
+
 	select {
-	case result, ok := <-automaticDecision:
+	case result, ok := <-decision:
 		if !ok || !result.Allow || result.Reviewer != "automatic deadline" {
-			t.Fatalf("automatic decision mismatch: %+v %v", result, ok)
+			t.Fatalf("timeout decision mismatch: %+v %v", result, ok)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("automatic review did not resolve at the deadline")
+		t.Fatal("manual review did not resolve at the deadline")
 	}
 }
 

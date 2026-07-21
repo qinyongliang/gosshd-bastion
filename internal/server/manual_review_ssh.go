@@ -17,6 +17,12 @@ func (a *App) reviewDeniedCommandForSession(ctx context.Context, userID string, 
 		return decision
 	}
 	organizationID := organizationIDForTarget(target)
+	if _, ok := a.manualReviews.AutoAllowState(organizationID, sessionID); ok {
+		decision.Action = store.DecisionAllow
+		decision.AllowManualReview = false
+		decision.Reason = "manual auto-approved during allow window: " + decision.Reason
+		return decision
+	}
 	if !a.manualReviews.HasActivePollers(organizationID, sessionID) {
 		decision.AllowManualReview = false
 		decision.Reason = "manual review skipped: no active reviewer polling: " + decision.Reason
