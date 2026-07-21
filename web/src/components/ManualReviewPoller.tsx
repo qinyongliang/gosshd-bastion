@@ -232,7 +232,7 @@ function ReviewCard({
 }) {
   const { review, status } = item;
   const isSubmitting = Boolean(item.submitting);
-  const activeAutoAllow = Boolean(review.auto_allow_expires_at && secondsUntil(review.auto_allow_expires_at) > 0);
+  const activeAutoAllow = Boolean(review.auto_allow_minutes && review.auto_allow_expires_at && secondsUntil(review.auto_allow_expires_at) > 0);
   const configuredMinutes = review.auto_allow_minutes || 10;
   const countdownAt = review.expires_at;
   const [autoAllowEnabled, setAutoAllowEnabled] = useState(activeAutoAllow);
