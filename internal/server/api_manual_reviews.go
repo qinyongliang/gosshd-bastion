@@ -24,6 +24,7 @@ type apiManualReview struct {
 	Reason             string `json:"reason"`
 	CreatedAt          string `json:"created_at"`
 	ExpiresAt          string `json:"expires_at"`
+	DefaultAllow       bool   `json:"default_allow"`
 	AutoAllowMinutes   int    `json:"auto_allow_minutes,omitempty"`
 	AutoAllowExpiresAt string `json:"auto_allow_expires_at,omitempty"`
 }
@@ -80,10 +81,6 @@ func (a *App) handleDecideManualReview(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	if req.AutoAllowMinutes != nil {
-		if !req.Allow {
-			writeError(w, http.StatusBadRequest, "auto_allow_minutes requires allow")
-			return
-		}
 		if *req.AutoAllowMinutes < 0 || *req.AutoAllowMinutes > 1440 {
 			writeError(w, http.StatusBadRequest, "auto_allow_minutes must be between 0 and 1440")
 			return
@@ -150,6 +147,7 @@ func apiManualReviewFromSnapshot(review manualReviewSnapshot) apiManualReview {
 		Reason:             review.Reason,
 		CreatedAt:          review.CreatedAt.Format(time.RFC3339),
 		ExpiresAt:          review.ExpiresAt.Format(time.RFC3339),
+		DefaultAllow:       review.DefaultAllow,
 		AutoAllowMinutes:   review.AutoAllowMinutes,
 		AutoAllowExpiresAt: formatOptionalTime(review.AutoAllowExpiresAt),
 	}

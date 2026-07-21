@@ -1,56 +1,30 @@
-# Manual Review Auto-Allow Design
+# Manual Review Remembered Choice Design
 
 ## Scope
 
-Add an optional automatic-allow deadline to the existing manual command review popup. The setting applies to the current review stream: organization-wide reviews use the organization stream, while web-terminal reviews use that terminal session stream.
-
-The state is intentionally kept in the existing in-memory manual review hub. It survives browser refreshes and other reviewers opening the same stream, but it resets when the server restarts.
+Allow a reviewer to remember the current Allow or Deny choice for a configurable number of minutes. Later intercepted commands still open the normal review popup and keep their policy-configured countdown.
 
 ## Interaction
 
-- Add a checked/unchecked option labeled "Allow automatically when time expires" above the existing Allow and Deny actions.
-- Place a numeric minutes input beside the option, defaulting to 10 minutes. Accept whole minutes from 1 through 1440.
-- The option starts inactive and unchecked.
-- Checking it and clicking Allow approves the current command and starts the deadline.
-- While active, later intercepted commands still open the full review popup. The option remains checked, the minutes input retains its configured value, and the header shows the shared remaining time as `MM:SS` or `HH:MM:SS`.
-- Clicking Allow again with the same minutes approves only the current command and keeps the existing deadline.
-- Changing the minutes and clicking Allow approves the current command and starts a new deadline from that click. All pending reviews in the same stream move to the new deadline.
-- Unchecking the option and clicking Allow approves the current command and disables automatic allowance for the stream.
-- Deny only denies the current command; it does not change the automatic-allow setting.
-- Do not show additional explanatory text beneath the control.
+- Show a "Remember my choice" checkbox with a whole-minute input from 1 through 1440, defaulting to 10.
+- Clicking Allow or Deny applies that action immediately. When the checkbox is checked, the same action becomes the remembered choice for that review stream.
+- A later popup within the remembered period remains fully interactive. If nobody acts before its own countdown ends, it applies the remembered choice.
+- A reviewer can override the remembered choice before the countdown ends. Keeping the checkbox checked refreshes the remembered choice and duration from that click; clearing it disables the remembered choice.
+- Without an active remembered choice, timeout defaults to Deny.
 
 ## Server Behavior
 
-The manual review hub stores one automatic-allow state per existing poller key: organization ID plus optional terminal session ID. The state contains the configured whole minutes and absolute UTC deadline.
+The existing in-memory manual review hub stores one remembered decision per poller key: organization ID plus optional terminal session ID. The state contains Allow or Deny, configured minutes, and an absolute UTC expiry.
 
-Each manual review request retains its normal policy deadline. When an automatic-allow state is active, the request instead waits until the shared automatic deadline and is marked to allow on expiry. When that deadline arrives, every still-pending review in the stream resolves as allowed. New reviews after the state expires use the normal policy timeout and deny behavior.
-
-Renewing the deadline updates all pending reviews in the stream and reschedules their expiry. Disabling the setting returns pending reviews to their normal policy deadlines; reviews whose normal deadline has already passed resolve as denied immediately.
-
-The hub owns review expiry so rescheduled deadlines cannot be missed by stale timers in individual SSH request handlers. Manual Allow, manual Deny, cancellation, and authorization checks continue through the existing decision endpoint and review channel.
+Each new review snapshots the active remembered decision as its timeout default but always keeps its own policy deadline. Existing pending reviews are not changed when another review stores a choice. Server restart clears remembered state.
 
 ## API
 
-Manual review responses expose the active automatic-allow deadline and configured minutes for their stream.
-
-The decision endpoint accepts an optional automatic-allow update:
-
-- omitted: leave the stream setting unchanged;
-- `0`: disable it;
-- `1..1440`: set or renew it from the current decision time.
-
-The frontend omits the value when the checkbox remains checked and the minutes have not changed. It sends `0` when the active checkbox is cleared, and sends the entered minutes when enabling or renewing.
-
-## Failure Handling
-
-- Reject invalid minute values at the API boundary.
-- If an automatic deadline expires while a manual decision is racing it, the hub lock permits only one decision to remove and resolve the request.
-- Existing authentication and organization authorization remain unchanged.
-- No database migration, new dependency, background worker, or persistent preference is introduced.
+Keep the existing optional `auto_allow_minutes` transport field for compatibility. Omitted leaves remembered state unchanged, `0` clears it, and `1..1440` stores the current Allow or Deny decision. Review responses include `default_allow` so the popup can show the exact timeout result.
 
 ## Verification
 
-- Hub tests cover enabling, unchanged approvals, renewal, disabling, shared pending-request deadlines, automatic allowance at expiry, and normal denial after expiry.
-- API tests cover response fields, valid updates, invalid minutes, and authorization.
-- Frontend checks cover the default unchecked 10-minute input, active checked state, second-precision remaining time, unchanged Allow payloads, renewed Allow payloads, and Deny leaving the setting unchanged.
-- Run focused Go tests, the frontend type check, and the production frontend build.
+- No remembered choice times out as Deny.
+- Remembered Allow and Deny both keep the popup visible and apply only when that popup expires.
+- Manual action before expiry wins and may replace or clear the remembered choice.
+- Existing authorization, active-poller gating, and concurrent review behavior remain unchanged.
