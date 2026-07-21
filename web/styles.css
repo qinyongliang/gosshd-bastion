@@ -7600,7 +7600,7 @@ html[data-theme="dark"] .manual-review-notification-prompt {
 
 .manual-review-card {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 12px;
   width: min(560px, 100%);
   max-height: min(560px, calc(100dvh - 48px));
@@ -7943,6 +7943,33 @@ html[data-theme="dark"] .manual-review-card {
   height: 14px;
 }
 
+.manual-review-auto-allow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in oklch, var(--line-soft) 72%, var(--warning));
+  font-size: 13px;
+}
+
+.manual-review-auto-allow label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.manual-review-auto-allow input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.manual-review-auto-allow input[type="number"] {
+  width: 76px;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
 .manual-review-actions {
   display: flex;
   align-items: center;
@@ -8022,6 +8049,9 @@ html[data-theme="dark"] .manual-review-actions button.danger {
   .manual-review-notification-prompt .primary {
     grid-column: 2 / -1;
     justify-self: start;
+  }
+  .manual-review-auto-allow {
+    flex-wrap: wrap;
   }
   .workspace, .sidebar {
     padding: 18px;

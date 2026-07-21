@@ -94,7 +94,8 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
   }, [canReview, data.activeOrg.id, sessionID]);
 
   const decide = useMutation({
-    mutationFn: ({ id, allow }: { id: string; allow: boolean }) => api.decideManualReview(id, allow),
+    mutationFn: ({ id, allow, autoAllowMinutes }: { id: string; allow: boolean; autoAllowMinutes?: number }) =>
+      api.decideManualReview(id, allow, autoAllowMinutes),
     onMutate: (variables) => {
       setReviews((prev) =>
         prev.map((item) =>
@@ -104,14 +105,19 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
         )
       );
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (result, variables) => {
       closeReviewNotification(notificationsRef.current, variables.id);
       setReviews((prev) =>
-        prev.map((item) =>
-          item.review.id === variables.id
-            ? { ...item, status: variables.allow ? "allowed" : "denied", submitting: undefined, error: undefined }
-            : item
-        )
+        prev.map((item) => {
+          const review = {
+            ...item.review,
+            auto_allow_minutes: result.auto_allow_minutes,
+            auto_allow_expires_at: result.auto_allow_expires_at,
+          };
+          return item.review.id === variables.id
+            ? { ...item, review, status: variables.allow ? "allowed" : "denied", submitting: undefined, error: undefined }
+            : { ...item, review };
+        })
       );
       setDismissing((prev) => new Set(prev).add(variables.id));
       window.setTimeout(() => {
@@ -151,8 +157,8 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
           key={item.review.id}
           item={item}
           dismissing={dismissing.has(item.review.id)}
-          onAllow={() => {
-            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: true });
+          onAllow={(autoAllowMinutes) => {
+            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: true, autoAllowMinutes });
           }}
           onDeny={() => {
             if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: false });
@@ -212,7 +218,7 @@ function ReviewCard({
 }: {
   item: ReviewState;
   dismissing: boolean;
-  onAllow: () => void;
+  onAllow: (autoAllowMinutes?: number) => void;
   onDeny: () => void;
   onExpire: () => void;
   onDismiss: () => void;
@@ -221,20 +227,29 @@ function ReviewCard({
 }) {
   const { review, status } = item;
   const isSubmitting = Boolean(item.submitting);
-  const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(review.expires_at));
+  const activeAutoAllow = Boolean(review.auto_allow_expires_at && secondsUntil(review.auto_allow_expires_at) > 0);
+  const configuredMinutes = review.auto_allow_minutes || 10;
+  const countdownAt = activeAutoAllow ? review.auto_allow_expires_at! : review.expires_at;
+  const [autoAllowEnabled, setAutoAllowEnabled] = useState(activeAutoAllow);
+  const [autoAllowMinutes, setAutoAllowMinutes] = useState(configuredMinutes);
+  const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(countdownAt));
   const intervalRef = useRef<number | null>(null);
 
   useEffect(() => {
+    const update = () => setSecondsLeft(secondsUntil(countdownAt));
+    update();
     intervalRef.current = window.setInterval(() => {
-      setSecondsLeft((prev) => {
-        const next = Math.max(0, prev - 1);
-        return next;
-      });
+      update();
     }, 1000);
     return () => {
       if (intervalRef.current) window.clearInterval(intervalRef.current);
     };
-  }, []);
+  }, [countdownAt]);
+
+  useEffect(() => {
+    setAutoAllowEnabled(activeAutoAllow);
+    setAutoAllowMinutes(configuredMinutes);
+  }, [activeAutoAllow, configuredMinutes, review.auto_allow_expires_at]);
 
   useEffect(() => {
     if (secondsLeft === 0 && status === "pending") {
@@ -243,6 +258,7 @@ function ReviewCard({
   }, [secondsLeft, status, onExpire]);
 
   const isDone = status === "allowed" || status === "denied";
+  const validAutoAllowMinutes = Number.isInteger(autoAllowMinutes) && autoAllowMinutes >= 1 && autoAllowMinutes <= 1440;
   return (
     <div className={`manual-review-card ${isDone ? "done" : ""} ${dismissing ? "dismissing" : ""}`}>
       <div className="manual-review-header">
@@ -250,7 +266,9 @@ function ReviewCard({
         <strong>{t("manualReviewTitle")}</strong>
         <span className="manual-review-countdown">
           <Clock />
-          {`${secondsLeft}${t("manualReviewSecondsLeft")}`}
+          {activeAutoAllow
+            ? t("manualReviewAutoAllowCountdown").replace("{time}", formatCountdown(secondsLeft))
+            : `${secondsLeft}${t("manualReviewSecondsLeft")}`}
         </span>
         <button type="button" className="manual-review-close" onClick={onDismiss} aria-label={t("close")}>
           <X />
@@ -277,10 +295,41 @@ function ReviewCard({
         </div>
         {item.error && <div className="manual-review-result denied">{item.error}</div>}
       </div>
+      {!isDone && <div className="manual-review-auto-allow">
+        <label>
+          <input
+            type="checkbox"
+            checked={autoAllowEnabled}
+            disabled={isSubmitting}
+            onChange={(event) => setAutoAllowEnabled(event.target.checked)}
+          />
+          <span>{t("manualReviewAutoAllow")}</span>
+        </label>
+        <input
+          type="number"
+          min="1"
+          max="1440"
+          step="1"
+          value={autoAllowMinutes}
+          disabled={!autoAllowEnabled || isSubmitting}
+          aria-label={t("manualReviewMinutes")}
+          onChange={(event) => setAutoAllowMinutes(Number(event.target.value))}
+        />
+        <span>{t("manualReviewMinutes")}</span>
+      </div>}
       <div className="manual-review-actions">
         {!isDone ? (
           <>
-            <button type="button" className="primary" onClick={onAllow} disabled={status !== "pending" || isSubmitting}>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => onAllow(
+                !autoAllowEnabled
+                  ? (activeAutoAllow ? 0 : undefined)
+                  : (!activeAutoAllow || autoAllowMinutes !== configuredMinutes ? autoAllowMinutes : undefined)
+              )}
+              disabled={status !== "pending" || isSubmitting || (autoAllowEnabled && !validAutoAllowMinutes)}
+            >
               <Check />{item.submitting === "allow" ? t("manualReviewSubmitting") : t("manualReviewAllow")}
             </button>
             <button type="button" className="danger" onClick={onDeny} disabled={status !== "pending" || isSubmitting}>
@@ -434,6 +483,14 @@ async function requestNotificationPermission(): Promise<NotificationPermission |
 function secondsUntil(iso: string): number {
   const delta = new Date(iso).getTime() - Date.now();
   return Math.max(0, Math.ceil(delta / 1000));
+}
+
+function formatCountdown(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const tail = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return hours > 0 ? `${String(hours).padStart(2, "0")}:${tail}` : tail;
 }
 
 function isReviewActive(review: ManualReview): boolean {
