@@ -39,12 +39,6 @@ func (a *App) reviewDeniedCommandForSession(ctx context.Context, userID string, 
 		Command:         command,
 		Reason:          decision.Reason,
 	}, timeout)
-	wait := time.Until(review.ExpiresAt)
-	if wait <= 0 {
-		a.manualReviews.Expire(review.ID)
-		decision.Reason = "manual review timed out: " + decision.Reason
-		return decision
-	}
 	select {
 	case result, ok := <-decided:
 		if ok && result.Allow {
@@ -58,10 +52,6 @@ func (a *App) reviewDeniedCommandForSession(ctx context.Context, userID string, 
 			return decision
 		}
 		decision.Reason = "manual review expired: " + decision.Reason
-		return decision
-	case <-time.After(wait):
-		a.manualReviews.Expire(review.ID)
-		decision.Reason = "manual review timed out: " + decision.Reason
 		return decision
 	case <-ctx.Done():
 		a.manualReviews.Expire(review.ID)

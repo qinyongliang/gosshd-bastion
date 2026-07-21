@@ -134,7 +134,11 @@ export const api = {
       timeout_seconds: timeoutSeconds,
       known_ids: knownIDs.join(","),
     })}`),
-  decideManualReview: (id: string, allow: boolean) => request<{ ok: true }>(`/api/manual-reviews/${id}/decision`, post({ allow })),
+  decideManualReview: (id: string, allow: boolean, autoAllowMinutes?: number) =>
+    request<{ ok: true; auto_allow_minutes?: number; auto_allow_expires_at?: string }>(
+      `/api/manual-reviews/${id}/decision`,
+      post({ allow, ...(autoAllowMinutes === undefined ? {} : { auto_allow_minutes: autoAllowMinutes }) })
+    ),
 
   adminSettings: () => request<Record<string, unknown>>("/api/admin/settings"),
   updateBrandingSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/branding", put(body)),

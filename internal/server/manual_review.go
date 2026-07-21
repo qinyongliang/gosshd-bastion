@@ -16,24 +16,35 @@ type manualReviewHub struct {
 	mu            sync.Mutex
 	pending       map[string]*manualReviewRequest
 	activePollers map[string]int
+	autoAllow     map[string]manualReviewAutoAllow
 	notify        chan struct{}
 }
 
+type manualReviewAutoAllow struct {
+	Minutes   int
+	ExpiresAt time.Time
+}
+
 type manualReviewRequest struct {
-	ID              string
-	OrganizationID  string
-	SessionID       string
-	TargetID        string
-	TargetName      string
-	TargetAlias     string
-	UserID          string
-	UserEmail       string
-	UserDisplayName string
-	Command         string
-	Reason          string
-	CreatedAt       time.Time
-	ExpiresAt       time.Time
-	decision        chan manualReviewDecision
+	ID                 string
+	OrganizationID     string
+	SessionID          string
+	TargetID           string
+	TargetName         string
+	TargetAlias        string
+	UserID             string
+	UserEmail          string
+	UserDisplayName    string
+	Command            string
+	Reason             string
+	CreatedAt          time.Time
+	ExpiresAt          time.Time
+	NormalExpiresAt    time.Time
+	AutoAllowMinutes   int
+	AutoAllowExpiresAt time.Time
+	AutoAllow          bool
+	timer              *time.Timer
+	decision           chan manualReviewDecision
 }
 
 type manualReviewDecision struct {
@@ -44,25 +55,29 @@ type manualReviewDecision struct {
 }
 
 type manualReviewSnapshot struct {
-	ID              string
-	OrganizationID  string
-	SessionID       string
-	TargetID        string
-	TargetName      string
-	TargetAlias     string
-	UserID          string
-	UserEmail       string
-	UserDisplayName string
-	Command         string
-	Reason          string
-	CreatedAt       time.Time
-	ExpiresAt       time.Time
+	ID                 string
+	OrganizationID     string
+	SessionID          string
+	TargetID           string
+	TargetName         string
+	TargetAlias        string
+	UserID             string
+	UserEmail          string
+	UserDisplayName    string
+	Command            string
+	Reason             string
+	CreatedAt          time.Time
+	ExpiresAt          time.Time
+	NormalExpiresAt    time.Time
+	AutoAllowMinutes   int
+	AutoAllowExpiresAt time.Time
 }
 
 func newManualReviewHub() *manualReviewHub {
 	return &manualReviewHub{
 		pending:       make(map[string]*manualReviewRequest),
 		activePollers: make(map[string]int),
+		autoAllow:     make(map[string]manualReviewAutoAllow),
 		notify:        make(chan struct{}),
 	}
 }
@@ -76,9 +91,17 @@ func (h *manualReviewHub) Create(req manualReviewRequest, timeout time.Duration)
 	}
 	req.ID = uuid.NewString()
 	req.CreatedAt = now
-	req.ExpiresAt = now.Add(timeout)
+	req.NormalExpiresAt = now.Add(timeout)
+	req.ExpiresAt = req.NormalExpiresAt
+	if state, ok := h.activeAutoAllowLocked(manualReviewPollerKey(req.OrganizationID, req.SessionID), now); ok {
+		req.ExpiresAt = state.ExpiresAt
+		req.AutoAllow = true
+		req.AutoAllowMinutes = state.Minutes
+		req.AutoAllowExpiresAt = state.ExpiresAt
+	}
 	req.decision = make(chan manualReviewDecision, 1)
 	h.pending[req.ID] = &req
+	h.scheduleLocked(&req, now)
 	h.signalLocked()
 	return snapshotManualReview(&req), req.decision
 }
@@ -128,18 +151,35 @@ func (h *manualReviewHub) Get(id string) (manualReviewSnapshot, bool) {
 	return snapshotManualReview(req), true
 }
 
-func (h *manualReviewHub) Decide(id string, decision manualReviewDecision) error {
+func (h *manualReviewHub) AutoAllowState(organizationID, sessionID string) (manualReviewAutoAllow, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.expireLocked(time.Now().UTC())
+	return h.activeAutoAllowLocked(manualReviewPollerKey(organizationID, sessionID), time.Now().UTC())
+}
+
+func (h *manualReviewHub) Decide(id string, decision manualReviewDecision) error {
+	return h.DecideWithAutoAllow(id, decision, nil)
+}
+
+func (h *manualReviewHub) DecideWithAutoAllow(id string, decision manualReviewDecision, autoAllowMinutes *int) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := time.Now().UTC()
+	h.expireLocked(now)
 	req, ok := h.pending[id]
 	if !ok {
 		return errManualReviewNotFound
 	}
 	delete(h.pending, id)
-	decision.DecidedAt = time.Now().UTC()
+	if req.timer != nil {
+		req.timer.Stop()
+	}
+	decision.DecidedAt = now
 	req.decision <- decision
 	close(req.decision)
+	if autoAllowMinutes != nil {
+		h.updateAutoAllowLocked(req.OrganizationID, req.SessionID, *autoAllowMinutes, now)
+	}
 	h.signalLocked()
 	return nil
 }
@@ -149,6 +189,9 @@ func (h *manualReviewHub) Expire(id string) {
 	defer h.mu.Unlock()
 	if req, ok := h.pending[id]; ok {
 		delete(h.pending, id)
+		if req.timer != nil {
+			req.timer.Stop()
+		}
 		close(req.decision)
 		h.signalLocked()
 	}
@@ -179,16 +222,98 @@ func (h *manualReviewHub) listLocked(organizationID, sessionID string, knownIDs 
 
 func (h *manualReviewHub) expireLocked(now time.Time) {
 	changed := false
+	for key, state := range h.autoAllow {
+		if !now.Before(state.ExpiresAt) {
+			delete(h.autoAllow, key)
+		}
+	}
 	for id, req := range h.pending {
-		if now.After(req.ExpiresAt) {
-			delete(h.pending, id)
-			close(req.decision)
+		if !now.Before(req.ExpiresAt) {
+			h.resolveExpiredLocked(id, req, now)
 			changed = true
 		}
 	}
 	if changed {
 		h.signalLocked()
 	}
+}
+
+func (h *manualReviewHub) activeAutoAllowLocked(key string, now time.Time) (manualReviewAutoAllow, bool) {
+	state, ok := h.autoAllow[key]
+	if ok && !now.Before(state.ExpiresAt) {
+		delete(h.autoAllow, key)
+		return manualReviewAutoAllow{}, false
+	}
+	return state, ok
+}
+
+func (h *manualReviewHub) updateAutoAllowLocked(organizationID, sessionID string, minutes int, now time.Time) {
+	key := manualReviewPollerKey(organizationID, sessionID)
+	state := manualReviewAutoAllow{}
+	if minutes > 0 {
+		state = manualReviewAutoAllow{Minutes: minutes, ExpiresAt: now.Add(time.Duration(minutes) * time.Minute)}
+		h.autoAllow[key] = state
+	} else {
+		delete(h.autoAllow, key)
+	}
+	for id, req := range h.pending {
+		if manualReviewPollerKey(req.OrganizationID, req.SessionID) != key {
+			continue
+		}
+		if minutes > 0 {
+			req.ExpiresAt = state.ExpiresAt
+			req.AutoAllow = true
+			req.AutoAllowMinutes = state.Minutes
+			req.AutoAllowExpiresAt = state.ExpiresAt
+		} else {
+			req.ExpiresAt = req.NormalExpiresAt
+			req.AutoAllow = false
+			req.AutoAllowMinutes = 0
+			req.AutoAllowExpiresAt = time.Time{}
+		}
+		if !now.Before(req.ExpiresAt) {
+			h.resolveExpiredLocked(id, req, now)
+			continue
+		}
+		h.scheduleLocked(req, now)
+	}
+}
+
+func (h *manualReviewHub) scheduleLocked(req *manualReviewRequest, now time.Time) {
+	if req.timer != nil {
+		req.timer.Stop()
+	}
+	delay := req.ExpiresAt.Sub(now)
+	req.timer = time.AfterFunc(delay, func() {
+		h.expire(req.ID)
+	})
+}
+
+func (h *manualReviewHub) expire(id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	req, ok := h.pending[id]
+	if !ok {
+		return
+	}
+	now := time.Now().UTC()
+	if now.Before(req.ExpiresAt) {
+		h.scheduleLocked(req, now)
+		return
+	}
+	h.resolveExpiredLocked(id, req, now)
+	h.signalLocked()
+}
+
+func (h *manualReviewHub) resolveExpiredLocked(id string, req *manualReviewRequest, now time.Time) {
+	delete(h.pending, id)
+	if req.timer != nil {
+		req.timer.Stop()
+	}
+	if req.AutoAllow {
+		req.decision <- manualReviewDecision{Allow: true, Reviewer: "automatic deadline", DecidedAt: now}
+	}
+	close(req.decision)
 }
 
 func (h *manualReviewHub) signalLocked() {
@@ -208,19 +333,22 @@ func (h *manualReviewHub) unregisterPoller(pollerKey string) {
 
 func snapshotManualReview(req *manualReviewRequest) manualReviewSnapshot {
 	return manualReviewSnapshot{
-		ID:              req.ID,
-		OrganizationID:  req.OrganizationID,
-		SessionID:       req.SessionID,
-		TargetID:        req.TargetID,
-		TargetName:      req.TargetName,
-		TargetAlias:     req.TargetAlias,
-		UserID:          req.UserID,
-		UserEmail:       req.UserEmail,
-		UserDisplayName: req.UserDisplayName,
-		Command:         req.Command,
-		Reason:          req.Reason,
-		CreatedAt:       req.CreatedAt,
-		ExpiresAt:       req.ExpiresAt,
+		ID:                 req.ID,
+		OrganizationID:     req.OrganizationID,
+		SessionID:          req.SessionID,
+		TargetID:           req.TargetID,
+		TargetName:         req.TargetName,
+		TargetAlias:        req.TargetAlias,
+		UserID:             req.UserID,
+		UserEmail:          req.UserEmail,
+		UserDisplayName:    req.UserDisplayName,
+		Command:            req.Command,
+		Reason:             req.Reason,
+		CreatedAt:          req.CreatedAt,
+		ExpiresAt:          req.ExpiresAt,
+		NormalExpiresAt:    req.NormalExpiresAt,
+		AutoAllowMinutes:   req.AutoAllowMinutes,
+		AutoAllowExpiresAt: req.AutoAllowExpiresAt,
 	}
 }
 

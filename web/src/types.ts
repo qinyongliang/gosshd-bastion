@@ -258,6 +258,8 @@ export type ManualReview = {
   reason: string;
   created_at: string;
   expires_at: string;
+  auto_allow_minutes?: number;
+  auto_allow_expires_at?: string;
 };
 
 export type AdminUser = User;
