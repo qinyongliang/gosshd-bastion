@@ -143,22 +143,19 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 		t.Fatalf("deny choice was not remembered: %+v %v", state, ok)
 	}
 	app.manualReviews.mu.Lock()
-	app.manualReviews.updateAutoAllowLocked(org.Organization.ID, "", 0, false, time.Now().UTC())
+	app.manualReviews.updateAutoAllowLocked(org.Organization.ID, "", 10, true, time.Now().UTC())
 	app.manualReviews.mu.Unlock()
-
-	skipped := app.reviewDeniedCommand(context.Background(), member.User.ID, storeTarget, "useradd blocked", bastion.Decision{
+	if app.manualReviews.HasActivePollers(org.Organization.ID, "") {
+		t.Fatal("background review test unexpectedly has an active poller")
+	}
+	background := app.reviewDeniedCommand(context.Background(), member.User.ID, storeTarget, "useradd blocked", bastion.Decision{
 		Action:                     store.DecisionDeny,
 		Reason:                     "llm: blocked user change",
 		AllowManualReview:          true,
 		ManualReviewTimeoutSeconds: 1,
 	})
-	if skipped.Action != store.DecisionDeny || skipped.AllowManualReview || !strings.Contains(skipped.Reason, "no active reviewer polling") {
-		t.Fatalf("manual review should be skipped without active poller: %+v", skipped)
-	}
-	var empty apiManualReviewsResponse
-	getJSON(t, ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&timeout_seconds=0", http.StatusOK, &empty)
-	if len(empty.Reviews) != 0 {
-		t.Fatalf("skipped manual review should not create pending reviews: %+v", empty)
+	if background.Action != store.DecisionAllow || background.AllowManualReview || !strings.Contains(background.Reason, "remembered choice") {
+		t.Fatalf("background manual review should apply remembered allow at deadline: %+v", background)
 	}
 
 	sessionPollCh := startManualReviewPoll(ownerClient, srv.URL+"/api/manual-reviews?organization_id="+org.Organization.ID+"&session_id=session-1&timeout_seconds=2")

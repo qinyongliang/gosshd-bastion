@@ -17,11 +17,6 @@ func (a *App) reviewDeniedCommandForSession(ctx context.Context, userID string, 
 		return decision
 	}
 	organizationID := organizationIDForTarget(target)
-	if !a.manualReviews.HasActivePollers(organizationID, sessionID) {
-		decision.AllowManualReview = false
-		decision.Reason = "manual review skipped: no active reviewer polling: " + decision.Reason
-		return decision
-	}
 	user, err := a.store.Repository().GetUser(ctx, userID)
 	if err != nil {
 		return decision
