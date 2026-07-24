@@ -156,7 +156,7 @@ export const api = {
     request<void>(`/api/admin/orgs/${orgID}/members/${userID}`, patch(body)),
   adminTransferOrgOwner: (orgID: string, userID: string) => request<void>(`/api/admin/orgs/${orgID}/transfer-owner`, post({ user_id: userID })),
 
-  targetTerminalURL: (targetID: string, cols: number, rows: number) => terminalURL(`/api/targets/${targetID}/terminal/ws`, cols, rows),
+  targetTerminalURL: (targetID: string, cols: number, rows: number, sessionID = "") => terminalURL(`/api/targets/${targetID}/terminal/ws`, cols, rows, sessionID),
   listFiles: (targetID: string, path: string, sort?: string, order?: string) => request<{ path: string; entries: FileEntry[] }>(`/api/targets/${targetID}/files?${queryString({ path, sort, order })}`),
   fileProperties: (targetID: string, path: string) => request<FileProperties>(`/api/targets/${targetID}/files/stat?${queryString({ path })}`),
   readFile: (targetID: string, path: string) => request<FileReadResult>(`/api/targets/${targetID}/files/read?${queryString({ path })}`),
@@ -211,9 +211,10 @@ function queryString(values: Record<string, unknown>) {
   return params.toString();
 }
 
-function terminalURL(path: string, cols: number, rows: number) {
+function terminalURL(path: string, cols: number, rows: number, sessionID = "") {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
   const params = new URLSearchParams({ cols: String(cols), rows: String(rows) });
+  if (sessionID) params.set("session_id", sessionID);
   return `${protocol}//${host}${path}?${params.toString()}`;
 }

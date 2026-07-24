@@ -116,6 +116,7 @@ __gosshd_precmd() {
   trap '__gosshd_preexec' DEBUG
 }
 PROMPT_COMMAND='__gosshd_precmd'
+export -n PROMPT_COMMAND 2>/dev/null || true
 trap '__gosshd_preexec' DEBUG
 `
 }

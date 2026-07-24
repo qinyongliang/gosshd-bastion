@@ -630,60 +630,73 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 	}
 
 	cols, rows := terminalSizeFromQuery(r)
-	sessionID := newAuditSessionID()
+	session, restored := a.restoreWebTerminalSession(user.ID, r.URL.Query().Get("session_id"), target.ID)
+	var recorder *terminalRecorder
+	var auditLogID string
+	var sessionID string
 	startedAt := time.Now().UTC()
-	recorder, err := newTerminalRecorder(a.auditRecordingsPath, sessionID, cols, rows, target)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "terminal recording unavailable: "+err.Error())
-		return
-	}
-	auditLog, err := a.createAuditLog(context.Background(), store.CreateCommandAuditLogParams{
-		UserID:         user.ID,
-		TargetID:       target.ID,
-		OrganizationID: organizationIDForTarget(target),
-		PublicKeyName:  webConsolePublicKeyName,
-		SessionID:      sessionID,
-		Command:        "web terminal",
-		RequestType:    store.RequestWebTerminal,
-		PolicyDecision: decision.Action,
-		PolicyReason:   decision.Reason,
-		StartedAt:      startedAt,
-		RemoteAddress:  sourceIP,
-	})
-	if err != nil {
-		_, _ = recorder.Close()
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	if !restored {
+		sessionID = newAuditSessionID()
+		recorder, err = newTerminalRecorder(a.auditRecordingsPath, sessionID, cols, rows, target)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "terminal recording unavailable: "+err.Error())
+			return
+		}
+		auditLog, err := a.createAuditLog(context.Background(), store.CreateCommandAuditLogParams{
+			UserID:         user.ID,
+			TargetID:       target.ID,
+			OrganizationID: organizationIDForTarget(target),
+			PublicKeyName:  webConsolePublicKeyName,
+			SessionID:      sessionID,
+			Command:        "web terminal",
+			RequestType:    store.RequestWebTerminal,
+			PolicyDecision: decision.Action,
+			PolicyReason:   decision.Reason,
+			StartedAt:      startedAt,
+			RemoteAddress:  sourceIP,
+		})
+		if err != nil {
+			_, _ = recorder.Close()
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		auditLogID = auditLog.ID
 	}
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		a.completeShellAuditAsync(recorder, auditLog.ID, 255, time.Now().UTC())
+		if !restored {
+			a.completeShellAuditAsync(recorder, auditLogID, 255, time.Now().UTC())
+		}
 		return
 	}
 	defer ws.Close()
 	writer := &terminalWSWriter{ws: ws}
-	session := a.terminalSessions.create(sessionID, user.ID, target, sourceIP, cols, rows, recorder)
-	session.startedAt = startedAt
-	session.auditLogID = auditLog.ID
-	log.Printf("web terminal session created: user=%s target=%s alias=%s session=%s type=%s source=%s clients=1", user.ID, target.ID, target.Alias, session.id, target.TargetType, sourceIP)
+	if !restored {
+		session = a.terminalSessions.create(sessionID, user.ID, target, sourceIP, cols, rows, recorder)
+		session.startedAt = startedAt
+		session.auditLogID = auditLogID
+		log.Printf("web terminal session created: user=%s target=%s alias=%s session=%s type=%s source=%s clients=1", user.ID, target.ID, target.Alias, session.id, target.TargetType, sourceIP)
+		a.backgroundWG.Add(1)
+		go func() {
+			defer a.backgroundWG.Done()
+			exitCode := a.webTerminalOnTarget(session)
+			endedAt := time.Now().UTC()
+			log.Printf("web terminal session ended: user=%s target=%s alias=%s session=%s exit=%d", user.ID, target.ID, target.Alias, session.id, exitCode)
+			session.close("")
+			a.terminalSessions.remove(session.id)
+			a.completeShellAuditAsync(recorder, auditLogID, exitCode, endedAt)
+			session.mu.Lock()
+			session.broadcastLocked(terminalWSMessage{Type: "exit", Code: exitCode})
+			session.mu.Unlock()
+		}()
+	} else {
+		log.Printf("web terminal session restored: user=%s target=%s alias=%s session=%s source=%s", user.ID, target.ID, target.Alias, session.id, sourceIP)
+	}
 	session.attach(writer)
 	_ = writer.write(terminalWSMessage{Type: "session", SessionID: session.id})
 	defer func() {
 		session.detach(writer)
 		log.Printf("web terminal websocket detached: user=%s target=%s alias=%s session=%s", user.ID, target.ID, target.Alias, session.id)
-	}()
-	a.backgroundWG.Add(1)
-	go func() {
-		defer a.backgroundWG.Done()
-		exitCode := a.webTerminalOnTarget(session)
-		endedAt := time.Now().UTC()
-		log.Printf("web terminal session ended: user=%s target=%s alias=%s session=%s exit=%d", user.ID, target.ID, target.Alias, session.id, exitCode)
-		session.close("")
-		a.terminalSessions.remove(session.id)
-		a.completeShellAuditAsync(recorder, auditLog.ID, exitCode, endedAt)
-		session.mu.Lock()
-		session.broadcastLocked(terminalWSMessage{Type: "exit", Code: exitCode})
-		session.mu.Unlock()
 	}()
 	for {
 		var msg terminalWSMessage
@@ -708,6 +721,19 @@ func (a *App) handleTargetTerminalWS(w http.ResponseWriter, r *http.Request, use
 			return
 		}
 	}
+}
+
+func (a *App) restoreWebTerminalSession(userID, sessionID, targetID string) (*terminalSession, bool) {
+	session, err := a.terminalSessions.getForUser(userID, sessionID)
+	if err != nil {
+		return nil, false
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.target.ID != targetID {
+		return nil, false
+	}
+	return session, true
 }
 
 func (a *App) webTerminalOnTarget(session *terminalSession) int {

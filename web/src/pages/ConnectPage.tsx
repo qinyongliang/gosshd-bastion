@@ -76,6 +76,7 @@ type ConnectionTab = {
   targetID: string;
   layout: PaneNode;
   activePaneID: string;
+  filePath: string;
   pendingCommand?: string;
 };
 
@@ -108,6 +109,7 @@ const SYSTEM_METRICS_REFRESH_MS = 5000;
 const SYSTEM_DISK_REFRESH_MS = 60_000;
 const MAX_SYSTEM_SAMPLES = 60;
 const EDITOR_PANE_CLOSE_REQUEST = "gosshd-editor-pane-close-request";
+const TERMINAL_SESSION_STORAGE_PREFIX = "gosshd-terminal-session:";
 type TerminalPanelProps = {
   data: ConsoleData;
   target: Target;
@@ -710,7 +712,15 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
               </button>
             </div>
             {hasOpenTabs && activeTarget ? (
-              <FileManager target={activeTarget} system={systemSnapshot} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} />
+              <FileManager
+                key={activeTab.id}
+                target={activeTarget}
+                path={activeTab.filePath}
+                onPathChange={(filePath) => setTabs((current) => current.map((tab) => tab.id === activeTab.id ? { ...tab, filePath } : tab))}
+                system={systemSnapshot}
+                nativeOpen={Boolean(data.runtime.client_mode)}
+                onEditFile={openEditorForActiveTarget}
+              />
             ) : (
               <div className="connect-zone-empty">
                 <span>{t("connectFilesNoOpenTabs")}</span>
@@ -1419,14 +1429,14 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
     }
     clearQueuedTerminalOutput(runtime);
     updateStatus("connecting");
-    setRuntimeSnapshot(runtime, { error: "", sessionID: "" });
+    setRuntimeSnapshot(runtime, { error: "" });
     const terminal = runtime.terminal;
     if (!terminal) return;
     fitTerminal(terminal);
 
     const cols = terminal.cols || DEFAULT_COLS;
     const rows = terminal.rows || DEFAULT_ROWS;
-    const url = api.targetTerminalURL(target.id, cols, rows);
+    const url = api.targetTerminalURL(target.id, cols, rows, runtime.sessionID);
     const socket = new WebSocket(url);
     runtime.socket = socket;
     runtime.targetID = target.id;
@@ -1490,7 +1500,7 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
         runtime.heartbeat = null;
       }
       updateStatus(runtime.status === "connected" ? "disconnected" : runtime.status);
-      setRuntimeSnapshot(runtime, { sessionID: "", mobileModifier: null });
+      setRuntimeSnapshot(runtime, { mobileModifier: null });
     };
   };
   runtime.connect = connect;
@@ -1603,22 +1613,14 @@ export function TerminalPanel({ data, target, paneID, active = true, isFullscree
     };
     window.visualViewport?.addEventListener("resize", onVisualViewportResize);
 
-    const closeTerminalSession = () => {
-      const socket = runtime.socket;
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "close" }));
-      }
-    };
     const focusTerminalOnWindowFocus = () => {
       if (runtime.active && !isMobileViewport()) terminal.focus();
     };
-    window.addEventListener("pagehide", closeTerminalSession);
     window.addEventListener("focus", focusTerminalOnWindowFocus);
 
     return () => {
       if (fitRetryRef.current) window.clearTimeout(fitRetryRef.current);
       if (fitFrameRef.current) window.cancelAnimationFrame(fitFrameRef.current);
-      window.removeEventListener("pagehide", closeTerminalSession);
       window.removeEventListener("focus", focusTerminalOnWindowFocus);
       window.visualViewport?.removeEventListener("resize", onVisualViewportResize);
       resizeObserver.disconnect();
@@ -2021,7 +2023,7 @@ function contextMenuPointInTabs(clientX: number, clientY: number, container: HTM
 
 function newConnectionTab(targetID: string, pendingCommand = ""): ConnectionTab {
   const pane = newTerminalPane(targetID);
-  return { id: `${targetID}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`, targetID, layout: pane, activePaneID: pane.id, pendingCommand };
+  return { id: `${targetID}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`, targetID, layout: pane, activePaneID: pane.id, filePath: ".", pendingCommand };
 }
 
 function newPaneID(prefix: string) {
@@ -2044,7 +2046,7 @@ function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
     status: "connecting",
     error: "",
     dims: { cols: DEFAULT_COLS, rows: DEFAULT_ROWS },
-    sessionID: "",
+    sessionID: readStoredTerminalSessionID(targetID),
     aiEnabled: true,
     mobileModifier: null,
     pendingCommand: "",
@@ -2061,7 +2063,35 @@ function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
 
 function setRuntimeSnapshot(runtime: TerminalRuntime, patch: Partial<Pick<TerminalRuntime, "status" | "error" | "dims" | "sessionID" | "aiEnabled" | "mobileModifier">>) {
   Object.assign(runtime, patch);
+  if (Object.prototype.hasOwnProperty.call(patch, "sessionID")) {
+    writeStoredTerminalSessionID(runtime.targetID, runtime.sessionID);
+  }
   for (const listener of runtime.listeners) listener();
+}
+
+function terminalSessionStorageKey(targetID: string) {
+  return `${TERMINAL_SESSION_STORAGE_PREFIX}${targetID}`;
+}
+
+function readStoredTerminalSessionID(targetID: string) {
+  try {
+    return window.localStorage.getItem(terminalSessionStorageKey(targetID)) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredTerminalSessionID(targetID: string, sessionID: string) {
+  try {
+    const key = terminalSessionStorageKey(targetID);
+    if (sessionID) {
+      window.localStorage.setItem(key, sessionID);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage failures; the in-memory runtime can still reconnect.
+  }
 }
 
 function isTerminalSessionClosedOutput(data: string) {
@@ -2145,6 +2175,7 @@ function disposePaneRuntime(node: PaneNode | null) {
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "close" }));
   }
+  writeStoredTerminalSessionID(runtime.targetID, "");
   socket?.close();
   runtime.socket = null;
   clearQueuedTerminalOutput(runtime);
