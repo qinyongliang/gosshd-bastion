@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -291,7 +292,7 @@ func TestEarliestOnlineForUserTargetDiagnosticsExplainMisses(t *testing.T) {
 	}
 }
 
-func TestListForUserOmitsShellBusySessions(t *testing.T) {
+func TestListForUserIncludesShellBusySessions(t *testing.T) {
 	manager := newTerminalSessionManager()
 	target := store.SSHTarget{ID: "target-1", Alias: "box"}
 	busy := manager.create("busy", "user-1", target, "127.0.0.1", 80, 24, nil)
@@ -301,8 +302,27 @@ func TestListForUserOmitsShellBusySessions(t *testing.T) {
 	busy.shellBusy = true
 
 	sessions := manager.listForUser("user-1")
-	if len(sessions) != 1 || sessions[0].ID != "ready" {
-		t.Fatalf("expected only ready session, got %+v", sessions)
+	if len(sessions) != 2 {
+		t.Fatalf("expected busy and ready sessions, got %+v", sessions)
+	}
+	states := map[string]bool{}
+	for _, session := range sessions {
+		states[session.ID] = session.ShellBusy
+	}
+	if !states["busy"] || states["ready"] {
+		t.Fatalf("unexpected session busy states: %+v", states)
+	}
+}
+
+func TestTerminalSessionInterruptWritesCtrlC(t *testing.T) {
+	var input bytes.Buffer
+	session := &terminalSession{input: &input, shellBusy: true}
+
+	if err := session.interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if got := input.String(); got != "\x03" {
+		t.Fatalf("interrupt input = %q, want Ctrl+C", got)
 	}
 }
 

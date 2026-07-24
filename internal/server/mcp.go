@@ -161,7 +161,7 @@ func targetConnectionCommand(runtime apiRuntime, target store.SSHTarget) string 
 }
 
 func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
-	mcp.AddTool(s, &mcp.Tool{Name: "session_list", Description: "Preferred entry point for remote server operations: list active bastion web terminal sessions first, then use session_send_command/session_screen/session_interrupt on the selected session."},
+	mcp.AddTool(s, &mcp.Tool{Name: "session_list", Description: "List active bastion web terminal sessions. A session with shell_busy=true may be inspected or interrupted, but must not receive a new command."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ mcpSessionListInput) (*mcp.CallToolResult, mcpSessionListOutput, error) {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpSessionListOutput{}, err
@@ -177,6 +177,7 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 					StartedAt:         item.StartedAt.Format(time.RFC3339),
 					LastHeartbeatAt:   item.LastHeartbeat.Format(time.RFC3339),
 					HeartbeatTimeoutS: int(terminalSessionHeartbeatTimeout.Seconds()),
+					ShellBusy:         item.ShellBusy,
 				})
 			}
 			return nil, out, nil
@@ -248,7 +249,7 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 	actor := actorCtx.User
 	s := mcp.NewServer(&mcp.Implementation{Name: "gosshd-bastion", Version: a.cfg.version()}, &mcp.ServerOptions{
-		Instructions: "When operating remote servers, prefer the session tool group. First call session_list to find an active bastion terminal session, then use session_send_command to run commands, session_screen to inspect the terminal, and session_interrupt to stop long-running commands. These tools preserve web-terminal replay, audit logs, command policy checks, and manual approval flow.",
+		Instructions: "When operating remote servers, prefer the session tool group. First call session_list to find an active bastion terminal session. Use session_send_command only when shell_busy is false; for a busy session, use session_screen to inspect it or session_interrupt to send Ctrl+C. These tools preserve web-terminal replay, audit logs, command policy checks, and manual approval flow.",
 	})
 
 	if mcpToolGroupAllowed(actorCtx.ToolGroups, "session") {
@@ -794,6 +795,7 @@ type mcpSessionInfo struct {
 	StartedAt         string `json:"started_at"`
 	LastHeartbeatAt   string `json:"last_heartbeat_at"`
 	HeartbeatTimeoutS int    `json:"heartbeat_timeout_seconds"`
+	ShellBusy         bool   `json:"shell_busy"`
 }
 
 type mcpSessionCommandOutput struct {

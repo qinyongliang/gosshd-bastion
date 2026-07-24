@@ -413,12 +413,13 @@ func TestMCPRequiresAuthentication(t *testing.T) {
 }
 
 func TestMCPAcceptsUserToken(t *testing.T) {
-	srv, httpClient, _ := newAPITestServer(t)
+	srv, httpClient, app := newAPITestServer(t)
 	defer srv.Close()
+	var login apiUserResponse
 	postJSON(t, httpClient, srv.URL+"/api/auth/login", map[string]string{
 		"email":    "admin",
 		"password": "admin-pass",
-	}, http.StatusOK, nil)
+	}, http.StatusOK, &login)
 
 	var created apiCreateMCPTokenResponse
 	postJSON(t, httpClient, srv.URL+"/api/mcp-tokens", map[string]string{
@@ -453,6 +454,16 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	}
 	if !mcpHasTool(tools, "session_list") {
 		t.Fatalf("expected session_list tool with default token auth, got %+v", tools.Tools)
+	}
+	busy := app.terminalSessions.create("busy-session", login.User.ID, store.SSHTarget{ID: "target-1", Alias: "box"}, "127.0.0.1", 80, 24, nil)
+	defer busy.close("")
+	busy.shellBusy = true
+	listedSessions, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "session_list", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsStructuredField(listedSessions.StructuredContent, "sessions", "shell_busy", true) {
+		t.Fatalf("session_list missing busy state: %#v", listedSessions.StructuredContent)
 	}
 	if description := mcpToolDescription(tools, "session_send_command"); !strings.Contains(description, "Preferred tool for running commands on remote servers") {
 		t.Fatalf("expected session_send_command to prefer session use, got %q", description)
@@ -576,7 +587,7 @@ func containsStructuredID(v any, listKey, id string) bool {
 	return containsStructuredField(v, listKey, "id", id)
 }
 
-func containsStructuredField(v any, listKey, field, value string) bool {
+func containsStructuredField(v any, listKey, field string, value any) bool {
 	root, ok := v.(map[string]any)
 	if !ok {
 		return false
@@ -590,7 +601,7 @@ func containsStructuredField(v any, listKey, field, value string) bool {
 		if !ok {
 			continue
 		}
-		if got, _ := m[field].(string); got == value {
+		if m[field] == value {
 			return true
 		}
 	}
