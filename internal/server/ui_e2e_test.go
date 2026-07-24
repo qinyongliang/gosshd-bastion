@@ -11,14 +11,18 @@ import (
 )
 
 func TestUIE2EWithBrowser(t *testing.T) {
-	testUIE2EWithBrowser(t, false)
+	testUIE2EWithBrowser(t, false, "ui_e2e.mjs")
 }
 
 func TestMobileConsoleUIE2EWithBrowser(t *testing.T) {
-	testUIE2EWithBrowser(t, true)
+	testUIE2EWithBrowser(t, true, "ui_e2e.mjs")
 }
 
-func testUIE2EWithBrowser(t *testing.T, mobileOnly bool) {
+func TestTabFilePathUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "tab_file_path.test.mjs")
+}
+
+func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
 	nodePath := os.Getenv("GOSSHD_UI_E2E_NODE")
 	playwrightPath := os.Getenv("GOSSHD_UI_E2E_PLAYWRIGHT")
 	browserPath := os.Getenv("GOSSHD_UI_E2E_BROWSER")
@@ -42,7 +46,7 @@ func testUIE2EWithBrowser(t *testing.T, mobileOnly bool) {
 		}
 	})
 
-	cmd := exec.CommandContext(context.Background(), nodePath, filepath.Join("web", "e2e", "ui_e2e.mjs"))
+	cmd := exec.CommandContext(context.Background(), nodePath, filepath.Join("web", "e2e", script))
 	cmd.Dir = repoRoot(t)
 	mobileOnlyValue := "0"
 	if mobileOnly {

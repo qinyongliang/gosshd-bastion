@@ -14,10 +14,9 @@ type SortOrder = "asc" | "desc";
 type BreadcrumbItem = { key: string; label: string; kind: "drives" | "dirs"; menuPath: string };
 type BreadcrumbMenuState = { kind: "drives" | "dirs"; path: string; left: number; top: number; width: number };
 
-export function FileManager({ target, system, nativeOpen = false, onEditFile }: { target: Target; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
+export function FileManager({ target, path, onPathChange: setPath, system, nativeOpen = false, onEditFile }: { target: Target; path: string; onPathChange: (path: string) => void; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const [path, setPath] = useState(".");
   const [pathDraft, setPathDraft] = useState(".");
   const [selected, setSelected] = useState<FileEntry | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -33,14 +32,13 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
+  const crumbAnchorRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setPathDraft(path);
   }, [path]);
 
   useEffect(() => {
-    setPath(".");
-    setPathDraft(".");
     setSelected(null);
     setTransfer(null);
     setProperties(null);
@@ -85,20 +83,29 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
   useEffect(() => {
     if (!crumbMenu) return;
     const close = () => setCrumbMenu(null);
+    const reposition = () => {
+      const rect = crumbAnchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.max(180, rect.width);
+      setCrumbMenu((current) => {
+        if (!current || (current.left === rect.left && current.top === rect.bottom + 4 && current.width === width)) return current;
+        return { ...current, left: rect.left, top: rect.bottom + 4, width };
+      });
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
     window.addEventListener("pointerdown", close);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("pointerdown", close);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [crumbMenu]);
+  }, [Boolean(crumbMenu)]);
 
   const listing = useQuery({
     queryKey: ["target-files", target.id, path, sort.key, sort.order],
@@ -386,6 +393,7 @@ export function FileManager({ target, system, nativeOpen = false, onEditFile }: 
 
   const openBreadcrumbMenu = (item: BreadcrumbItem, event: React.MouseEvent<HTMLElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
+    crumbAnchorRef.current = event.currentTarget;
     setCrumbFilter("");
     setCrumbMenu({
       kind: item.kind,

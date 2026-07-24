@@ -17,7 +17,10 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-const terminalSessionHeartbeatTimeout = 30 * time.Second
+const (
+	terminalSessionHeartbeatTimeout = 30 * time.Second
+	terminalSessionDetachedTimeout  = 10 * time.Minute
+)
 
 var (
 	errTerminalSessionBusy      = errors.New("terminal session is busy")
@@ -134,7 +137,7 @@ func (m *terminalSessionManager) listForUser(userID string) []terminalSessionInf
 	var out []terminalSessionInfo
 	for _, session := range m.sessions {
 		session.mu.Lock()
-		if session.userID == userID && !session.closed && session.aiCollaborationEnabled {
+		if session.userID == userID && !session.closed && !session.shellBusy && session.aiCollaborationEnabled {
 			out = append(out, terminalSessionInfo{
 				ID:            session.id,
 				TargetID:      session.target.ID,
@@ -205,6 +208,8 @@ func (m *terminalSessionManager) earliestOnlineForUserTargetWithDiagnostics(user
 			snapshot.Reason = "input-wait"
 		case snapshot.ClientCount == 0:
 			snapshot.Reason = "no-client"
+		case snapshot.ShellBusy:
+			snapshot.Reason = "shell-busy"
 		case snapshot.HeartbeatStale:
 			snapshot.Reason = "stale-heartbeat"
 		case !snapshot.AICollaborationEnabled:
@@ -231,11 +236,9 @@ func (m *terminalSessionManager) watchHeartbeat(session *terminalSession) {
 	for {
 		select {
 		case <-ticker.C:
-			session.mu.Lock()
-			expired := !session.closed && time.Since(session.lastHeartbeat) > terminalSessionHeartbeatTimeout
-			session.mu.Unlock()
+			expired := session.shouldCloseForDetachedTimeout(time.Now().UTC())
 			if expired {
-				session.close("heartbeat timeout")
+				session.close("reconnect timeout")
 				return
 			}
 		case <-session.ctx.Done():
@@ -267,6 +270,9 @@ func (s *terminalSession) attach(writer *terminalWSWriter) {
 func (s *terminalSession) detach(writer *terminalWSWriter) {
 	s.mu.Lock()
 	delete(s.clients, writer)
+	if len(s.clients) == 0 {
+		s.lastHeartbeat = time.Now().UTC()
+	}
 	s.mu.Unlock()
 }
 
@@ -274,6 +280,12 @@ func (s *terminalSession) heartbeat() {
 	s.mu.Lock()
 	s.lastHeartbeat = time.Now().UTC()
 	s.mu.Unlock()
+}
+
+func (s *terminalSession) shouldCloseForDetachedTimeout(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.closed && len(s.clients) == 0 && now.Sub(s.lastHeartbeat) > terminalSessionDetachedTimeout
 }
 
 func (s *terminalSession) setAICollaborationEnabled(enabled bool) {
@@ -388,6 +400,7 @@ __gosshd_precmd() {
   trap '__gosshd_preexec' DEBUG
 }
 PROMPT_COMMAND='__gosshd_precmd'
+export -n PROMPT_COMMAND 2>/dev/null || true
 trap '__gosshd_preexec' DEBUG
 __GOSSHD_BASHRC__
   stty echo 2>/dev/null || true

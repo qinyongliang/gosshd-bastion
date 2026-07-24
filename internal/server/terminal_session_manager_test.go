@@ -206,6 +206,9 @@ func TestBashShellIntegrationCommandInstallsHooks(t *testing.T) {
 	if strings.Contains(script, `return "$__gosshd_rc"`) {
 		t.Fatalf("script should not re-trigger DEBUG trap from precmd return: %q", script)
 	}
+	if !strings.Contains(script, "export -n PROMPT_COMMAND") {
+		t.Fatalf("script should not export the prompt hook to tmux child shells: %q", script)
+	}
 }
 
 func TestEarliestOnlineForUserTargetRequiresReadyClient(t *testing.T) {
@@ -231,8 +234,8 @@ func TestEarliestOnlineForUserTargetRequiresReadyClient(t *testing.T) {
 	}
 
 	oldest.writeOutput("output", []byte("\x1b]633;C\a"))
-	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != oldest {
-		t.Fatalf("expected oldest online session even while shell-busy, got %v", got)
+	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != newer {
+		t.Fatalf("expected free session while oldest is shell-busy, got %v", got)
 	}
 	oldest.writeOutput("output", []byte("\x1b]633;D;0\a"))
 	if got := manager.earliestOnlineForUserTarget("user-1", target.ID); got != oldest {
@@ -246,10 +249,12 @@ func TestEarliestOnlineForUserTargetDiagnosticsExplainMisses(t *testing.T) {
 	noClient := manager.create("no-client", "user-1", target, "127.0.0.1", 80, 24, nil)
 	closed := manager.create("closed", "user-1", target, "127.0.0.1", 80, 24, nil)
 	stale := manager.create("stale", "user-1", target, "127.0.0.1", 80, 24, nil)
+	busy := manager.create("busy", "user-1", target, "127.0.0.1", 80, 24, nil)
 	ready := manager.create("ready", "user-1", target, "127.0.0.1", 80, 24, nil)
 	defer noClient.close("")
 	defer closed.close("")
 	defer stale.close("")
+	defer busy.close("")
 	defer ready.close("")
 
 	noClient.input = io.Discard
@@ -259,6 +264,9 @@ func TestEarliestOnlineForUserTargetDiagnosticsExplainMisses(t *testing.T) {
 	stale.input = io.Discard
 	stale.clients[&terminalWSWriter{}] = true
 	stale.lastHeartbeat = time.Now().Add(-terminalSessionHeartbeatTimeout - time.Second)
+	busy.input = io.Discard
+	busy.clients[&terminalWSWriter{}] = true
+	busy.shellBusy = true
 	ready.input = io.Discard
 	ready.clients[&terminalWSWriter{}] = true
 
@@ -274,11 +282,75 @@ func TestEarliestOnlineForUserTargetDiagnosticsExplainMisses(t *testing.T) {
 		"no-client": "no-client",
 		"closed":    "closed",
 		"stale":     "stale-heartbeat",
+		"busy":      "shell-busy",
 		"ready":     "candidate",
 	} {
 		if got := reasons[id]; got != want {
 			t.Fatalf("session %s reason = %q, want %q; snapshots=%+v", id, got, want, lookup.Snapshots)
 		}
+	}
+}
+
+func TestListForUserOmitsShellBusySessions(t *testing.T) {
+	manager := newTerminalSessionManager()
+	target := store.SSHTarget{ID: "target-1", Alias: "box"}
+	busy := manager.create("busy", "user-1", target, "127.0.0.1", 80, 24, nil)
+	ready := manager.create("ready", "user-1", target, "127.0.0.1", 80, 24, nil)
+	defer busy.close("")
+	defer ready.close("")
+	busy.shellBusy = true
+
+	sessions := manager.listForUser("user-1")
+	if len(sessions) != 1 || sessions[0].ID != "ready" {
+		t.Fatalf("expected only ready session, got %+v", sessions)
+	}
+}
+
+func TestTerminalSessionDetachedTimeoutKeepsRecentDisconnects(t *testing.T) {
+	session := &terminalSession{
+		clients:       map[*terminalWSWriter]bool{},
+		lastHeartbeat: time.Now().Add(-terminalSessionHeartbeatTimeout - time.Second),
+	}
+
+	if session.shouldCloseForDetachedTimeout(time.Now()) {
+		t.Fatal("recently detached web terminal should survive the old heartbeat timeout")
+	}
+}
+
+func TestTerminalSessionDetachedTimeoutKeepsConnectedClients(t *testing.T) {
+	session := &terminalSession{
+		clients:       map[*terminalWSWriter]bool{nil: true},
+		lastHeartbeat: time.Now().Add(-terminalSessionDetachedTimeout - time.Second),
+	}
+
+	if session.shouldCloseForDetachedTimeout(time.Now()) {
+		t.Fatal("connected web terminal should not close when browser heartbeats are delayed")
+	}
+}
+
+func TestTerminalSessionDetachedTimeoutClosesAfterReconnectWindow(t *testing.T) {
+	session := &terminalSession{
+		clients:       map[*terminalWSWriter]bool{},
+		lastHeartbeat: time.Now().Add(-terminalSessionDetachedTimeout - time.Second),
+	}
+
+	if !session.shouldCloseForDetachedTimeout(time.Now()) {
+		t.Fatal("detached web terminal should close after the reconnect window")
+	}
+}
+
+func TestTerminalSessionDetachStartsReconnectWindow(t *testing.T) {
+	session := &terminalSession{
+		clients:       map[*terminalWSWriter]bool{},
+		lastHeartbeat: time.Now().Add(-time.Hour),
+	}
+	writer := &terminalWSWriter{}
+	session.clients[writer] = true
+
+	session.detach(writer)
+
+	if session.shouldCloseForDetachedTimeout(time.Now()) {
+		t.Fatal("detach should restart the reconnect timeout from the websocket disconnect")
 	}
 }
 
