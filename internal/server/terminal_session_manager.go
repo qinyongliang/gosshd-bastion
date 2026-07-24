@@ -137,7 +137,7 @@ func (m *terminalSessionManager) listForUser(userID string) []terminalSessionInf
 	var out []terminalSessionInfo
 	for _, session := range m.sessions {
 		session.mu.Lock()
-		if session.userID == userID && !session.closed && !session.shellBusy && session.aiCollaborationEnabled {
+		if session.userID == userID && !session.closed && session.aiCollaborationEnabled {
 			out = append(out, terminalSessionInfo{
 				ID:            session.id,
 				TargetID:      session.target.ID,
@@ -146,6 +146,7 @@ func (m *terminalSessionManager) listForUser(userID string) []terminalSessionInf
 				Endpoint:      targetEndpointForStore(session.target),
 				StartedAt:     session.startedAt,
 				LastHeartbeat: session.lastHeartbeat,
+				ShellBusy:     session.shellBusy,
 			})
 		}
 		session.mu.Unlock()
@@ -255,6 +256,7 @@ type terminalSessionInfo struct {
 	Endpoint      string
 	StartedAt     time.Time
 	LastHeartbeat time.Time
+	ShellBusy     bool
 }
 
 func (s *terminalSession) attach(writer *terminalWSWriter) {
