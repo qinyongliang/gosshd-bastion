@@ -176,6 +176,8 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/policies/{id}/user-groups/{group_id}", a.requireUser(a.handleDetachPolicyUserGroup))
 	mux.HandleFunc("GET /api/manual-reviews", a.requireUser(a.handleListManualReviews))
 	mux.HandleFunc("POST /api/manual-reviews/{id}/decision", a.requireUser(a.handleDecideManualReview))
+	mux.HandleFunc("GET /api/manual-review-choice", a.requireUser(a.handleGetManualReviewChoice))
+	mux.HandleFunc("PUT /api/manual-review-choice", a.requireUser(a.handlePutManualReviewChoice))
 	mux.HandleFunc("GET /api/audit", a.requireUser(a.handleListAuditLogs))
 	mux.HandleFunc("GET /api/audit/{id}/recording", a.requireUser(a.handleAuditRecording))
 	mux.HandleFunc("GET /install/{file}", a.handleInstall)
