@@ -218,6 +218,9 @@ export type Policy = {
 
 export type AuditLog = {
   id: string;
+  organization_id?: string;
+  user_id?: string;
+  target_id?: string;
   user_display_name?: string;
   user_email?: string;
   public_key_name?: string;
@@ -261,6 +264,7 @@ export type ManualReview = {
   default_allow: boolean;
   auto_allow_minutes?: number;
   auto_allow_expires_at?: string;
+  auto_allow_target_ids?: string[];
 };
 
 export type AdminUser = User;

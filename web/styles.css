@@ -7970,6 +7970,52 @@ html[data-theme="dark"] .manual-review-card {
   padding: 0 8px;
 }
 
+.manual-review-scope {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px 2px;
+}
+
+.manual-review-scope-groups,
+.manual-review-scope-section,
+.manual-review-scope-options {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.manual-review-scope-groups {
+  gap: 14px;
+}
+
+.manual-review-scope-section > strong {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.manual-review-scope-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.manual-review-scope-option input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.manual-review-scope-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .manual-review-actions {
   display: flex;
   align-items: center;
@@ -8052,6 +8098,9 @@ html[data-theme="dark"] .manual-review-actions button.danger {
   }
   .manual-review-auto-allow {
     flex-wrap: wrap;
+  }
+  .manual-review-scope {
+    grid-template-columns: minmax(0, 1fr);
   }
   .workspace, .sidebar {
     padding: 18px;
