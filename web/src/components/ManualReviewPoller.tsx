@@ -1,10 +1,11 @@
 import { useMutation } from "@tanstack/react-query";
-import { BellRing, Check, Clock, Server, ShieldAlert, UserRound, X } from "lucide-react";
+import { BellRing, Check, ChevronDown, ChevronUp, Clock, Server, ShieldAlert, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api";
 import { useI18n } from "../i18n";
 import type { ConsoleData, ManualReview } from "../types";
+import { ManualReviewScopePicker } from "./ManualReviewScopePicker";
 
 type ReviewState = {
   review: ManualReview;
@@ -94,8 +95,8 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
   }, [canReview, data.activeOrg.id, sessionID]);
 
   const decide = useMutation({
-    mutationFn: ({ id, allow, autoAllowMinutes }: { id: string; allow: boolean; autoAllowMinutes?: number }) =>
-      api.decideManualReview(id, allow, autoAllowMinutes),
+    mutationFn: ({ id, allow, autoAllowMinutes, targetIDs }: { id: string; allow: boolean; autoAllowMinutes?: number; targetIDs: string[] }) =>
+      api.decideManualReview(id, allow, autoAllowMinutes, targetIDs),
     onMutate: (variables) => {
       setReviews((prev) =>
         prev.map((item) =>
@@ -116,6 +117,7 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
                   ...item.review,
                   auto_allow_minutes: result.auto_allow_minutes,
                   auto_allow_expires_at: result.auto_allow_expires_at,
+                  auto_allow_target_ids: result.auto_allow_target_ids,
                 },
                 status: variables.allow ? "allowed" : "denied",
                 submitting: undefined,
@@ -160,13 +162,14 @@ export function ManualReviewPoller({ data, sessionID = "" }: { data: ConsoleData
       {visible.map((item) => (
         <ReviewCard
           key={item.review.id}
+          data={data}
           item={item}
           dismissing={dismissing.has(item.review.id)}
-          onAllow={(autoAllowMinutes) => {
-            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: true, autoAllowMinutes });
+          onAllow={(autoAllowMinutes, targetIDs) => {
+            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: true, autoAllowMinutes, targetIDs });
           }}
-          onDeny={(autoAllowMinutes) => {
-            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: false, autoAllowMinutes });
+          onDeny={(autoAllowMinutes, targetIDs) => {
+            if (item.status === "pending" && !item.submitting) decide.mutate({ id: item.review.id, allow: false, autoAllowMinutes, targetIDs });
           }}
           onExpire={() => {
             setReviews((prev) => prev.filter((review) => review.review.id !== item.review.id));
@@ -212,6 +215,7 @@ function NotificationPermissionPrompt({
 }
 
 function ReviewCard({
+  data,
   item,
   dismissing,
   onAllow,
@@ -221,10 +225,11 @@ function ReviewCard({
   compact,
   t,
 }: {
+  data: ConsoleData;
   item: ReviewState;
   dismissing: boolean;
-  onAllow: (autoAllowMinutes?: number) => void;
-  onDeny: (autoAllowMinutes?: number) => void;
+  onAllow: (autoAllowMinutes: number | undefined, targetIDs: string[]) => void;
+  onDeny: (autoAllowMinutes: number | undefined, targetIDs: string[]) => void;
   onExpire: () => void;
   onDismiss: () => void;
   compact?: boolean;
@@ -234,9 +239,21 @@ function ReviewCard({
   const isSubmitting = Boolean(item.submitting);
   const activeAutoAllow = Boolean(review.auto_allow_minutes && review.auto_allow_expires_at && secondsUntil(review.auto_allow_expires_at) > 0);
   const configuredMinutes = review.auto_allow_minutes || 10;
+  const configuredTargetIDs = useMemo(
+    () => {
+      const validIDs = new Set(data.targets.map((target) => target.id));
+      return activeAutoAllow && review.auto_allow_target_ids?.length
+        ? review.auto_allow_target_ids.filter((id) => validIDs.has(id))
+        : data.targets.map((target) => target.id);
+    },
+    [activeAutoAllow, data.targets, review.auto_allow_target_ids]
+  );
   const countdownAt = review.expires_at;
   const [autoAllowEnabled, setAutoAllowEnabled] = useState(activeAutoAllow);
   const [autoAllowMinutes, setAutoAllowMinutes] = useState(configuredMinutes);
+  const [selectedTargetIDs, setSelectedTargetIDs] = useState(configuredTargetIDs);
+  const [scopeExpanded, setScopeExpanded] = useState(false);
+  const [autoAllowSecondsLeft, setAutoAllowSecondsLeft] = useState(() => secondsUntil(review.auto_allow_expires_at || ""));
   const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(countdownAt));
   const intervalRef = useRef<number | null>(null);
 
@@ -254,7 +271,19 @@ function ReviewCard({
   useEffect(() => {
     setAutoAllowEnabled(activeAutoAllow);
     setAutoAllowMinutes(configuredMinutes);
-  }, [activeAutoAllow, configuredMinutes, review.auto_allow_expires_at]);
+    setSelectedTargetIDs(configuredTargetIDs);
+  }, [activeAutoAllow, configuredMinutes, configuredTargetIDs, review.auto_allow_expires_at]);
+
+  useEffect(() => {
+    if (!review.auto_allow_expires_at) {
+      setAutoAllowSecondsLeft(0);
+      return;
+    }
+    const update = () => setAutoAllowSecondsLeft(secondsUntil(review.auto_allow_expires_at || ""));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [review.auto_allow_expires_at]);
 
   useEffect(() => {
     if (secondsLeft === 0 && status === "pending") {
@@ -265,6 +294,8 @@ function ReviewCard({
   const isDone = status === "allowed" || status === "denied";
   const validAutoAllowMinutes = Number.isInteger(autoAllowMinutes) && autoAllowMinutes >= 1 && autoAllowMinutes <= 1440;
   const rememberedMinutes = autoAllowEnabled ? autoAllowMinutes : (activeAutoAllow ? 0 : undefined);
+  const rememberedTargetIDs = autoAllowEnabled ? selectedTargetIDs : [];
+  const invalidRememberedChoice = autoAllowEnabled && (!validAutoAllowMinutes || selectedTargetIDs.length === 0);
   return (
     <div className={`manual-review-card ${isDone ? "done" : ""} ${dismissing ? "dismissing" : ""}`}>
       <div className="manual-review-header">
@@ -321,19 +352,30 @@ function ReviewCard({
           onChange={(event) => setAutoAllowMinutes(Number(event.target.value))}
         />
         <span>{t("manualReviewMinutes")}</span>
+        {activeAutoAllow && autoAllowSecondsLeft > 0 && (
+          <span className="manual-review-remaining">{t("manualReviewRemaining").replace("{time}", formatRemaining(autoAllowSecondsLeft))}</span>
+        )}
+        {autoAllowEnabled && (
+          <button type="button" className="manual-review-more" onClick={() => setScopeExpanded((value) => !value)} aria-expanded={scopeExpanded}>
+            {scopeExpanded ? <ChevronUp /> : <ChevronDown />}{t("manualReviewMore")}
+          </button>
+        )}
       </div>}
+      {!isDone && autoAllowEnabled && scopeExpanded && (
+        <ManualReviewScopePicker data={data} selectedTargetIDs={selectedTargetIDs} onChange={setSelectedTargetIDs} />
+      )}
       <div className="manual-review-actions">
         {!isDone ? (
           <>
             <button
               type="button"
               className="primary"
-              onClick={() => onAllow(rememberedMinutes)}
-              disabled={status !== "pending" || isSubmitting || (autoAllowEnabled && !validAutoAllowMinutes)}
+              onClick={() => onAllow(rememberedMinutes, rememberedTargetIDs)}
+              disabled={status !== "pending" || isSubmitting || invalidRememberedChoice}
             >
               <Check />{item.submitting === "allow" ? t("manualReviewSubmitting") : t("manualReviewAllow")}
             </button>
-            <button type="button" className="danger" onClick={() => onDeny(rememberedMinutes)} disabled={status !== "pending" || isSubmitting || (autoAllowEnabled && !validAutoAllowMinutes)}>
+            <button type="button" className="danger" onClick={() => onDeny(rememberedMinutes, rememberedTargetIDs)} disabled={status !== "pending" || isSubmitting || invalidRememberedChoice}>
               <X />{item.submitting === "deny" ? t("manualReviewSubmitting") : t("manualReviewDeny")}
             </button>
           </>
@@ -345,6 +387,12 @@ function ReviewCard({
       </div>
     </div>
   );
+}
+
+function formatRemaining(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function HighlightedCommand({ command }: { command: string }) {

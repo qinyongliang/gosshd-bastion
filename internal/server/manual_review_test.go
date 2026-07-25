@@ -289,6 +289,19 @@ func TestManualReviewHubRejectsWhenReviewTimesOutWithoutRememberedChoice(t *test
 	}
 }
 
+func TestManualReviewHubOnlyRenewsWhenMinutesChange(t *testing.T) {
+	hub := newManualReviewHub()
+	first := hub.SetAutoAllow("org-1", "user-1", 10, true, []string{"target-1"})
+	unchanged := hub.SetAutoAllow("org-1", "user-1", 10, false, []string{"target-1", "target-2"})
+	if !unchanged.ExpiresAt.Equal(first.ExpiresAt) {
+		t.Fatalf("unchanged minutes renewed the deadline: first=%v unchanged=%v", first.ExpiresAt, unchanged.ExpiresAt)
+	}
+	renewed := hub.SetAutoAllow("org-1", "user-1", 11, true, []string{"target-1"})
+	if !renewed.ExpiresAt.After(first.ExpiresAt) {
+		t.Fatalf("changed minutes did not renew the deadline: first=%v renewed=%v", first.ExpiresAt, renewed.ExpiresAt)
+	}
+}
+
 type manualReviewPollResult struct {
 	response apiManualReviewsResponse
 	status   int

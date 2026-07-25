@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Terminal } from "@xterm/xterm";
-import { RefreshCw, Search } from "lucide-react";
+import { RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
+import { api, type ManualReviewChoice } from "../api";
+import { ManualReviewScopePicker } from "../components/ManualReviewScopePicker";
 import { AuditTable, Empty, Modal, Panel } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formatDate, formSubmit } from "../lib/forms";
@@ -13,6 +14,8 @@ export function AuditPage({ data }: { data: ConsoleData }) {
   const isClientMode = Boolean(data.runtime.client_mode);
   const [filters, setFilters] = useState({ query: "", decision: "", request_type: "", started_from: "", started_to: "", page: 1, page_size: 20 });
   const [replayID, setReplayID] = useState("");
+  const [authorizationOpen, setAuthorizationOpen] = useState(false);
+  const canAuthorize = data.user.is_system_admin || data.activeOrg.role === "owner" || data.activeOrg.role === "admin";
   const audit = useQuery({
     queryKey: ["audit-page", data.activeOrg.id, isClientMode, filters],
     queryFn: () => api.audit(isClientMode ? filters : { ...filters, organization_id: data.activeOrg.id }),
@@ -23,6 +26,11 @@ export function AuditPage({ data }: { data: ConsoleData }) {
     <div className="audit-page">
       <section className="resource-head">
         <div><small>{t("auditPageEyebrow")}</small><h2>{t("auditPageTitle")}</h2><p>{t("auditPageBody")}</p></div>
+        {canAuthorize && !isClientMode && (
+          <button type="button" className="primary" onClick={() => setAuthorizationOpen(true)}>
+            <ShieldCheck />{t("manualReviewTemporaryAuthorization")}
+          </button>
+        )}
       </section>
       <form className="toolbar" onSubmit={(event) => formSubmit(event, (body) => setFilters({
         query: body.query || "",
@@ -63,8 +71,125 @@ export function AuditPage({ data }: { data: ConsoleData }) {
         <button type="button" disabled={(audit.data?.total || 0) <= filters.page * filters.page_size} onClick={() => setFilters({ ...filters, page: filters.page + 1 })}>{t("commonNext")}</button>
       </div>
       {replayID && <AuditReplayModal recording={replay.data} fallbackLog={logs.find((item) => item.id === replayID)} loading={replay.isLoading} onClose={() => setReplayID("")} />}
+      {authorizationOpen && <TemporaryAuthorizationModal data={data} onClose={() => setAuthorizationOpen(false)} />}
     </div>
   );
+}
+
+function TemporaryAuthorizationModal({ data, onClose }: { data: ConsoleData; onClose: () => void }) {
+  const { t } = useI18n();
+  const [userID, setUserID] = useState("");
+  const choice = useQuery({
+    queryKey: ["manual-review-choice", data.activeOrg.id, userID],
+    queryFn: () => api.manualReviewChoice(data.activeOrg.id, userID),
+    enabled: Boolean(userID),
+  });
+  return <Modal title={t("manualReviewTemporaryAuthorization")} onClose={onClose} wide>
+    <div className="temporary-authorization-shell">
+      <label className="field">
+        <span>{t("manualReviewSSHUser")}</span>
+        <select value={userID} onChange={(event) => setUserID(event.target.value)}>
+          <option value="">{t("manualReviewSelectUser")}</option>
+          {data.members.map((member) => (
+            <option key={member.user_id} value={member.user_id}>{member.display_name || member.email}</option>
+          ))}
+        </select>
+      </label>
+      {userID && choice.isLoading && <div className="policy-empty-line">{t("loading")}</div>}
+      {userID && choice.error && <div className="status error">{choice.error instanceof Error ? choice.error.message : t("manualReviewChoiceLoadFailed")}</div>}
+      {userID && choice.data && (
+        <TemporaryAuthorizationForm
+          key={`${userID}-${choice.data.auto_allow_expires_at || "inactive"}`}
+          data={data}
+          userID={userID}
+          choice={choice.data}
+          onClose={onClose}
+        />
+      )}
+    </div>
+  </Modal>;
+}
+
+function TemporaryAuthorizationForm({
+  data,
+  userID,
+  choice,
+  onClose,
+}: {
+  data: ConsoleData;
+  userID: string;
+  choice: ManualReviewChoice;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const validTargetIDs = new Set(data.targets.map((target) => target.id));
+  const [minutes, setMinutes] = useState(choice.active && choice.auto_allow_minutes ? choice.auto_allow_minutes : 10);
+  const [selectedTargetIDs, setSelectedTargetIDs] = useState(
+    choice.active && choice.auto_allow_target_ids?.length
+      ? choice.auto_allow_target_ids.filter((id) => validTargetIDs.has(id))
+      : data.targets.map((target) => target.id)
+  );
+  const [currentChoice, setCurrentChoice] = useState(choice);
+  const [saved, setSaved] = useState(false);
+  const [remaining, setRemaining] = useState(() => secondsUntil(currentChoice.auto_allow_expires_at || ""));
+  const save = useMutation({
+    mutationFn: () => api.putManualReviewChoice({
+      organization_id: data.activeOrg.id,
+      user_id: userID,
+      auto_allow_minutes: minutes,
+      auto_allow_target_ids: selectedTargetIDs,
+    }),
+    onSuccess: (result) => {
+      setCurrentChoice(result);
+      setSaved(true);
+    },
+    onError: () => setSaved(false),
+  });
+
+  useEffect(() => {
+    const update = () => setRemaining(secondsUntil(currentChoice.auto_allow_expires_at || ""));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [currentChoice.auto_allow_expires_at]);
+
+  const valid = Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440 && selectedTargetIDs.length > 0;
+  return <form className="temporary-authorization-form" onSubmit={(event) => {
+    event.preventDefault();
+    if (valid) save.mutate();
+  }}>
+    <div className="temporary-authorization-meta">
+      <label className="field">
+        <span>{t("manualReviewDuration")}</span>
+        <div className="temporary-authorization-duration">
+          <input type="number" min="1" max="1440" step="1" value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} />
+          <span>{t("manualReviewMinutes")}</span>
+        </div>
+      </label>
+      {currentChoice.active && remaining > 0 && (
+        <span className="manual-review-remaining">{t("manualReviewRemaining").replace("{time}", formatRemaining(remaining))}</span>
+      )}
+    </div>
+    <ManualReviewScopePicker data={data} selectedTargetIDs={selectedTargetIDs} onChange={setSelectedTargetIDs} />
+    {saved && <div className="status success">{t("manualReviewAuthorizationSaved")}</div>}
+    {save.error && <div className="status error">{save.error instanceof Error ? save.error.message : t("manualReviewAuthorizationSaveFailed")}</div>}
+    <div className="modal-actions">
+      <button type="button" onClick={onClose}>{t("cancel")}</button>
+      <button type="submit" className="primary" disabled={!valid || save.isPending}>
+        <ShieldCheck />{save.isPending ? t("manualReviewSubmitting") : t("manualReviewAuthorize")}
+      </button>
+    </div>
+  </form>;
+}
+
+function secondsUntil(value: string) {
+  if (!value) return 0;
+  return Math.max(0, Math.ceil((new Date(value).getTime() - Date.now()) / 1000));
+}
+
+function formatRemaining(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
 function AuditReplayModal({ recording, fallbackLog, loading, onClose }: { recording?: AuditRecording; fallbackLog?: AuditLog; loading: boolean; onClose: () => void }) {

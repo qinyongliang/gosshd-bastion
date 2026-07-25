@@ -25,7 +25,8 @@ export function ManualReviewScopePicker({
 }) {
   const { t } = useI18n();
   const sections = useMemo(() => buildSections(data, t), [data, t]);
-  const selected = new Set(selectedTargetIDs);
+  const validTargetIDs = new Set(data.targets.map((target) => target.id));
+  const selected = new Set(selectedTargetIDs.filter((id) => validTargetIDs.has(id)));
   const [enabledGroups, setEnabledGroups] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     for (const section of sections) {
@@ -38,7 +39,7 @@ export function ManualReviewScopePicker({
 
   const toggleGroup = (section: ScopeSection, group: ScopeGroup, checked: boolean) => {
     const nextGroups = new Set(enabledGroups);
-    const nextTargets = new Set(selectedTargetIDs);
+    const nextTargets = new Set(selected);
     if (checked) {
       nextGroups.add(group.key);
       group.targetIDs.forEach((id) => nextTargets.add(id));
@@ -53,12 +54,19 @@ export function ManualReviewScopePicker({
         if (!covered.has(id)) nextTargets.delete(id);
       });
     }
+    for (const itemSection of sections) {
+      for (const itemGroup of itemSection.groups) {
+        if (nextGroups.has(itemGroup.key) && itemGroup.targetIDs.some((id) => !nextTargets.has(id))) {
+          nextGroups.delete(itemGroup.key);
+        }
+      }
+    }
     setEnabledGroups(nextGroups);
     onChange(Array.from(nextTargets));
   };
 
   const toggleTarget = (targetID: string, checked: boolean) => {
-    const nextTargets = new Set(selectedTargetIDs);
+    const nextTargets = new Set(selected);
     const nextGroups = new Set(enabledGroups);
     if (checked) {
       nextTargets.add(targetID);
@@ -83,12 +91,13 @@ export function ManualReviewScopePicker({
             <div className="manual-review-scope-options">
               {section.groups.map((group) => {
                 const count = group.targetIDs.filter((id) => selected.has(id)).length;
+                const enabled = enabledGroups.has(group.key);
                 return (
                   <ScopeCheckbox
                     key={group.key}
                     label={group.name}
-                    checked={count === group.targetIDs.length}
-                    indeterminate={count > 0 && count < group.targetIDs.length}
+                    checked={enabled}
+                    indeterminate={!enabled && count > 0 && count < group.targetIDs.length}
                     onChange={(checked) => toggleGroup(section, group, checked)}
                   />
                 );
@@ -141,6 +150,7 @@ function ScopeCheckbox({
 }
 
 function buildSections(data: ConsoleData, t: (key: string, fallback?: string) => string): ScopeSection[] {
+  const validTargetIDs = new Set(data.targets.map((target) => target.id));
   const folderByID = new Map(data.targetFolders.map((folder) => [folder.id, folder]));
   const folderName = (folderID: string) => {
     const names: string[] = [];
@@ -167,7 +177,7 @@ function buildSections(data: ConsoleData, t: (key: string, fallback?: string) =>
     }));
   const policies = data.policies
     .map((policy) => {
-      const targetIDs = new Set(policy.target_ids || []);
+      const targetIDs = new Set((policy.target_ids || []).filter((id) => validTargetIDs.has(id)));
       for (const target of data.targets) {
         if ((policy.target_tags || []).some((tag) => target.tags?.includes(tag))) targetIDs.add(target.id);
       }
