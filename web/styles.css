@@ -7970,6 +7970,23 @@ html[data-theme="dark"] .manual-review-card {
   padding: 0 8px;
 }
 
+.manual-review-more {
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.manual-review-more svg {
+  width: 15px;
+  height: 15px;
+}
+
+.manual-review-remaining {
+  color: var(--accent);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .manual-review-scope {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -8014,6 +8031,38 @@ html[data-theme="dark"] .manual-review-card {
 .manual-review-scope-option span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.temporary-authorization-shell,
+.temporary-authorization-form,
+.temporary-authorization-meta {
+  display: grid;
+  gap: 16px;
+}
+
+.temporary-authorization-meta {
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  align-items: end;
+}
+
+.temporary-authorization-duration {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.temporary-authorization-duration input {
+  width: 110px;
+}
+
+.temporary-authorization-form .manual-review-scope {
+  max-height: 380px;
+}
+
+.temporary-authorization-form .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .manual-review-actions {
@@ -8100,6 +8149,9 @@ html[data-theme="dark"] .manual-review-actions button.danger {
     flex-wrap: wrap;
   }
   .manual-review-scope {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .temporary-authorization-meta {
     grid-template-columns: minmax(0, 1fr);
   }
   .workspace, .sidebar {

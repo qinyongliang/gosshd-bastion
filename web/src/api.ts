@@ -134,11 +134,15 @@ export const api = {
       timeout_seconds: timeoutSeconds,
       known_ids: knownIDs.join(","),
     })}`),
-  decideManualReview: (id: string, allow: boolean, autoAllowMinutes?: number) =>
-    request<{ ok: true; auto_allow_minutes?: number; auto_allow_expires_at?: string }>(
+  decideManualReview: (id: string, allow: boolean, autoAllowMinutes?: number, autoAllowTargetIDs: string[] = []) =>
+    request<{ ok: true; auto_allow_minutes?: number; auto_allow_expires_at?: string; auto_allow_target_ids?: string[] }>(
       `/api/manual-reviews/${id}/decision`,
-      post({ allow, ...(autoAllowMinutes === undefined ? {} : { auto_allow_minutes: autoAllowMinutes }) })
+      post({ allow, ...(autoAllowMinutes === undefined ? {} : { auto_allow_minutes: autoAllowMinutes, auto_allow_target_ids: autoAllowTargetIDs }) })
     ),
+  manualReviewChoice: (organizationID: string, userID: string) =>
+    request<ManualReviewChoice>(`/api/manual-review-choice?${queryString({ organization_id: organizationID, user_id: userID })}`),
+  putManualReviewChoice: (body: { organization_id: string; user_id: string; auto_allow_minutes: number; auto_allow_target_ids: string[] }) =>
+    request<ManualReviewChoice>("/api/manual-review-choice", put(body)),
 
   adminSettings: () => request<Record<string, unknown>>("/api/admin/settings"),
   updateBrandingSettings: (body: Record<string, unknown>) => request<void>("/api/admin/settings/branding", put(body)),
@@ -218,3 +222,11 @@ function terminalURL(path: string, cols: number, rows: number, sessionID = "") {
   if (sessionID) params.set("session_id", sessionID);
   return `${protocol}//${host}${path}?${params.toString()}`;
 }
+
+export type ManualReviewChoice = {
+  active: boolean;
+  allow: boolean;
+  auto_allow_minutes?: number;
+  auto_allow_expires_at?: string;
+  auto_allow_target_ids?: string[];
+};
