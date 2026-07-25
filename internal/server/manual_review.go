@@ -24,6 +24,7 @@ type manualReviewAutoAllow struct {
 	Allow     bool
 	Minutes   int
 	ExpiresAt time.Time
+	TargetIDs []string
 }
 
 type manualReviewRequest struct {
@@ -43,6 +44,7 @@ type manualReviewRequest struct {
 	DefaultAllow       bool
 	AutoAllowMinutes   int
 	AutoAllowExpiresAt time.Time
+	AutoAllowTargetIDs []string
 	timer              *time.Timer
 	decision           chan manualReviewDecision
 }
@@ -71,6 +73,7 @@ type manualReviewSnapshot struct {
 	DefaultAllow       bool
 	AutoAllowMinutes   int
 	AutoAllowExpiresAt time.Time
+	AutoAllowTargetIDs []string
 }
 
 func newManualReviewHub() *manualReviewHub {
@@ -92,10 +95,11 @@ func (h *manualReviewHub) Create(req manualReviewRequest, timeout time.Duration)
 	req.ID = uuid.NewString()
 	req.CreatedAt = now
 	req.ExpiresAt = now.Add(timeout)
-	if state, ok := h.activeAutoAllowLocked(manualReviewPollerKey(req.OrganizationID, req.SessionID), now); ok {
+	if state, ok := h.activeAutoAllowLocked(manualReviewChoiceKey(req.OrganizationID, req.UserID), now); ok && containsString(state.TargetIDs, req.TargetID) {
 		req.DefaultAllow = state.Allow
 		req.AutoAllowMinutes = state.Minutes
 		req.AutoAllowExpiresAt = state.ExpiresAt
+		req.AutoAllowTargetIDs = append([]string(nil), state.TargetIDs...)
 	}
 	req.decision = make(chan manualReviewDecision, 1)
 	h.pending[req.ID] = &req
@@ -149,17 +153,19 @@ func (h *manualReviewHub) Get(id string) (manualReviewSnapshot, bool) {
 	return snapshotManualReview(req), true
 }
 
-func (h *manualReviewHub) AutoAllowState(organizationID, sessionID string) (manualReviewAutoAllow, bool) {
+func (h *manualReviewHub) AutoAllowState(organizationID, userID string) (manualReviewAutoAllow, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.activeAutoAllowLocked(manualReviewPollerKey(organizationID, sessionID), time.Now().UTC())
+	state, ok := h.activeAutoAllowLocked(manualReviewChoiceKey(organizationID, userID), time.Now().UTC())
+	state.TargetIDs = append([]string(nil), state.TargetIDs...)
+	return state, ok
 }
 
 func (h *manualReviewHub) Decide(id string, decision manualReviewDecision) error {
-	return h.DecideWithAutoAllow(id, decision, nil)
+	return h.DecideWithAutoAllow(id, decision, nil, nil)
 }
 
-func (h *manualReviewHub) DecideWithAutoAllow(id string, decision manualReviewDecision, autoAllowMinutes *int) error {
+func (h *manualReviewHub) DecideWithAutoAllow(id string, decision manualReviewDecision, autoAllowMinutes *int, targetIDs []string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := time.Now().UTC()
@@ -176,7 +182,7 @@ func (h *manualReviewHub) DecideWithAutoAllow(id string, decision manualReviewDe
 	req.decision <- decision
 	close(req.decision)
 	if autoAllowMinutes != nil {
-		h.updateAutoAllowLocked(req.OrganizationID, req.SessionID, *autoAllowMinutes, decision.Allow, now)
+		h.updateAutoAllowLocked(req.OrganizationID, req.UserID, *autoAllowMinutes, decision.Allow, targetIDs, now)
 	}
 	h.signalLocked()
 	return nil
@@ -245,15 +251,30 @@ func (h *manualReviewHub) activeAutoAllowLocked(key string, now time.Time) (manu
 	return state, ok
 }
 
-func (h *manualReviewHub) updateAutoAllowLocked(organizationID, sessionID string, minutes int, allow bool, now time.Time) {
-	key := manualReviewPollerKey(organizationID, sessionID)
-	state := manualReviewAutoAllow{}
+func (h *manualReviewHub) SetAutoAllow(organizationID, userID string, minutes int, allow bool, targetIDs []string) manualReviewAutoAllow {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	state := h.updateAutoAllowLocked(organizationID, userID, minutes, allow, targetIDs, time.Now().UTC())
+	state.TargetIDs = append([]string(nil), state.TargetIDs...)
+	return state
+}
+
+func (h *manualReviewHub) updateAutoAllowLocked(organizationID, userID string, minutes int, allow bool, targetIDs []string, now time.Time) manualReviewAutoAllow {
+	key := manualReviewChoiceKey(organizationID, userID)
+	state, active := h.activeAutoAllowLocked(key, now)
 	if minutes > 0 {
-		state = manualReviewAutoAllow{Allow: allow, Minutes: minutes, ExpiresAt: now.Add(time.Duration(minutes) * time.Minute)}
+		if !active || state.Minutes != minutes {
+			state.ExpiresAt = now.Add(time.Duration(minutes) * time.Minute)
+		}
+		state.Allow = allow
+		state.Minutes = minutes
+		state.TargetIDs = append([]string(nil), targetIDs...)
 		h.autoAllow[key] = state
 	} else {
 		delete(h.autoAllow, key)
+		state = manualReviewAutoAllow{}
 	}
+	return state
 }
 
 func (h *manualReviewHub) scheduleLocked(req *manualReviewRequest, now time.Time) {
@@ -328,7 +349,12 @@ func snapshotManualReview(req *manualReviewRequest) manualReviewSnapshot {
 		DefaultAllow:       req.DefaultAllow,
 		AutoAllowMinutes:   req.AutoAllowMinutes,
 		AutoAllowExpiresAt: req.AutoAllowExpiresAt,
+		AutoAllowTargetIDs: append([]string(nil), req.AutoAllowTargetIDs...),
 	}
+}
+
+func manualReviewChoiceKey(organizationID, userID string) string {
+	return organizationID + "\x00" + userID
 }
 
 func manualReviewPollerKey(organizationID, sessionID string) string {
@@ -344,4 +370,13 @@ func knownManualReviewID(id string, knownIDs map[string]struct{}) bool {
 	}
 	_, ok := knownIDs[id]
 	return ok
+}
+
+func containsString(values []string, value string) bool {
+	for _, item := range values {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }

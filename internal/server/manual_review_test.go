@@ -44,6 +44,21 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var otherOrg apiOrganizationResponse
+	postJSON(t, ownerClient, srv.URL+"/api/orgs", map[string]string{"name": "Other", "slug": "manual-review-other"}, http.StatusCreated, &otherOrg)
+	var otherTarget apiTargetResponse
+	postJSON(t, ownerClient, srv.URL+"/api/targets", map[string]any{
+		"owner_type":      "organization",
+		"owner_id":        otherOrg.Organization.ID,
+		"name":            "Other Production",
+		"alias":           "other-prod",
+		"target_type":     "direct",
+		"host":            "127.0.0.2",
+		"port":            22,
+		"remote_username": "root",
+		"auth_type":       "password",
+		"secret":          "secret",
+	}, http.StatusCreated, &otherTarget)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -100,7 +115,7 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 	var autoAllowResponse apiManualReviewDecisionResponse
 	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+review.ID+"/decision", map[string]any{"allow": true, "auto_allow_minutes": -1}, http.StatusBadRequest, nil)
 	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+review.ID+"/decision", map[string]any{"allow": true, "auto_allow_minutes": 1441}, http.StatusBadRequest, nil)
-	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+review.ID+"/decision", map[string]any{"allow": true, "auto_allow_minutes": 10}, http.StatusOK, &autoAllowResponse)
+	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+review.ID+"/decision", map[string]any{"allow": true, "auto_allow_minutes": 10, "auto_allow_target_ids": []string{target.Target.ID}}, http.StatusOK, &autoAllowResponse)
 	if autoAllowResponse.AutoAllowMinutes != 10 || autoAllowResponse.AutoAllowExpiresAt == "" {
 		t.Fatalf("auto-allow decision response mismatch: %+v", autoAllowResponse)
 	}
@@ -129,7 +144,7 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 	if len(rememberedPending.Reviews) != 1 || !rememberedPending.Reviews[0].DefaultAllow || rememberedPending.Reviews[0].AutoAllowMinutes != 10 {
 		t.Fatalf("remembered allow should still create a pending review: %+v", rememberedPending)
 	}
-	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+rememberedPending.Reviews[0].ID+"/decision", map[string]any{"allow": false, "auto_allow_minutes": 10}, http.StatusOK, nil)
+	postJSON(t, ownerClient, srv.URL+"/api/manual-reviews/"+rememberedPending.Reviews[0].ID+"/decision", map[string]any{"allow": false, "auto_allow_minutes": 10, "auto_allow_target_ids": []string{target.Target.ID}}, http.StatusOK, nil)
 	select {
 	case result := <-rememberedResult:
 		if result.Action != store.DecisionDeny || !strings.Contains(result.Reason, "manual rejected by") {
@@ -138,12 +153,12 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("remembered review override did not unblock command")
 	}
-	state, ok := app.manualReviews.AutoAllowState(org.Organization.ID, "")
+	state, ok := app.manualReviews.AutoAllowState(org.Organization.ID, member.User.ID)
 	if !ok || state.Allow || state.Minutes != 10 {
 		t.Fatalf("deny choice was not remembered: %+v %v", state, ok)
 	}
 	app.manualReviews.mu.Lock()
-	app.manualReviews.updateAutoAllowLocked(org.Organization.ID, "", 10, true, time.Now().UTC())
+	app.manualReviews.updateAutoAllowLocked(org.Organization.ID, member.User.ID, 10, true, []string{target.Target.ID}, time.Now().UTC())
 	app.manualReviews.mu.Unlock()
 	if app.manualReviews.HasActivePollers(org.Organization.ID, "") {
 		t.Fatal("background review test unexpectedly has an active poller")
@@ -187,43 +202,71 @@ func TestManualReviewAPIApprovesDeniedCommand(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("session review decision did not unblock command")
 	}
+
+	var choice apiManualReviewChoiceResponse
+	putJSON(t, ownerClient, srv.URL+"/api/manual-review-choice", map[string]any{
+		"organization_id":       org.Organization.ID,
+		"user_id":               member.User.ID,
+		"auto_allow_minutes":    15,
+		"auto_allow_target_ids": []string{target.Target.ID, target.Target.ID},
+	}, http.StatusOK, &choice)
+	getJSON(t, ownerClient, srv.URL+"/api/manual-review-choice?organization_id="+url.QueryEscape(org.Organization.ID)+"&user_id="+url.QueryEscape(member.User.ID), http.StatusOK, &choice)
+	if !choice.Active || !choice.Allow || choice.AutoAllowMinutes != 15 || len(choice.AutoAllowTargetIDs) != 1 || choice.AutoAllowTargetIDs[0] != target.Target.ID {
+		t.Fatalf("proactive choice mismatch: %+v", choice)
+	}
+	putJSON(t, ownerClient, srv.URL+"/api/manual-review-choice", map[string]any{
+		"organization_id": org.Organization.ID, "user_id": member.User.ID, "auto_allow_minutes": 10,
+	}, http.StatusBadRequest, nil)
+	putJSON(t, ownerClient, srv.URL+"/api/manual-review-choice", map[string]any{
+		"organization_id": org.Organization.ID, "user_id": member.User.ID, "auto_allow_minutes": 10,
+		"auto_allow_target_ids": []string{otherTarget.Target.ID},
+	}, http.StatusBadRequest, nil)
 }
 
 func TestManualReviewHubRemembersChoice(t *testing.T) {
 	hub := newManualReviewHub()
-	first, firstDecision := hub.Create(manualReviewRequest{OrganizationID: "org-1"}, time.Second)
+	first, firstDecision := hub.Create(manualReviewRequest{OrganizationID: "org-1", UserID: "user-1", TargetID: "target-1"}, time.Second)
 	minutes := 10
-	if err := hub.DecideWithAutoAllow(first.ID, manualReviewDecision{Allow: true, Reviewer: "owner"}, &minutes); err != nil {
+	targetIDs := []string{"target-1"}
+	if err := hub.DecideWithAutoAllow(first.ID, manualReviewDecision{Allow: true, Reviewer: "owner"}, &minutes, targetIDs); err != nil {
 		t.Fatal(err)
 	}
 	if result := <-firstDecision; !result.Allow || result.Reviewer != "owner" {
 		t.Fatalf("initial approval mismatch: %+v", result)
 	}
 
-	state, ok := hub.AutoAllowState("org-1", "")
-	if !ok || !state.Allow || state.Minutes != 10 {
+	state, ok := hub.AutoAllowState("org-1", "user-1")
+	if !ok || !state.Allow || state.Minutes != 10 || len(state.TargetIDs) != 1 || state.TargetIDs[0] != "target-1" {
 		t.Fatalf("remembered allow state mismatch: %+v %v", state, ok)
 	}
-	allowed, allowedDecision := hub.Create(manualReviewRequest{OrganizationID: "org-1"}, 25*time.Millisecond)
-	if !allowed.DefaultAllow || allowed.AutoAllowMinutes != 10 || allowed.ExpiresAt.Sub(allowed.CreatedAt) > time.Second {
+	allowed, allowedDecision := hub.Create(manualReviewRequest{OrganizationID: "org-1", UserID: "user-1", TargetID: "target-1"}, 25*time.Millisecond)
+	if !allowed.DefaultAllow || allowed.AutoAllowMinutes != 10 || len(allowed.AutoAllowTargetIDs) != 1 || allowed.ExpiresAt.Sub(allowed.CreatedAt) > time.Second {
 		t.Fatalf("remembered allow snapshot mismatch: %+v", allowed)
+	}
+	unselected, _ := hub.Create(manualReviewRequest{OrganizationID: "org-1", UserID: "user-1", TargetID: "target-2"}, time.Second)
+	if unselected.DefaultAllow {
+		t.Fatalf("unselected target loaded remembered choice: %+v", unselected)
+	}
+	otherUser, _ := hub.Create(manualReviewRequest{OrganizationID: "org-1", UserID: "user-2", TargetID: "target-1"}, time.Second)
+	if otherUser.DefaultAllow {
+		t.Fatalf("other SSH user loaded remembered choice: %+v", otherUser)
 	}
 	if result := <-allowedDecision; !result.Allow || result.Reviewer != "remembered choice" {
 		t.Fatalf("remembered allow timeout mismatch: %+v", result)
 	}
 
-	denied, deniedDecision := hub.Create(manualReviewRequest{OrganizationID: "org-1"}, time.Second)
-	if err := hub.DecideWithAutoAllow(denied.ID, manualReviewDecision{Allow: false, Reviewer: "owner"}, &minutes); err != nil {
+	denied, deniedDecision := hub.Create(manualReviewRequest{OrganizationID: "org-1", UserID: "user-1", TargetID: "target-1"}, time.Second)
+	if err := hub.DecideWithAutoAllow(denied.ID, manualReviewDecision{Allow: false, Reviewer: "owner"}, &minutes, targetIDs); err != nil {
 		t.Fatal(err)
 	}
 	if result := <-deniedDecision; result.Allow {
 		t.Fatalf("manual deny mismatch: %+v", result)
 	}
-	state, ok = hub.AutoAllowState("org-1", "")
+	state, ok = hub.AutoAllowState("org-1", "user-1")
 	if !ok || state.Allow || state.Minutes != 10 {
 		t.Fatalf("remembered deny state mismatch: %+v %v", state, ok)
 	}
-	defaultDenied, defaultDeniedDecision := hub.Create(manualReviewRequest{OrganizationID: "org-1"}, 25*time.Millisecond)
+	defaultDenied, defaultDeniedDecision := hub.Create(manualReviewRequest{OrganizationID: "org-1", UserID: "user-1", TargetID: "target-1"}, 25*time.Millisecond)
 	if defaultDenied.DefaultAllow {
 		t.Fatalf("remembered deny snapshot mismatch: %+v", defaultDenied)
 	}
