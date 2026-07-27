@@ -64,6 +64,9 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   }
 
   function openConnectPath(path: string, id: string) {
+    const connectURL = new URL(path, window.location.origin);
+    connectURL.searchParams.set("new", "1");
+    path = `${connectURL.pathname}${connectURL.search}${connectURL.hash}`;
     const attachExisting = data.userSettings.connect_attach_existing;
     if (window.parent && window.parent !== window) {
       window.parent.postMessage({ type: "gosshd-open-connect", path, targetID: id, openMode: data.userSettings.connect_open_mode, attachExisting }, "*");

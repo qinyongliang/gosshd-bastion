@@ -22,6 +22,10 @@ func TestTabFilePathUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "tab_file_path.test.mjs")
 }
 
+func TestNewTerminalConnectionUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "new_terminal_connection.test.mjs")
+}
+
 func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
 	nodePath := os.Getenv("GOSSHD_UI_E2E_NODE")
 	playwrightPath := os.Getenv("GOSSHD_UI_E2E_PLAYWRIGHT")

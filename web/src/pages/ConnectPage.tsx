@@ -87,6 +87,7 @@ type TerminalPaneNode = {
   type: "terminal";
   id: string;
   targetID: string;
+  restoreSession: boolean;
 };
 type EditorPaneNode = {
   type: "editor";
@@ -114,6 +115,7 @@ type TerminalPanelProps = {
   data: ConsoleData;
   target: Target;
   paneID: string;
+  restoreSession?: boolean;
   active?: boolean;
   isFullscreen: boolean;
   onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
@@ -187,7 +189,8 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const [hostWidth, setHostWidth] = useState(248);
   const [filesWidth, setFilesWidth] = useState(330);
-  const [tabs, setTabs] = useState<ConnectionTab[]>(() => target ? [newConnectionTab(target.id, getConnectCommandParam())] : []);
+  const initialConnectionIsFresh = useRef(getConnectNewParam()).current;
+  const [tabs, setTabs] = useState<ConnectionTab[]>(() => target ? [newConnectionTab(target.id, getConnectCommandParam(), !initialConnectionIsFresh)] : []);
   const [activeTabID, setActiveTabID] = useState(() => tabs[0]?.id || "");
   const [tabMenu, setTabMenu] = useState<{ tabID: string; x: number; y: number } | null>(null);
   const [switcherOpenSignal, setSwitcherOpenSignal] = useState(0);
@@ -208,6 +211,10 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const name = appName(data.runtime);
   const description = appDescription(data.runtime);
   const routePendingCommand = getConnectCommandParam();
+
+  useEffect(() => {
+    if (initialConnectionIsFresh) clearConnectParam("new");
+  }, [initialConnectionIsFresh]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -852,6 +859,7 @@ function PaneTree({
       <TerminalPanel
         data={data}
         target={target}
+        restoreSession={node.restoreSession}
         active={active}
         isFullscreen={isFullscreen && active}
         onFullscreenChange={onFullscreenChange}
@@ -1331,10 +1339,10 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-export function TerminalPanel({ data, target, paneID, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, pendingCommand = "", onPendingCommandConsumed, manualReview = true }: TerminalPanelProps) {
+export function TerminalPanel({ data, target, paneID, restoreSession = false, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, pendingCommand = "", onPendingCommandConsumed, manualReview = true }: TerminalPanelProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
-  const runtime = useMemo(() => getTerminalRuntime(paneID, target.id), [paneID, target.id]);
+  const runtime = useMemo(() => getTerminalRuntime(paneID, target.id, restoreSession), [paneID, restoreSession, target.id]);
   const [status, setStatus] = useState<ConnectionStatus>(runtime.status);
   const [error, setError] = useState(runtime.error);
   const [dims, setDims] = useState(runtime.dims);
@@ -2021,8 +2029,8 @@ function contextMenuPointInTabs(clientX: number, clientY: number, container: HTM
   };
 }
 
-function newConnectionTab(targetID: string, pendingCommand = ""): ConnectionTab {
-  const pane = newTerminalPane(targetID);
+function newConnectionTab(targetID: string, pendingCommand = "", restoreSession = false): ConnectionTab {
+  const pane = newTerminalPane(targetID, restoreSession);
   return { id: `${targetID}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`, targetID, layout: pane, activePaneID: pane.id, filePath: ".", pendingCommand };
 }
 
@@ -2030,11 +2038,11 @@ function newPaneID(prefix: string) {
   return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function newTerminalPane(targetID: string): TerminalPaneNode {
-  return { type: "terminal", id: newPaneID("terminal"), targetID };
+function newTerminalPane(targetID: string, restoreSession = false): TerminalPaneNode {
+  return { type: "terminal", id: newPaneID("terminal"), targetID, restoreSession };
 }
 
-function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
+function getTerminalRuntime(paneID: string, targetID: string, restoreSession: boolean): TerminalRuntime {
   const current = terminalRuntimes.get(paneID);
   if (current && current.targetID === targetID && !current.disposed) return current;
   const runtime: TerminalRuntime = {
@@ -2046,7 +2054,7 @@ function getTerminalRuntime(paneID: string, targetID: string): TerminalRuntime {
     status: "connecting",
     error: "",
     dims: { cols: DEFAULT_COLS, rows: DEFAULT_ROWS },
-    sessionID: readStoredTerminalSessionID(targetID),
+    sessionID: restoreSession ? readStoredTerminalSessionID(targetID) : "",
     aiEnabled: true,
     mobileModifier: null,
     pendingCommand: "",
@@ -2292,11 +2300,20 @@ function getConnectCommandParam() {
   return new URLSearchParams(window.location.search).get("command") || "";
 }
 
+function getConnectNewParam() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("new") === "1";
+}
+
 function clearConnectCommandParam() {
+  clearConnectParam("command");
+}
+
+function clearConnectParam(name: string) {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
-  if (!url.searchParams.has("command")) return;
-  url.searchParams.delete("command");
+  if (!url.searchParams.has(name)) return;
+  url.searchParams.delete(name);
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
