@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "../api";
-import { Field, Modal, ModalActions, Panel, Select, SimpleTable, Toolbar, UserCell } from "../components/ui";
+import { CommandBox, Field, Modal, ModalActions, Panel, Select, SimpleTable, Toolbar, UserCell } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formSubmit, formatDate, roleText, sortMembers } from "../lib/forms";
 import type { ConsoleData } from "../types";
@@ -11,18 +11,34 @@ export function MembersPage({ data }: { data: ConsoleData }) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"role" | "name" | "newest">("role");
-  const [modal, setModal] = useState<"" | "add" | "groups" | "transfer">("");
+  const [modal, setModal] = useState<"" | "add" | "groups" | "invite" | "transfer">("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [neverExpires, setNeverExpires] = useState(true);
   const queryClient = useQueryClient();
   const add = useMutation({ mutationFn: (body: Record<string, string>) => api.addOrgMember(data.activeOrg.id, body), onSuccess: async () => { setModal(""); await queryClient.invalidateQueries(); } });
   const group = useMutation({ mutationFn: (body: Record<string, string>) => api.createGroup(data.activeOrg.id, body), onSuccess: async () => queryClient.invalidateQueries() });
   const update = useMutation({ mutationFn: ({ userID, role }: { userID: string; role: string }) => api.updateOrgMember(data.activeOrg.id, userID, { role }), onSuccess: async () => queryClient.invalidateQueries() });
   const transfer = useMutation({ mutationFn: (body: Record<string, string>) => api.transferOrgOwner(data.activeOrg.id, body.user_id), onSuccess: async () => { setModal(""); await queryClient.invalidateQueries(); } });
+  const invite = useMutation({
+    mutationFn: (body: Record<string, string>) => api.invite(data.activeOrg.id, {
+      expires_at: body.expires_at ? new Date(body.expires_at).toISOString() : "",
+    }),
+    onSuccess: (out) => setInviteCode(out.code),
+  });
   const members = useMemo(() => sortMembers(data.members, query, sort), [data.members, query, sort]);
+  const canInvite = !data.activeOrg.is_personal && (data.activeOrg.role === "owner" || data.activeOrg.role === "admin");
+  const openInvite = () => {
+    invite.reset();
+    setInviteCode("");
+    setNeverExpires(true);
+    setModal("invite");
+  };
   return (
     <>
       <section className="resource-head members-head">
         <div><small>{t("orgs")}</small><h2>{t("members")}</h2><p>{t("membersBody")}</p></div>
         <div className="resource-actions">
+          {canInvite && <button type="button" onClick={openInvite}><UserPlus />{t("orgInviteCreate")}</button>}
           <button type="button" onClick={() => setModal("groups")}>{t("membersGroups")}</button>
           <button type="button" onClick={() => setModal("transfer")}>{t("membersTransfer")}</button>
           <button type="button" className="primary" onClick={() => setModal("add")}><Plus />{t("addMember")}</button>
@@ -66,6 +82,14 @@ export function MembersPage({ data }: { data: ConsoleData }) {
           <ModalActions onCancel={() => setModal("")} submit={t("addUserGroup")} />
         </form>
         <SimpleTable headers={[t("commonName"), "Slug"]} rows={data.groups.map((item) => [item.name, item.slug])} />
+      </Modal>}
+      {modal === "invite" && <Modal title={t("orgInviteCreateTitle")} onClose={() => setModal("")} closeOnEscape={false}>
+        {inviteCode ? <CommandBox label={t("orgJoinCode")} value={inviteCode} copyLabel={t("commonCopy")} /> : <form className="stack" onSubmit={(event) => formSubmit(event, (body) => invite.mutate(body))}>
+          <label className="toggle-row"><input type="checkbox" checked={neverExpires} onChange={(event) => setNeverExpires(event.target.checked)} /><span>{t("orgInviteNeverExpires")}</span></label>
+          {!neverExpires && <Field label={t("orgInviteExpiresAt")} name="expires_at" type="datetime-local" required />}
+          {invite.error && <div className="status error">{invite.error.message}</div>}
+          <ModalActions onCancel={() => setModal("")} submit={t("orgInviteCreate")} />
+        </form>}
       </Modal>}
       {modal === "transfer" && <Modal title={t("membersTransferTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         <form className="stack" onSubmit={(event) => formSubmit(event, (body) => transfer.mutate(body))}>

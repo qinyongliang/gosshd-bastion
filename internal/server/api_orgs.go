@@ -79,15 +79,9 @@ func (a *App) handleCreateOrganizationInvite(w http.ResponseWriter, r *http.Requ
 	if role == "" {
 		role = store.RoleMember
 	}
-	if role != store.RoleMember && role != store.RoleAdmin {
-		writeError(w, http.StatusBadRequest, "invite role must be member or admin")
+	if role != store.RoleMember {
+		writeError(w, http.StatusBadRequest, "invite role must be member")
 		return
-	}
-	if role == store.RoleAdmin {
-		if err := a.requireOrganizationOwner(r.Context(), orgID, user); err != nil {
-			writeError(w, http.StatusForbidden, "organization owner required for admin invites")
-			return
-		}
 	}
 	expiresAt, err := parseInviteExpiry(req.ExpiresAt, time.Now().UTC())
 	if err != nil {

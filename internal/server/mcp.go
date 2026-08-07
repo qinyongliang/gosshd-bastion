@@ -336,13 +336,8 @@ func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 			if role == "" {
 				role = store.RoleMember
 			}
-			if role != store.RoleMember && role != store.RoleAdmin {
-				return nil, apiInviteResponse{}, errors.New("invite role must be member or admin")
-			}
-			if role == store.RoleAdmin {
-				if err := a.requireOrganizationOwner(ctx, in.OrganizationID, actor); err != nil {
-					return nil, apiInviteResponse{}, errors.New("organization owner required for admin invites")
-				}
+			if role != store.RoleMember {
+				return nil, apiInviteResponse{}, errors.New("invite role must be member")
 			}
 			expiresAt, err := parseInviteExpiry(in.ExpiresAt, time.Now().UTC())
 			if err != nil {

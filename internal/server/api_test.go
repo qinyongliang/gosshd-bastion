@@ -566,7 +566,7 @@ func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
 	}, http.StatusBadRequest, nil)
 
 	bob := apiClient(t)
-	registerForAPI(t, bob, srv.URL, "bob@example.com")
+	bobUser := registerForAPI(t, bob, srv.URL, "bob@example.com")
 	expiredCode, expiredHash, err := randomCode()
 	if err != nil {
 		t.Fatal(err)
@@ -600,8 +600,14 @@ func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
 		"role": "member",
 	}, http.StatusForbidden, nil)
 	postJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/invites", map[string]string{
-		"role": "owner",
+		"role": "admin",
 	}, http.StatusBadRequest, nil)
+	patchJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/members/"+bobUser.User.ID, map[string]string{
+		"role": "admin",
+	}, http.StatusOK, nil)
+	postJSON(t, bob, srv.URL+"/api/orgs/"+org.Organization.ID+"/invites", map[string]string{
+		"role": "member",
+	}, http.StatusCreated, &invite)
 
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/orgs/"+org.Organization.ID+"/leave", nil)
 	if err != nil {
