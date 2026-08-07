@@ -59,7 +59,7 @@ export const api = {
 
   createOrg: (body: Record<string, unknown>) => request<{ organization: Organization }>("/api/orgs", post(body)),
   joinOrg: (code: string) => request<{ organization: Organization }>("/api/orgs/join", post({ code })),
-  invite: (orgID: string, role: string) => request<{ code: string }>(`/api/orgs/${orgID}/invites`, post({ role })),
+  invite: (orgID: string, body: Record<string, unknown>) => request<{ code: string }>(`/api/orgs/${orgID}/invites`, post(body)),
   leaveOrg: (id: string) => request<void>(`/api/orgs/${id}/leave`, post({})),
   orgMembers: (orgID: string) => request<{ members: Member[] }>(`/api/orgs/${orgID}/members`),
   addOrgMember: (orgID: string, body: Record<string, unknown>) => request<void>(`/api/orgs/${orgID}/members`, post(body)),
