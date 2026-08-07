@@ -155,6 +155,20 @@ func TestMCPToolsControlBastionObjects(t *testing.T) {
 	if inviteCode == "" {
 		t.Fatalf("missing invite code in %#v", invite.StructuredContent)
 	}
+	adminInvite, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "org_invite_create",
+		Arguments: map[string]any{
+			"user_id":         userID,
+			"organization_id": orgID,
+			"role":            store.RoleAdmin,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adminInvite == nil || !adminInvite.IsError {
+		t.Fatalf("admin invite should return MCP error, got %#v", adminInvite)
+	}
 	joined, err := session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "org_join",
 		Arguments: map[string]any{
