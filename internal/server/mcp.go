@@ -344,11 +344,15 @@ func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 					return nil, apiInviteResponse{}, errors.New("organization owner required for admin invites")
 				}
 			}
+			expiresAt, err := parseInviteExpiry(in.ExpiresAt, time.Now().UTC())
+			if err != nil {
+				return nil, apiInviteResponse{}, err
+			}
 			if _, err := a.store.Repository().CreateOrganizationInvite(ctx, store.CreateOrganizationInviteParams{
 				OrganizationID: in.OrganizationID,
 				CodeHash:       hash,
 				Role:           role,
-				ExpiresAt:      time.Now().UTC().Add(7 * 24 * time.Hour),
+				ExpiresAt:      expiresAt,
 				CreatedBy:      actor.ID,
 			}); err != nil {
 				return nil, apiInviteResponse{}, err
@@ -824,6 +828,7 @@ type mcpOrgInviteInput struct {
 	UserID         string `json:"user_id,omitempty"`
 	OrganizationID string `json:"organization_id"`
 	Role           string `json:"role,omitempty"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
 }
 
 type mcpJoinInput struct {

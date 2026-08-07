@@ -68,7 +68,8 @@ func (a *App) handleCreateOrganizationInvite(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var req struct {
-		Role string `json:"role"`
+		Role      string `json:"role"`
+		ExpiresAt string `json:"expires_at"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -88,6 +89,11 @@ func (a *App) handleCreateOrganizationInvite(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
+	expiresAt, err := parseInviteExpiry(req.ExpiresAt, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	code, hash, err := randomCode()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -97,7 +103,7 @@ func (a *App) handleCreateOrganizationInvite(w http.ResponseWriter, r *http.Requ
 		OrganizationID: orgID,
 		CodeHash:       hash,
 		Role:           role,
-		ExpiresAt:      time.Now().UTC().Add(7 * 24 * time.Hour),
+		ExpiresAt:      expiresAt,
 		CreatedBy:      user.ID,
 	}); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -127,7 +133,7 @@ func (a *App) joinOrganizationWithCode(ctx context.Context, userID, code string)
 	if err != nil {
 		return store.Organization{}, err
 	}
-	if invite.ConsumedAt != nil || time.Now().UTC().After(invite.ExpiresAt) {
+	if invite.ConsumedAt != nil || (!invite.ExpiresAt.IsZero() && time.Now().UTC().After(invite.ExpiresAt)) {
 		return store.Organization{}, errors.New("invite expired")
 	}
 	if invite.Role != store.RoleMember && invite.Role != store.RoleAdmin {
@@ -142,6 +148,17 @@ func (a *App) joinOrganizationWithCode(ctx context.Context, userID, code string)
 		return store.Organization{}, err
 	}
 	return org, nil
+}
+
+func parseInviteExpiry(raw string, now time.Time) (time.Time, error) {
+	if strings.TrimSpace(raw) == "" {
+		return time.Time{}, nil
+	}
+	expiresAt, err := time.Parse(time.RFC3339, raw)
+	if err != nil || !expiresAt.After(now) {
+		return time.Time{}, errors.New("expires_at must be a future RFC3339 time")
+	}
+	return expiresAt.UTC(), nil
 }
 
 func (a *App) handleLeaveOrganization(w http.ResponseWriter, r *http.Request, user store.User) {

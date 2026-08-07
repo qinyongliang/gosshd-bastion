@@ -510,9 +510,9 @@ func TestAPIOrganizationMemberManagementForbiddenForMember(t *testing.T) {
 }
 
 func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
-	srv, alice, _ := newAPITestServer(t)
+	srv, alice, app := newAPITestServer(t)
 	defer srv.Close()
-	registerForAPI(t, alice, srv.URL, "alice@example.com")
+	aliceUser := registerForAPI(t, alice, srv.URL, "alice@example.com")
 
 	var aliceMe apiMeResponse
 	getJSON(t, alice, srv.URL+"/api/me", http.StatusOK, &aliceMe)
@@ -539,9 +539,50 @@ func TestAPIOrganizationCreateInviteJoin(t *testing.T) {
 	if invite.Code == "" {
 		t.Fatalf("missing invite code")
 	}
+	storedInvite, err := app.store.Repository().GetOrganizationInviteByCodeHash(context.Background(), codeHash(invite.Code))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !storedInvite.ExpiresAt.IsZero() {
+		t.Fatalf("default invite should not expire: %+v", storedInvite.ExpiresAt)
+	}
+
+	futureExpiry := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	var expiringInvite apiInviteResponse
+	postJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/invites", map[string]string{
+		"role":       "member",
+		"expires_at": futureExpiry.Format(time.RFC3339),
+	}, http.StatusCreated, &expiringInvite)
+	storedExpiringInvite, err := app.store.Repository().GetOrganizationInviteByCodeHash(context.Background(), codeHash(expiringInvite.Code))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !storedExpiringInvite.ExpiresAt.Equal(futureExpiry) {
+		t.Fatalf("invite expiry mismatch: got %s want %s", storedExpiringInvite.ExpiresAt, futureExpiry)
+	}
+	postJSON(t, alice, srv.URL+"/api/orgs/"+org.Organization.ID+"/invites", map[string]string{
+		"role":       "member",
+		"expires_at": time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
+	}, http.StatusBadRequest, nil)
 
 	bob := apiClient(t)
 	registerForAPI(t, bob, srv.URL, "bob@example.com")
+	expiredCode, expiredHash, err := randomCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.store.Repository().CreateOrganizationInvite(context.Background(), store.CreateOrganizationInviteParams{
+		OrganizationID: org.Organization.ID,
+		CodeHash:       expiredHash,
+		Role:           store.RoleMember,
+		ExpiresAt:      time.Now().UTC().Add(-time.Minute),
+		CreatedBy:      aliceUser.User.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	postJSON(t, bob, srv.URL+"/api/orgs/join", map[string]string{
+		"code": expiredCode,
+	}, http.StatusBadRequest, nil)
 	var joined apiOrganizationResponse
 	postJSON(t, bob, srv.URL+"/api/orgs/join", map[string]string{
 		"code": invite.Code,
