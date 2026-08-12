@@ -154,14 +154,16 @@ func (a *App) ensureWinPTYZip() (string, error) {
 	} else {
 		log.Printf("direct winpty download failed or slow from %s: %v", winPTYURL, err)
 	}
-	proxyURL := a.proxyReleaseURL(winPTYURL)
-	if proxyURL == winPTYURL {
-		return "", fmt.Errorf("direct winpty download failed and no proxy URL configured")
+	var lastErr error
+	for _, proxyURL := range a.proxyReleaseURLs(winPTYURL) {
+		if err := downloadAgentFile(proxyURL, cachePath, false, winPTYZipSHA); err == nil {
+			return cachePath, nil
+		} else {
+			lastErr = err
+			log.Printf("proxy winpty download failed from %s: %v", proxyURL, err)
+		}
 	}
-	if err := downloadAgentFile(proxyURL, cachePath, false, winPTYZipSHA); err != nil {
-		return "", err
-	}
-	return cachePath, nil
+	return "", fmt.Errorf("all winpty download proxies failed: %w", lastErr)
 }
 
 func (a *App) ensureAgentBinary(goos, goarch, name string) (string, error) {
@@ -200,19 +202,20 @@ func (a *App) ensureAgentBinary(goos, goarch, name string) (string, error) {
 		log.Printf("direct agent download failed or slow from %s: %v", directURL, err)
 	}
 
-	proxyURL := a.proxyReleaseURL(directURL)
-	if proxyURL == directURL {
-		return "", fmt.Errorf("direct download failed and no proxy URL configured")
+	var lastErr error
+	for _, proxyURL := range a.proxyReleaseURLs(directURL) {
+		if err := downloadAgentFile(proxyURL, cachePath, false, expectedSHA256); err == nil {
+			return cachePath, nil
+		} else {
+			lastErr = err
+			log.Printf("proxy agent download failed from %s: %v", proxyURL, err)
+		}
 	}
-	if err := downloadAgentFile(proxyURL, cachePath, false, expectedSHA256); err != nil {
-		return "", err
-	}
-	return cachePath, nil
+	return "", fmt.Errorf("all agent download proxies failed: %w", lastErr)
 }
 
 func (a *App) fetchReleaseChecksumWithProxy(checksumURL, assetName string) (string, error) {
-	proxyChecksumURL := a.proxyReleaseURL(checksumURL)
-	if proxyChecksumURL != checksumURL {
+	for _, proxyChecksumURL := range a.proxyReleaseURLs(checksumURL) {
 		if checksum, err := fetchReleaseChecksum(proxyChecksumURL, assetName); err == nil {
 			return checksum, nil
 		} else {
@@ -266,12 +269,13 @@ func (a *App) releaseChecksumsURL() string {
 	return fmt.Sprintf("%s/%s/checksums.txt", base, url.PathEscape(a.cfg.version()))
 }
 
-func (a *App) proxyReleaseURL(rawURL string) string {
-	proxy := a.cfg.releaseProxyURL()
-	if proxy == "" {
-		return rawURL
+func (a *App) proxyReleaseURLs(rawURL string) []string {
+	proxies := a.cfg.releaseProxyURLs()
+	urls := make([]string, 0, len(proxies))
+	for _, proxy := range proxies {
+		urls = append(urls, proxy+"/"+rawURL)
 	}
-	return strings.TrimRight(proxy, "/") + "/" + rawURL
+	return urls
 }
 
 func downloadAgentFile(rawURL, cachePath string, enforceSpeed bool, expectedSHA256 string) error {
