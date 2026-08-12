@@ -19,7 +19,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X 
 
 FROM alpine:3.22
 
-RUN apk add --no-cache libcap \
+RUN apk add --no-cache ca-certificates libcap \
 	&& adduser -D -H -s /sbin/nologin gosshd
 WORKDIR /app
 COPY --from=builder /out/gosshd-server /usr/local/bin/gosshd-server
