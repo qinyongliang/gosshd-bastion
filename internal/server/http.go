@@ -457,7 +457,8 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	enrollment, err := a.store.Repository().GetAgentEnrollmentByTokenHash(r.Context(), codeHash(hello.EnrollmentToken))
-	if err != nil || time.Now().UTC().After(enrollment.ExpiresAt) {
+	if err != nil || (time.Now().UTC().After(enrollment.ExpiresAt) && !a.canReconnectExpiredAgent(r.Context(), enrollment, hello)) {
+		log.Printf("agent enrollment rejected: runtime=%s assigned=%s reason=invalid_or_expired_token", hello.ID, strings.TrimSpace(hello.AssignedAgentID))
 		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: false, Error: "invalid enrollment token"})
 		_ = conn.Close()
 		return
@@ -510,6 +511,15 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		a.registry.Unregister(registryID, session)
 		log.Printf("agent offline: %s", registryID)
 	}()
+}
+
+func (a *App) canReconnectExpiredAgent(ctx context.Context, enrollment store.AgentEnrollment, hello protocol.AgentHello) bool {
+	agent, err := a.store.Repository().GetAgent(ctx, strings.TrimSpace(hello.AssignedAgentID))
+	if err != nil || agent.EnrollmentID != enrollment.ID || agent.OwnerType != enrollment.OwnerType || agent.OwnerID != enrollment.OwnerID {
+		return false
+	}
+	_, err = a.registry.Get(agent.ID)
+	return errors.Is(err, ErrAgentOffline)
 }
 
 func (a *App) enrollAgentConnection(ctx context.Context, enrollment store.AgentEnrollment, hello protocol.AgentHello) (store.Agent, store.SSHTarget, error) {

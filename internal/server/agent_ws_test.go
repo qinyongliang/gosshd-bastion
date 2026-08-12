@@ -489,6 +489,65 @@ func TestAgentWSRejectsInvalidEnrollmentToken(t *testing.T) {
 	}
 }
 
+func TestAgentWSExpiredEnrollmentOnlyAllowsExistingAgentReconnect(t *testing.T) {
+	ctx := context.Background()
+	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	token, enrollment := createAgentEnrollmentWithExpiryForTest(t, ctx, app, "expired-agent", time.Now().Add(-time.Hour))
+	agent, err := app.store.Repository().UpsertAgent(ctx, store.UpsertAgentParams{
+		OwnerType:        enrollment.OwnerType,
+		OwnerID:          enrollment.OwnerID,
+		EnrollmentID:     enrollment.ID,
+		Label:            enrollment.Label,
+		CurrentRuntimeID: "11111111-1111-4111-8111-111111111111",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.ensureAgentTarget(ctx, enrollment, agent, false); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	app.routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	newAgent := dialAgentWS(t, srv.URL)
+	defer newAgent.Close()
+	resp := writeAgentHelloForTest(t, newAgent, token, protocol.AgentHello{ID: "22222222-2222-4222-8222-222222222222"})
+	if resp.OK || resp.Error != "invalid enrollment token" {
+		t.Fatalf("expired enrollment should reject first registration: %+v", resp)
+	}
+	unknownAssignment := dialAgentWS(t, srv.URL)
+	defer unknownAssignment.Close()
+	resp = writeAgentHelloForTest(t, unknownAssignment, token, protocol.AgentHello{
+		ID:              "22222222-2222-4222-8222-222222222222",
+		AssignedAgentID: "99999999-9999-4999-8999-999999999999",
+	})
+	if resp.OK || resp.Error != "invalid enrollment token" {
+		t.Fatalf("expired enrollment should reject an unknown assignment: %+v", resp)
+	}
+
+	reconnectingAgent := dialAgentWS(t, srv.URL)
+	defer reconnectingAgent.Close()
+	resp = writeAgentHelloForTest(t, reconnectingAgent, token, protocol.AgentHello{
+		ID:              "33333333-3333-4333-8333-333333333333",
+		AssignedAgentID: agent.ID,
+	})
+	if !resp.OK || resp.AssignedAgentID != agent.ID {
+		t.Fatalf("expired enrollment should allow its existing agent to reconnect: %+v", resp)
+	}
+
+	onlineClone := dialAgentWS(t, srv.URL)
+	defer onlineClone.Close()
+	resp = writeAgentHelloForTest(t, onlineClone, token, protocol.AgentHello{
+		ID:              "44444444-4444-4444-8444-444444444444",
+		AssignedAgentID: agent.ID,
+	})
+	if resp.OK || resp.Error != "invalid enrollment token" {
+		t.Fatalf("expired enrollment should not clone an online assignment: %+v", resp)
+	}
+}
+
 func dialAgentWS(t *testing.T, serverURL string) *relay.WSConn {
 	t.Helper()
 	wsURL := "ws" + strings.TrimPrefix(serverURL, "http") + protocol.WebSocketPath
@@ -569,6 +628,12 @@ func waitForAssignedAgentIDChange(t *testing.T, path, previous string) protocol.
 
 func createAgentEnrollmentForTest(t *testing.T, ctx context.Context, app *App, label string) string {
 	t.Helper()
+	token, _ := createAgentEnrollmentWithExpiryForTest(t, ctx, app, label, time.Now().Add(time.Hour))
+	return token
+}
+
+func createAgentEnrollmentWithExpiryForTest(t *testing.T, ctx context.Context, app *App, label string, expiresAt time.Time) (string, store.AgentEnrollment) {
+	t.Helper()
 	if err := app.ensureServices(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +651,7 @@ func createAgentEnrollmentForTest(t *testing.T, ctx context.Context, app *App, l
 		t.Fatal(err)
 	}
 	token := label + "-token"
-	if _, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
+	enrollment, err := app.store.Repository().CreateAgentEnrollment(ctx, store.CreateAgentEnrollmentParams{
 		OwnerType:   store.OwnerOrganization,
 		OwnerID:     org.ID,
 		TokenHash:   codeHash(token),
@@ -594,9 +659,10 @@ func createAgentEnrollmentForTest(t *testing.T, ctx context.Context, app *App, l
 		DefaultHost: "127.0.0.1",
 		DefaultPort: 22,
 		CreatedBy:   user.ID,
-		ExpiresAt:   time.Now().Add(time.Hour),
-	}); err != nil {
+		ExpiresAt:   expiresAt,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	return token
+	return token, enrollment
 }
