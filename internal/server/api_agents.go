@@ -11,12 +11,16 @@ import (
 )
 
 type apiAgentEnrollmentResponse struct {
-	ID         string `json:"id"`
-	Token      string `json:"token"`
-	InstallSH  string `json:"install_sh"`
-	InstallPS1 string `json:"install_ps1"`
-	ServiceSH  string `json:"service_sh"`
-	ServicePS1 string `json:"service_ps1"`
+	ID          string `json:"id"`
+	Token       string `json:"token"`
+	InstallSH   string `json:"install_sh"`
+	InstallPS1  string `json:"install_ps1"`
+	InstallPwsh string `json:"install_pwsh"`
+	InstallCMD  string `json:"install_cmd"`
+	ServiceSH   string `json:"service_sh"`
+	ServicePS1  string `json:"service_ps1"`
+	ServicePwsh string `json:"service_pwsh"`
+	ServiceCMD  string `json:"service_cmd"`
 }
 
 const (
@@ -77,13 +81,18 @@ func agentEnrollmentDefaults(host string, port int) (string, int) {
 }
 
 func agentEnrollmentResponse(id, token, base string) apiAgentEnrollmentResponse {
+	scriptURL := fmt.Sprintf("%s/install/%s.ps1", base, token)
 	return apiAgentEnrollmentResponse{
-		ID:         id,
-		Token:      token,
-		InstallSH:  fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sh \"$tmp\"", base, token),
-		InstallPS1: fmt.Sprintf("$s='%s/install/%s.ps1'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; irm $s -OutFile $tmp; powershell -ExecutionPolicy Bypass -File $tmp", base, token),
-		ServiceSH:  fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sudo sh \"$tmp\" install", base, token),
-		ServicePS1: fmt.Sprintf("$s='%s/install/%s.ps1'; irm $s -OutFile $env:TEMP\\gosshd-agent-install.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\\gosshd-agent-install.ps1 -Install", base, token),
+		ID:          id,
+		Token:       token,
+		InstallSH:   fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sh \"$tmp\"", base, token),
+		InstallPS1:  fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri $s -OutFile $tmp; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp", scriptURL),
+		InstallPwsh: fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -Uri $s -OutFile $tmp; pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $tmp", scriptURL),
+		InstallCMD:  fmt.Sprintf("powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"$p=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri '%s' -OutFile $p; & $p\"", scriptURL),
+		ServiceSH:   fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sudo sh \"$tmp\" install", base, token),
+		ServicePS1:  fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri $s -OutFile $tmp; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp -Install", scriptURL),
+		ServicePwsh: fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -Uri $s -OutFile $tmp; pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $tmp -Install", scriptURL),
+		ServiceCMD:  fmt.Sprintf("powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"$p=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri '%s' -OutFile $p; & $p -Install\"", scriptURL),
 	}
 }
 

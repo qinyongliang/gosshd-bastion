@@ -11,6 +11,27 @@ import (
 	"testing"
 )
 
+func TestReleaseProxyURLsKeepConfiguredFirstAndDeduplicate(t *testing.T) {
+	app := NewApp(Config{ReleaseProxyURL: " https://custom.example/, https://ghfast.top/ "})
+	got := app.proxyReleaseURLs("https://github.com/owner/repo/file")
+	want := []string{
+		"https://custom.example/https://github.com/owner/repo/file",
+		"https://ghfast.top/https://github.com/owner/repo/file",
+		"https://fastgit.cc/https://github.com/owner/repo/file",
+		"https://gh.dpik.top/https://github.com/owner/repo/file",
+		"https://github.tbap.top/https://github.com/owner/repo/file",
+		"https://cdn.gh-proxy.com/https://github.com/owner/repo/file",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("proxy URL count mismatch: got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("proxy URL %d mismatch: got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestAgentReleaseURLUsesRawAgentAsset(t *testing.T) {
 	app := NewApp(Config{Version: "v1.2.3"})
 	got := app.agentReleaseURL("linux", "amd64", "gosshd-agent")

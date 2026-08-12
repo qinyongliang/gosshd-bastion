@@ -696,8 +696,13 @@ function InstallDrawer({ enrollment, onClose }: { enrollment: Enrollment; onClos
       </section>
       <section className="section-block embedded">
         <h3>Windows</h3>
+        <p className="muted">{t("serviceWindowsSupport")}</p>
+        <CommandBox label={t("serviceWindowsCMDRunOnce")} value={enrollment.install_cmd || ""} />
+        <CommandBox label={t("serviceWindowsCMDService")} value={enrollment.service_cmd || ""} />
         <CommandBox label={t("serviceWindowsRunOnce")} value={enrollment.install_ps1 || ""} />
         <CommandBox label={t("serviceWindowsService")} value={enrollment.service_ps1 || ""} />
+        <CommandBox label={t("serviceWindowsPwshRunOnce")} value={enrollment.install_pwsh || ""} />
+        <CommandBox label={t("serviceWindowsPwshService")} value={enrollment.service_pwsh || ""} />
       </section>
     </div>
   </Drawer>;

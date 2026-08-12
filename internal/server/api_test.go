@@ -1299,7 +1299,7 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 		"default_host": "127.0.0.1",
 		"default_port": 22,
 	}, http.StatusCreated, &enrollment)
-	if enrollment.Token == "" || enrollment.InstallSH == "" || enrollment.InstallPS1 == "" || enrollment.ServiceSH == "" || enrollment.ServicePS1 == "" {
+	if enrollment.Token == "" || enrollment.InstallSH == "" || enrollment.InstallPS1 == "" || enrollment.InstallPwsh == "" || enrollment.InstallCMD == "" || enrollment.ServiceSH == "" || enrollment.ServicePS1 == "" || enrollment.ServicePwsh == "" || enrollment.ServiceCMD == "" {
 		t.Fatalf("enrollment response missing install data: %+v", enrollment)
 	}
 	if !strings.Contains(enrollment.ServiceSH, "sudo sh") || !strings.Contains(enrollment.ServiceSH, " install") {
@@ -1307,6 +1307,12 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	}
 	if !strings.Contains(enrollment.ServicePS1, "-Install") {
 		t.Fatalf("powershell service command missing install flag: %s", enrollment.ServicePS1)
+	}
+	if !strings.HasPrefix(enrollment.ServiceCMD, "powershell.exe ") || !strings.Contains(enrollment.ServiceCMD, `-Command "`) || !strings.Contains(enrollment.ServiceCMD, "-Install") {
+		t.Fatalf("cmd service command should invoke PowerShell with install mode: %s", enrollment.ServiceCMD)
+	}
+	if !strings.Contains(enrollment.ServicePwsh, "pwsh.exe ") || !strings.Contains(enrollment.ServicePwsh, "-Install") {
+		t.Fatalf("pwsh service command missing pwsh or install mode: %s", enrollment.ServicePwsh)
 	}
 
 	resp, err := client.Get(srv.URL + "/install/" + enrollment.Token + ".sh")

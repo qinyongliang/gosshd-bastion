@@ -184,8 +184,12 @@ export type Enrollment = {
   token?: string;
   install_sh?: string;
   install_ps1?: string;
+  install_pwsh?: string;
+  install_cmd?: string;
   service_sh?: string;
   service_ps1?: string;
+  service_pwsh?: string;
+  service_cmd?: string;
 };
 
 function post(body: Record<string, unknown>): RequestInit {
