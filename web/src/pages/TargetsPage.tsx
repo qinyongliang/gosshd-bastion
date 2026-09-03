@@ -22,6 +22,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   const [modal, setModal] = useState(false);
   const [credentialModal, setCredentialModal] = useState(false);
   const [folderModal, setFolderModal] = useState<{ parent_id?: string } | null>(null);
+  const [folderMoveModal, setFolderMoveModal] = useState<TargetFolder | null>(null);
   const [settingsModal, setSettingsModal] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -179,6 +180,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
               return next;
             })}
             onNewFolder={(parentID) => setFolderModal({ parent_id: parentID })}
+            onMove={(folder) => setFolderMoveModal(folder)}
             onOpen={openConnectWindow}
             onEdit={(id) => setDrawerTargetID(id)}
             onDelete={deleteTarget}
@@ -193,6 +195,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
       {modal && <TargetCreateModal data={data} onClose={() => setModal(false)} onEnrollment={(out) => { setModal(false); setEnrollment(out); }} />}
       {credentialModal && <CredentialManagerModal data={data} onClose={() => setCredentialModal(false)} />}
       {folderModal && <FolderModal data={data} parentID={folderModal.parent_id || ""} onClose={() => setFolderModal(null)} />}
+      {folderMoveModal && <FolderMoveModal data={data} folder={folderMoveModal} onClose={() => setFolderMoveModal(null)} />}
       {settingsModal && <ConnectOpenSettingsModal data={data} onClose={() => setSettingsModal(false)} />}
       {moveModal && <TargetMoveCopyModal data={data} targetIDs={selectedTargetIDs} action={moveModal} onClose={() => setMoveModal(null)} />}
       {commandModal && <BatchCommandModal data={data} onClose={() => setCommandModal(false)} onSubmit={runBatchCommand} />}
@@ -209,6 +212,7 @@ function TargetTree({
   collapsed,
   onToggle,
   onNewFolder,
+  onMove,
   onOpen,
   onEdit,
   onDelete,
@@ -223,6 +227,7 @@ function TargetTree({
   collapsed: Set<string>;
   onToggle: (id: string) => void;
   onNewFolder: (parentID: string) => void;
+  onMove: (folder: TargetFolder) => void;
   onOpen: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (target: Target) => void;
@@ -235,7 +240,7 @@ function TargetTree({
   const roots = data.targetFolders.filter((folder) => !folder.parent_id);
   const rootTargets = targets.filter((target) => !target.folder_id);
   return <div className="target-tree">
-    {roots.map((folder) => <FolderNode key={folder.id} data={data} folder={folder} targets={targets} collapsed={collapsed} onToggle={onToggle} onNewFolder={onNewFolder} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} selecting={selecting} selected={selected} onSelect={onSelect} onSelectMany={onSelectMany} />)}
+    {roots.map((folder) => <FolderNode key={folder.id} data={data} folder={folder} targets={targets} collapsed={collapsed} onToggle={onToggle} onNewFolder={onNewFolder} onMove={onMove} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} selecting={selecting} selected={selected} onSelect={onSelect} onSelectMany={onSelectMany} />)}
     {rootTargets.map((target) => <TargetTreeRow key={target.id} data={data} target={target} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} selecting={selecting} selected={selected.has(target.id)} onSelect={() => onSelect(target.id)} />)}
   </div>;
 }
@@ -247,6 +252,7 @@ function FolderNode(props: {
   collapsed: Set<string>;
   onToggle: (id: string) => void;
   onNewFolder: (parentID: string) => void;
+  onMove: (folder: TargetFolder) => void;
   onOpen: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (target: Target) => void;
@@ -278,6 +284,7 @@ function FolderNode(props: {
           if (name && name.trim() && name.trim() !== props.folder.name) rename.mutate(name.trim());
         }} disabled={rename.isPending}><Edit3 />{t("commonEdit")}</button>
         <button type="button" onClick={() => props.onNewFolder(props.folder.id)}><FolderPlus />{t("serviceNewFolder")}</button>
+        <button type="button" onClick={() => props.onMove(props.folder)}><Move />{t("serviceMoveFolder")}</button>
         <button type="button" className="danger" onClick={() => { if (window.confirm(t("serviceDeleteFolderConfirm"))) remove.mutate(props.folder.id); }} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
       </span>
     </div>
@@ -354,6 +361,34 @@ function FolderModal({ data, parentID, onClose }: { data: ConsoleData; parentID:
     </form>
   </Modal>;
 }
+
+function FolderMoveModal({ data, folder, onClose }: { data: ConsoleData; folder: TargetFolder; onClose: () => void }) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const [parentID, setParentID] = useState(folder.parent_id || "");
+  const blockedIDs = folderIDsInSubtree(folder.id, data.targetFolders);
+  const movableFolders = data.targetFolders.filter((item) => !blockedIDs.has(item.id));
+  const move = useMutation({
+    mutationFn: () => api.updateTargetFolder(folder.id, { parent_id: parentID }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["target-folders"] });
+      onClose();
+    },
+    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+  });
+  return <Modal title={t("serviceMoveFolder")} onClose={onClose}>
+    <form className="stack" onSubmit={(event) => { event.preventDefault(); move.mutate(); }}>
+      <div className="folder-picker-tree">
+        <button type="button" className={!parentID ? "active" : ""} onClick={() => setParentID("")}><Folder />{t("serviceFolderRoot")}</button>
+        {movableFolders.filter((item) => !item.parent_id).map((item) => (
+          <FolderPickNode key={item.id} folder={item} folders={movableFolders} selectedID={parentID} onSelect={setParentID} depth={0} />
+        ))}
+      </div>
+      <ModalActions onCancel={onClose} submit={move.isPending ? t("loading") : t("save")} />
+    </form>
+  </Modal>;
+}
+
 
 function ConnectOpenSettingsModal({ data, onClose }: { data: ConsoleData; onClose: () => void }) {
   const { t } = useI18n();
@@ -735,18 +770,23 @@ function selectedTargets(selected: Set<string>, data: ConsoleData) {
 }
 
 function targetIDsInFolder(folderID: string, data: ConsoleData) {
+  const folderIDs = folderIDsInSubtree(folderID, data.targetFolders);
+  return data.targets.filter((target) => target.folder_id && folderIDs.has(target.folder_id)).map((target) => target.id);
+}
+
+function folderIDsInSubtree(folderID: string, folders: TargetFolder[]) {
   const folderIDs = new Set<string>([folderID]);
   let changed = true;
   while (changed) {
     changed = false;
-    for (const folder of data.targetFolders) {
+    for (const folder of folders) {
       if (folder.parent_id && folderIDs.has(folder.parent_id) && !folderIDs.has(folder.id)) {
         folderIDs.add(folder.id);
         changed = true;
       }
     }
   }
-  return data.targets.filter((target) => target.folder_id && folderIDs.has(target.folder_id)).map((target) => target.id);
+  return folderIDs;
 }
 
 function openInExistingConnectWindow(path: string, targetID: string) {

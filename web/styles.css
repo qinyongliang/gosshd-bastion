@@ -7970,6 +7970,137 @@ html[data-theme="dark"] .manual-review-card {
   padding: 0 8px;
 }
 
+.file-upload-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 140;
+  display: grid;
+  gap: 10px;
+  width: min(420px, calc(100vw - 48px));
+  padding: 12px;
+  border: 1px solid color-mix(in oklch, var(--accent) 42%, var(--line));
+  border-radius: 8px;
+  color: var(--ink);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.88)), var(--panel);
+  box-shadow: 0 18px 54px rgba(8, 17, 30, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(18px);
+  animation: page-toast-in 180ms ease-out;
+}
+
+.file-upload-toast.success {
+  border-color: color-mix(in oklch, var(--accent-2) 46%, var(--line));
+}
+
+.file-upload-toast.cancelled,
+.file-upload-toast.error {
+  border-color: color-mix(in oklch, var(--warning) 46%, var(--line));
+}
+
+.file-upload-toast.error {
+  border-color: color-mix(in oklch, var(--danger) 46%, var(--line));
+}
+
+.file-upload-toast-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-upload-toast-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.file-upload-toast.success .file-upload-toast-icon {
+  color: var(--accent-2);
+}
+
+.file-upload-toast.cancelled .file-upload-toast-icon {
+  color: var(--warning);
+}
+
+.file-upload-toast.error .file-upload-toast-icon {
+  color: var(--danger);
+}
+
+.file-upload-toast-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.file-upload-toast-title {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.file-upload-toast-title strong,
+.file-upload-toast-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-upload-toast-title strong {
+  font-size: 13px;
+}
+
+.file-upload-toast-title span,
+.file-upload-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.file-upload-progress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--line) 72%, transparent);
+}
+
+.file-upload-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 120ms ease-out;
+}
+
+.file-upload-toast.success .file-upload-progress span {
+  background: var(--accent-2);
+}
+
+.file-upload-toast.cancelled .file-upload-progress span,
+.file-upload-toast.error .file-upload-progress span {
+  background: var(--warning);
+}
+
+.file-upload-toast.error .file-upload-progress span {
+  background: var(--danger);
+}
+
+.file-upload-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.file-upload-meta strong {
+  max-width: 62%;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme="dark"] .file-upload-toast {
+  background: linear-gradient(180deg, rgba(8, 17, 30, 0.96), rgba(5, 11, 20, 0.90)), var(--panel);
+}
+
 .manual-review-more {
   min-height: 32px;
   padding: 0 10px;
@@ -8127,6 +8258,13 @@ html[data-theme="dark"] .manual-review-actions button.danger {
 }
 
 @media (max-width: 640px) {
+  .file-upload-toast {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
+  }
+
   .manual-review-toasts {
     right: 12px;
     bottom: 12px;

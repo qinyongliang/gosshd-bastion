@@ -1364,7 +1364,7 @@ func (a *App) handleTargetFileTransfer(w http.ResponseWriter, r *http.Request, u
 	}
 	defer closeClient()
 	if action == "move" {
-		err = client.Rename(source, destination)
+		err = sftpMovePath(client, source, destination)
 	} else {
 		err = sftpCopyPath(client, source, destination)
 	}
@@ -1480,6 +1480,38 @@ func sftpCopyPath(client *sftp.Client, source, destination string) error {
 		return copyErr
 	}
 	return closeErr
+}
+
+func sftpMovePath(client *sftp.Client, source, destination string) error {
+	info, err := client.Stat(source)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return client.Rename(source, destination)
+	}
+	if remotePathWithin(source, destination) {
+		return fmt.Errorf("cannot move a directory into itself")
+	}
+	if err := client.Rename(source, destination); err == nil {
+		return nil
+	}
+	if _, statErr := client.Stat(destination); statErr == nil {
+		return err
+	} else if !os.IsNotExist(statErr) {
+		return statErr
+	}
+	if err := sftpCopyPath(client, source, destination); err != nil {
+		_ = sftpRemoveAll(client, destination)
+		return err
+	}
+	return sftpRemoveAll(client, source)
+}
+
+func remotePathWithin(parent, child string) bool {
+	parent = pathpkg.Clean(strings.ReplaceAll(parent, "\\", "/"))
+	child = pathpkg.Clean(strings.ReplaceAll(child, "\\", "/"))
+	return child == parent || strings.HasPrefix(child, parent+"/")
 }
 
 func sortFileEntries(entries []apiTargetFileEntry, sortKey, order string) {

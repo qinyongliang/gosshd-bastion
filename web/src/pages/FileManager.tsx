@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronRight, Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -13,6 +13,7 @@ type FileSortKey = "name" | "size" | "mode" | "modified";
 type SortOrder = "asc" | "desc";
 type BreadcrumbItem = { key: string; label: string; kind: "drives" | "dirs"; menuPath: string };
 type BreadcrumbMenuState = { kind: "drives" | "dirs"; path: string; left: number; top: number; width: number };
+type UploadTask = { fileName: string; loaded: number; total: number; speed: number; queueIndex: number; queueTotal: number; completed: number; failed: number; status: "uploading" | "success" | "cancelled" | "error" };
 
 export function FileManager({ target, path, onPathChange: setPath, system, nativeOpen = false, onEditFile }: { target: Target; path: string; onPathChange: (path: string) => void; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
   const { t } = useI18n();
@@ -20,6 +21,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const [pathDraft, setPathDraft] = useState(".");
   const [selected, setSelected] = useState<FileEntry | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadTask, setUploadTask] = useState<UploadTask | null>(null);
   const [mkdirModal, setMkdirModal] = useState(false);
   const [touchModal, setTouchModal] = useState(false);
   const [pathEditing, setPathEditing] = useState(false);
@@ -30,6 +32,10 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const [crumbMenu, setCrumbMenu] = useState<BreadcrumbMenuState | null>(null);
   const [crumbFilter, setCrumbFilter] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadControllerRef = useRef<AbortController | null>(null);
+  const uploadCancelledRef = useRef(false);
+  const uploadSpeedRef = useRef({ loaded: 0, timestamp: 0 });
+  const uploadDismissTimerRef = useRef<number | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
   const crumbAnchorRef = useRef<HTMLElement>(null);
@@ -46,6 +52,12 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     setCrumbMenu(null);
     setPathEditing(false);
   }, [target.id]);
+
+  useEffect(() => () => {
+    uploadCancelledRef.current = true;
+    uploadControllerRef.current?.abort();
+    if (uploadDismissTimerRef.current !== null) window.clearTimeout(uploadDismissTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (pathEditing) pathInputRef.current?.focus();
@@ -124,15 +136,6 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     enabled: crumbMenu?.kind === "dirs",
   });
 
-  const upload = useMutation({
-    mutationFn: (file: File) => api.uploadFile(target.id, path, file),
-    onMutate: () => setUploading(true),
-    onSettled: () => {
-      setUploading(false);
-      void queryClient.invalidateQueries({ queryKey: ["target-files", target.id, path] });
-    },
-  });
-
   const openNative = useMutation({
     mutationFn: (entry: FileEntry) => api.openFile(target.id, entry.path),
     onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
@@ -177,10 +180,82 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const canOpenParent = path !== "/" && !isWindowsDriveRoot(path);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    upload.mutate(file);
+    const files = Array.from(event.target.files || []);
     event.target.value = "";
+    if (files.length) void startUpload(files);
+  };
+
+  const dismissUploadTask = (delay: number) => {
+    if (uploadDismissTimerRef.current !== null) window.clearTimeout(uploadDismissTimerRef.current);
+    uploadDismissTimerRef.current = window.setTimeout(() => {
+      setUploadTask(null);
+      uploadDismissTimerRef.current = null;
+    }, delay);
+  };
+
+  const startUpload = async (files: File[]) => {
+    if (uploading || uploadControllerRef.current || !files.length) return;
+    uploadCancelledRef.current = false;
+    setUploading(true);
+    let completed = 0;
+    let failed = 0;
+    let currentFile = files[0];
+    let currentLoaded = 0;
+    let currentSpeed = 0;
+
+    for (let index = 0; index < files.length; index += 1) {
+      if (uploadCancelledRef.current) break;
+      const file = files[index];
+      currentFile = file;
+      currentLoaded = 0;
+      currentSpeed = 0;
+      const controller = new AbortController();
+      uploadControllerRef.current = controller;
+      uploadSpeedRef.current = { loaded: 0, timestamp: performance.now() };
+      setUploadTask({ fileName: file.name, loaded: 0, total: file.size, speed: 0, queueIndex: index, queueTotal: files.length, completed, failed, status: "uploading" });
+      try {
+        await api.uploadFile(target.id, path, file, (progress) => {
+          const now = performance.now();
+          const previous = uploadSpeedRef.current;
+          const elapsed = now - previous.timestamp;
+          currentLoaded = progress.loaded;
+          currentSpeed = elapsed > 0 ? Math.max(0, progress.loaded - previous.loaded) / (elapsed / 1000) : 0;
+          uploadSpeedRef.current = { loaded: progress.loaded, timestamp: now };
+          setUploadTask((current) => current ? { ...current, loaded: progress.loaded, total: progress.total || current.total, speed: currentSpeed } : current);
+        }, controller.signal);
+        completed += 1;
+      } catch (error) {
+        if (isAbortError(error) || uploadCancelledRef.current) {
+          setUploadTask((current) => current ? { ...current, status: "cancelled", completed, failed } : current);
+          break;
+        }
+        failed += 1;
+      } finally {
+        uploadControllerRef.current = null;
+      }
+    }
+
+    const cancelled = uploadCancelledRef.current;
+    const processed = completed + failed;
+    setUploading(false);
+    void queryClient.invalidateQueries({ queryKey: ["target-files", target.id, path] });
+    setUploadTask({
+      fileName: currentFile.name,
+      loaded: cancelled ? currentLoaded : currentFile.size,
+      total: currentFile.size,
+      speed: cancelled ? currentSpeed : 0,
+      queueIndex: Math.min(processed, files.length - 1),
+      queueTotal: files.length,
+      completed,
+      failed,
+      status: cancelled ? "cancelled" : failed ? "error" : "success",
+    });
+    dismissUploadTask(cancelled ? 1800 : failed ? 4200 : 2200);
+  };
+
+  const cancelUpload = () => {
+    uploadCancelledRef.current = true;
+    uploadControllerRef.current?.abort();
   };
 
   const activateEntry = (entry: FileEntry) => {
@@ -440,6 +515,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             className="file-upload-input"
             onChange={handleFileChange}
             disabled={uploading}
@@ -500,6 +576,29 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
           </tbody>
         </table>
       </div>
+      {uploadTask && (
+        <div className={`file-upload-toast ${uploadTask.status}`} role="status" aria-live="polite">
+          <div className="file-upload-toast-head">
+            <span className="file-upload-toast-icon">
+              {uploadTask.status === "success" ? <CheckCircle2 /> : uploadTask.status === "error" ? <AlertCircle /> : <Upload />}
+            </span>
+            <div className="file-upload-toast-title">
+              <strong title={uploadTask.fileName}>{uploadTask.fileName}</strong>
+              <span>
+                {uploadTask.status === "uploading" ? `${t("connectFileUploading")} ${uploadTask.queueIndex + 1}/${uploadTask.queueTotal}` : uploadTask.status === "success" ? t("connectFileUploadComplete") : uploadTask.status === "cancelled" ? t("connectFileUploadCancelled") : t("connectFileUploadFailed")}
+              </span>
+            </div>
+            {uploadTask.status === "uploading" && <button type="button" className="icon-button" onClick={cancelUpload} title={t("connectFileUploadCancel")} aria-label={t("connectFileUploadCancel")}><X /></button>}
+          </div>
+          <div className="file-upload-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadQueuePercent(uploadTask)}>
+            <span style={{ width: `${uploadQueuePercent(uploadTask)}%` }} />
+          </div>
+          <div className="file-upload-meta">
+            <span>{uploadQueuePercent(uploadTask)}% · {uploadPercent(uploadTask)}% {t("connectFileUploadCurrent")} · {uploadTask.completed + uploadTask.failed}/{uploadTask.queueTotal}</span>
+            <strong>{uploadTask.status === "uploading" ? `${formatTransferRate(uploadTask.speed)}/s` : uploadTask.status === "error" ? `${uploadTask.failed}/${uploadTask.queueTotal}` : ""}</strong>
+          </div>
+        </div>
+      )}
       {contextMenu && fileMenu(contextMenu.entry)}
       {mkdirModal && (
         <Modal title={t("connectFileNewFolder")} onClose={() => setMkdirModal(false)}>
@@ -790,6 +889,24 @@ function formatBytes(value: number) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
   return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function uploadPercent(task: UploadTask) {
+  return task.total > 0 ? Math.min(100, Math.round((task.loaded / task.total) * 100)) : 0;
+}
+
+function uploadQueuePercent(task: UploadTask) {
+  if (!task.queueTotal) return 0;
+  const current = task.total > 0 ? task.loaded / task.total : 0;
+  return Math.min(100, Math.round(((task.completed + task.failed + current) / task.queueTotal) * 100));
+}
+
+function formatTransferRate(value: number) {
+  return formatBytes(value);
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function formatDate(value?: string) {
