@@ -39,6 +39,8 @@ export class ApiError extends Error {
   }
 }
 
+export type UploadProgress = { loaded: number; total: number };
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", ...options });
   const text = await response.text();
@@ -172,11 +174,7 @@ export const api = {
   deleteFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/delete`, post({ path })),
   moveFile: (targetID: string, source: string, destination: string) => request<{ source: string; destination: string }>(`/api/targets/${targetID}/files/move`, post({ source, destination })),
   copyFile: (targetID: string, source: string, destination: string) => request<{ source: string; destination: string }>(`/api/targets/${targetID}/files/copy`, post({ source, destination })),
-  uploadFile: (targetID: string, path: string, file: File) => {
-    const body = new FormData();
-    body.append("file", file);
-    return request<{ path: string }>(`/api/targets/${targetID}/files/upload?${queryString({ path })}`, { method: "POST", body });
-  },
+  uploadFile: (targetID: string, path: string, file: File, onProgress?: (progress: UploadProgress) => void, signal?: AbortSignal) => uploadFile(targetID, path, file, onProgress, signal),
 };
 
 export type Enrollment = {
@@ -225,6 +223,43 @@ function terminalURL(path: string, cols: number, rows: number, sessionID = "") {
   const params = new URLSearchParams({ cols: String(cols), rows: String(rows) });
   if (sessionID) params.set("session_id", sessionID);
   return `${protocol}//${host}${path}?${params.toString()}`;
+}
+
+function uploadFile(targetID: string, path: string, file: File, onProgress?: (progress: UploadProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
+  return new Promise((resolve, reject) => {
+    const body = new FormData();
+    body.append("file", file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/targets/${targetID}/files/upload?${queryString({ path })}`);
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (event) => {
+      onProgress?.({ loaded: event.loaded, total: event.lengthComputable ? event.total : file.size });
+    };
+    xhr.onload = () => {
+      const text = xhr.responseText;
+      let data: { path?: string; error?: string } | null = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data as { path: string });
+      } else {
+        reject(new ApiError(data?.error || `${xhr.status} ${xhr.statusText}`, xhr.status));
+      }
+    };
+    xhr.onerror = () => reject(new ApiError("Network error", 0));
+    xhr.onabort = () => reject(new DOMException("The upload was aborted", "AbortError"));
+    if (signal) {
+      if (signal.aborted) {
+        xhr.abort();
+        return;
+      }
+      signal.addEventListener("abort", () => xhr.abort(), { once: true });
+    }
+    xhr.send(body);
+  });
 }
 
 export type ManualReviewChoice = {
