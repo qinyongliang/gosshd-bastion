@@ -1173,6 +1173,14 @@ func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.
 	}()
 
 	exitCode := 255
+	var oscBuffer string
+	filterShellOutput := func(data []byte) []byte {
+		if req.Type != protocol.StreamShell {
+			return data
+		}
+		clean, _ := consumeTerminalIntegrationText(&oscBuffer, string(data))
+		return []byte(filterLegacyWindowsCmdPromptEcho(clean))
+	}
 	for {
 		frame, err := protocol.ReadFrame(reader)
 		if err != nil {
@@ -1180,10 +1188,7 @@ func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.
 		}
 		switch frame.Type {
 		case protocol.FrameStdout:
-			data := frame.Data
-			if req.Type == protocol.StreamShell {
-				data = []byte(filterLegacyWindowsCmdPromptEcho(string(data)))
-			}
+			data := filterShellOutput(frame.Data)
 			if len(data) == 0 {
 				continue
 			}
@@ -1192,10 +1197,7 @@ func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.
 			}
 			_, _ = ch.Write(data)
 		case protocol.FrameStderr:
-			data := frame.Data
-			if req.Type == protocol.StreamShell {
-				data = []byte(filterLegacyWindowsCmdPromptEcho(string(data)))
-			}
+			data := filterShellOutput(frame.Data)
 			if len(data) == 0 {
 				continue
 			}

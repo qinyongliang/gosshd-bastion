@@ -69,6 +69,18 @@ func TestTerminalIntegrationParsesSplitOSCSequence(t *testing.T) {
 	}
 }
 
+func TestTerminalIntegrationTextFilterStripsSplitOSCSequence(t *testing.T) {
+	var buffer string
+	first, events := consumeTerminalIntegrationText(&buffer, "before\x1b]633;D;0")
+	second, moreEvents := consumeTerminalIntegrationText(&buffer, "\aafter")
+	if got := first + second; got != "beforeafter" {
+		t.Fatalf("filtered output = %q, want %q", got, "beforeafter")
+	}
+	if len(events) != 0 || len(moreEvents) != 1 || moreEvents[0].Kind != "D" || moreEvents[0].ExitCode != 0 {
+		t.Fatalf("events = %#v + %#v", events, moreEvents)
+	}
+}
+
 func TestTerminalIntegrationPromptEventClearsBusy(t *testing.T) {
 	session := &terminalSession{
 		screen:  newTerminalScreenBuffer(24),

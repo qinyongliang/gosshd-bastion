@@ -649,8 +649,12 @@ func isLegacyWindowsCmdPromptEchoLine(line string) bool {
 }
 
 func (s *terminalSession) consumeTerminalIntegration(text string) (string, []terminalIntegrationEvent) {
-	input := s.oscBuffer + text
-	s.oscBuffer = ""
+	return consumeTerminalIntegrationText(&s.oscBuffer, text)
+}
+
+func consumeTerminalIntegrationText(buffer *string, text string) (string, []terminalIntegrationEvent) {
+	input := *buffer + text
+	*buffer = ""
 	var clean strings.Builder
 	var events []terminalIntegrationEvent
 	for len(input) > 0 {
@@ -663,10 +667,10 @@ func (s *terminalSession) consumeTerminalIntegration(text string) (string, []ter
 		remaining := input[start:]
 		end, termLen := terminalOSCSequenceEnd(remaining)
 		if end < 0 {
-			s.oscBuffer = remaining
-			if len(s.oscBuffer) > 4096 {
-				clean.WriteString(s.oscBuffer)
-				s.oscBuffer = ""
+			*buffer = remaining
+			if len(*buffer) > 4096 {
+				clean.WriteString(*buffer)
+				*buffer = ""
 			}
 			break
 		}
