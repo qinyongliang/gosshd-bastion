@@ -72,7 +72,32 @@ export function NavButton({ to, label, icon, onClick }: { to: string; label: str
 }
 
 export function ActionMenu({ label, children }: { label: string; children: ReactNode }) {
-  return <details className="action-menu"><summary><MoreHorizontal />{label}</summary><div className="action-menu-popover">{children}</div></details>;
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const closeOnOutside = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    const closeOther = (event: Event) => { if ((event as CustomEvent<HTMLElement>).detail !== rootRef.current) setOpen(false); };
+    document.addEventListener("pointerdown", closeOnOutside, true);
+    document.addEventListener("keydown", closeOnEscape, true);
+    document.addEventListener("gosshd-action-menu-open", closeOther);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside, true);
+      document.removeEventListener("keydown", closeOnEscape, true);
+      document.removeEventListener("gosshd-action-menu-open", closeOther);
+    };
+  }, []);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) document.dispatchEvent(new CustomEvent("gosshd-action-menu-open", { detail: rootRef.current }));
+  };
+  return <div ref={rootRef} className="action-menu">
+    <button type="button" className="action-menu-trigger" aria-haspopup="menu" aria-expanded={open} onClick={toggle}><MoreHorizontal />{label}</button>
+    {open && <div className="action-menu-popover" role="menu" onClick={(event) => { if ((event.target as HTMLElement).closest("button")) setOpen(false); }}>{children}</div>}
+  </div>;
 }
 
 export function Panel({ title, subtitle, children, className = "" }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
