@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { CheckSquare, ChevronDown, ChevronRight, Copy, Edit3, Folder, FolderPlus, KeyRound, Move, Play, Plus, Search, Settings, Square, TerminalSquare, Trash2 } from "lucide-react";
-import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from "react";
+import { CheckSquare, ChevronDown, ChevronRight, Copy, Edit3, Folder, FolderPlus, KeyRound, Menu, Move, MoreHorizontal, Play, Plus, Search, Settings, Square, TerminalSquare, Trash2 } from "lucide-react";
+import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { api, type Enrollment } from "../api";
@@ -147,12 +147,14 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
     <>
       <section className="resource-head">
         <div><small>{appDescription(data.runtime)}</small><h2>{t("services")}</h2><p>{t("servicePageBody")}</p></div>
-        {!data.runtime.client_mode && <div className="inline-actions">
-          <button type="button" onClick={() => setSettingsModal(true)}><Settings />{t("serviceOpenSettings")}</button>
-          <button type="button" onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>{selecting ? <CheckSquare /> : <Square />}{selecting ? t("serviceBatchDone") : t("serviceBatchSelect")}</button>
-          <button type="button" onClick={() => setCredentialModal(true)}><KeyRound />{t("serviceCredentials")}</button>
-          <button type="button" onClick={() => setFolderModal({})}><FolderPlus />{t("serviceNewFolder")}</button>
+        {!data.runtime.client_mode && <div className="resource-actions">
           <button type="button" className="primary" onClick={() => setModal(true)}><Plus />{t("addService")}</button>
+          <ActionMenu label={t("commonMore")}>
+            <button type="button" onClick={() => setSettingsModal(true)}><Settings />{t("serviceOpenSettings")}</button>
+            <button type="button" onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>{selecting ? <CheckSquare /> : <Square />}{selecting ? t("serviceBatchDone") : t("serviceBatchSelect")}</button>
+            <button type="button" onClick={() => setCredentialModal(true)}><KeyRound />{t("serviceCredentials")}</button>
+            <button type="button" onClick={() => setFolderModal({})}><FolderPlus />{t("serviceNewFolder")}</button>
+          </ActionMenu>
         </div>}
       </section>
       {!data.runtime.client_mode && <div className="metrics">
@@ -283,10 +285,12 @@ function FolderNode(props: {
         {collapsed ? <ChevronRight /> : <ChevronDown />}<Folder /><strong>{props.folder.name}</strong>
       </button>
       <span className="inline-actions">
-        {editingName ? <span className="inline-edit"><input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && name.trim()) rename.mutate(name.trim()); }} autoFocus /><button type="button" className="small primary" onClick={() => name.trim() && rename.mutate(name.trim())} disabled={rename.isPending}>{t("save")}</button><button type="button" className="small" onClick={() => { setName(props.folder.name); setEditingName(false); }}>{t("cancel")}</button></span> : <button type="button" onClick={() => setEditingName(true)} disabled={rename.isPending}><Edit3 />{t("commonEdit")}</button>}
-        <button type="button" onClick={() => props.onNewFolder(props.folder.id)}><FolderPlus />{t("serviceNewFolder")}</button>
-        <button type="button" onClick={() => props.onMove(props.folder)}><Move />{t("serviceMoveFolder")}</button>
-        <button type="button" className="danger" onClick={() => setDeleteOpen(true)} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
+        <ActionMenu label={t("commonMore")}>
+          {editingName ? <span className="inline-edit"><input value={name} onChange={(event) => setName(event.target.value)} autoFocus /><button type="button" className="small primary" onClick={() => name.trim() && rename.mutate(name.trim())} disabled={rename.isPending}>{t("save")}</button><button type="button" className="small" onClick={() => setEditingName(false)}>{t("cancel")}</button></span> : <button type="button" onClick={() => setEditingName(true)} disabled={rename.isPending}><Edit3 />{t("commonEdit")}</button>}
+          <button type="button" onClick={() => props.onNewFolder(props.folder.id)}><FolderPlus />{t("serviceNewFolder")}</button>
+          <button type="button" onClick={() => props.onMove(props.folder)}><Move />{t("serviceMoveFolder")}</button>
+          <button type="button" className="danger" onClick={() => setDeleteOpen(true)} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
+        </ActionMenu>
       </span>
     </div>
     {deleteOpen && <ConfirmDialog title={t("commonDelete")} body={t("serviceDeleteFolderConfirm")} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(props.folder.id)} onClose={() => setDeleteOpen(false)} />}
@@ -311,14 +315,20 @@ function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selec
     <span>{credential ? credential.name : (target.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword"))}</span>
     <TagList target={target} />
     <span className="inline-actions">
-      <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} />
-      <button type="button" className="button-link" title={t("connect")} aria-label={t("connect")} onClick={() => onOpen(target.id)}><TerminalSquare /><span>{t("connect")}</span></button>
-      <button type="button" title={t("commonEdit")} aria-label={t("commonEdit")} onClick={() => onEdit(target.id)}><Edit3 /><span>{t("commonEdit")}</span></button>
-      <button type="button" title={t("serviceBatchMove")} aria-label={t("serviceBatchMove")} onClick={() => setMoving(true)}><Move /><span>{t("serviceBatchMove")}</span></button>
-      <button type="button" className="danger" title={t("commonDelete")} aria-label={t("commonDelete")} onClick={() => onDelete(target)} disabled={deleting}><Trash2 /><span>{t("commonDelete")}</span></button>
+      <button type="button" className="button-link" onClick={() => onOpen(target.id)}><TerminalSquare />{t("connect")}</button>
+      <ActionMenu label={t("commonMore")}>
+        <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} />
+        <button type="button" onClick={() => onEdit(target.id)}><Edit3 />{t("commonEdit")}</button>
+        <button type="button" onClick={() => setMoving(true)}><Move />{t("serviceBatchMove")}</button>
+        <button type="button" className="danger" onClick={() => onDelete(target)} disabled={deleting}><Trash2 />{t("commonDelete")}</button>
+      </ActionMenu>
     </span>
     {moving && <TargetMoveCopyModal data={data} targetIDs={[target.id]} action="move" onClose={() => setMoving(false)} />}
   </div>;
+}
+
+function ActionMenu({ label, children }: { label: string; children: ReactNode }) {
+  return <details className="action-menu"><summary><MoreHorizontal />{label}</summary><div className="action-menu-popover">{children}</div></details>;
 }
 
 function CredentialManagerModal({ data, onClose }: { data: ConsoleData; onClose: () => void }) {
