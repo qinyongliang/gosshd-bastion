@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { CheckSquare, ChevronDown, ChevronRight, Copy, Edit3, Folder, FolderPlus, KeyRound, Menu, Move, MoreHorizontal, Play, Plus, Search, Settings, Square, TerminalSquare, Trash2 } from "lucide-react";
-import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { CheckSquare, ChevronDown, ChevronRight, Copy, Edit3, Folder, FolderPlus, KeyRound, Move, Play, Plus, Search, Settings, Square, TerminalSquare, Trash2 } from "lucide-react";
+import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { api, type Enrollment } from "../api";
-import { CommandBox, ConfirmDialog, CopyButton, Drawer, Empty, ErrorMessage, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toggle, Toolbar } from "../components/ui";
+import { ActionMenu, CommandBox, ConfirmDialog, CopyButton, Drawer, Empty, ErrorMessage, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toggle, Toolbar } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription } from "../lib/branding";
 import { formSubmit, formValues } from "../lib/forms";
@@ -325,10 +325,6 @@ function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selec
     </span>
     {moving && <TargetMoveCopyModal data={data} targetIDs={[target.id]} action="move" onClose={() => setMoving(false)} />}
   </div>;
-}
-
-function ActionMenu({ label, children }: { label: string; children: ReactNode }) {
-  return <details className="action-menu"><summary><MoreHorizontal />{label}</summary><div className="action-menu-popover">{children}</div></details>;
 }
 
 function CredentialManagerModal({ data, onClose }: { data: ConsoleData; onClose: () => void }) {

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Activity, Copy, Play, Search, X } from "lucide-react";
+import { Activity, Copy, MoreHorizontal, Play, Search, X } from "lucide-react";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
@@ -69,6 +69,10 @@ export function NavButton({ to, label, icon, onClick }: { to: string; label: str
   const location = useLocation();
   const active = to === "/" ? location.pathname === "/" : location.pathname.startsWith(to);
   return <Link className={clsx("nav-link", active && "active")} to={to} onClick={onClick}>{icon}{label}</Link>;
+}
+
+export function ActionMenu({ label, children }: { label: string; children: ReactNode }) {
+  return <details className="action-menu"><summary><MoreHorizontal />{label}</summary><div className="action-menu-popover">{children}</div></details>;
 }
 
 export function Panel({ title, subtitle, children, className = "" }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {

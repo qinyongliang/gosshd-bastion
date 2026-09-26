@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BrainCircuit, Copy, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { ConfirmDialog, ErrorMessage, Field, Modal, ModalActions, Panel, Select, SimpleTable, Tag, Toggle } from "../components/ui";
+import { ActionMenu, ConfirmDialog, ErrorMessage, Field, Modal, ModalActions, Panel, Select, SimpleTable, Tag, Toggle } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formSubmit, policyPayload } from "../lib/forms";
 import type { ConsoleData, LLMConfig, Policy, PolicyRule, PromptResource, Target, UserGroup } from "../types";
@@ -52,9 +52,11 @@ export function PoliciesPage({ data }: { data: ConsoleData }) {
         <section className="resource-head policy-head">
           <div><small>{t("policy")}</small><h2>{t("commandPolicy")}</h2><p>{t("policyBody")}</p></div>
           <div className="resource-actions">
-            <button type="button" onClick={() => setResourceMode("llms")}><BrainCircuit />{t("policyManageLLM")}</button>
-            <button type="button" onClick={() => setResourceMode("prompts")}><Settings />{t("policyManagePrompts")}</button>
             <button type="button" className="primary" onClick={() => setModal(true)}><Plus />{t("policyCreate")}</button>
+            <ActionMenu label={t("commonMore")}>
+              <button type="button" onClick={() => setResourceMode("llms")}><BrainCircuit />{t("policyManageLLM")}</button>
+              <button type="button" onClick={() => setResourceMode("prompts")}><Settings />{t("policyManagePrompts")}</button>
+            </ActionMenu>
           </div>
         </section>
         {selected.length > 0 && <div className="batch-bar policy-batch">
@@ -73,8 +75,10 @@ export function PoliciesPage({ data }: { data: ConsoleData }) {
             <PolicyCapabilities policy={policy} />,
             <span className="inline-actions">
               <button type="button" onClick={() => setDrawerID(policy.id)}><Pencil />{t("commonEdit")}</button>
-              <button type="button" onClick={() => copy.mutate(policy.id)}><Copy />{t("policyCopy")}</button>
-              <button type="button" className="danger" onClick={() => setDeleteID(policy.id)}><Trash2 />{t("commonDelete")}</button>
+              <ActionMenu label={t("commonMore")}>
+                <button type="button" onClick={() => copy.mutate(policy.id)}><Copy />{t("policyCopy")}</button>
+                <button type="button" className="danger" onClick={() => setDeleteID(policy.id)}><Trash2 />{t("commonDelete")}</button>
+              </ActionMenu>
             </span>,
           ])} />
         </Panel>
