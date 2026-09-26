@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BrainCircuit, Copy, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { Field, Modal, ModalActions, Panel, Select, SimpleTable, Tag, Toggle } from "../components/ui";
+import { ConfirmDialog, ErrorMessage, Field, Modal, ModalActions, Panel, Select, SimpleTable, Tag, Toggle } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formSubmit, policyPayload } from "../lib/forms";
 import type { ConsoleData, LLMConfig, Policy, PolicyRule, PromptResource, Target, UserGroup } from "../types";
@@ -16,6 +16,8 @@ export function PoliciesPage({ data }: { data: ConsoleData }) {
   const [resourceMode, setResourceMode] = useState<ResourceMode>("");
   const [selected, setSelected] = useState<string[]>([]);
   const [drawerID, setDrawerID] = useState("");
+  const [deleteID, setDeleteID] = useState<string | null>(null);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const queryClient = useQueryClient();
   const drawerPolicy = data.policies.find((policy) => policy.id === drawerID) || null;
   const create = useMutation({
@@ -59,7 +61,7 @@ export function PoliciesPage({ data }: { data: ConsoleData }) {
           <span className="selection-summary">{selected.length} {t("commonSelected")}</span>
           <details className="batch-menu">
             <summary>{t("commonBatchAction")}</summary>
-            <button type="button" className="danger" onClick={batchDelete}><Trash2 />{t("policyBatchDelete")}</button>
+            <button type="button" className="danger" onClick={() => setBatchDeleteOpen(true)}><Trash2 />{t("policyBatchDelete")}</button>
           </details>
         </div>}
         <Panel title={t("policyList")} subtitle={t("policyListBody")}>
@@ -72,11 +74,13 @@ export function PoliciesPage({ data }: { data: ConsoleData }) {
             <span className="inline-actions">
               <button type="button" onClick={() => setDrawerID(policy.id)}><Pencil />{t("commonEdit")}</button>
               <button type="button" onClick={() => copy.mutate(policy.id)}><Copy />{t("policyCopy")}</button>
-              <button type="button" className="danger" onClick={() => remove.mutate(policy.id)}><Trash2 />{t("commonDelete")}</button>
+              <button type="button" className="danger" onClick={() => setDeleteID(policy.id)}><Trash2 />{t("commonDelete")}</button>
             </span>,
           ])} />
         </Panel>
       </div>
+      {batchDeleteOpen && <ConfirmDialog title={t("commonDelete")} body={`${selected.length} ${t("commonSelected")}`} confirmLabel={t("policyBatchDelete")} danger onConfirm={() => { void batchDelete(); setBatchDeleteOpen(false); }} onClose={() => setBatchDeleteOpen(false)} />}
+      {deleteID && <ConfirmDialog title={t("commonDelete")} body={t("policyDeleteConfirm", "Delete this policy?")} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(deleteID)} onClose={() => setDeleteID(null)} />}
       {modal && <PolicyFormModal data={data} onClose={() => setModal(false)} onSubmit={(body) => create.mutate({ ...body, owner_type: "organization", owner_id: data.activeOrg.id })} />}
       {drawerPolicy && <PolicyDrawer data={data} policy={drawerPolicy} onClose={() => setDrawerID("")} />}
       {resourceMode === "llms" && <LLMManagerModal data={data} onClose={() => setResourceMode("")} />}

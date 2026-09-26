@@ -5,7 +5,7 @@ import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from 
 import { useSearchParams } from "react-router-dom";
 
 import { api, type Enrollment } from "../api";
-import { CommandBox, CopyButton, Drawer, Empty, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toggle, Toolbar } from "../components/ui";
+import { CommandBox, ConfirmDialog, CopyButton, Drawer, Empty, ErrorMessage, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toggle, Toolbar } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription } from "../lib/branding";
 import { formSubmit, formValues } from "../lib/forms";
@@ -32,6 +32,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   const [drawerTargetID, setDrawerTargetID] = useState("");
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [tip, setTip] = useState("");
+  const [deleteTargetID, setDeleteTargetID] = useState<string | null>(null);
   const tipTimerRef = useRef<number | null>(null);
   const filtered = data.targets.filter((target) => {
     const folderPath = targetFolderPath(target, data.targetFolders);
@@ -50,8 +51,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
   });
 
   function deleteTarget(target: Target) {
-    if (!window.confirm(t("serviceDeleteConfirm"))) return;
-    removeTarget.mutate(target.id);
+    setDeleteTargetID(target.id);
   }
 
   function showTip(message: string) {
@@ -199,6 +199,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
       {settingsModal && <ConnectOpenSettingsModal data={data} onClose={() => setSettingsModal(false)} />}
       {moveModal && <TargetMoveCopyModal data={data} targetIDs={selectedTargetIDs} action={moveModal} onClose={() => setMoveModal(null)} />}
       {commandModal && <BatchCommandModal data={data} onClose={() => setCommandModal(false)} onSubmit={runBatchCommand} />}
+      {deleteTargetID && <ConfirmDialog title={t("commonDelete")} body={t("serviceDeleteConfirm")} confirmLabel={t("commonDelete")} danger onConfirm={() => removeTarget.mutate(deleteTargetID)} onClose={() => setDeleteTargetID(null)} />}
       {drawerTarget && <TargetDrawer data={data} target={drawerTarget} onClose={() => setDrawerTargetID("")} onEnrollment={setEnrollment} onSaved={() => showTip(t("serviceSaveSuccess"))} />}
       {enrollment && <InstallDrawer enrollment={enrollment} onClose={() => { setEnrollment(null); refreshTargets(); }} />}
       {tip && <div className="page-toast" role="status">{tip}</div>}
@@ -265,7 +266,10 @@ function FolderNode(props: {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const remove = useMutation({ mutationFn: api.deleteTargetFolder, onSuccess: async () => queryClient.invalidateQueries() });
-  const rename = useMutation({ mutationFn: (name: string) => api.updateTargetFolder(props.folder.id, { name }), onSuccess: async () => queryClient.invalidateQueries(), onError: (error) => window.alert(error instanceof Error ? error.message : String(error)) });
+  const [editingName, setEditingName] = useState(false);
+  const [name, setName] = useState(props.folder.name);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const rename = useMutation({ mutationFn: (value: string) => api.updateTargetFolder(props.folder.id, { name: value }), onSuccess: async () => { setEditingName(false); await queryClient.invalidateQueries(); }, onError: () => undefined });
   const children = props.data.targetFolders.filter((folder) => folder.parent_id === props.folder.id);
   const targets = props.targets.filter((target) => target.folder_id === props.folder.id);
   const collapsed = props.collapsed.has(props.folder.id);
@@ -279,15 +283,13 @@ function FolderNode(props: {
         {collapsed ? <ChevronRight /> : <ChevronDown />}<Folder /><strong>{props.folder.name}</strong>
       </button>
       <span className="inline-actions">
-        <button type="button" onClick={() => {
-          const name = window.prompt(t("serviceRenameFolder"), props.folder.name);
-          if (name && name.trim() && name.trim() !== props.folder.name) rename.mutate(name.trim());
-        }} disabled={rename.isPending}><Edit3 />{t("commonEdit")}</button>
+        {editingName ? <span className="inline-edit"><input value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && name.trim()) rename.mutate(name.trim()); }} autoFocus /><button type="button" className="small primary" onClick={() => name.trim() && rename.mutate(name.trim())} disabled={rename.isPending}>{t("save")}</button><button type="button" className="small" onClick={() => { setName(props.folder.name); setEditingName(false); }}>{t("cancel")}</button></span> : <button type="button" onClick={() => setEditingName(true)} disabled={rename.isPending}><Edit3 />{t("commonEdit")}</button>}
         <button type="button" onClick={() => props.onNewFolder(props.folder.id)}><FolderPlus />{t("serviceNewFolder")}</button>
         <button type="button" onClick={() => props.onMove(props.folder)}><Move />{t("serviceMoveFolder")}</button>
-        <button type="button" className="danger" onClick={() => { if (window.confirm(t("serviceDeleteFolderConfirm"))) remove.mutate(props.folder.id); }} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
+        <button type="button" className="danger" onClick={() => setDeleteOpen(true)} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
       </span>
     </div>
+    {deleteOpen && <ConfirmDialog title={t("commonDelete")} body={t("serviceDeleteFolderConfirm")} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(props.folder.id)} onClose={() => setDeleteOpen(false)} />}
     {!collapsed && <div className="target-folder-children">
       {children.map((folder) => <FolderNode key={folder.id} {...props} folder={folder} />)}
       {targets.map((target) => <TargetTreeRow key={target.id} data={props.data} target={target} onOpen={props.onOpen} onEdit={props.onEdit} onDelete={props.onDelete} deleting={props.deleting} selecting={props.selecting} selected={props.selected.has(target.id)} onSelect={() => props.onSelect(target.id)} />)}
@@ -297,6 +299,7 @@ function FolderNode(props: {
 
 function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selecting, selected, onSelect }: { data: ConsoleData; target: Target; onOpen: (id: string) => void; onEdit: (id: string) => void; onDelete: (target: Target) => void; deleting: boolean; selecting: boolean; selected: boolean; onSelect: () => void }) {
   const { t } = useI18n();
+  const [moving, setMoving] = useState(false);
   const credential = data.credentials.find((item) => item.id === target.credential_id);
   return <div className="target-tree-row">
     <div className="target-tree-main">
@@ -310,19 +313,23 @@ function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selec
     <span className="inline-actions">
       <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} />
       <button type="button" className="button-link" onClick={() => onOpen(target.id)}><TerminalSquare />{t("connect")}</button>
-      <button type="button" onClick={() => onEdit(target.id)}>{t("commonEdit")}</button>
+      <button type="button" onClick={() => onEdit(target.id)}><Edit3 />{t("commonEdit")}</button>
+      <button type="button" onClick={() => setMoving(true)}><Move />{t("serviceBatchMove")}</button>
       <button type="button" className="danger" onClick={() => onDelete(target)} disabled={deleting}><Trash2 />{t("commonDelete")}</button>
     </span>
+    {moving && <TargetMoveCopyModal data={data} targetIDs={[target.id]} action="move" onClose={() => setMoving(false)} />}
   </div>;
 }
 
 function CredentialManagerModal({ data, onClose }: { data: ConsoleData; onClose: () => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const create = useMutation({ mutationFn: api.createCredential, onSuccess: async () => queryClient.invalidateQueries() });
-  const remove = useMutation({ mutationFn: api.deleteCredential, onSuccess: async () => queryClient.invalidateQueries(), onError: (error) => window.alert(error instanceof Error ? error.message : String(error)) });
+  const [editing, setEditing] = useState<(typeof data.credentials)[number] | null>(null);
+  const [deleteCredentialID, setDeleteCredentialID] = useState<string | null>(null);
+  const create = useMutation({ mutationFn: (body: Record<string, unknown>) => editing ? api.updateCredential(editing.id, body) : api.createCredential(body), onSuccess: async () => { setEditing(null); await queryClient.invalidateQueries(); } });
+  const remove = useMutation({ mutationFn: api.deleteCredential, onSuccess: async () => queryClient.invalidateQueries(), onError: () => undefined });
   return <Modal title={t("serviceCredentials")} onClose={onClose} wide>
-    <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => create.mutate({
+    <form key={editing?.id || "new"} className="grid two" onSubmit={(event) => formSubmit(event, (body) => create.mutate({
       owner_type: "organization",
       owner_id: data.activeOrg.id,
       name: body.name,
@@ -330,18 +337,20 @@ function CredentialManagerModal({ data, onClose }: { data: ConsoleData; onClose:
       auth_type: body.auth_type || "password",
       secret: body.secret || "",
     }))}>
-      <Field label={t("serviceCredentialName")} name="name" required />
-      <Field label={t("serviceRemoteUser")} name="username" required />
-      <Select label={t("serviceAuthType")} name="auth_type" defaultValue="password" options={[["password", t("serviceAuthPassword")], ["private_key", t("serviceAuthPrivateKey")]]} />
+      <Field label={t("serviceCredentialName")} name="name" defaultValue={editing?.name} required />
+      <Field label={t("serviceRemoteUser")} name="username" defaultValue={editing?.username} required />
+      <Select label={t("serviceAuthType")} name="auth_type" defaultValue={editing?.auth_type || "password"} options={[["password", t("serviceAuthPassword")], ["private_key", t("serviceAuthPrivateKey")]]} />
       <label className="field"><span>{t("serviceAuthSecret")}</span><textarea name="secret" /></label>
-      <ModalActions onCancel={onClose} submit={t("add")} />
+      {create.error && <p role="alert" className="form-error">{create.error.message}</p>}
+      <ModalActions onCancel={() => editing ? setEditing(null) : onClose()} submit={create.isPending ? t("loading") : editing ? t("save") : t("add")} />
     </form>
     <SimpleTable headers={[t("serviceCredentialName"), t("serviceRemoteUser"), t("commonAuth"), t("commonActions")]} rows={data.credentials.map((credential) => [
       credential.name,
       credential.username,
       credential.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword"),
-      <button type="button" className="danger" onClick={() => remove.mutate(credential.id)} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>,
+      <span className="inline-actions"><button type="button" onClick={() => setEditing(credential)}><Edit3 />{t("commonEdit")}</button><button type="button" className="danger" onClick={() => setDeleteCredentialID(credential.id)} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button></span>,
     ])} />
+  {deleteCredentialID && <ConfirmDialog title={t("commonDelete")} body={t("commonDelete")} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(deleteCredentialID)} onClose={() => setDeleteCredentialID(null)} />}
   </Modal>;
 }
 
@@ -374,7 +383,7 @@ function FolderMoveModal({ data, folder, onClose }: { data: ConsoleData; folder:
       await queryClient.invalidateQueries({ queryKey: ["target-folders"] });
       onClose();
     },
-    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+    onError: () => undefined,
   });
   return <Modal title={t("serviceMoveFolder")} onClose={onClose}>
     <form className="stack" onSubmit={(event) => { event.preventDefault(); move.mutate(); }}>
@@ -384,6 +393,7 @@ function FolderMoveModal({ data, folder, onClose }: { data: ConsoleData; folder:
           <FolderPickNode key={item.id} folder={item} folders={movableFolders} selectedID={parentID} onSelect={setParentID} depth={0} />
         ))}
       </div>
+      {move.error && <p role="alert" className="form-error">{move.error.message}</p>}
       <ModalActions onCancel={onClose} submit={move.isPending ? t("loading") : t("save")} />
     </form>
   </Modal>;
@@ -393,6 +403,7 @@ function FolderMoveModal({ data, folder, onClose }: { data: ConsoleData; folder:
 function ConnectOpenSettingsModal({ data, onClose }: { data: ConsoleData; onClose: () => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const update = useMutation({ mutationFn: api.updateMySettings, onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ["my-settings"] }); onClose(); } });
   return <Modal title={t("serviceOpenSettings")} onClose={onClose}>
     <form className="stack" onSubmit={(event) => formSubmit(event, (body) => update.mutate({
@@ -415,7 +426,7 @@ function TargetMoveCopyModal({ data, targetIDs, action, onClose }: { data: Conso
       for (const id of targetIDs) {
         if (action === "copy") {
           const copied = await api.copyTarget(id);
-          if (folderID) await api.updateTarget(copied.target.id, { folder_id: folderID });
+          await api.updateTarget(copied.target.id, { folder_id: folderID });
         } else {
           await api.updateTarget(id, { folder_id: folderID });
         }
@@ -429,11 +440,12 @@ function TargetMoveCopyModal({ data, targetIDs, action, onClose }: { data: Conso
   return <Modal title={action === "copy" ? t("serviceBatchCopy") : t("serviceBatchMove")} onClose={onClose} wide>
     <form className="stack" onSubmit={(event) => { event.preventDefault(); move.mutate(); }}>
       <div className="folder-picker-tree">
-        <button type="button" className={!folderID ? "active" : ""} onClick={() => setFolderID("")}>Root</button>
+        <button type="button" className={!folderID ? "active" : ""} onClick={() => setFolderID("")}>{t("serviceFolderRoot")}</button>
         {data.targetFolders.filter((folder) => !folder.parent_id).map((folder) => (
           <FolderPickNode key={folder.id} folder={folder} folders={data.targetFolders} selectedID={folderID} onSelect={setFolderID} depth={0} />
         ))}
       </div>
+      {move.error && <p role="alert" className="form-error">{move.error.message}</p>}
       <ModalActions onCancel={onClose} submit={move.isPending ? t("loading") : t("save")} />
     </form>
   </Modal>;
@@ -593,6 +605,7 @@ function TargetDrawer({ data, target, onClose, onEnrollment, onSaved }: { data: 
 function DirectTargetDrawer({ data, target, onClose, onSaved }: { data: ConsoleData; target: Target; onClose: () => void; onSaved: () => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const update = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.updateTarget(target.id, body),
     onSuccess: async () => {
@@ -635,13 +648,15 @@ function DirectTargetDrawer({ data, target, onClose, onSaved }: { data: ConsoleD
       <Field label={t("commonTag")} name="tags" defaultValue={(target.tags || []).join(", ")} />
       <Select label={t("serviceFolder")} name="folder_id" defaultValue={target.folder_id || ""} options={folderOptions(data)} />
       <Select label={t("serviceAdvancedProxy")} name="proxy_target_id" defaultValue={target.proxy_target_id || ""} options={[["", t("commonNotUse")], ...data.targets.filter((item) => item.id !== target.id).map((item): [string, string] => [item.id, `${item.name} (${item.alias})`])]} />
-      <ModalActions onCancel={onClose} submit={t("save")} />
+      {update.error && <p role="alert" className="form-error">{update.error.message}</p>}
+      <ModalActions onCancel={onClose} submit={update.isPending ? t("loading") : t("save")} />
     </form>
+    {deleteOpen && <ConfirmDialog title={t("commonDelete")} body={t("serviceDeleteConfirm")} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate()} onClose={() => setDeleteOpen(false)} />}
     <TagColorEditor data={data} target={target} />
     <section className="notice-card compact danger-zone">
       <h3>{t("serviceDeleteTitle")}</h3>
       <p>{t("serviceDeleteBody")}</p>
-      <button type="button" className="danger" onClick={() => { if (window.confirm(t("serviceDeleteConfirm"))) remove.mutate(); }} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
+      <button type="button" className="danger" onClick={() => setDeleteOpen(true)} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
     </section>
   </Drawer>;
 }
@@ -649,6 +664,7 @@ function DirectTargetDrawer({ data, target, onClose, onSaved }: { data: ConsoleD
 function PrivateNodeDrawer({ data, target, onClose, onEnrollment, onSaved }: { data: ConsoleData; target: Target; onClose: () => void; onEnrollment: (enrollment: Enrollment) => void; onSaved: () => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const update = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.updateTarget(target.id, body),
     onSuccess: async () => {
@@ -690,6 +706,7 @@ function PrivateNodeDrawer({ data, target, onClose, onEnrollment, onSaved }: { d
         <ModalActions onCancel={onClose} submit={t("save")} />
       </form>
     </section>
+    {deleteOpen && <ConfirmDialog title={t("commonDelete")} body={t("serviceDeleteConfirm")} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate()} onClose={() => setDeleteOpen(false)} />}
     <TagColorEditor data={data} target={target} />
     <section className="notice-card compact">
       <h3>{t("servicePrivateReplaceTitle")}</h3>
@@ -699,7 +716,7 @@ function PrivateNodeDrawer({ data, target, onClose, onEnrollment, onSaved }: { d
     <section className="notice-card compact danger-zone">
       <h3>{t("serviceDeleteTitle")}</h3>
       <p>{t("serviceDeleteBody")}</p>
-      <button type="button" className="danger" onClick={() => { if (window.confirm(t("serviceDeleteConfirm"))) remove.mutate(); }} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
+      <button type="button" className="danger" onClick={() => setDeleteOpen(true)} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
     </section>
   </Drawer>;
 }

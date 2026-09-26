@@ -71,7 +71,8 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
           <span>{data.user.email}</span>
           {data.user.is_system_admin && <span className="pill">{t("admin")}</span>}
         </div>}
-        <nav className="side-nav">
+        <nav className="side-nav" aria-label="Primary navigation">
+          <span className="nav-caption">Workspace</span>
           {nav.map(([to, label, Icon]) => <NavButton key={to} to={to} label={label} icon={<Icon />} onClick={() => setSidebarOpen(false)} />)}
         </nav>
         {!isClientMode && <OrgSwitcher data={data} />}
@@ -87,9 +88,12 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
             <h1>{pageTitle(t)}</h1>
             {!isClientMode && <span className="context-line">{data.activeOrg.name}</span>}
           </div>
-          <div className="top-actions">
-            <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
-            <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
+          <div className="topbar-meta">
+            <span className="topbar-status"><i />{isClientMode ? "Local client" : "Connected"}</span>
+            <div className="top-actions">
+              <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
+              <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
+            </div>
           </div>
         </header>
         {children}

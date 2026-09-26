@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
-import { Field, Metric, Modal, ModalActions, Panel, SimpleTable } from "../components/ui";
+import { ErrorMessage, Field, Metric, Modal, ModalActions, Panel, SimpleTable } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription } from "../lib/branding";
 import { formSubmit, roleText } from "../lib/forms";
@@ -40,13 +40,13 @@ export function OrganizationsPage({ data }: { data: ConsoleData }) {
         <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => create.mutate(body))}>
           <Field label={t("orgName")} name="name" required />
           <Field label={t("orgSlug")} name="slug" required />
-          <ModalActions onCancel={() => setModal("")} submit={t("orgCreate")} />
+          <ErrorMessage error={create.error} /><ModalActions onCancel={() => setModal("")} submit={create.isPending ? t("loading") : t("orgCreate")} />
         </form>
       </Modal>}
       {modal === "join" && <Modal title={t("orgJoinTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         <form className="stack" onSubmit={(event) => formSubmit(event, (body) => join.mutate(body))}>
           <Field label={t("orgJoinCode")} name="code" required />
-          <ModalActions onCancel={() => setModal("")} submit={t("orgJoin")} />
+          <ErrorMessage error={join.error} /><ModalActions onCancel={() => setModal("")} submit={join.isPending ? t("loading") : t("orgJoin")} />
         </form>
       </Modal>}
     </>

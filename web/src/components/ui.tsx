@@ -72,7 +72,7 @@ export function NavButton({ to, label, icon, onClick }: { to: string; label: str
 }
 
 export function Panel({ title, subtitle, children, className = "" }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
-  return <section className={clsx("panel", className)}><div className="panel-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div></div>{children}</section>;
+  return <section className={clsx("panel", className)}><div className="panel-head"><div><h3>{title}</h3>{subtitle && <p>{subtitle}</p>}</div></div>{children}</section>;
 }
 
 export function SummaryCard({ index, title, body }: { index: string; title: string; body: string }) {
@@ -80,7 +80,7 @@ export function SummaryCard({ index, title, body }: { index: string; title: stri
 }
 
 export function Metric({ label, value, icon }: { label: string; value: number; icon?: ReactNode }) {
-  return <div className="metric">{icon || <Activity />}<span>{label}</span><strong>{value}</strong></div>;
+  return <div className="metric"><div className="metric-label">{icon || <Activity />}<span>{label}</span></div><strong>{value}</strong></div>;
 }
 
 export function Modal({ title, children, onClose, wide = false, stacked = false, className = "", closeOnEscape = true }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; stacked?: boolean; className?: string; closeOnEscape?: boolean }) {
@@ -106,8 +106,8 @@ export function Modal({ title, children, onClose, wide = false, stacked = false,
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeOnEscape, onClose]);
   return createPortal(<div className={clsx("overlay", stacked && "stacked")}><section className={clsx("modal", wide && "wide", className)} role="dialog" aria-modal="true" aria-label={title}>
-    <header className="surface-head"><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
-    <div className="surface-body modal-body-list">{children}</div>
+    <header className="modal-head"><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
+    <div className="modal-body">{children}</div>
   </section></div>, document.body);
 }
 
@@ -122,8 +122,8 @@ export function Drawer({ title, subtitle, children, onClose }: { title: string; 
   return <div className="drawer-layer">
     <button className="drawer-scrim" type="button" tabIndex={-1} aria-hidden="true" onClick={onClose} />
     <aside className="drawer">
-      <header className="surface-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
-      <div className="surface-body">{children}</div>
+      <header className="drawer-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
+      <div className="drawer-body">{children}</div>
     </aside>
   </div>;
 }
@@ -189,6 +189,19 @@ export function CommandBox({ label, value, copyLabel }: { label: string; value: 
 export function SelectButton({ label, items, onSelect }: { label: string; items: (readonly [string, string])[]; onSelect: (value: string) => void }) {
   const { t } = useI18n();
   return <label className="field"><span>{label}</span><select defaultValue="" onChange={(event) => { if (event.target.value) onSelect(event.target.value); event.target.value = ""; }}><option value="">{t("commonSelectPlaceholder")}</option>{items.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>;
+}
+
+export function ErrorMessage({ error }: { error: unknown }) {
+  if (!error) return null;
+  return <p className="form-error" role="alert">{error instanceof Error ? error.message : String(error)}</p>;
+}
+
+export function InlineNotice({ tone = "info", children }: { tone?: "info" | "success" | "danger"; children: ReactNode }) {
+  return <div className={clsx("inline-notice", tone)} role={tone === "danger" ? "alert" : "status"}>{children}</div>;
+}
+
+export function ConfirmDialog({ title, body, confirmLabel, danger = false, onConfirm, onClose }: { title: string; body: string; confirmLabel: string; danger?: boolean; onConfirm: () => void; onClose: () => void }) {
+  return <Modal title={title} onClose={onClose}><div className="confirm-dialog"><p>{body}</p><div className="form-actions"><button type="button" onClick={onClose}>Cancel</button><button type="button" className={danger ? "danger" : "primary"} onClick={() => { onConfirm(); onClose(); }}>{confirmLabel}</button></div></div></Modal>;
 }
 
 export function Loading() {

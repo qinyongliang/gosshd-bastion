@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api";
-import { Modal, ModalActions } from "../components/ui";
+import { ConfirmDialog, ErrorMessage, Modal, ModalActions } from "../components/ui";
 import { useI18n } from "../i18n";
 import type { FileEntry, FileProperties, Target, TargetSystemFilesystem, TargetSystemSnapshot } from "../types";
 import { copyText } from "../utils";
@@ -28,6 +28,8 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const [sort, setSort] = useState<{ key: FileSortKey; order: SortOrder }>({ key: "name", order: "asc" });
   const [transfer, setTransfer] = useState<{ action: "move" | "copy"; entry: FileEntry } | null>(null);
   const [properties, setProperties] = useState<FileProperties | null>(null);
+  const [operationError, setOperationError] = useState<unknown>(null);
+  const [deleteEntry, setDeleteEntry] = useState<FileEntry | null>(null);
   const [contextMenu, setContextMenu] = useState<{ entry: FileEntry | null; x: number; y: number; left: number; top: number } | null>(null);
   const [crumbMenu, setCrumbMenu] = useState<BreadcrumbMenuState | null>(null);
   const [crumbFilter, setCrumbFilter] = useState("");
@@ -138,7 +140,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
 
   const openNative = useMutation({
     mutationFn: (entry: FileEntry) => api.openFile(target.id, entry.path),
-    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+    onError: (error) => setOperationError(error),
   });
   const refreshFiles = async () => {
     await queryClient.invalidateQueries({ queryKey: ["target-files", target.id] });
@@ -146,32 +148,32 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const mkdir = useMutation({
     mutationFn: (nextPath: string) => api.mkdirFile(target.id, nextPath),
     onSuccess: refreshFiles,
-    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+    onError: (error) => setOperationError(error),
   });
   const touch = useMutation({
     mutationFn: (nextPath: string) => api.touchFile(target.id, nextPath),
     onSuccess: refreshFiles,
-    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+    onError: (error) => setOperationError(error),
   });
   const remove = useMutation({
     mutationFn: (entry: FileEntry) => api.deleteFile(target.id, entry.path),
     onSuccess: refreshFiles,
-    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+    onError: (error) => setOperationError(error),
   });
   const move = useMutation({
     mutationFn: ({ entry, destination }: { entry: FileEntry; destination: string }) => api.moveFile(target.id, entry.path, destination),
     onSuccess: refreshFiles,
-    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+    onError: (error) => setOperationError(error),
   });
   const copy = useMutation({
     mutationFn: ({ entry, destination }: { entry: FileEntry; destination: string }) => api.copyFile(target.id, entry.path, destination),
     onSuccess: refreshFiles,
-    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+    onError: (error) => setOperationError(error),
   });
   const stat = useMutation({
     mutationFn: (entry: FileEntry) => api.fileProperties(target.id, entry.path),
     onSuccess: setProperties,
-    onError: (error) => window.alert(error instanceof Error ? error.message : String(error)),
+    onError: (error) => setOperationError(error),
   });
 
   const entries = listing.data?.entries || [];
@@ -303,9 +305,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     } else if (action === "touch") {
       setTouchModal(true);
     } else if (action === "delete" && entry) {
-      if (window.confirm(t("connectFileDeleteConfirm", `Delete ${entry.path}?`))) {
-        remove.mutate(entry);
-      }
+      setDeleteEntry(entry);
     } else if (action === "properties" && entry) {
       stat.mutate(entry);
     } else if ((action === "move" || action === "copy") && entry) {
@@ -600,6 +600,8 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
         </div>
       )}
       {contextMenu && fileMenu(contextMenu.entry)}
+      {Boolean(operationError) && <div className="file-operation-error"><ErrorMessage error={operationError} /><button type="button" className="small" onClick={() => setOperationError(null)}>{t("close")}</button></div>}
+      {deleteEntry && <ConfirmDialog title={t("commonDelete")} body={t("connectFileDeleteConfirm", `Delete ${deleteEntry.path}?`)} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(deleteEntry)} onClose={() => setDeleteEntry(null)} />}
       {mkdirModal && (
         <Modal title={t("connectFileNewFolder")} onClose={() => setMkdirModal(false)}>
           <form className="stack" onSubmit={submitMkdir}>
