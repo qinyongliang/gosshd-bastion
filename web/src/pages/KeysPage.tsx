@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Pencil, Plus } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
-import { CommandBox, Empty, Field, Modal, ModalActions, Panel, SimpleTable } from "../components/ui";
+import { CommandBox, ConfirmDialog, Empty, ErrorMessage, Field, Modal, ModalActions, Panel, SimpleTable } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formSubmit, formatDate } from "../lib/forms";
 import type { ConsoleData, MCPToken, MCPTokenCreateResponse } from "../types";
@@ -16,6 +16,8 @@ export function KeysPage({ data }: { data: ConsoleData }) {
   const [editingMCP, setEditingMCP] = useState<MCPToken | null>(null);
   const [mcpToolGroups, setMCPToolGroups] = useState<string[]>(["session"]);
   const [createdMCP, setCreatedMCP] = useState<MCPTokenCreateResponse | null>(null);
+  const [deleteKeyID, setDeleteKeyID] = useState<string | null>(null);
+  const [deleteTokenID, setDeleteTokenID] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const create = useMutation({ mutationFn: api.createKey, onSuccess: async () => { setModal(false); await queryClient.invalidateQueries({ queryKey: ["keys"] }); } });
   const remove = useMutation({ mutationFn: api.deleteKey, onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["keys"] }) });
@@ -66,7 +68,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
             <strong>{key.name}</strong>,
             <code>{key.fingerprint}</code>,
             formatDate(key.created_at),
-            <button type="button" onClick={() => remove.mutate(key.id)}>{t("commonDelete")}</button>,
+            <button type="button" className="danger" onClick={() => setDeleteKeyID(key.id)}>{t("commonDelete")}</button>,
           ])} /> : <Empty title={t("keysEmptyTitle")} body={t("keysEmptyBody")} />}
         </Panel>
       )}
@@ -82,7 +84,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           token.last_used_at ? formatDate(token.last_used_at) : "-",
           <span className="row-actions">
             <button type="button" onClick={() => openEditMCP(token)}><Pencil />{t("commonEdit")}</button>
-            <button type="button" onClick={() => removeMCP.mutate(token.id)}>{t("commonDelete")}</button>
+            <button type="button" className="danger" onClick={() => setDeleteTokenID(token.id)}>{t("commonDelete")}</button>
           </span>,
         ])} /> : <Empty title={t("mcpTokensEmptyTitle")} body={t("mcpTokensEmptyBody")} />}
       </section>
@@ -90,7 +92,7 @@ export function KeysPage({ data }: { data: ConsoleData }) {
         <form className="stack" onSubmit={(event) => formSubmit(event, (body) => create.mutate({ name: body.name, authorized_key: body.authorized_key }))}>
           <Field label={t("commonTitle")} name="name" required />
           <label className="field"><span>{t("keysTableKey")}</span><textarea name="authorized_key" placeholder="ssh-ed25519 AAAA..." required /></label>
-          <ModalActions onCancel={() => setModal(false)} submit={t("addPublicKey")} />
+          <ErrorMessage error={create.error} /><ModalActions onCancel={() => setModal(false)} submit={create.isPending ? t("loading") : t("addPublicKey")} />
         </form>
       </Modal>}
       {mcpModal && <Modal title={t("mcpTokenCreateTitle")} onClose={closeMCPModal} wide closeOnEscape={false}>
@@ -112,6 +114,8 @@ export function KeysPage({ data }: { data: ConsoleData }) {
           <ModalActions onCancel={closeMCPModal} submit={t("mcpTokenGenerate")} />
         </form>}
       </Modal>}
+      {deleteKeyID && <ConfirmDialog title={t("commonDelete")} body={t("keysDeleteConfirm", "Delete this public key?")} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(deleteKeyID)} onClose={() => setDeleteKeyID(null)} />}
+      {deleteTokenID && <ConfirmDialog title={t("commonDelete")} body={t("mcpTokenDeleteConfirm", "Delete this token?")} confirmLabel={t("commonDelete")} danger onConfirm={() => removeMCP.mutate(deleteTokenID)} onClose={() => setDeleteTokenID(null)} />}
       {editingMCP && <Modal title={t("mcpTokenEditTitle")} onClose={() => setEditingMCP(null)} wide>
         <form className="stack" onSubmit={(event) => { event.preventDefault(); submitMCPGroups(); }}>
           <p className="muted">{editingMCP.name}</p>

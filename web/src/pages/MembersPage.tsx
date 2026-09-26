@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "../api";
-import { CommandBox, Field, Modal, ModalActions, Panel, Select, SimpleTable, Toolbar, UserCell } from "../components/ui";
+import { CommandBox, ErrorMessage, Field, Modal, ModalActions, Panel, Select, SimpleTable, Toolbar, UserCell } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formSubmit, formatDate, roleText, sortMembers } from "../lib/forms";
 import type { ConsoleData } from "../types";
@@ -72,14 +72,14 @@ export function MembersPage({ data }: { data: ConsoleData }) {
           <Field label={t("commonEmail")} name="email" />
           <Field label={t("membersUserID")} name="user_id" />
           <Select label={t("commonRole")} name="role" options={[["member", t("roleMember")], ["admin", t("roleAdmin")]]} />
-          <ModalActions onCancel={() => setModal("")} submit={t("addMember")} />
+          <ErrorMessage error={add.error} /><ModalActions onCancel={() => setModal("")} submit={add.isPending ? t("loading") : t("addMember")} />
         </form>
       </Modal>}
       {modal === "groups" && <Modal title={t("membersGroupTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => group.mutate(body))}>
           <Field label={t("membersGroupName")} name="name" required />
           <Field label="group-slug" name="slug" required />
-          <ModalActions onCancel={() => setModal("")} submit={t("addUserGroup")} />
+          <ErrorMessage error={group.error} /><ModalActions onCancel={() => setModal("")} submit={group.isPending ? t("loading") : t("addUserGroup")} />
         </form>
         <SimpleTable headers={[t("commonName"), "Slug"]} rows={data.groups.map((item) => [item.name, item.slug])} />
       </Modal>}
@@ -94,7 +94,7 @@ export function MembersPage({ data }: { data: ConsoleData }) {
       {modal === "transfer" && <Modal title={t("membersTransferTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         <form className="stack" onSubmit={(event) => formSubmit(event, (body) => transfer.mutate(body))}>
           <Select label={t("membersNewOwner")} name="user_id" options={data.members.filter((item) => item.role !== "owner").map((item) => [item.user_id, item.display_name || item.email])} />
-          <ModalActions onCancel={() => setModal("")} submit={t("membersTransfer")} />
+          <ErrorMessage error={transfer.error} /><ModalActions onCancel={() => setModal("")} submit={transfer.isPending ? t("loading") : t("membersTransfer")} />
         </form>
       </Modal>}
     </>

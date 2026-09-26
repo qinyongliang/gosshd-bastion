@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { BrandMark, Drawer, Field, Modal, ModalActions, SimpleTable, Toggle, UserCell } from "../components/ui";
+import { BrandMark, ConfirmDialog, Drawer, Field, Modal, ModalActions, SimpleTable, Toggle, UserCell } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appIcon, appName } from "../lib/branding";
 import { formSubmit, roleText } from "../lib/forms";
@@ -108,6 +108,7 @@ function AuthSettingsModal({ onClose }: { onClose: () => void }) {
 function AdminUsersModal({ users, currentUserID, onClose }: { users: AdminUser[]; currentUserID: string; onClose: () => void }) {
   const { t } = useI18n();
   const [resetUser, setResetUser] = useState<AdminUser | null>(null);
+  const [deleteUser, setDeleteUser] = useState<AdminUser | null>(null);
   const queryClient = useQueryClient();
   const update = useMutation({ mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api.updateAdminUser(id, body), onSuccess: async () => queryClient.invalidateQueries() });
   const remove = useMutation({ mutationFn: (id: string) => api.deleteAdminUser(id), onSuccess: async () => queryClient.invalidateQueries() });
@@ -120,9 +121,10 @@ function AdminUsersModal({ users, currentUserID, onClose }: { users: AdminUser[]
       <span className="inline-actions">
         <button type="button" onClick={() => update.mutate({ id: user.id, body: { disabled: !user.disabled_at } })} disabled={user.id === currentUserID && !user.disabled_at}>{user.disabled_at ? t("adminEnableUser") : t("adminDisableUser")}</button>
         <button type="button" disabled={user.auth_provider !== "local"} onClick={() => setResetUser(user)}>{t("adminResetPassword")}</button>
-        <button type="button" className="danger" disabled={user.id === currentUserID} onClick={() => { if (window.confirm(t("adminDeleteUserConfirm"))) remove.mutate(user.id); }}>{t("commonDelete")}</button>
+        <button type="button" className="danger" disabled={user.id === currentUserID} onClick={() => setDeleteUser(user)}>{t("commonDelete")}</button>
       </span>,
     ])} />
+    {deleteUser && <ConfirmDialog title={t("commonDelete")} body={t("adminDeleteUserConfirm")} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(deleteUser.id)} onClose={() => setDeleteUser(null)} />}
     {resetUser && <ResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />}
   </Modal>;
 }
@@ -142,6 +144,7 @@ function ResetPasswordModal({ user, onClose }: { user: AdminUser; onClose: () =>
 function AdminOrgsModal({ orgs, onClose }: { orgs: AdminOrg[]; onClose: () => void }) {
   const { t } = useI18n();
   const [selected, setSelected] = useState<AdminOrg | null>(null);
+  const [deleteOrg, setDeleteOrg] = useState<AdminOrg | null>(null);
   const queryClient = useQueryClient();
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteAdminOrg(id),
@@ -156,9 +159,10 @@ function AdminOrgsModal({ orgs, onClose }: { orgs: AdminOrg[]; onClose: () => vo
       roleText(org.role, t),
       <span className="inline-actions">
         <button type="button" onClick={() => setSelected(org)}>{t("members")}</button>
-        <button type="button" className="danger" onClick={() => { if (window.confirm(t("adminDeleteOrgConfirm"))) remove.mutate(org.id); }}>{t("commonDelete")}</button>
+        <button type="button" className="danger" onClick={() => setDeleteOrg(org)}>{t("commonDelete")}</button>
       </span>,
     ])} />
+    {deleteOrg && <ConfirmDialog title={t("commonDelete")} body={t("adminDeleteOrgConfirm")} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(deleteOrg.id)} onClose={() => setDeleteOrg(null)} />}
     {selected && <AdminOrgDrawer org={selected} onClose={() => setSelected(null)} />}
   </Modal>;
 }

@@ -45,7 +45,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { ManualReviewPoller } from "../components/ManualReviewPoller";
-import { Segmented } from "../components/ui";
+import { ConfirmDialog, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appName, documentTitle } from "../lib/branding";
 import { MOBILE_TERMINAL_KEY_ROWS, TERMINAL_SHORTCUT_LABELS, applyTerminalModifier, terminalShortcutSequence } from "../terminalShortcuts";
@@ -943,6 +943,7 @@ function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: {
   const [content, setContent] = useState("");
   const [savedContent, setSavedContent] = useState("");
   const [error, setError] = useState("");
+  const [confirmClose, setConfirmClose] = useState(false);
   const dirty = content !== savedContent;
   const editorLanguage = inferEditorLanguage(filePath);
   const editorTheme = editorLanguage === "nginx" ? (theme === "dark" ? "nginx-theme-dark" : "nginx-theme") : (theme === "dark" ? "vs-dark" : "light");
@@ -965,7 +966,7 @@ function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: {
   };
 
   const close = () => {
-    if (dirty && !window.confirm(t("connectEditorCloseDirtyConfirm"))) return;
+    if (dirty) { setConfirmClose(true); return; }
     onClose();
   };
 
@@ -1090,6 +1091,7 @@ function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: {
           />
         </div>
       )}
+    {confirmClose && <ConfirmDialog title={t("commonClose")} body={t("connectEditorCloseDirtyConfirm")} confirmLabel={t("commonClose")} danger onConfirm={onClose} onClose={() => setConfirmClose(false)} />}
     </section>
   );
 }
@@ -1595,6 +1597,25 @@ export function TerminalPanel({ data, target, paneID, restoreSession = false, ac
       blurActiveElement();
     }, 0);
     container.addEventListener("pointerdown", focusTerminal);
+    const pasteText = (text: string) => {
+      if (!text || runtime.status !== "connected") return;
+      sendTerminalInput(normalizeTerminalInputText(text));
+    };
+    const onTerminalPaste = (event: ClipboardEvent) => {
+      const text = event.clipboardData?.getData("text/plain") || "";
+      if (!text || runtime.status !== "connected") return;
+      event.preventDefault();
+      event.stopPropagation();
+      pasteText(text);
+    };
+    const onTerminalPasteShortcut = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "v" || (!event.ctrlKey && !event.metaKey) || event.altKey || runtime.status !== "connected") return;
+      event.preventDefault();
+      event.stopPropagation();
+      void navigator.clipboard?.readText().then(pasteText).catch(() => undefined);
+    };
+    container.addEventListener("paste", onTerminalPaste);
+    container.addEventListener("keydown", onTerminalPasteShortcut, true);
 
     const reconnectIfInactive = () => {
       if (runtime.status !== "disconnected" && runtime.status !== "error") return false;
@@ -1634,6 +1655,8 @@ export function TerminalPanel({ data, target, paneID, restoreSession = false, ac
       resizeObserver.disconnect();
       mobileMedia.removeEventListener("change", syncTerminalLetterSpacing);
       container.removeEventListener("pointerdown", focusTerminal);
+      container.removeEventListener("paste", onTerminalPaste);
+      container.removeEventListener("keydown", onTerminalPasteShortcut, true);
       container.removeEventListener("keydown", onTerminalKeyDown);
     };
   }, [runtime, target.id]);
