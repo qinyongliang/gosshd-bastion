@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { BrandMark, ConfirmDialog, Drawer, Field, Modal, ModalActions, SimpleTable, Toggle, UserCell } from "../components/ui";
+import { ActionMenu, BrandMark, ConfirmDialog, Drawer, Field, Modal, ModalActions, SimpleTable, Toggle, UserCell } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appIcon, appName } from "../lib/branding";
 import { formSubmit, roleText } from "../lib/forms";
@@ -17,10 +17,12 @@ export function SystemAdminPage({ data }: { data: ConsoleData }) {
       <section className="resource-head system-admin-head">
         <div><small>{appDescription(data.runtime)}</small><h2>{t("systemAdminTitle")}</h2><p>{t("systemAdminBody")}</p></div>
         <div className="resource-actions">
-          <button type="button" onClick={() => setModal("branding")}>{t("adminBrandingSettings")}</button>
-          <button type="button" onClick={() => setModal("auth")}>{t("adminAuthSettings")}</button>
-          <button type="button" onClick={() => setModal("dingtalk")}>{t("adminProviderDingTalk")}</button>
           <button type="button" className="primary" onClick={() => setModal("ldap")}>{t("adminProviderLDAP")}</button>
+          <ActionMenu label={t("commonMore")}>
+            <button type="button" onClick={() => setModal("branding")}>{t("adminBrandingSettings")}</button>
+            <button type="button" onClick={() => setModal("auth")}>{t("adminAuthSettings")}</button>
+            <button type="button" onClick={() => setModal("dingtalk")}>{t("adminProviderDingTalk")}</button>
+          </ActionMenu>
         </div>
       </section>
       <div className="identity-grid system-admin-grid">
