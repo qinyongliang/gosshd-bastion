@@ -312,10 +312,10 @@ function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selec
     <TagList target={target} />
     <span className="inline-actions">
       <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} />
-      <button type="button" className="button-link" onClick={() => onOpen(target.id)}><TerminalSquare />{t("connect")}</button>
-      <button type="button" onClick={() => onEdit(target.id)}><Edit3 />{t("commonEdit")}</button>
-      <button type="button" onClick={() => setMoving(true)}><Move />{t("serviceBatchMove")}</button>
-      <button type="button" className="danger" onClick={() => onDelete(target)} disabled={deleting}><Trash2 />{t("commonDelete")}</button>
+      <button type="button" className="button-link" title={t("connect")} aria-label={t("connect")} onClick={() => onOpen(target.id)}><TerminalSquare /><span>{t("connect")}</span></button>
+      <button type="button" title={t("commonEdit")} aria-label={t("commonEdit")} onClick={() => onEdit(target.id)}><Edit3 /><span>{t("commonEdit")}</span></button>
+      <button type="button" title={t("serviceBatchMove")} aria-label={t("serviceBatchMove")} onClick={() => setMoving(true)}><Move /><span>{t("serviceBatchMove")}</span></button>
+      <button type="button" className="danger" title={t("commonDelete")} aria-label={t("commonDelete")} onClick={() => onDelete(target)} disabled={deleting}><Trash2 /><span>{t("commonDelete")}</span></button>
     </span>
     {moving && <TargetMoveCopyModal data={data} targetIDs={[target.id]} action="move" onClose={() => setMoving(false)} />}
   </div>;
