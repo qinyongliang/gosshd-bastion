@@ -75,6 +75,11 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
           <span className="nav-caption">Workspace</span>
           {nav.map(([to, label, Icon]) => <NavButton key={to} to={to} label={label} icon={<Icon />} onClick={() => setSidebarOpen(false)} />)}
         </nav>
+        <div className="sidebar-preferences">
+          <span className="nav-caption">Preferences</span>
+          <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
+          <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
+        </div>
         {!isClientMode && <OrgSwitcher data={data} />}
         {!isClientMode && data.user.auth_provider === "local" && <button type="button" className="logout-button" onClick={() => setPasswordOpen(true)}><KeyRound />{t("changePassword")}</button>}
         {!isClientMode && <button type="button" className="logout-button" onClick={() => logout.mutate()}><LockKeyhole />{t("logout")}</button>}
@@ -90,10 +95,6 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
           </div>
           <div className="topbar-meta">
             <span className="topbar-status"><i />{isClientMode ? "Local client" : "Connected"}</span>
-            <div className="top-actions">
-              <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
-              <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
-            </div>
           </div>
         </header>
         {children}
