@@ -1,15 +1,13 @@
 import clsx from "clsx";
+import { Button as AntButton, Drawer as AntDrawer, Dropdown as AntDropdown, Input as AntInput, Modal as AntModal, Select as AntSelect, Spin } from "antd";
 import { Activity, Copy, MoreHorizontal, Play, Search, X } from "lucide-react";
-import { ReactNode, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useI18n } from "../i18n";
 import type { AuditLog, Member, Target } from "../types";
 import { copyText, tagColor } from "../utils";
 import { formatDate } from "../lib/forms";
 import { appIcon, type Branding } from "../lib/branding";
-
-const modalStack: symbol[] = [];
 
 export function AuditTable({ logs, onReplay, compact = false }: { logs: AuditLog[]; onReplay?: (log: AuditLog) => void; compact?: boolean }) {
   const { t } = useI18n();
@@ -72,32 +70,19 @@ export function NavButton({ to, label, icon, onClick }: { to: string; label: str
 }
 
 export function ActionMenu({ label, children }: { label: string; children: ReactNode }) {
+  const [desktop, setDesktop] = useState(false);
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const closeOnOutside = (event: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
-    const closeOther = (event: Event) => { if ((event as CustomEvent<HTMLElement>).detail !== rootRef.current) setOpen(false); };
-    document.addEventListener("pointerdown", closeOnOutside, true);
-    document.addEventListener("keydown", closeOnEscape, true);
-    document.addEventListener("gosshd-action-menu-open", closeOther);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutside, true);
-      document.removeEventListener("keydown", closeOnEscape, true);
-      document.removeEventListener("gosshd-action-menu-open", closeOther);
-    };
+    const workspace = document.querySelector(".workspace");
+    if (!workspace) return;
+    const observer = new ResizeObserver(([entry]) => setDesktop(entry.contentRect.width >= 1200));
+    observer.observe(workspace);
+    return () => observer.disconnect();
   }, []);
-  const toggle = () => {
-    const next = !open;
-    setOpen(next);
-    if (next) document.dispatchEvent(new CustomEvent("gosshd-action-menu-open", { detail: rootRef.current }));
-  };
-  return <div ref={rootRef} className="action-menu">
-    <button type="button" className="action-menu-trigger" aria-haspopup="menu" aria-expanded={open} onClick={toggle}><MoreHorizontal />{label}</button>
-    {open && <div className="action-menu-popover" role="menu" onClick={(event) => { if ((event.target as HTMLElement).closest("button")) setOpen(false); }}>{children}</div>}
-  </div>;
+  if (desktop) return <div className="action-menu-inline">{children}</div>;
+  return <AntDropdown open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" destroyOnHidden popupRender={() => <div className="action-menu-popover antd-action-menu" role="menu" onClick={(event) => { const button = (event.target as HTMLElement).closest("button"); if (button && button.dataset.keepMenu !== "true") setOpen(false); }}>{children}</div>}>
+    <AntButton className="action-menu-trigger" icon={<MoreHorizontal />} aria-haspopup="menu" aria-expanded={open}>{label}</AntButton>
+  </AntDropdown>;
 }
 
 export function Panel({ title, subtitle, children, className = "" }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
@@ -113,56 +98,20 @@ export function Metric({ label, value, icon }: { label: string; value: number; i
 }
 
 export function Modal({ title, children, onClose, wide = false, stacked = false, className = "", closeOnEscape = true }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; stacked?: boolean; className?: string; closeOnEscape?: boolean }) {
-  const { t } = useI18n();
-  const modalID = useRef(Symbol(title));
-  useEffect(() => {
-    modalStack.push(modalID.current);
-    return () => {
-      const index = modalStack.indexOf(modalID.current);
-      if (index >= 0) modalStack.splice(index, 1);
-    };
-  }, []);
-  useEffect(() => {
-    if (!closeOnEscape) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (modalStack[modalStack.length - 1] !== modalID.current) return;
-      if (isEditingTarget(event.target)) return;
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeOnEscape, onClose]);
-  return createPortal(<div className={clsx("overlay", stacked && "stacked")}><section className={clsx("modal", wide && "wide", className)} role="dialog" aria-modal="true" aria-label={title}>
-    <header className="modal-head"><div><h2>{title}</h2></div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
-    <div className="modal-body">{children}</div>
-  </section></div>, document.body);
-}
-
-function isEditingTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  return <AntModal open onCancel={onClose} title={title} footer={null} keyboard={closeOnEscape} maskClosable={closeOnEscape} width={wide ? 820 : 560} className={clsx(className, stacked && "stacked")} destroyOnHidden>{children}</AntModal>;
 }
 
 export function Drawer({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
-  const { t } = useI18n();
-  return <div className="drawer-layer">
-    <button className="drawer-scrim" type="button" tabIndex={-1} aria-hidden="true" onClick={onClose} />
-    <aside className="drawer">
-      <header className="drawer-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
-      <div className="drawer-body">{children}</div>
-    </aside>
-  </div>;
+  return <AntDrawer open onClose={onClose} title={<div><strong>{title}</strong>{subtitle && <small className="drawer-subtitle">{subtitle}</small>}</div>} placement="right" width={Math.min(720, typeof window === "undefined" ? 720 : window.innerWidth)} destroyOnHidden>{children}</AntDrawer>;
 }
 
 export function Field({ label, name, type = "text", defaultValue = "", required = false, placeholder = "", disabled = false }: { label: string; name: string; type?: string; defaultValue?: string; required?: boolean; placeholder?: string; disabled?: boolean }) {
-  return <label className="field"><span>{label}</span><input name={name} type={type} defaultValue={defaultValue} required={required} placeholder={placeholder} disabled={disabled} /></label>;
+  return <label className="field"><span>{label}</span><AntInput name={name} type={type} defaultValue={defaultValue} required={required} placeholder={placeholder} disabled={disabled} /></label>;
 }
 
 export function Select({ label, name, options, defaultValue = "" }: { label: string; name: string; options: (readonly [string, string])[]; defaultValue?: string }) {
-  return <label className="field"><span>{label}</span><select name={name} defaultValue={defaultValue}>{options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>;
+  const [value, setValue] = useState(defaultValue);
+  return <label className="field"><span>{label}</span><AntSelect value={value} onChange={setValue} options={options.map(([itemValue, text]) => ({ value: itemValue, label: text }))} /><input type="hidden" name={name} value={value} readOnly /></label>;
 }
 
 export function Toggle({ name, label, defaultChecked }: { name: string; label: string; defaultChecked?: boolean }) {
@@ -171,7 +120,7 @@ export function Toggle({ name, label, defaultChecked }: { name: string; label: s
 
 export function ModalActions({ onCancel, submit }: { onCancel?: () => void; submit: string }) {
   const { t } = useI18n();
-  return <div className="form-actions span-two">{onCancel && <button type="button" onClick={onCancel}>{t("cancel")}</button>}<button type="submit" className="primary">{submit}</button></div>;
+  return <div className="form-actions span-two">{onCancel && <AntButton onClick={onCancel}>{t("cancel")}</AntButton>}<AntButton htmlType="submit" type="primary">{submit}</AntButton></div>;
 }
 
 export function Segmented({ value, items, onChange }: { value: string; items: (readonly [string, string])[]; onChange: (value: string) => void }) {
@@ -234,7 +183,7 @@ export function ConfirmDialog({ title, body, confirmLabel, danger = false, onCon
 }
 
 export function Loading() {
-  return <section className="loading-view"><BrandMark /><p>Loading...</p></section>;
+  return <section className="loading-view"><Spin size="large" /><p>Loading...</p></section>;
 }
 
 export function BrandMark({ branding, className = "" }: { branding?: Branding; className?: string }) {
