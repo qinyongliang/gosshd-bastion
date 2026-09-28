@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { Button as AntButton, Drawer as AntDrawer, Dropdown as AntDropdown, Input as AntInput, Modal as AntModal, Select as AntSelect, Spin } from "antd";
 import { Activity, Copy, MoreHorizontal, Play, Search, X } from "lucide-react";
-import { Children, cloneElement, isValidElement, ReactNode, useEffect, useState } from "react";
+import { Children, cloneElement, isValidElement, ReactNode, useEffect, useState, type CSSProperties } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useI18n } from "../i18n";
 import type { AuditLog, Member, Target } from "../types";
@@ -193,11 +193,17 @@ export function ConfirmDialog({ title, body, confirmLabel, danger = false, onCon
 }
 
 export function Loading() {
-  return <section className="loading-view"><div className="loading-brand"><BrandMark /><Spin size="large" /></div><p>Loading...</p></section>;
+  return <section className="loading-view" style={{ minHeight: "100dvh", display: "grid", placeItems: "center", alignContent: "center", gap: 16, padding: 24, color: "#667085" }}>
+    <div style={{ position: "relative", width: 112, height: 112 }}>
+      <BrandMark style={{ width: 112, height: 112, borderRadius: 20 }} />
+      <Spin size="small" style={{ position: "absolute", right: 8, bottom: 8 }} />
+    </div>
+    <p style={{ margin: 0, fontSize: 14 }}>Loading...</p>
+  </section>;
 }
 
-export function BrandMark({ branding, className = "" }: { branding?: Branding; className?: string }) {
-  return <span className={clsx("mark", className)}><img src={appIcon(branding)} alt="" /></span>;
+export function BrandMark({ branding, className = "", style }: { branding?: Branding; className?: string; style?: CSSProperties }) {
+  return <span className={clsx("mark", className)} style={style}><img src={appIcon(branding)} alt="" style={{ width: style ? "100%" : "72%", height: style ? "100%" : "72%", objectFit: "contain" }} /></span>;
 }
 
 export function Fatal({ error }: { error: unknown }) {
