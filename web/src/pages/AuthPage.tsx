@@ -55,10 +55,10 @@ export function AuthPage({ dingTalkEnabled, registrationEnabled, branding }: { d
             {mode === "login" ? t("authSignIn") : t("authCreateAccount")}
           </button>
         </form>
-        <div className="sso-zone">
+        {dingTalkEnabled && <div className="sso-zone">
           <span>DingTalk</span>
-          {dingTalkEnabled ? <a className="button-link" href="/api/auth/dingtalk/start?redirect_after=/">{t("authProviderContinue")}</a> : <button type="button" className="ghost" disabled>{t("authProviderDisabled")}</button>}
-        </div>
+          <a className="button-link" href="/api/auth/dingtalk/start?redirect_after=/">{t("authProviderContinue")}</a>
+        </div>}
         {error && <div className="status error">{error}</div>}
       </div>
     </section>
