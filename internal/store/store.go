@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -54,20 +53,7 @@ func configureSQLite(ctx context.Context, db *sql.DB) error {
 }
 
 func (s *Store) ApplyMigrations(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, stmt := range migrations {
-		if _, err := tx.ExecContext(ctx, stmt); err != nil {
-			if strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
-				continue
-			}
-			return fmt.Errorf("apply migration: %w", err)
-		}
-	}
-	return tx.Commit()
+	return applySchemaMigrations(ctx, s.db, "migrations", "users", upgradeLegacyMainSchema)
 }
 
 func (s *Store) DB() *sql.DB {
