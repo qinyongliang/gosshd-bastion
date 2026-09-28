@@ -183,7 +183,7 @@ export function ConfirmDialog({ title, body, confirmLabel, danger = false, onCon
 }
 
 export function Loading() {
-  return <section className="loading-view"><Spin size="large" /><p>Loading...</p></section>;
+  return <section className="loading-view"><div className="loading-brand"><BrandMark /><Spin size="large" /></div><p>Loading...</p></section>;
 }
 
 export function BrandMark({ branding, className = "" }: { branding?: Branding; className?: string }) {
