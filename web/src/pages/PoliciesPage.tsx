@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BrainCircuit, Copy, Pencil, Plus, Settings, Trash2, X } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { ActionMenu, ConfirmDialog, ErrorMessage, Field, Modal, ModalActions, Panel, Select, SimpleTable, Tag, Toggle } from "../components/ui";
+import { ActionMenu, ConfirmDialog, Drawer, ErrorMessage, Field, Modal, ModalActions, Panel, Select, SimpleTable, Tag, Toggle } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formSubmit, policyPayload } from "../lib/forms";
 import type { ConsoleData, LLMConfig, Policy, PolicyRule, PromptResource, Target, UserGroup } from "../types";
@@ -213,14 +213,7 @@ function PolicyDrawer({ data, policy, onClose }: { data: ConsoleData; policy: Po
 }
 
 function DrawerShell({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
-  const { t } = useI18n();
-  return <div className="drawer-layer">
-    <button className="drawer-scrim" type="button" tabIndex={-1} aria-hidden="true" onClick={onClose} />
-    <aside className="drawer policy-drawer">
-      <header className="surface-head"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" type="button" aria-label={t("close")} onClick={onClose}><X /></button></header>
-      <div className="surface-body policy-drawer-body">{children}</div>
-    </aside>
-  </div>;
+  return <Drawer title={title} subtitle={subtitle} onClose={onClose}>{children}</Drawer>;
 }
 
 function ResourceSelect({ label, name, value, emptyLabel, items, onCreate, onManage }: { label: string; name: string; value: string; emptyLabel: string; items: (readonly [string, string])[]; onCreate: () => void; onManage: () => void }) {
