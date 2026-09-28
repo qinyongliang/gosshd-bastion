@@ -286,7 +286,7 @@ function FolderNode(props: {
       </button>
       <span className="inline-actions">
         <ActionMenu label={t("commonMore")}>
-          {editingName ? <span className="inline-edit"><input value={name} onChange={(event) => setName(event.target.value)} autoFocus /><button type="button" className="small primary" onClick={() => name.trim() && rename.mutate(name.trim())} disabled={rename.isPending}>{t("save")}</button><button type="button" className="small" onClick={() => setEditingName(false)}>{t("cancel")}</button></span> : <button type="button" onClick={() => setEditingName(true)} disabled={rename.isPending}><Edit3 />{t("commonEdit")}</button>}
+          {editingName ? <span className="inline-edit"><input value={name} onChange={(event) => setName(event.target.value)} autoFocus /><button type="button" className="small primary" onClick={() => name.trim() && rename.mutate(name.trim())} disabled={rename.isPending}>{t("save")}</button><button type="button" className="small" onClick={() => setEditingName(false)}>{t("cancel")}</button></span> : <button type="button" data-keep-menu="true" onClick={() => setEditingName(true)} disabled={rename.isPending}><Edit3 />{t("commonEdit")}</button>}
           <button type="button" onClick={() => props.onNewFolder(props.folder.id)}><FolderPlus />{t("serviceNewFolder")}</button>
           <button type="button" onClick={() => props.onMove(props.folder)}><Move />{t("serviceMoveFolder")}</button>
           <button type="button" className="danger" onClick={() => setDeleteOpen(true)} disabled={remove.isPending}><Trash2 />{t("commonDelete")}</button>
