@@ -161,7 +161,8 @@ export function CopyButton({ value, label }: { value: string; label?: string }) 
 }
 
 export function CommandBox({ label, value, copyLabel }: { label: string; value: string; copyLabel?: string }) {
-  return <div className="command-box"><span>{label}</span><code>{value}</code><CopyButton value={value} label={copyLabel} /></div>;
+  const multiline = value.includes("\n") || value.trim().startsWith("{") || value.trim().startsWith("[");
+  return <div className={clsx("command-box", multiline && "multiline")}><span>{label}</span>{multiline ? <pre>{value}</pre> : <code>{value}</code>}<CopyButton value={value} label={copyLabel} /></div>;
 }
 
 export function SelectButton({ label, items, onSelect }: { label: string; items: (readonly [string, string])[]; onSelect: (value: string) => void }) {
