@@ -315,9 +315,8 @@ function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selec
     <span>{credential ? credential.name : (target.auth_type === "private_key" ? t("serviceAuthPrivateKey") : t("serviceAuthPassword"))}</span>
     <TagList target={target} />
     <span className="inline-actions">
-      <button type="button" className="button-link" onClick={() => onOpen(target.id)}><TerminalSquare />{t("connect")}</button>
+      <button type="button" className="button-link" title={t("connect")} aria-label={t("connect")} onClick={() => onOpen(target.id)}><TerminalSquare /><span>{t("connect")}</span></button>
       <ActionMenu label={t("commonMore")}>
-        <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} />
         <button type="button" onClick={() => onEdit(target.id)}><Edit3 />{t("commonEdit")}</button>
         <button type="button" onClick={() => setMoving(true)}><Move />{t("serviceBatchMove")}</button>
         <button type="button" className="danger" onClick={() => onDelete(target)} disabled={deleting}><Trash2 />{t("commonDelete")}</button>
