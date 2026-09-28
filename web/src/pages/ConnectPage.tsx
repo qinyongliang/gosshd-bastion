@@ -42,10 +42,10 @@ import { Terminal } from "@xterm/xterm";
 import { Activity, ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Cpu, Folder, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { ManualReviewPoller } from "../components/ManualReviewPoller";
-import { ConfirmDialog, Segmented } from "../components/ui";
+import { BrandMark, ConfirmDialog, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appName, documentTitle } from "../lib/branding";
 import { MOBILE_TERMINAL_KEY_ROWS, TERMINAL_SHORTCUT_LABELS, applyTerminalModifier, terminalShortcutSequence } from "../terminalShortcuts";
@@ -552,13 +552,13 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   return (
     <main className={`connect-workspace ${terminalFullscreen ? "terminal-fullscreen-active" : ""} ${hasOpenTabs ? "" : "no-tabs"}`}>
       <header className="connect-appbar">
-        <div className="connect-appbar-brand">
-          <div className="connect-appbar-mark">g</div>
+        <Link className="connect-appbar-brand" to="/">
+          <BrandMark branding={data.runtime} className="connect-appbar-mark" />
           <div className="connect-appbar-title">
             <strong>{name}</strong>
             <span>{description}</span>
           </div>
-        </div>
+        </Link>
 
         <ServerSwitcher targets={targets} folders={data.targetFolders} currentTargetID={activeTarget?.id || ""} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} />
 
