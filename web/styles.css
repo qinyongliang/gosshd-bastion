@@ -1994,3 +1994,4 @@ body.is-resizing-connect {
   .target-tree-row .action-menu-popover{position:static}
 }
 .loading-view{display:grid;place-items:center;align-content:center;gap:16px;min-height:100dvh;padding:24px;color:var(--muted)}.loading-view .ant-spin{color:var(--primary)}.loading-view p{margin:0;font-size:14px}
+.side-nav .nav-link,.side-nav button{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;justify-content:initial;gap:11px;min-height:44px;padding:0 12px;line-height:1.2}.side-nav .nav-link svg,.side-nav button svg{display:block;align-self:center;justify-self:center;width:20px;height:20px;flex:none}.side-nav .nav-link.active,.side-nav button.active{font-weight:650}.nav-caption{line-height:1.2}
