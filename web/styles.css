@@ -1644,8 +1644,9 @@ body.is-resizing-connect {
   min-height: 0;
 }
 
+@media (max-width: 1200px) {
   .connect-body {
-    grid-template-columns: minmax(190px, var(--host-width, 248px)) 0 minmax(0, 1fr);
+    grid-template-columns: minmax(190px, var(--host-width, 248px)) minmax(0, 1fr);
   }
   .connect-body.host-collapsed {
     grid-template-columns: 30px minmax(0, 1fr);
@@ -1655,6 +1656,7 @@ body.is-resizing-connect {
     display: none;
   }
   .connect-main {
+    grid-column: 2;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(320px, 1.1fr) minmax(220px, 0.65fr);
   }
@@ -1695,6 +1697,7 @@ body.is-resizing-connect {
     grid-template-columns: 90px minmax(0, 1fr);
   }
   .connect-main {
+    grid-column: 1;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(320px, 1.1fr) minmax(220px, 0.65fr);
   }
@@ -1937,4 +1940,47 @@ body.is-resizing-connect {
   }
   .file-manager-head {
     flex-direction: column;
+  }
+}
+
 .action-menu-trigger{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);cursor:pointer}.action-menu-trigger:hover,.action-menu-trigger[aria-expanded=true]{border-color:var(--primary);color:var(--primary);background:#eff4ff}.action-menu-popover{position:absolute;right:0;top:calc(100% + 6px);z-index:120;display:grid;min-width:180px;gap:2px;padding:5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);box-shadow:0 12px 28px #1018281f}.action-menu-popover button{justify-content:flex-start;width:100%;border:0;background:transparent;white-space:nowrap}.action-menu-popover button:hover{background:var(--surface-alt)}.target-tree-row .action-menu-popover{top:auto;bottom:calc(100% + 6px)}
+
+/* Authentication workspace */
+.auth-screen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
+  align-items: center;
+  gap: clamp(40px, 7vw, 112px);
+  width: min(1080px, calc(100% - 64px));
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 48px 0;
+}
+.brand-panel { min-width: 0; align-self: center; }
+.brand-panel .brand-row { padding: 0; color: var(--text); font-size: 14px; }
+.brand-panel h1 { max-width: 580px; margin: 34px 0 14px; font-size: 42px; line-height: 1.16; font-weight: 750; overflow-wrap: anywhere; }
+.brand-panel p { max-width: 480px; margin: 0; color: var(--muted); font-size: 17px; line-height: 1.6; }
+.auth-card { width: 100%; padding: 28px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
+.auth-card-head { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 28px; }
+.theme-switch { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-alt); }
+.theme-switch button { min-height: 30px; min-width: 42px; padding: 0 10px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; }
+.theme-switch button.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px #10182818; }
+.tabs { display: flex; gap: 4px; margin-bottom: 24px; padding: 4px; border-radius: 8px; background: var(--surface-alt); }
+.tabs button { flex: 1; border: 0; background: transparent; color: var(--muted); font-weight: 600; }
+.tabs button.active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 3px #10182818; }
+.auth-card .stack { gap: 16px; }
+.auth-card .field { gap: 7px; }
+.auth-card .field > span { font-size: 13px; color: var(--text); }
+.auth-card input { min-height: 44px; }
+.auth-card button.primary { width: 100%; min-height: 44px; margin-top: 4px; font-weight: 650; }
+.sso-zone { display: grid; gap: 8px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+.sso-zone > span { color: var(--muted); font-size: 12px; font-weight: 650; }
+.sso-zone > button, .sso-zone > a { width: 100%; }
+.auth-card .status.error { margin-top: 14px; }
+@media (max-width: 760px) {
+  .auth-screen { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 24px; width: min(440px, calc(100% - 32px)); padding: 24px 0; }
+  .brand-panel h1 { margin: 18px 0 4px; font-size: 28px; }
+  .brand-panel p { font-size: 14px; }
+  .auth-card { padding: 22px; }
+  .auth-card-head { margin-bottom: 20px; }
+}
