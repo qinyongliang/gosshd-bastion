@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { Button as AntButton, Drawer as AntDrawer, Dropdown as AntDropdown, Input as AntInput, Modal as AntModal, Select as AntSelect, Spin } from "antd";
 import { Activity, Copy, MoreHorizontal, Play, Search, X } from "lucide-react";
-import { ReactNode, useEffect, useState } from "react";
+import { Children, cloneElement, isValidElement, ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useI18n } from "../i18n";
 import type { AuditLog, Member, Target } from "../types";
@@ -80,7 +80,16 @@ export function ActionMenu({ label, children }: { label: string; children: React
     return () => observer.disconnect();
   }, []);
   if (desktop) return <div className="action-menu-inline">{children}</div>;
-  return <AntDropdown open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" destroyOnHidden popupRender={() => <div className="action-menu-popover antd-action-menu" role="menu" onClick={(event) => { const button = (event.target as HTMLElement).closest("button"); if (button && button.dataset.keepMenu !== "true") setOpen(false); }}>{children}</div>}>
+  const menuChildren = Children.map(children, (child) => {
+    if (!isValidElement<{ onClick?: (event: React.MouseEvent) => void; "data-keep-menu"?: string }>(child)) return child;
+    return cloneElement(child, {
+      onClick: (event) => {
+        child.props.onClick?.(event);
+        if (child.props["data-keep-menu"] !== "true") setOpen(false);
+      },
+    });
+  });
+  return <AntDropdown open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" destroyOnHidden popupRender={() => <div className="action-menu-popover antd-action-menu" role="menu">{menuChildren}</div>}>
     <AntButton className="action-menu-trigger" icon={<MoreHorizontal />} aria-haspopup="menu" aria-expanded={open}>{label}</AntButton>
   </AntDropdown>;
 }
