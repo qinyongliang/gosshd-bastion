@@ -730,16 +730,32 @@ function PrivateNodeDrawer({ data, target, onClose, onEnrollment, onSaved }: { d
 function TagColorEditor({ data, target }: { data: ConsoleData; target: Target }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const color = useMutation({ mutationFn: (body: Record<string, unknown>) => api.updateTargetTagColor(body), onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["targets"] }) });
+  const [colors, setColors] = useState<Record<string, string>>(() => ({ ...(target.tag_colors || {}) }));
+  useEffect(() => setColors({ ...(target.tag_colors || {}) }), [target.id, target.tag_colors]);
+  const color = useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.updateTargetTagColor(body),
+    onMutate: (body) => {
+      const tag = String(body.name || "");
+      const previous = colors[tag];
+      setColors((current) => ({ ...current, [tag]: String(body.color || "gray") }));
+      return { tag, previous };
+    },
+    onError: (_error, _body, context) => {
+      if (!context?.tag) return;
+      setColors((current) => ({ ...current, [context.tag]: context.previous || "gray" }));
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["targets"] }),
+  });
   const tags = target.tags || [];
   return <section className="section-block embedded">
     <h3>{t("serviceTagColors")}</h3>
     {tags.length ? tags.map((tag) => <div className="tag-color-row" key={tag}>
-      <Tag tag={tag} color={tagColor(tag, target.tag_colors)} />
+      <Tag tag={tag} color={colors[tag] || tagColor(tag, target.tag_colors)} />
       <div className="tag-color-swatches">
-        {["gray", "red", "orange", "yellow", "green", "blue", "purple"].map((item) => <button key={item} type="button" aria-label={`${t("serviceTagColorSet")} ${tag} ${t(`tagColor${item[0].toUpperCase()}${item.slice(1)}`)}`} className={`tag-color-${item}`} onClick={() => color.mutate({ owner_type: "organization", owner_id: data.activeOrg.id, name: tag, color: item })}>{item}</button>)}
+        {["gray", "red", "orange", "yellow", "green", "blue", "purple"].map((item) => <button key={item} type="button" aria-pressed={colors[tag] === item} aria-label={`${t("serviceTagColorSet")} ${tag} ${t(`tagColor${item[0].toUpperCase()}${item.slice(1)}`)}`} className={`tag-color-${item} ${colors[tag] === item ? "selected" : ""}`} disabled={color.isPending} onClick={() => color.mutate({ owner_type: "organization", owner_id: data.activeOrg.id, name: tag, color: item })}>{item}</button>)}
       </div>
     </div>) : <p className="muted">{t("serviceNoTagsForColors")}</p>}
+    {color.error && <ErrorMessage error={color.error} />}
   </section>;
 }
 
