@@ -316,6 +316,7 @@ function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selec
     <TagList target={target} />
     <span className="inline-actions">
       <button type="button" className="button-link" title={t("connect")} aria-label={t("connect")} onClick={() => onOpen(target.id)}><TerminalSquare /><span>{t("connect")}</span></button>
+      <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} label={t("commonCopy")} />
       <ActionMenu label={t("commonMore")}>
         <button type="button" onClick={() => onEdit(target.id)}><Edit3 />{t("commonEdit")}</button>
         <button type="button" onClick={() => setMoving(true)}><Move />{t("serviceBatchMove")}</button>

@@ -26,8 +26,12 @@ export function tagColor(tag: string, colors?: Record<string, string>) {
 
 export async function copyText(value: string) {
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // The fallback also works when clipboard permissions reject writeText.
+    }
   }
   const textarea = document.createElement("textarea");
   textarea.value = value;
@@ -36,8 +40,9 @@ export async function copyText(value: string) {
   document.body.appendChild(textarea);
   textarea.focus();
   textarea.select();
-  document.execCommand("copy");
+  const copied = document.execCommand("copy");
   textarea.remove();
+  if (!copied) throw new Error("Clipboard copy failed");
 }
 
 function hash(value: string) {
