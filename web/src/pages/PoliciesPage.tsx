@@ -403,13 +403,26 @@ function LLMManagerModal({ data, onClose, onCreated, stacked = false }: { data: 
         {data.llms.map((config) => <ResourceRow key={config.id} active={selectedID === config.id} title={config.name} detail={`${config.model} · ${config.base_url}`} meta={`${config.timeout_seconds}s`} onSelect={() => setSelectedID(config.id)} onDelete={() => remove.mutate(config.id)} />)}
         {data.llms.length === 0 && <div className="policy-empty-line">{t("policyNoLLMConfigs")}</div>}
       </ResourceListPanel>
-      <form key={editing?.id || "__new__"} className="resource-form" onSubmit={(event) => formSubmit(event, (body) => save.mutate(body))}>
-        <div className="resource-editor-title"><h3>{editing ? t("commonEdit") : t("policyCreateLLM")}</h3>{editing && <small>{editing.model}</small>}</div>
-        <Field label={t("policyLLMName")} name="name" defaultValue={editing?.name || ""} required />
-        <Field label={t("policyLLMBaseURL")} name="base_url" defaultValue={editing?.base_url || ""} required />
-        <Field label={t("policyLLMModel")} name="model" defaultValue={editing?.model || ""} required />
-        <Field label={t("policyLLMAPIKey")} name="api_key" type="password" placeholder={editing ? t("policyKeepAPIKey") : ""} />
-        <Field label={t("policyLLMTimeout")} name="timeout_seconds" type="number" defaultValue={String(editing?.timeout_seconds || 10)} />
+      <form key={editing?.id || "__new__"} className="resource-form resource-form-llm" onSubmit={(event) => formSubmit(event, (body) => save.mutate(body))}>
+        <div className="resource-editor-title">
+          <div><span className="resource-editor-eyebrow">{editing ? t("commonEdit") : t("policyCreateLLM")}</span><h3>{editing?.name || t("policyCreateLLM")}</h3></div>
+          {editing && <span className="resource-editor-badge">{editing.model}</span>}
+        </div>
+        <div className="resource-form-section">
+          <div className="resource-form-section-head"><strong>{t("policyLLMConnection")}</strong></div>
+          <div className="resource-form-grid resource-form-grid-llm">
+            <Field label={t("policyLLMName")} name="name" defaultValue={editing?.name || ""} required />
+            <Field label={t("policyLLMModel")} name="model" defaultValue={editing?.model || ""} required />
+            <Field label={t("policyLLMBaseURL")} name="base_url" defaultValue={editing?.base_url || ""} required />
+          </div>
+        </div>
+        <div className="resource-form-section">
+          <div className="resource-form-section-head"><strong>{t("policyLLMAccess")}</strong></div>
+          <div className="resource-form-grid resource-form-grid-llm-access">
+            <Field label={t("policyLLMAPIKey")} name="api_key" type="password" placeholder={editing ? t("policyKeepAPIKey") : ""} />
+            <Field label={t("policyLLMTimeout")} name="timeout_seconds" type="number" defaultValue={String(editing?.timeout_seconds || 10)} />
+          </div>
+        </div>
         <ModalActions onCancel={editing ? () => setSelectedID("__new__") : undefined} submit={editing ? t("save") : t("commonCreate")} />
       </form>
     </div>
@@ -456,10 +469,17 @@ function PromptManagerModal({ data, onClose, onCreated, stacked = false }: { dat
         {data.prompts.map((prompt) => <ResourceRow key={prompt.id} active={selectedID === prompt.id} title={prompt.title} detail={prompt.content} meta={prompt.is_readonly ? t("policyReadonlyPrompt") : ""} onSelect={() => setSelectedID(prompt.id)} onDelete={() => remove.mutate(prompt.id)} disabled={prompt.is_readonly} />)}
         {data.prompts.length === 0 && <div className="policy-empty-line">{t("policyNoPrompts")}</div>}
       </ResourceListPanel>
-      <form key={editing?.id || "__new__"} className="resource-form" onSubmit={(event) => formSubmit(event, (body) => save.mutate(body))}>
-        <div className="resource-editor-title"><h3>{editing ? t("commonEdit") : t("policyCreatePrompt")}</h3>{editing?.is_readonly && <small>{t("policyReadonlyPrompt")}</small>}</div>
-        <Field label={t("commonTitle")} name="title" defaultValue={editing?.title || ""} required disabled={Boolean(editing?.is_readonly)} />
-        <label className="field"><span>{t("policyPromptContent")}</span><textarea name="content" defaultValue={editing?.content || ""} required disabled={Boolean(editing?.is_readonly)} /></label>
+      <form key={editing?.id || "__new__"} className="resource-form resource-form-prompt" onSubmit={(event) => formSubmit(event, (body) => save.mutate(body))}>
+        <div className="resource-editor-title">
+          <div><span className="resource-editor-eyebrow">{editing ? t("commonEdit") : t("policyCreatePrompt")}</span><h3>{editing?.title || t("policyCreatePrompt")}</h3></div>
+          {editing?.is_readonly && <span className="resource-editor-badge">{t("policyReadonlyPrompt")}</span>}
+        </div>
+        <div className="resource-form-section">
+          <div className="resource-form-grid resource-form-grid-prompt">
+            <Field label={t("commonTitle")} name="title" defaultValue={editing?.title || ""} required disabled={Boolean(editing?.is_readonly)} />
+            <label className="field"><span>{t("policyPromptContent")}</span><textarea name="content" defaultValue={editing?.content || ""} required disabled={Boolean(editing?.is_readonly)} /></label>
+          </div>
+        </div>
         {editing?.is_readonly ? <div className="policy-empty-line">{t("policyReadonlyPrompt")}</div> : <ModalActions onCancel={editing ? () => setSelectedID("__new__") : undefined} submit={editing ? t("save") : t("commonCreate")} />}
       </form>
     </div>
@@ -480,8 +500,8 @@ function ResourceRow({ title, detail, meta, active, onSelect, onDelete, disabled
       <strong>{title}</strong><small>{detail}</small>{meta && <em>{meta}</em>}
     </button>
     <span className="inline-actions">
-      <button type="button" onClick={onSelect} disabled={disabled}><Pencil />{t("commonEdit")}</button>
-      <button type="button" className="danger" onClick={onDelete} disabled={disabled}><Trash2 />{t("commonDelete")}</button>
+      <button type="button" onClick={onSelect} disabled={disabled} title={t("commonEdit")} aria-label={t("commonEdit")}><Pencil /></button>
+      <button type="button" className="danger" onClick={onDelete} disabled={disabled} title={t("commonDelete")} aria-label={t("commonDelete")}><Trash2 /></button>
     </span>
   </div>;
 }
