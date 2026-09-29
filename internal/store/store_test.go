@@ -42,6 +42,7 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 		"organization_members",
 		"organization_user_groups",
 		"organization_user_group_members",
+		"organization_user_group_targets",
 		"organization_invites",
 		"user_public_keys",
 		"ssh_targets",
@@ -66,6 +67,96 @@ func TestOpenAppliesBastionSchema(t *testing.T) {
 		if !got[table] {
 			t.Fatalf("schema missing table %s; got %#v", table, got)
 		}
+	}
+}
+
+func TestRepositoryEncryptsSecretsWhenKeyConfigured(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"), []byte("test-secret-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+	user, err := repo.CreateUser(ctx, CreateUserParams{Email: "cipher@example.com", DisplayName: "Cipher", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := repo.CreateOrganization(ctx, CreateOrganizationParams{Name: "Cipher Org", Slug: "cipher-org", OwnerUserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := repo.CreateSSHTarget(ctx, CreateSSHTargetParams{OwnerType: OwnerOrganization, OwnerID: org.ID, Alias: "cipher", TargetType: TargetDirect, Host: "127.0.0.1", Port: 22, RemoteUsername: "root", AuthType: AuthPassword, EncryptedSecret: []byte("super-secret"), CreatedBy: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	if err := st.DB().QueryRowContext(ctx, "SELECT encrypted_secret FROM ssh_targets WHERE id = ?", target.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) == "super-secret" || len(raw) == 0 {
+		t.Fatalf("secret was not encrypted: %q", raw)
+	}
+	loaded, err := repo.GetSSHTarget(ctx, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loaded.EncryptedSecret) != "super-secret" {
+		t.Fatalf("secret round trip mismatch: %q", loaded.EncryptedSecret)
+	}
+}
+
+func TestUserGroupTargetBindingsScopeAccess(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "gosshd.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	repo := st.Repository()
+	owner, err := repo.CreateUser(ctx, CreateUserParams{Email: "group-owner@example.com", DisplayName: "Owner", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := repo.CreateUser(ctx, CreateUserParams{Email: "group-member@example.com", DisplayName: "Member", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := repo.CreateUser(ctx, CreateUserParams{Email: "group-other@example.com", DisplayName: "Other", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := repo.CreateOrganization(ctx, CreateOrganizationParams{Name: "Group Org", Slug: "group-org", OwnerUserID: owner.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AddOrganizationMember(ctx, org.ID, member.ID, RoleMember); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AddOrganizationMember(ctx, org.ID, other.ID, RoleMember); err != nil {
+		t.Fatal(err)
+	}
+	group, err := repo.CreateOrganizationUserGroup(ctx, CreateOrganizationUserGroupParams{OrganizationID: org.ID, Name: "Operators", Slug: "operators"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AddUserToGroup(ctx, group.ID, member.ID); err != nil {
+		t.Fatal(err)
+	}
+	target, err := repo.CreateSSHTarget(ctx, CreateSSHTargetParams{OwnerType: OwnerOrganization, OwnerID: org.ID, Alias: "group-target", TargetType: TargetDirect, Host: "127.0.0.1", Port: 22, RemoteUsername: "root", AuthType: AuthPassword, CreatedBy: owner.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AttachUserGroupToTarget(ctx, group.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	allowed, err := repo.UserCanAccessTarget(ctx, member.ID, target.ID)
+	if err != nil || !allowed {
+		t.Fatalf("group member should access target: %t %v", allowed, err)
+	}
+	allowed, err = repo.UserCanAccessTarget(ctx, other.ID, target.ID)
+	if err != nil || allowed {
+		t.Fatalf("non-group member should not access target: %t %v", allowed, err)
 	}
 }
 

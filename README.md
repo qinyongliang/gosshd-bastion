@@ -46,6 +46,7 @@ Download the latest server package from [GitHub Releases](https://github.com/qin
   --http-listen :18080 \
   --ssh-listen :22022 \
   --database-path ./data/gosshd.db \
+  --secret-key-path ./data/gosshd.secret-key \
   --audit-database-path ./data/gosshd-audit.db \
   --host-key-path ./data/gosshd_host_key \
   --agent-cache-path ./agent-cache \
@@ -66,10 +67,21 @@ Then:
 2. Create or select an organization.
 3. Add a direct SSH server or create a private-node enrollment.
 4. Add command safety groups and optional LLM review.
-5. Connect through the SSH control plane:
+5. Bind user groups to batches of SSH targets when access needs to be scoped.
+6. Connect through the SSH control plane:
+
+The server encrypts SSH credentials and LLM API keys before writing them to SQLite. Keep the secret key outside backups and protect it with file permissions. Use HTTPS directly through a TLS reverse proxy before exposing the console or enrollment links.
 
 ```sh
 ssh -p 22022 aws-ap-sg-billing-db@bastion.example.com "hostname"
+```
+
+### Reset a User Password
+
+Use the one-shot startup flag to generate a 16-character random password for a user identified by email or user ID. The process exits after updating the account and prints the new password to standard output:
+
+```sh
+./gosshd-server --database-path ./data/gosshd.db --secret-key-path ./data/gosshd.secret-key --reset-user-password admin
 ```
 
 ## Private Node Install

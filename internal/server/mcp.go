@@ -120,11 +120,15 @@ func (a *App) mcpListTargets(ctx context.Context, actor store.User, userID strin
 		if err != nil {
 			return nil, err
 		}
-		return a.store.Repository().ListSSHTargetsFiltered(ctx, store.SSHTargetFilter{
+		targets, err := a.store.Repository().ListSSHTargetsFiltered(ctx, store.SSHTargetFilter{
 			OwnerType: ownerType,
 			OwnerID:   ownerID,
 			Tags:      in.Tags,
 		})
+		if err != nil {
+			return nil, err
+		}
+		return a.filterMCPTargets(ctx, targets, userID, actor.IsSystemAdmin && strings.TrimSpace(in.UserID) == "")
 	}
 	if actor.IsSystemAdmin && strings.TrimSpace(in.UserID) == "" {
 		return a.store.Repository().ListSSHTargetsFiltered(ctx, store.SSHTargetFilter{Tags: in.Tags})
@@ -143,7 +147,28 @@ func (a *App) mcpListTargets(ctx context.Context, actor store.User, userID strin
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, targets...)
+		filtered, err := a.filterMCPTargets(ctx, targets, userID, false)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, filtered...)
+	}
+	return out, nil
+}
+
+func (a *App) filterMCPTargets(ctx context.Context, targets []store.SSHTarget, userID string, bypass bool) ([]store.SSHTarget, error) {
+	if bypass {
+		return targets, nil
+	}
+	out := make([]store.SSHTarget, 0, len(targets))
+	for _, target := range targets {
+		visible, err := a.store.Repository().UserCanAccessTarget(ctx, userID, target.ID)
+		if err != nil {
+			return nil, err
+		}
+		if visible {
+			out = append(out, target)
+		}
 	}
 	return out, nil
 }
@@ -447,6 +472,20 @@ func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 			if err != nil {
 				return nil, apiTargetResponse{}, err
 			}
+			if err := a.validateTargetAgent(ctx, ownerType, ownerID, in.TargetType, in.AgentID); err != nil {
+				return nil, apiTargetResponse{}, err
+			}
+			if strings.TrimSpace(in.CredentialID) != "" {
+				if err := a.requireOrganizationAdmin(ctx, ownerID, actor); err != nil {
+					return nil, apiTargetResponse{}, err
+				}
+			}
+			if err := a.validateCredential(ctx, ownerType, ownerID, in.CredentialID); err != nil {
+				return nil, apiTargetResponse{}, err
+			}
+			if err := a.validateTargetFolder(ctx, ownerType, ownerID, in.FolderID); err != nil {
+				return nil, apiTargetResponse{}, err
+			}
 			target, err := a.store.Repository().CreateSSHTarget(ctx, store.CreateSSHTargetParams{
 				OwnerType:       ownerType,
 				OwnerID:         ownerID,
@@ -460,6 +499,8 @@ func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 				EncryptedSecret: []byte(in.Secret),
 				AgentID:         in.AgentID,
 				ProxyTargetID:   in.ProxyTargetID,
+				CredentialID:    in.CredentialID,
+				FolderID:        in.FolderID,
 				Tags:            in.Tags,
 				CreatedBy:       userID,
 			})
@@ -860,6 +901,8 @@ type mcpTargetCreateInput struct {
 	Secret         string   `json:"secret,omitempty"`
 	AgentID        string   `json:"agent_id,omitempty"`
 	ProxyTargetID  string   `json:"proxy_target_id,omitempty"`
+	CredentialID   string   `json:"credential_id,omitempty"`
+	FolderID       string   `json:"folder_id,omitempty"`
 	Tags           []string `json:"tags,omitempty"`
 }
 

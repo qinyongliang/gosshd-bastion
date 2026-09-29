@@ -138,6 +138,10 @@ func (s *Service) EvaluateAccess(ctx context.Context, userID, targetID, requestT
 			if !policy.AllowWebTerminal {
 				return Decision{Action: store.DecisionDeny, Reason: "web terminal disabled by policy: " + policy.Name}, nil
 			}
+		case store.RequestSystem:
+			if !policy.AllowWebTerminal && !policy.AllowSSHInteractive {
+				return Decision{Action: store.DecisionDeny, Reason: "system information access disabled by policy: " + policy.Name}, nil
+			}
 		case store.RequestSFTP:
 			if !policy.AllowUpload && !policy.AllowDownload {
 				return Decision{Action: store.DecisionDeny, Reason: "file transfer disabled by policy: " + policy.Name}, nil

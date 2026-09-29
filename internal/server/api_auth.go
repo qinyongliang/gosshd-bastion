@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -136,6 +137,15 @@ func (a *App) handleDingTalkStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if parsed, err := url.Parse(authURL); err == nil {
+		if state := strings.TrimSpace(parsed.Query().Get("state")); state != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name: "gosshd_oauth_state", Value: state, Path: "/api/auth/dingtalk",
+				HttpOnly: true, Secure: isHTTPSRequest(r), SameSite: http.SameSiteLaxMode,
+				MaxAge: 600, Expires: time.Now().Add(10 * time.Minute),
+			})
+		}
+	}
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
@@ -146,6 +156,12 @@ func (a *App) handleDingTalkCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if !a.allowAuthAttempt(r, "dingtalk:callback", 30, 5*time.Minute) {
 		writeError(w, http.StatusTooManyRequests, "too many dingtalk auth attempts")
+		return
+	}
+	stateCookie, err := r.Cookie("gosshd_oauth_state")
+	if err != nil || strings.TrimSpace(stateCookie.Value) == "" ||
+		strings.TrimSpace(stateCookie.Value) != strings.TrimSpace(r.URL.Query().Get("state")) {
+		writeError(w, http.StatusBadRequest, "oauth state mismatch")
 		return
 	}
 	cfg, err := a.dingTalkConfig(r)
@@ -159,6 +175,7 @@ func (a *App) handleDingTalkCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, r, a.sessionCookieName(), token)
+	http.SetCookie(w, &http.Cookie{Name: "gosshd_oauth_state", Value: "", Path: "/api/auth/dingtalk", HttpOnly: true, Secure: isHTTPSRequest(r), SameSite: http.SameSiteLaxMode, MaxAge: -1})
 	_ = user
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

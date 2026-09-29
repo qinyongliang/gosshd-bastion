@@ -102,6 +102,15 @@ func (a *App) handleTargetSystem(w http.ResponseWriter, r *http.Request, user st
 		writeOwnerError(w, err)
 		return
 	}
+	decision, err := a.bastion.EvaluateAccess(r.Context(), user.ID, target.ID, store.RequestSystem, sshSourceIPFromRequest(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if decision.Action == store.DecisionDeny {
+		writeError(w, http.StatusForbidden, "system information access denied: "+decision.Reason)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	var snapshot apiTargetSystemResponse
@@ -1687,6 +1696,16 @@ func (a *App) targetForUser(ctx context.Context, targetID string, user store.Use
 	}
 	if _, _, err := a.resolveOwner(ctx, target.OwnerType, target.OwnerID, user.ID); err != nil {
 		return store.SSHTarget{}, err
+	}
+	if err := a.validateTargetAgent(ctx, target.OwnerType, target.OwnerID, target.TargetType, target.AgentID); err != nil {
+		return store.SSHTarget{}, err
+	}
+	visible, err := a.targetVisibleToUser(ctx, target, user)
+	if err != nil {
+		return store.SSHTarget{}, err
+	}
+	if !visible {
+		return store.SSHTarget{}, errOwnerAccess
 	}
 	return target, nil
 }

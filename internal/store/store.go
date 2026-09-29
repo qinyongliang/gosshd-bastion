@@ -14,7 +14,7 @@ type Store struct {
 	repo *Repository
 }
 
-func Open(ctx context.Context, path string) (*Store, error) {
+func Open(ctx context.Context, path string, keyMaterial ...[]byte) (*Store, error) {
 	if path == "" {
 		path = filepath.Join(".", "gosshd.db")
 	}
@@ -23,7 +23,16 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	st := &Store{db: db}
-	st.repo = &Repository{db: db}
+	var box *SecretBox
+	if len(keyMaterial) > 0 && len(keyMaterial[0]) > 0 {
+		var err error
+		box, err = NewSecretBox(keyMaterial[0])
+		if err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
+	st.repo = &Repository{db: db, secretBox: box}
 	if err := st.configure(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
