@@ -1,0 +1,80 @@
+name: Deploy ARM64 server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy Linux ARM64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build frontend
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.0.7 --activate
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Build ARM64 server
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/server/linux-arm64
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_SHA}" \
+            -o build/server/linux-arm64/gosshd-server ./cmd/gosshd-server
+          sha256sum build/server/linux-arm64/gosshd-server
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_SSH_PRIVATE_KEY"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          ssh-keyscan -H qyl.my.to >> "$HOME/.ssh/known_hosts"
+
+      - name: Upload and restart server
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="build/server/linux-arm64/gosshd-server"
+          remote_new="/root/docker-compose/gosshd/bin/gosshd-server.${GITHUB_SHA}.new"
+          scp "$artifact" "root@qyl.my.to:${remote_new}"
+          ssh root@qyl.my.to "GITHUB_SHA=${GITHUB_SHA} bash -s" <<'REMOTE'
+          set -euo pipefail
+          bin=/root/docker-compose/gosshd/bin/gosshd-server
+          new="/root/docker-compose/gosshd/bin/gosshd-server.${GITHUB_SHA}.new"
+          backup="/root/docker-compose/gosshd/bin/gosshd-server.backup.$(date -u +%Y%m%d%H%M%S)"
+          test -s "$new"
+          cp -a "$bin" "$backup"
+          mv "$new" "$bin"
+          chmod 0755 "$bin"
+          docker restart gosshd-server
+          docker ps --filter name=^/gosshd-server$ --format '{{.Names}} {{.Status}}'
+          REMOTE
