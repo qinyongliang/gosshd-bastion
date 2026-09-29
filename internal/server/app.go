@@ -29,6 +29,7 @@ type App struct {
 	authLimiter         *authRateLimiter
 	bastion             *bastion.Service
 	manualReviews       *manualReviewHub
+	runningAudits       *runningAuditStore
 	terminalSessions    *terminalSessionManager
 	auditRecordingsPath string
 	brandingCache       brandingSettings
@@ -49,6 +50,7 @@ func NewApp(cfg Config) *App {
 		registry:         NewAgentRegistry(),
 		authLimiter:      newAuthRateLimiter(),
 		manualReviews:    newManualReviewHub(),
+		runningAudits:    newRunningAuditStore(),
 		terminalSessions: newTerminalSessionManager(),
 	}
 }

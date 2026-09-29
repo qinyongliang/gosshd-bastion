@@ -4,6 +4,7 @@ import { RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ManualReviewChoice } from "../api";
 import { ManualReviewScopePicker } from "../components/ManualReviewScopePicker";
+import { HighlightedCommand } from "../components/HighlightedCommand";
 import { AuditTable, Empty, Modal, Panel } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formatDate, formSubmit } from "../lib/forms";
@@ -14,6 +15,7 @@ export function AuditPage({ data }: { data: ConsoleData }) {
   const isClientMode = Boolean(data.runtime.client_mode);
   const [filters, setFilters] = useState({ query: "", decision: "", request_type: "", started_from: "", started_to: "", page: 1, page_size: 20 });
   const [replayID, setReplayID] = useState("");
+  const [liveID, setLiveID] = useState("");
   const [authorizationOpen, setAuthorizationOpen] = useState(false);
   const canAuthorize = data.user.is_system_admin || data.activeOrg.role === "owner" || data.activeOrg.role === "admin";
   const audit = useQuery({
@@ -21,7 +23,12 @@ export function AuditPage({ data }: { data: ConsoleData }) {
     queryFn: () => api.audit(isClientMode ? filters : { ...filters, organization_id: data.activeOrg.id }),
   });
   const replay = useQuery({ queryKey: ["audit-recording", replayID], queryFn: () => api.auditRecording(replayID), enabled: Boolean(replayID) });
-  const logs = audit.data?.logs || data.auditPage.logs;
+  const running = useQuery({
+    queryKey: ["audit-running", data.activeOrg.id, isClientMode],
+    queryFn: () => api.runningAudit(isClientMode ? {} : { organization_id: data.activeOrg.id }),
+    refetchInterval: 1000,
+  });
+  const logs = [...(running.data?.logs || []), ...(audit.data?.logs || data.auditPage.logs)].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
   return (
     <div className="audit-page">
       <section className="resource-head">
@@ -63,7 +70,7 @@ export function AuditPage({ data }: { data: ConsoleData }) {
         </button>
       </form>
       <Panel title={t("auditList")} subtitle="">
-        {logs.length ? <AuditTable logs={logs} compact={isClientMode} onReplay={(log) => setReplayID(log.id)} /> : <Empty title={t("auditEmptyTitle")} body={t("auditEmptyBody")} />}
+        {logs.length ? <AuditTable logs={logs} compact={isClientMode} onReplay={(log) => setReplayID(log.id)} onLiveOutput={(log) => setLiveID(log.id)} /> : <Empty title={t("auditEmptyTitle")} body={t("auditEmptyBody")} />}
       </Panel>
       <div className="pager">
         <button type="button" disabled={filters.page <= 1} onClick={() => setFilters({ ...filters, page: filters.page - 1 })}>{t("commonPrevious")}</button>
@@ -71,6 +78,7 @@ export function AuditPage({ data }: { data: ConsoleData }) {
         <button type="button" disabled={(audit.data?.total || 0) <= filters.page * filters.page_size} onClick={() => setFilters({ ...filters, page: filters.page + 1 })}>{t("commonNext")}</button>
       </div>
       {replayID && <AuditReplayModal recording={replay.data} fallbackLog={logs.find((item) => item.id === replayID)} loading={replay.isLoading} onClose={() => setReplayID("")} />}
+      {liveID && <RunningOutputModal id={liveID} fallbackLog={logs.find((item) => item.id === liveID)} onClose={() => setLiveID("")} />}
       {authorizationOpen && <TemporaryAuthorizationModal data={data} onClose={() => setAuthorizationOpen(false)} />}
     </div>
   );
@@ -192,6 +200,31 @@ function formatRemaining(totalSeconds: number) {
   return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
+function RunningOutputModal({ id, fallbackLog, onClose }: { id: string; fallbackLog?: AuditLog; onClose: () => void }) {
+  const { t } = useI18n();
+  const live = useQuery({ queryKey: ["audit-running-output", id], queryFn: () => api.runningAuditOutput(id), refetchInterval: 700 });
+  const log = live.data?.log || fallbackLog;
+  const output = live.data?.output ?? log?.live_output ?? "";
+  const started = log?.started_at ? new Date(log.started_at).getTime() : Date.now();
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, []);
+  const duration = log?.ended_at ? new Date(log.ended_at).getTime() - started : Math.max(0, now - started);
+  return <Modal title={t("auditLiveOutput")} onClose={onClose} wide className="audit-detail-modal">
+    <div className="terminal-player running-output-player">
+      <div className="terminal-meta">
+        <span><b>{t("auditTableTarget")}</b>{log?.target_name || log?.target_alias || "-"}</span>
+        <span><b>{t("auditTableDuration")}</b>{durationText(duration)}</span>
+        <span className="running-output-status">● {t("auditLiveOutput")}</span>
+      </div>
+      {log?.command && <HighlightedCommand command={log.command} className="audit-detail-content running-output-command" />}
+      <pre className="audit-detail-content running-output-content">{output || t("auditReplayEmpty")}</pre>
+    </div>
+  </Modal>;
+}
+
 function AuditReplayModal({ recording, fallbackLog, loading, onClose }: { recording?: AuditRecording; fallbackLog?: AuditLog; loading: boolean; onClose: () => void }) {
   const { t } = useI18n();
   const log = recording?.log || fallbackLog;
@@ -200,7 +233,7 @@ function AuditReplayModal({ recording, fallbackLog, loading, onClose }: { record
       <div className="terminal-meta">
         <span><b>{t("auditTableTarget")}</b>{log?.target_name || log?.target_alias || "-"}</span>
         <span><b>{t("auditTableStarted")}</b>{formatDate(log?.started_at)}</span>
-        <span><b>{t("auditReplayDuration")}</b>{durationText(log?.recording_duration_ms)}</span>
+        <span><b>{t("auditReplayDuration")}</b>{durationText(auditDurationMs(log))}</span>
       </div>
       {loading && <div className="policy-empty-line">{t("loading")}</div>}
       {!loading && recording && <TerminalReplay lines={recording.lines} />}
@@ -406,6 +439,14 @@ function durationText(value?: number) {
   if (value === undefined || value === null || Number.isNaN(value)) return "-";
   if (value < 1000) return `${value}ms`;
   return `${Math.round(value / 100) / 10}s`;
+}
+
+function auditDurationMs(log?: AuditLog) {
+  if (!log) return undefined;
+  if (log.recording_duration_ms && log.recording_duration_ms > 0) return log.recording_duration_ms;
+  if (!log.ended_at) return undefined;
+  const duration = new Date(log.ended_at).getTime() - new Date(log.started_at).getTime();
+  return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
 }
 
 function isInteractiveReplayTarget(target: EventTarget | null) {

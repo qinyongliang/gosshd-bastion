@@ -237,8 +237,26 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		sendExit(ch, code)
 		return
 	}
-	exitCode := a.execOnTarget(ctx, target, ch, execInput.ExecuteCommand, execInput.StdinPrefix)
+	var live *runningAudit
+	if a.runningAudits != nil {
+		live = a.runningAudits.start(store.CreateCommandAuditLogParams{
+			UserID: userID, TargetID: target.ID, TargetName: target.Name, TargetAlias: target.Alias,
+			TargetHost: target.Host, TargetPort: target.Port, TargetUsername: target.RemoteUsername,
+			OrganizationID: organizationIDForTarget(target), PublicKeyFingerprint: publicKeyFingerprint,
+			Command: execInput.ReviewCommand, RequestType: store.RequestExec, PolicyDecision: decision.Action,
+			PolicyReason: decision.Reason, StartedAt: startedAt,
+		})
+	}
+	exitCode := a.execOnTarget(ctx, target, ch, execInput.ExecuteCommand, execInput.StdinPrefix, func(data []byte) {
+		if live != nil {
+			live.append(string(data))
+		}
+	})
 	endedAt := time.Now().UTC()
+	if live != nil {
+		live.finish(exitCode, endedAt)
+		a.runningAudits.remove(live)
+	}
 	_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
 		UserID:               userID,
 		TargetID:             target.ID,
@@ -582,6 +600,21 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 		session.writeOutput("error", []byte(run.Output))
 		return run
 	}
+	var live *runningAudit
+	if a.runningAudits != nil {
+		live = a.runningAudits.start(store.CreateCommandAuditLogParams{
+			UserID: opts.UserID, TargetID: session.target.ID, TargetName: session.target.Name, TargetAlias: session.target.Alias,
+			TargetHost: session.target.Host, TargetPort: session.target.Port, TargetUsername: session.target.RemoteUsername,
+			OrganizationID: organizationIDForTarget(session.target), Command: normalizedCommand, RequestType: store.RequestExec,
+			PolicyDecision: run.Decision.Action, PolicyReason: run.Decision.Reason, StartedAt: startedAt,
+		})
+		defer func() {
+			if live != nil {
+				live.finish(run.ExitCode, run.EndedAt)
+				a.runningAudits.remove(live)
+			}
+		}()
+	}
 
 	waitCtx := ctx
 	if timeout := terminalSessionCommandWaitTimeout(opts); timeout > 0 {
@@ -589,7 +622,11 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 		waitCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	result, sent, err := session.trySendCommandLocked(waitCtx, normalizedCommand)
+	result, sent, err := session.trySendCommandLocked(waitCtx, normalizedCommand, func(chunk string) {
+		if live != nil {
+			live.append(chunk)
+		}
+	})
 	run.Allowed = true
 	run.Output = result.Output
 	run.ExitCode = result.ExitCode
@@ -769,14 +806,14 @@ func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target stor
 	sendExit(ch, exitCode)
 }
 
-func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh.Channel, command string, stdinPrefix []byte) int {
+func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh.Channel, command string, stdinPrefix []byte, sinks ...func([]byte)) int {
 	if target.TargetType == store.TargetAgent {
-		return a.agentFramedSession(target.AgentID, ch, protocol.StreamRequest{
+		return a.agentFramedSessionWithSink(target.AgentID, ch, protocol.StreamRequest{
 			Type:    protocol.StreamExec,
 			Command: command,
 			Width:   80,
 			Height:  24,
-		}, nil, stdinPrefix)
+		}, nil, outputWriter(sinks...), stdinPrefix)
 	}
 	client, err := a.openTargetSSHClient(ctx, target)
 	if err != nil {
@@ -819,12 +856,15 @@ func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 		_ = closeWriter(stdin)
 	}()
 	done := make(chan struct{}, 2)
+	copyOutput := func(dst io.Writer, src io.Reader) {
+		_, _ = io.Copy(io.MultiWriter(dst, outputWriter(sinks...)), src)
+	}
 	go func() {
-		_, _ = io.Copy(ch, stdout)
+		copyOutput(ch, stdout)
 		done <- struct{}{}
 	}()
 	go func() {
-		_, _ = io.Copy(ch.Stderr(), stderr)
+		copyOutput(ch.Stderr(), stderr)
 		done <- struct{}{}
 	}()
 	err = session.Wait()
@@ -837,6 +877,21 @@ func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 		return exit.ExitStatus()
 	}
 	return 255
+}
+
+type outputSinkWriter struct{ sinks []func([]byte) }
+
+func (w outputSinkWriter) Write(data []byte) (int, error) {
+	for _, sink := range w.sinks {
+		if sink != nil {
+			sink(data)
+		}
+	}
+	return len(data), nil
+}
+
+func outputWriter(sinks ...func([]byte)) io.Writer {
+	return outputSinkWriter{sinks: sinks}
 }
 
 func (a *App) shellOnTarget(ctx context.Context, target store.SSHTarget, ch gossh.Channel, width, height int, recorder *terminalRecorder) int {
@@ -1146,6 +1201,10 @@ func (r *targetSFTPRunner) close() error {
 }
 
 func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.StreamRequest, recorder *terminalRecorder, stdinPrefix ...[]byte) int {
+	return a.agentFramedSessionWithSink(agentID, ch, req, recorder, nil, stdinPrefix...)
+}
+
+func (a *App) agentFramedSessionWithSink(agentID string, ch gossh.Channel, req protocol.StreamRequest, recorder *terminalRecorder, sink io.Writer, stdinPrefix ...[]byte) int {
 	reader, stream, err := a.openAgentStream(agentID, req)
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
@@ -1195,6 +1254,9 @@ func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.
 			if recorder != nil {
 				recorder.WriteOutput(data)
 			}
+			if sink != nil {
+				_, _ = sink.Write(data)
+			}
 			_, _ = ch.Write(data)
 		case protocol.FrameStderr:
 			data := filterShellOutput(frame.Data)
@@ -1203,6 +1265,9 @@ func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.
 			}
 			if recorder != nil {
 				recorder.WriteOutput(data)
+			}
+			if sink != nil {
+				_, _ = sink.Write(data)
 			}
 			_, _ = ch.Stderr().Write(data)
 		case protocol.FrameExit:

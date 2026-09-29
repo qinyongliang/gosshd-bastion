@@ -6,6 +6,7 @@ import { api } from "../api";
 import { useI18n } from "../i18n";
 import type { ConsoleData, ManualReview } from "../types";
 import { ManualReviewScopePicker } from "./ManualReviewScopePicker";
+import { HighlightedCommand } from "./HighlightedCommand";
 
 type ReviewState = {
   review: ManualReview;
@@ -323,7 +324,7 @@ function ReviewCard({
         </div>}
         <div className="manual-review-command">
           <span className="manual-review-label">{t("manualReviewCommand")}</span>
-          <HighlightedCommand command={review.command} />
+          <HighlightedCommand command={review.command} className="manual-review-command-code" />
         </div>
         <div className="manual-review-reason">
           <span className="manual-review-label">{t("manualReviewReason")}</span>
@@ -393,70 +394,6 @@ function formatRemaining(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function HighlightedCommand({ command }: { command: string }) {
-  return (
-    <code className="manual-review-command-code" aria-label={command}>
-      {highlightCommand(command).map((token, index) =>
-        token.kind === "space" ? token.text : (
-          <span key={`${index}-${token.text}`} className={`cmd-token cmd-${token.kind}`}>
-            {token.text}
-          </span>
-        )
-      )}
-    </code>
-  );
-}
-
-type CommandTokenKind = "space" | "command" | "danger" | "flag" | "string" | "variable" | "path" | "operator" | "assignment" | "text";
-
-const shellOperators = new Set(["|", "||", "&", "&&", ";", "(", ")", "<", ">", ">>", "2>", "2>>", "2>&1"]);
-const dangerousCommands = new Set([
-  "chmod",
-  "chown",
-  "dd",
-  "mkfs",
-  "mount",
-  "mv",
-  "nc",
-  "ncat",
-  "reboot",
-  "rm",
-  "shutdown",
-  "sudo",
-  "su",
-  "tee",
-  "umount",
-]);
-
-function highlightCommand(command: string): Array<{ text: string; kind: CommandTokenKind }> {
-  const parts = command.match(/\s+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\|\||&&|2>&1|2>>|>>|2>|[|;&()<>]|[^\s|;&()<>]+/g) ?? [command];
-  let expectCommand = true;
-  return parts.map((text) => {
-    const kind = classifyCommandToken(text, expectCommand);
-    if (kind === "operator") {
-      expectCommand = text !== ")" && text !== ">" && text !== ">>" && text !== "<" && text !== "2>" && text !== "2>>" && text !== "2>&1";
-    } else if (kind !== "space" && kind !== "assignment") {
-      expectCommand = false;
-    }
-    return { text, kind };
-  });
-}
-
-function classifyCommandToken(text: string, expectCommand: boolean): CommandTokenKind {
-  const bare = text.replace(/^['"`]|['"`]$/g, "");
-  const normalized = bare.split(/[\\/]/).pop()?.toLowerCase() ?? bare.toLowerCase();
-  if (/^\s+$/.test(text)) return "space";
-  if (shellOperators.has(text)) return "operator";
-  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) return "assignment";
-  if (/^(['"`]).*\1$/.test(text)) return "string";
-  if (dangerousCommands.has(normalized)) return "danger";
-  if (expectCommand) return "command";
-  if (/^--?[\w-]+(?:=.*)?$/.test(text)) return "flag";
-  if (/^\$[{A-Za-z_]/.test(text) || /\$\{?[A-Za-z_][A-Za-z0-9_]*}?/.test(text)) return "variable";
-  if (/^(?:\.{1,2}\/|\/|~\/|[A-Za-z]:[\\/])/.test(text)) return "path";
-  return "text";
 }
 
 function canReviewInOrg(data: ConsoleData): boolean {

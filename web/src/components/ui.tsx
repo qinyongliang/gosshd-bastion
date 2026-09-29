@@ -8,14 +8,15 @@ import type { AuditLog, Member, Target } from "../types";
 import { copyText, tagColor } from "../utils";
 import { formatDate } from "../lib/forms";
 import { appIcon, type Branding } from "../lib/branding";
+import { HighlightedCommand } from "./HighlightedCommand";
 
-export function AuditTable({ logs, onReplay, compact = false }: { logs: AuditLog[]; onReplay?: (log: AuditLog) => void; compact?: boolean }) {
+export function AuditTable({ logs, onReplay, onLiveOutput, compact = false }: { logs: AuditLog[]; onReplay?: (log: AuditLog) => void; onLiveOutput?: (log: AuditLog) => void; compact?: boolean }) {
   const { t } = useI18n();
   const [detail, setDetail] = useState<{ title: string; value: string; mono?: boolean } | null>(null);
   const headers = compact
-    ? [t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableStarted")]
-    : [t("auditTableUser"), t("auditTableKey"), t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableStarted")];
-  if (onReplay) headers.push(t("commonActions"));
+    ? [t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableDuration"), t("auditTableStarted")]
+    : [t("auditTableUser"), t("auditTableKey"), t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableDuration"), t("auditTableStarted")];
+  if (onReplay || onLiveOutput) headers.push(t("commonActions"));
   const openDetail = (title: string, value: string, mono = false) => {
     const trimmed = value.trim();
     if (!trimmed || trimmed === "-") return;
@@ -32,6 +33,7 @@ export function AuditTable({ logs, onReplay, compact = false }: { logs: AuditLog
         <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
         <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} lines={2} onOpen={openDetail} />,
         String(log.exit_code ?? ""),
+        formatAuditDuration(log, t("auditRunning")),
         formatDate(log.started_at),
       ] : [
         <AuditTextCell title={t("auditTableUser")} primary={userPrimary} secondary={userSecondary} onOpen={openDetail} />,
@@ -42,15 +44,20 @@ export function AuditTable({ logs, onReplay, compact = false }: { logs: AuditLog
         <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
         <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} onOpen={openDetail} />,
         String(log.exit_code ?? ""),
+        formatAuditDuration(log, t("auditRunning")),
         formatDate(log.started_at),
       ];
-      if (onReplay) {
-        row.push(log.has_recording ? <button type="button" className="small" onClick={() => onReplay(log)}><Play />{t("auditReplay")}</button> : <span className="muted">-</span>);
+      if (onReplay || onLiveOutput) {
+        row.push(log.running && onLiveOutput
+          ? <button type="button" className="small primary" onClick={() => onLiveOutput(log)}><Activity />{t("auditLiveOutput")}</button>
+          : log.has_recording && onReplay
+            ? <button type="button" className="small" onClick={() => onReplay(log)}><Play />{t("auditReplay")}</button>
+            : <span className="muted">-</span>);
       }
       return row;
     })} /></div>
     {detail && <Modal title={detail.title} onClose={() => setDetail(null)} wide className="audit-detail-modal">
-      <pre className={clsx("audit-detail-content", detail.mono && "mono")}>{detail.value}</pre>
+      {detail.mono ? <HighlightedCommand command={detail.value} className="audit-detail-content" /> : <pre className="audit-detail-content">{detail.value}</pre>}
     </Modal>}
   </>;
 }
@@ -58,9 +65,18 @@ export function AuditTable({ logs, onReplay, compact = false }: { logs: AuditLog
 function AuditTextCell({ title, primary, secondary = "", mono = false, lines = 1, onOpen }: { title: string; primary: string; secondary?: string; mono?: boolean; lines?: 1 | 2; onOpen: (title: string, value: string, mono?: boolean) => void }) {
   const full = [primary, secondary].filter(Boolean).join("\n");
   return <button type="button" className={clsx("audit-cell", mono && "mono", lines === 2 && "two-lines")} title={full} onClick={() => onOpen(title, full, mono)}>
-    <strong>{primary}</strong>
+    {mono ? <HighlightedCommand command={primary} className="audit-cell-command" /> : <strong>{primary}</strong>}
     {secondary && <small>{secondary}</small>}
   </button>;
+}
+
+function formatAuditDuration(log: AuditLog, runningLabel: string) {
+  const duration = log.recording_duration_ms || (log.ended_at ? new Date(log.ended_at).getTime() - new Date(log.started_at).getTime() : undefined);
+  if (duration === undefined || !Number.isFinite(duration) || duration < 0) return log.ended_at ? "-" : runningLabel;
+  if (duration < 1000) return `${duration}ms`;
+  if (duration < 60_000) return `${(duration / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(duration / 60_000);
+  return `${minutes}m ${Math.round((duration % 60_000) / 1000)}s`;
 }
 
 export function NavButton({ to, label, icon, onClick }: { to: string; label: string; icon: ReactNode; onClick: () => void }) {
@@ -107,7 +123,7 @@ export function Metric({ label, value, icon }: { label: string; value: number; i
 }
 
 export function Modal({ title, children, onClose, wide = false, stacked = false, className = "", closeOnEscape = true }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; stacked?: boolean; className?: string; closeOnEscape?: boolean }) {
-  return <AntModal open onCancel={onClose} title={title} footer={null} keyboard={closeOnEscape} maskClosable={closeOnEscape} width={wide ? 820 : 560} className={clsx(className, stacked && "stacked")} destroyOnHidden>{children}</AntModal>;
+  return <AntModal open onCancel={onClose} title={title} footer={null} keyboard={closeOnEscape} maskClosable={closeOnEscape} width={wide ? 1000 : 560} className={clsx(className, stacked && "stacked")} destroyOnHidden>{children}</AntModal>;
 }
 
 export function Drawer({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
@@ -171,7 +187,7 @@ export function CopyButton({ value, label }: { value: string; label?: string }) 
 
 export function CommandBox({ label, value, copyLabel }: { label: string; value: string; copyLabel?: string }) {
   const multiline = value.includes("\n") || value.trim().startsWith("{") || value.trim().startsWith("[");
-  return <div className={clsx("command-box", multiline && "multiline")}><span>{label}</span>{multiline ? <pre>{value}</pre> : <code>{value}</code>}<CopyButton value={value} label={copyLabel} /></div>;
+  return <div className={clsx("command-box", multiline && "multiline")}><span>{label}</span><HighlightedCommand command={value} className="command-box-code" /><CopyButton value={value} label={copyLabel} /></div>;
 }
 
 export function SelectButton({ label, items, onSelect }: { label: string; items: (readonly [string, string])[]; onSelect: (value: string) => void }) {

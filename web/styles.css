@@ -2873,3 +2873,18 @@ html[data-theme="dark"] .manual-review-actions button.danger {
   .workspace, .sidebar {
     padding: 18px;
   }
+}
+.audit-page .audit-cell{border-color:transparent;background:transparent;border-radius:4px;box-shadow:none;cursor:pointer}
+.audit-page .audit-cell:hover,.audit-page .audit-cell:focus-visible{border-color:var(--line);background:var(--surface-alt);color:var(--text)}
+.audit-cell{border-color:transparent;background:transparent;border-radius:4px;box-shadow:none;cursor:pointer}
+.audit-cell:hover,.audit-cell:focus-visible{border-color:var(--line);background:var(--surface-alt);color:var(--text)}
+.audit-page .audit-cell-command{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.35;word-break:break-word;text-align:left}
+.highlighted-command{display:block;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+.audit-cell-command{font-size:12px}
+.command-box code.command-box-code{min-width:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;text-overflow:clip;font-size:12px;line-height:1.55}
+.command-box.multiline .command-box-code{max-height:280px;margin:0;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}
+.audit-detail-modal{width:min(1100px,calc(100vw - 32px))!important}
+.audit-detail-modal .ant-modal-content{min-height:min(74vh,820px)}
+.audit-detail-content{display:block;min-height:min(56vh,620px);margin:0;padding:18px;border:1px solid var(--line);border-radius:8px;background:var(--surface-alt);color:var(--text);overflow:auto;font:13px/1.6 "SFMono-Regular",Consolas,"Liberation Mono",monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.running-output-status{color:var(--success);font-weight:650}.running-output-command{min-height:0;max-height:180px;margin-bottom:12px}.running-output-content{min-height:min(48vh,520px);background:#08111e;color:#dbeafe}
+.hljs-comment,.hljs-quote{color:#8292a2}.hljs-keyword,.hljs-selector-tag,.hljs-built_in,.hljs-name{color:#c678dd}.hljs-string,.hljs-attribute,.hljs-symbol,.hljs-bullet{color:#98c379}.hljs-number,.hljs-literal,.hljs-variable,.hljs-template-variable{color:#d19a66}.hljs-title,.hljs-section,.hljs-title.function_{color:#61afef}.hljs-meta,.hljs-type{color:#e5c07b}.hljs-regexp{color:#56b6c2}.hljs-operator,.hljs-punctuation{color:#abb2bf}

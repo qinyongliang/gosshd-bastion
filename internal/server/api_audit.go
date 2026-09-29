@@ -35,6 +35,8 @@ type apiAuditLog struct {
 	RecordingDurationMS  int64  `json:"recording_duration_ms,omitempty"`
 	RecordingWidth       int    `json:"recording_width,omitempty"`
 	RecordingHeight      int    `json:"recording_height,omitempty"`
+	Running              bool   `json:"running,omitempty"`
+	LiveOutput           string `json:"live_output,omitempty"`
 }
 
 type apiAuditLogsResponse struct {
@@ -77,6 +79,50 @@ func (a *App) handleListAuditLogs(w http.ResponseWriter, r *http.Request, user s
 		out.Logs = append(out.Logs, apiAuditLogFromStore(log))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) handleListRunningAuditLogs(w http.ResponseWriter, r *http.Request, user store.User) {
+	if a.runningAudits == nil {
+		writeJSON(w, http.StatusOK, struct {
+			Logs []apiAuditLog `json:"logs"`
+		}{Logs: []apiAuditLog{}})
+		return
+	}
+	organizationID := strings.TrimSpace(r.URL.Query().Get("organization_id"))
+	filter := store.AuditLogFilter{OrganizationID: organizationID}
+	if err := a.scopeAuditFilter(r, user, &filter); err != nil {
+		writeOwnerError(w, err)
+		return
+	}
+	items := a.runningAudits.list(filter.UserID, filter.OrganizationID, user.IsSystemAdmin)
+	out := struct {
+		Logs []apiAuditLog `json:"logs"`
+	}{}
+	for _, item := range items {
+		out.Logs = append(out.Logs, apiAuditLogFromRunning(item.snapshot()))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *App) handleGetRunningAuditLog(w http.ResponseWriter, r *http.Request, user store.User) {
+	if a.runningAudits == nil {
+		writeError(w, http.StatusNotFound, "running audit not found")
+		return
+	}
+	item := a.runningAudits.get(r.PathValue("id"))
+	if item == nil {
+		writeError(w, http.StatusNotFound, "running audit not found")
+		return
+	}
+	snapshot := item.snapshot()
+	if !a.canReadRunningAudit(r, user, snapshot) {
+		writeError(w, http.StatusForbidden, "audit output access denied")
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Log    apiAuditLog `json:"log"`
+		Output string      `json:"output"`
+	}{Log: apiAuditLogFromRunning(snapshot), Output: snapshot.Output})
 }
 
 func (a *App) handleAuditRecording(w http.ResponseWriter, r *http.Request, user store.User) {
@@ -137,6 +183,41 @@ func apiAuditLogFromStore(log store.CommandAuditLog) apiAuditLog {
 		out.EndedAt = log.EndedAt.Format(time.RFC3339)
 	}
 	return out
+}
+
+func apiAuditLogFromRunning(log runningAuditSnapshot) apiAuditLog {
+	out := apiAuditLog{
+		ID: log.ID, UserID: log.UserID, TargetID: log.TargetID, TargetName: log.TargetName, TargetAlias: log.TargetAlias,
+		TargetEndpoint: auditRunningTargetEndpoint(log), OrganizationID: log.OrganizationID, Command: log.Command,
+		RequestType: log.RequestType, PolicyDecision: log.PolicyDecision, PolicyReason: log.PolicyReason,
+		ExitCode: log.ExitCode, StartedAt: log.StartedAt.Format(time.RFC3339), Running: true, LiveOutput: log.Output,
+	}
+	if !log.EndedAt.IsZero() {
+		out.EndedAt = log.EndedAt.Format(time.RFC3339)
+	}
+	return out
+}
+
+func auditRunningTargetEndpoint(log runningAuditSnapshot) string {
+	endpoint := log.TargetHost
+	if log.TargetUsername != "" {
+		endpoint = log.TargetUsername + "@" + endpoint
+	}
+	if endpoint != "" && log.TargetPort > 0 {
+		endpoint += ":" + strconv.Itoa(log.TargetPort)
+	}
+	return endpoint
+}
+
+func (a *App) canReadRunningAudit(r *http.Request, user store.User, log runningAuditSnapshot) bool {
+	if user.IsSystemAdmin || log.UserID == user.ID {
+		return true
+	}
+	if log.OrganizationID == "" {
+		return false
+	}
+	member, err := a.store.Repository().GetOrganizationMember(r.Context(), log.OrganizationID, user.ID)
+	return err == nil && (member.Role == store.RoleOwner || member.Role == store.RoleAdmin)
 }
 
 func (a *App) scopeAuditFilter(r *http.Request, user store.User, filter *store.AuditLogFilter) error {
