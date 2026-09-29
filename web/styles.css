@@ -2890,3 +2890,8 @@ html[data-theme="dark"] .manual-review-actions button.danger {
 .hljs-comment,.hljs-quote{color:#8292a2}.hljs-keyword,.hljs-selector-tag,.hljs-built_in,.hljs-name{color:#c678dd}.hljs-string,.hljs-attribute,.hljs-symbol,.hljs-bullet{color:#98c379}.hljs-number,.hljs-literal,.hljs-variable,.hljs-template-variable{color:#d19a66}.hljs-title,.hljs-section,.hljs-title.function_{color:#61afef}.hljs-meta,.hljs-type{color:#e5c07b}.hljs-regexp{color:#56b6c2}.hljs-operator,.hljs-punctuation{color:#abb2bf}
 .target-tree-row>.inline-actions .copy-anchor{min-width:84px;font-size:inherit}
 .target-tree-row>.inline-actions .copy-anchor span{display:inline!important}
+.audit-table-compact .audit-cell{display:grid;align-content:start;justify-content:start;width:100%;min-width:0;max-width:100%;padding:4px 6px;text-align:left;white-space:normal;overflow:hidden}
+.audit-table-compact .audit-cell strong{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.4;overflow-wrap:anywhere}
+.audit-table-compact .audit-cell small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.audit-table-compact .audit-cell.mono{max-width:380px}
+.audit-table-compact .audit-cell .audit-cell-command{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;max-height:3em;line-height:1.5;white-space:normal;overflow-wrap:anywhere;text-overflow:ellipsis}
