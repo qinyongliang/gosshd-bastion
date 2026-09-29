@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { Button as AntButton, Drawer as AntDrawer, Dropdown as AntDropdown, Input as AntInput, Modal as AntModal, Select as AntSelect, Spin } from "antd";
-import { Activity, Copy, MoreHorizontal, Play, Search, X } from "lucide-react";
+import { Activity, Check, Copy, MoreHorizontal, Play, Search, X } from "lucide-react";
 import { Children, cloneElement, isValidElement, ReactNode, useEffect, useState, type CSSProperties } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useI18n } from "../i18n";
@@ -180,8 +180,20 @@ export function Tag({ tag, color }: { tag: string; color: string }) {
 export function CopyButton({ value, label }: { value: string; label?: string }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
-  return <button type="button" className="copy-anchor" data-value={value} onClick={async () => { await copyText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1300); }}>
-    <Copy />{label || t("copyConnectionCommand")}{copied && <span className="copy-tip">{t("copied")}</span>}
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [copied, value]);
+  return <button type="button" className="copy-anchor" data-value={value} onClick={async () => {
+    try {
+      await copyText(value);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }}>
+    {copied ? <Check /> : <Copy />}<span>{copied ? t("copied") : label || t("copyConnectionCommand")}</span>
   </button>;
 }
 
