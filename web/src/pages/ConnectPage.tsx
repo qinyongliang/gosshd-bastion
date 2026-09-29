@@ -1086,7 +1086,7 @@ function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: {
             wrapperProps={{ className: "editor-monaco-wrapper" }}
             beforeMount={beforeMountEditor}
             onMount={mountEditor}
-            onChange={(value) => setContent(value ?? "")}
+            onChange={(value: string | undefined) => setContent(value ?? "")}
             options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true }}
           />
         </div>

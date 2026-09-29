@@ -240,6 +240,8 @@ export type AuditLog = {
   recording_width?: number;
   recording_height?: number;
   recording_path?: string;
+    running?: boolean;
+    live_output?: string;
 };
 
 export type AuditRecording = {

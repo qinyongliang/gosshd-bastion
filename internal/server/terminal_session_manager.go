@@ -460,7 +460,7 @@ func (s *terminalSession) sendCommandLocked(ctx context.Context, command string)
 	return result, err
 }
 
-func (s *terminalSession) trySendCommandLocked(ctx context.Context, command string) (terminalCommandResult, bool, error) {
+func (s *terminalSession) trySendCommandLocked(ctx context.Context, command string, sinks ...func(string)) (terminalCommandResult, bool, error) {
 	waiter := &terminalCommandWaiter{
 		command: command,
 		output:  make(chan string, 64),
@@ -476,7 +476,7 @@ func (s *terminalSession) trySendCommandLocked(ctx context.Context, command stri
 	if err := s.writeInput(historySuppressedTerminalCommand(command) + "\r"); err != nil {
 		return terminalCommandResult{}, false, err
 	}
-	result, err := collectCommandOutput(ctx, s.ctx, waiter)
+	result, err := collectCommandOutput(ctx, s.ctx, waiter, sinks...)
 	return result, true, err
 }
 
@@ -514,7 +514,7 @@ func (s *terminalSession) removeCommandWaiter(waiter *terminalCommandWaiter) {
 	}
 }
 
-func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalCommandWaiter) (terminalCommandResult, error) {
+func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalCommandWaiter, sinks ...func(string)) (terminalCommandResult, error) {
 	var out strings.Builder
 	for {
 		select {
@@ -523,12 +523,22 @@ func collectCommandOutput(ctx, sessionCtx context.Context, waiter *terminalComma
 				return terminalCommandResult{Output: out.String(), ExitCode: 255}, errors.New("session command output closed before completion")
 			}
 			out.WriteString(chunk)
+			for _, sink := range sinks {
+				if sink != nil {
+					sink(chunk)
+				}
+			}
 		case code := <-waiter.done:
 			for {
 				select {
 				case chunk, ok := <-waiter.output:
 					if ok {
 						out.WriteString(chunk)
+						for _, sink := range sinks {
+							if sink != nil {
+								sink(chunk)
+							}
+						}
 						continue
 					}
 				default:
