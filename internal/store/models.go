@@ -28,6 +28,7 @@ const (
 	RequestExec        = "exec"
 	RequestShell       = "shell"
 	RequestWebTerminal = "web_terminal"
+	RequestSystem      = "system"
 	RequestSFTP        = "sftp"
 	RequestForward     = "forward"
 
@@ -87,6 +88,7 @@ type OrganizationUserGroup struct {
 	Name           string
 	Slug           string
 	IsDefault      bool
+	TargetIDs      []string
 	CreatedAt      time.Time
 }
 

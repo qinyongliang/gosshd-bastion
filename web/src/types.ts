@@ -66,6 +66,7 @@ export type UserGroup = {
   name: string;
   slug: string;
   is_default?: boolean;
+  target_ids?: string[];
   members?: Member[];
 };
 

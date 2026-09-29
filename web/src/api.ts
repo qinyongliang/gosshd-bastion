@@ -72,6 +72,8 @@ export const api = {
   transferOrgOwner: (orgID: string, userID: string) => request<void>(`/api/orgs/${orgID}/transfer-owner`, post({ user_id: userID })),
   groups: (orgID: string) => request<{ groups: UserGroup[] }>(`/api/orgs/${orgID}/groups`),
   createGroup: (orgID: string, body: Record<string, unknown>) => request<void>(`/api/orgs/${orgID}/groups`, post(body)),
+  replaceGroupTargets: (orgID: string, groupID: string, targetIDs: string[]) =>
+    request<{ group: UserGroup }>(`/api/orgs/${orgID}/groups/${groupID}/targets`, put({ target_ids: targetIDs })),
 
   keys: () => request<{ keys: PublicKey[] }>("/api/keys"),
   createKey: (body: Record<string, unknown>) => request<{ key: PublicKey }>("/api/keys", post(body)),

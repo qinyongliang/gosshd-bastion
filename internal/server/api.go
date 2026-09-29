@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -113,6 +114,9 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/orgs/{id}/groups", a.requireUser(a.handleCreateOrganizationGroup))
 	mux.HandleFunc("POST /api/orgs/{id}/groups/{group_id}/members", a.requireUser(a.handleAddOrganizationGroupMember))
 	mux.HandleFunc("DELETE /api/orgs/{id}/groups/{group_id}/members/{user_id}", a.requireUser(a.handleRemoveOrganizationGroupMember))
+	mux.HandleFunc("PUT /api/orgs/{id}/groups/{group_id}/targets", a.requireUser(a.handleReplaceOrganizationGroupTargets))
+	mux.HandleFunc("POST /api/orgs/{id}/groups/{group_id}/targets", a.requireUser(a.handleAddOrganizationGroupTarget))
+	mux.HandleFunc("DELETE /api/orgs/{id}/groups/{group_id}/targets/{target_id}", a.requireUser(a.handleRemoveOrganizationGroupTarget))
 	mux.HandleFunc("GET /api/keys", a.requireUser(a.handleListPublicKeys))
 	mux.HandleFunc("POST /api/keys", a.requireUser(a.handleCreatePublicKey))
 	mux.HandleFunc("DELETE /api/keys/{id}", a.requireUser(a.handleDeletePublicKey))
@@ -259,7 +263,19 @@ func isLoopbackRequest(r *http.Request) bool {
 
 func readJSON(r *http.Request, dst any) error {
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(dst)
+	const maxJSONBodyBytes = 4 << 20
+	decoder := json.NewDecoder(io.LimitReader(r.Body, maxJSONBodyBytes+1))
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple json values")
+		}
+		return err
+	}
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

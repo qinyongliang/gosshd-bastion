@@ -45,16 +45,15 @@ func (a *App) allowAuthAttempt(r *http.Request, subject string, limit int, windo
 	if ip == "" {
 		ip = "unknown"
 	}
-	return a.authLimiter.allow(ip+"|"+subject, limit, window)
+	// Enforce both account and source limits. The account key prevents an
+	// attacker from bypassing throttling by rotating source addresses.
+	if !a.authLimiter.allow("subject|"+strings.ToLower(strings.TrimSpace(subject)), limit, window) {
+		return false
+	}
+	return a.authLimiter.allow("ip|"+ip+"|"+strings.ToLower(strings.TrimSpace(subject)), limit, window)
 }
 
 func remoteIP(r *http.Request) string {
-	if raw := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); raw != "" {
-		if first, _, ok := strings.Cut(raw, ","); ok {
-			raw = first
-		}
-		return strings.TrimSpace(raw)
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
 		return host

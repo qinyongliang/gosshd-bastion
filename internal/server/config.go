@@ -15,6 +15,7 @@ type Config struct {
 	SecretKey              string
 	SecretKeyPath          string
 	BootstrapAdminPassword string
+	ResetUserPassword      string
 	SessionCookieName      string
 	PublicHost             string
 	PublicSSHPort          int

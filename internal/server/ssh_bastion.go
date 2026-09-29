@@ -69,6 +69,13 @@ func (a *App) resolveBastionTarget(ctx context.Context, userID, alias string) (s
 		}
 		for _, target := range targets {
 			if target.Alias == alias {
+				if err := a.validateTargetAgent(ctx, target.OwnerType, target.OwnerID, target.TargetType, target.AgentID); err != nil {
+					return store.SSHTarget{}, err
+				}
+				visible, err := a.store.Repository().UserCanAccessTarget(ctx, userID, target.ID)
+				if err != nil || !visible {
+					continue
+				}
 				return target, nil
 			}
 		}
@@ -88,6 +95,13 @@ func (a *App) resolveBastionTarget(ctx context.Context, userID, alias string) (s
 		}
 		for _, target := range targets {
 			if target.Alias == alias {
+				if err := a.validateTargetAgent(ctx, target.OwnerType, target.OwnerID, target.TargetType, target.AgentID); err != nil {
+					return store.SSHTarget{}, err
+				}
+				visible, err := a.store.Repository().UserCanAccessTarget(ctx, userID, target.ID)
+				if err != nil || !visible {
+					continue
+				}
 				matches = append(matches, target)
 			}
 		}

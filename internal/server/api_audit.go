@@ -292,7 +292,7 @@ func auditDecisionParam(raw string) string {
 
 func auditRequestTypeParam(raw string) string {
 	switch strings.TrimSpace(raw) {
-	case store.RequestExec, store.RequestShell, store.RequestWebTerminal, store.RequestSFTP, store.RequestForward:
+	case store.RequestExec, store.RequestShell, store.RequestWebTerminal, store.RequestSystem, store.RequestSFTP, store.RequestForward:
 		return strings.TrimSpace(raw)
 	default:
 		return ""

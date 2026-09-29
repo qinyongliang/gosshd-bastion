@@ -46,6 +46,7 @@ ssh 服务商-地区-业务名称@gosshd.site "要执行的命令"
   --http-listen :18080 \
   --ssh-listen :22022 \
   --database-path ./data/gosshd.db \
+  --secret-key-path ./data/gosshd.secret-key \
   --audit-database-path ./data/gosshd-audit.db \
   --host-key-path ./data/gosshd_host_key \
   --agent-cache-path ./agent-cache \
@@ -66,10 +67,21 @@ password: change-me
 2. 创建或选择一个组织。
 3. 添加直连 SSH 服务器，或创建私有节点注册令牌。
 4. 配置命令安全组和可选 LLM 审核。
-5. 通过 SSH 控制平面连接：
+5. 根据访问范围，把用户组绑定到不同批次的 SSH 目标。
+6. 通过 SSH 控制平面连接：
+
+服务器会在写入 SQLite 前加密 SSH 凭据和 LLM API Key。请把密钥文件排除在备份之外并保护文件权限；对外提供控制台或注册链接前，请先通过 TLS 反向代理启用 HTTPS。
 
 ```sh
 ssh -p 22022 aws-ap-sg-billing-db@bastion.example.com "hostname"
+```
+
+### 重置用户密码
+
+可使用一次性启动参数为指定用户（邮箱或用户 ID）生成 16 位随机密码。命令完成后退出服务进程，并在标准输出中回显新密码：
+
+```sh
+./gosshd-server --database-path ./data/gosshd.db --secret-key-path ./data/gosshd.secret-key --reset-user-password admin
 ```
 
 ## 私有节点安装

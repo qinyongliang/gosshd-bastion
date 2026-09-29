@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -25,6 +26,7 @@ func main() {
 	flag.StringVar(&cfg.SecretKey, "secret-key", "", "secret key material used to encrypt stored credentials")
 	flag.StringVar(&cfg.SecretKeyPath, "secret-key-path", "", "path to secret key material used to encrypt stored credentials")
 	flag.StringVar(&cfg.BootstrapAdminPassword, "bootstrap-admin-password", "", "password for first-run admin account; falls back to GOSSHD_BOOTSTRAP_ADMIN_PASSWORD or generated")
+	flag.StringVar(&cfg.ResetUserPassword, "reset-user-password", "", "reset the password for a user email or ID, print the generated 16-character password, and exit")
 	flag.StringVar(&cfg.SessionCookieName, "session-cookie-name", "", "HTTP session cookie name")
 	flag.StringVar(&cfg.PublicHost, "public-host", "", "public host override used in generated install links; defaults to the request Host")
 	flag.IntVar(&cfg.PublicSSHPort, "public-ssh-port", 0, "public SSH port shown in copy commands and agent hints; defaults to ssh-listen port")
@@ -40,6 +42,18 @@ func main() {
 	defer stop()
 
 	app := server.NewApp(cfg)
+	if cfg.ResetUserPassword != "" {
+		password, err := app.ResetUserPassword(ctx, cfg.ResetUserPassword)
+		if err != nil {
+			_ = app.Close()
+			log.Fatal(err)
+		}
+		if err := app.Close(); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("user=%s password=%s\n", cfg.ResetUserPassword, password)
+		return
+	}
 	if err := app.Run(ctx); err != nil {
 		log.Fatal(err)
 	}

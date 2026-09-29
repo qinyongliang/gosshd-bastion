@@ -119,7 +119,14 @@ func (a *App) handleListTargets(w http.ResponseWriter, r *http.Request, user sto
 			return
 		}
 		for _, target := range targets {
-			out.Targets = append(out.Targets, apiTargetFromStore(target))
+			visible, err := a.targetVisibleToUser(r.Context(), target, user)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if visible {
+				out.Targets = append(out.Targets, apiTargetFromStore(target))
+			}
 		}
 		writeJSON(w, http.StatusOK, out)
 		return
@@ -131,7 +138,14 @@ func (a *App) handleListTargets(w http.ResponseWriter, r *http.Request, user sto
 			return
 		}
 		for _, target := range targets {
-			out.Targets = append(out.Targets, apiTargetFromStore(target))
+			visible, err := a.targetVisibleToUser(r.Context(), target, user)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if visible {
+				out.Targets = append(out.Targets, apiTargetFromStore(target))
+			}
 		}
 		writeJSON(w, http.StatusOK, out)
 		return
@@ -152,7 +166,14 @@ func (a *App) handleListTargets(w http.ResponseWriter, r *http.Request, user sto
 			return
 		}
 		for _, target := range targets {
-			out.Targets = append(out.Targets, apiTargetFromStore(target))
+			visible, err := a.targetVisibleToUser(r.Context(), target, user)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if visible {
+				out.Targets = append(out.Targets, apiTargetFromStore(target))
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -189,9 +210,19 @@ func (a *App) handleCreateTarget(w http.ResponseWriter, r *http.Request, user st
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := a.validateTargetAgent(r.Context(), ownerType, ownerID, req.TargetType, req.AgentID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := a.validateCredential(r.Context(), ownerType, ownerID, req.CredentialID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if strings.TrimSpace(req.CredentialID) != "" {
+		if err := a.requireOrganizationAdmin(r.Context(), ownerID, user); err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
 	}
 	if err := a.validateTargetFolder(r.Context(), ownerType, ownerID, req.FolderID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -250,6 +281,18 @@ func (a *App) handleUpdateTarget(w http.ResponseWriter, r *http.Request, user st
 		writeOwnerError(w, err)
 		return
 	}
+	if visible, err := a.targetVisibleToUser(r.Context(), current, user); err != nil || !visible {
+		writeError(w, http.StatusForbidden, "target access required")
+		return
+	}
+	agentID := req.AgentID
+	if agentID == "" {
+		agentID = current.AgentID
+	}
+	if err := a.validateTargetAgent(r.Context(), current.OwnerType, current.OwnerID, current.TargetType, agentID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	proxyTargetID := ""
 	replaceProxy := req.ProxyTargetID != nil
 	if replaceProxy {
@@ -267,6 +310,12 @@ func (a *App) handleUpdateTarget(w http.ResponseWriter, r *http.Request, user st
 	replaceCredential := req.CredentialID != nil
 	if replaceCredential {
 		credentialID = *req.CredentialID
+		if strings.TrimSpace(credentialID) != "" {
+			if err := a.requireOrganizationAdmin(r.Context(), current.OwnerID, user); err != nil {
+				writeError(w, http.StatusForbidden, err.Error())
+				return
+			}
+		}
 		if err := a.validateCredential(r.Context(), current.OwnerType, current.OwnerID, credentialID); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -320,6 +369,10 @@ func (a *App) handleDeleteTarget(w http.ResponseWriter, r *http.Request, user st
 		writeOwnerError(w, err)
 		return
 	}
+	if visible, err := a.targetVisibleToUser(r.Context(), target, user); err != nil || !visible {
+		writeError(w, http.StatusForbidden, "target access required")
+		return
+	}
 	if err := a.store.Repository().DeleteSSHTarget(r.Context(), target.ID); err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -344,6 +397,16 @@ func (a *App) handleCopyTarget(w http.ResponseWriter, r *http.Request, user stor
 	if _, _, err := a.resolveOwner(r.Context(), current.OwnerType, current.OwnerID, user.ID); err != nil {
 		writeOwnerError(w, err)
 		return
+	}
+	if visible, err := a.targetVisibleToUser(r.Context(), current, user); err != nil || !visible {
+		writeError(w, http.StatusForbidden, "target access required")
+		return
+	}
+	if strings.TrimSpace(current.CredentialID) != "" {
+		if err := a.requireOrganizationAdmin(r.Context(), current.OwnerID, user); err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
 	}
 	targets, err := a.store.Repository().ListSSHTargets(r.Context(), current.OwnerType, current.OwnerID)
 	if err != nil {
@@ -417,6 +480,10 @@ func (a *App) handleListSSHCredentials(w http.ResponseWriter, r *http.Request, u
 		writeOwnerError(w, err)
 		return
 	}
+	if err := a.requireOrganizationAdmin(r.Context(), ownerID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	credentials, err := a.store.Repository().ListSSHCredentials(r.Context(), ownerType, ownerID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -445,6 +512,10 @@ func (a *App) handleCreateSSHCredential(w http.ResponseWriter, r *http.Request, 
 	ownerType, ownerID, err := a.resolveOwner(r.Context(), req.OwnerType, req.OwnerID, user.ID)
 	if err != nil {
 		writeOwnerError(w, err)
+		return
+	}
+	if err := a.requireOrganizationAdmin(r.Context(), ownerID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	credential, err := a.store.Repository().CreateSSHCredential(r.Context(), store.CreateSSHCredentialParams{
@@ -478,6 +549,10 @@ func (a *App) handleUpdateSSHCredential(w http.ResponseWriter, r *http.Request, 
 		writeOwnerError(w, err)
 		return
 	}
+	if err := a.requireOrganizationAdmin(r.Context(), current.OwnerID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	var secret []byte
 	if req.Secret != "" {
 		secret = []byte(req.Secret)
@@ -500,6 +575,10 @@ func (a *App) handleDeleteSSHCredential(w http.ResponseWriter, r *http.Request, 
 	}
 	if _, _, err := a.resolveOwner(r.Context(), current.OwnerType, current.OwnerID, user.ID); err != nil {
 		writeOwnerError(w, err)
+		return
+	}
+	if err := a.requireOrganizationAdmin(r.Context(), current.OwnerID, user); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	if err := a.store.Repository().DeleteSSHCredential(r.Context(), current.ID); err != nil {
@@ -753,6 +832,24 @@ func (a *App) validateTargetFolder(ctx context.Context, ownerType, ownerID, fold
 	return nil
 }
 
+func (a *App) validateTargetAgent(ctx context.Context, ownerType, ownerID, targetType, agentID string) error {
+	if strings.TrimSpace(targetType) != store.TargetAgent {
+		return nil
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return errors.New("agent_id is required for agent targets")
+	}
+	agent, err := a.store.Repository().GetAgent(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if agent.OwnerType != ownerType || agent.OwnerID != ownerID {
+		return errors.New("agent belongs to another owner")
+	}
+	return nil
+}
+
 func nextCopyAlias(alias string, used map[string]bool) string {
 	base := strings.TrimSpace(alias)
 	if base == "" {
@@ -869,6 +966,19 @@ func (a *App) resolveOwner(ctx context.Context, ownerType, ownerID, userID strin
 		return "", "", errOwnerAccess
 	}
 	return ownerType, ownerID, nil
+}
+
+func (a *App) targetVisibleToUser(ctx context.Context, target store.SSHTarget, user store.User) (bool, error) {
+	if user.IsSystemAdmin {
+		return true, nil
+	}
+	if target.OwnerType == store.OwnerOrganization {
+		member, err := a.store.Repository().GetOrganizationMember(ctx, target.OwnerID, user.ID)
+		if err == nil && (member.Role == store.RoleOwner || member.Role == store.RoleAdmin) {
+			return true, nil
+		}
+	}
+	return a.store.Repository().UserCanAccessTarget(ctx, user.ID, target.ID)
 }
 
 var errOwnerAccess = errors.New("organization access required")

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
@@ -89,9 +90,17 @@ func (a *App) ensureServices(ctx context.Context) error {
 	if a.store != nil {
 		return nil
 	}
-	st, err := store.Open(ctx, a.cfg.DatabasePath)
+	secretKey, err := a.loadSecretKey()
 	if err != nil {
 		return err
+	}
+	st, err := store.Open(ctx, a.cfg.DatabasePath, secretKey)
+	if err != nil {
+		return err
+	}
+	if err := st.Repository().EncryptLegacySecrets(ctx); err != nil {
+		_ = st.Close()
+		return fmt.Errorf("encrypt legacy secrets: %w", err)
 	}
 	auditPath := a.auditDatabasePath()
 	audit, err := store.OpenAudit(ctx, auditPath)
@@ -133,6 +142,102 @@ func (a *App) ensureServices(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// ResetUserPassword generates a strong temporary password for the user
+// identified by email or ID, stores its hash, and returns the plaintext once.
+// It is intended for the one-shot --reset-user-password CLI operation.
+func (a *App) ResetUserPassword(ctx context.Context, identifier string) (string, error) {
+	if err := a.ensureServices(ctx); err != nil {
+		return "", err
+	}
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return "", errors.New("user email or ID is required")
+	}
+	user, err := a.store.Repository().GetUserByEmail(ctx, identifier)
+	if errors.Is(err, store.ErrNotFound) {
+		user, err = a.store.Repository().GetUser(ctx, identifier)
+	}
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return "", fmt.Errorf("user %q not found", identifier)
+		}
+		return "", err
+	}
+	password, err := generateTemporaryPassword()
+	if err != nil {
+		return "", fmt.Errorf("generate password: %w", err)
+	}
+	if err := a.auth.ResetPassword(ctx, user.ID, password); err != nil {
+		return "", fmt.Errorf("reset password for %q: %w", user.Email, err)
+	}
+	return password, nil
+}
+
+func generateTemporaryPassword() (string, error) {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+	const length = 16
+	password := make([]byte, length)
+	// Rejection sampling avoids modulo bias while keeping the output shell-safe.
+	limit := byte(256 - (256 % len(alphabet)))
+	for i := range password {
+		for {
+			var raw [1]byte
+			if _, err := rand.Read(raw[:]); err != nil {
+				return "", err
+			}
+			if raw[0] >= limit {
+				continue
+			}
+			password[i] = alphabet[int(raw[0])%len(alphabet)]
+			break
+		}
+	}
+	return string(password), nil
+}
+
+func (a *App) loadSecretKey() ([]byte, error) {
+	if key := strings.TrimSpace(a.cfg.SecretKey); key != "" {
+		return []byte(key), nil
+	}
+	if path := strings.TrimSpace(a.cfg.SecretKeyPath); path != "" {
+		key, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read secret key: %w", err)
+		}
+		if len(strings.TrimSpace(string(key))) == 0 {
+			return nil, errors.New("secret key file is empty")
+		}
+		return []byte(strings.TrimSpace(string(key))), nil
+	}
+	if key := strings.TrimSpace(os.Getenv("GOSSHD_SECRET_KEY")); key != "" {
+		return []byte(key), nil
+	}
+	base := strings.TrimSpace(a.cfg.DatabasePath)
+	if base == "" {
+		base = "gosshd.db"
+	}
+	keyPath := base + ".secret-key"
+	if key, err := os.ReadFile(keyPath); err == nil {
+		if len(strings.TrimSpace(string(key))) == 0 {
+			return nil, errors.New("generated secret key file is empty")
+		}
+		return []byte(strings.TrimSpace(string(key))), nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read generated secret key: %w", err)
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		return nil, fmt.Errorf("write generated secret key: %w", err)
+	}
+	return key, nil
 }
 
 func (a *App) auditDatabasePath() string {

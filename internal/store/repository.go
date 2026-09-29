@@ -17,7 +17,66 @@ var ErrNotFound = errors.New("not found")
 const defaultAuthProvider = "local"
 
 type Repository struct {
-	db *sql.DB
+	db        *sql.DB
+	secretBox *SecretBox
+}
+
+func (r *Repository) sealSecret(value []byte) ([]byte, error) {
+	if r.secretBox == nil {
+		return append([]byte(nil), value...), nil
+	}
+	return r.secretBox.Seal(value)
+}
+
+func (r *Repository) openSecret(value []byte) ([]byte, error) {
+	if r.secretBox == nil {
+		return append([]byte(nil), value...), nil
+	}
+	return r.secretBox.Open(value)
+}
+
+func (r *Repository) EncryptLegacySecrets(ctx context.Context) error {
+	if r.secretBox == nil {
+		return nil
+	}
+	for _, item := range []struct{ table, column string }{
+		{table: "ssh_targets", column: "encrypted_secret"},
+		{table: "ssh_credentials", column: "encrypted_secret"},
+		{table: "llm_policy_configs", column: "api_key_encrypted"},
+	} {
+		rows, err := r.db.QueryContext(ctx, "SELECT id, "+item.column+" FROM "+item.table+" WHERE "+item.column+" IS NOT NULL")
+		if err != nil {
+			return err
+		}
+		var values [][2][]byte
+		for rows.Next() {
+			var id string
+			var value []byte
+			if err := rows.Scan(&id, &value); err != nil {
+				rows.Close()
+				return err
+			}
+			if !strings.HasPrefix(string(value), secretBoxPrefix) {
+				sealed, err := r.sealSecret(value)
+				if err != nil {
+					rows.Close()
+					return err
+				}
+				values = append(values, [2][]byte{[]byte(id), sealed})
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for _, value := range values {
+			if _, err := r.db.ExecContext(ctx, "UPDATE "+item.table+" SET "+item.column+" = ? WHERE id = ?", value[1], string(value[0])); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (r *Repository) CreateUser(ctx context.Context, params CreateUserParams) (User, error) {
@@ -653,7 +712,16 @@ func (r *Repository) ListOrganizationUserGroups(ctx context.Context, organizatio
 		group.CreatedAt = parseTime(created)
 		groups = append(groups, group)
 	}
-	return groups, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range groups {
+		groups[i].TargetIDs, err = r.ListUserGroupTargetIDs(ctx, groups[i].ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return groups, nil
 }
 
 func (r *Repository) GetOrganizationUserGroup(ctx context.Context, groupID string) (OrganizationUserGroup, error) {
@@ -670,6 +738,10 @@ func (r *Repository) GetOrganizationUserGroup(ctx context.Context, groupID strin
 	}
 	group.IsDefault = isDefault == 1
 	group.CreatedAt = parseTime(created)
+	group.TargetIDs, err = r.ListUserGroupTargetIDs(ctx, group.ID)
+	if err != nil {
+		return OrganizationUserGroup{}, err
+	}
 	return group, nil
 }
 
@@ -715,6 +787,107 @@ func (r *Repository) UserInGroup(ctx context.Context, groupID, userID string) (b
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (r *Repository) ListUserGroupTargetIDs(ctx context.Context, groupID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT target_id FROM organization_user_group_targets
+		WHERE group_id = ? ORDER BY target_id ASC
+	`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (r *Repository) ReplaceUserGroupTargets(ctx context.Context, groupID string, targetIDs []string) error {
+	group, err := r.GetOrganizationUserGroup(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	unique := make([]string, 0, len(targetIDs))
+	seen := map[string]bool{}
+	for _, targetID := range targetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID == "" || seen[targetID] {
+			continue
+		}
+		target, err := r.GetSSHTarget(ctx, targetID)
+		if err != nil {
+			return err
+		}
+		if target.OwnerType != OwnerOrganization || target.OwnerID != group.OrganizationID {
+			return errors.New("target must belong to the group organization")
+		}
+		seen[targetID] = true
+		unique = append(unique, targetID)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM organization_user_group_targets WHERE group_id = ?`, groupID); err != nil {
+		return err
+	}
+	for _, targetID := range unique {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO organization_user_group_targets (group_id, target_id, created_at)
+			VALUES (?, ?, ?)
+		`, groupID, targetID, formatTime(time.Now().UTC())); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) AttachUserGroupToTarget(ctx context.Context, groupID, targetID string) error {
+	group, err := r.GetOrganizationUserGroup(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	target, err := r.GetSSHTarget(ctx, targetID)
+	if err != nil {
+		return err
+	}
+	if target.OwnerType != OwnerOrganization || target.OwnerID != group.OrganizationID {
+		return errors.New("target must belong to the group organization")
+	}
+	_, err = r.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO organization_user_group_targets (group_id, target_id, created_at)
+		VALUES (?, ?, ?)
+	`, groupID, targetID, formatTime(time.Now().UTC()))
+	return err
+}
+
+func (r *Repository) DetachUserGroupFromTarget(ctx context.Context, groupID, targetID string) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM organization_user_group_targets WHERE group_id = ? AND target_id = ?
+	`, groupID, targetID)
+	return err
+}
+
+func (r *Repository) UserCanAccessTarget(ctx context.Context, userID, targetID string) (bool, error) {
+	var allowed int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT CASE WHEN NOT EXISTS (
+			SELECT 1 FROM organization_user_group_targets gt WHERE gt.target_id = ?
+		) OR EXISTS (
+			SELECT 1 FROM organization_user_group_targets gt
+			JOIN organization_user_group_members gm ON gm.group_id = gt.group_id
+			WHERE gt.target_id = ? AND gm.user_id = ?
+		) THEN 1 ELSE 0 END
+	`, targetID, targetID, userID).Scan(&allowed)
+	return allowed == 1, err
 }
 
 func (r *Repository) GetOrganization(ctx context.Context, id string) (Organization, error) {
@@ -1147,6 +1320,10 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
+	sealedSecret, err := r.sealSecret(target.EncryptedSecret)
+	if err != nil {
+		return SSHTarget{}, err
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return SSHTarget{}, err
@@ -1159,7 +1336,7 @@ func (r *Repository) CreateSSHTarget(ctx context.Context, params CreateSSHTarget
 			created_by, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, target.ID, target.OwnerType, target.OwnerID, target.Name, target.Alias, target.TargetType, target.Host, target.Port,
-		target.RemoteUsername, target.AuthType, nullableBytes(target.EncryptedSecret), nullableString(target.AgentID),
+		target.RemoteUsername, target.AuthType, nullableBytes(sealedSecret), nullableString(target.AgentID),
 		nullableString(target.ProxyTargetID), nullableString(target.CredentialID), nullableString(target.FolderID),
 		target.CreatedBy, formatTime(target.CreatedAt), formatTime(target.UpdatedAt)); err != nil {
 		return SSHTarget{}, err
@@ -1209,7 +1386,7 @@ func (r *Repository) ListSSHTargetsFiltered(ctx context.Context, filter SSHTarge
 	defer rows.Close()
 	var targets []SSHTarget
 	for rows.Next() {
-		target, err := scanTargetRows(rows)
+		target, err := r.scanTargetRows(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -1232,7 +1409,7 @@ func (r *Repository) GetSSHTarget(ctx context.Context, targetID string) (SSHTarg
 		FROM ssh_targets
 		WHERE id = ?
 	`, targetID)
-	target, err := scanTarget(row)
+	target, err := r.scanTarget(row)
 	if err != nil {
 		return SSHTarget{}, err
 	}
@@ -1323,6 +1500,10 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 		current.Tags = normalizeTags(params.Tags)
 	}
 	current.UpdatedAt = time.Now().UTC()
+	sealedSecret, err := r.sealSecret(current.EncryptedSecret)
+	if err != nil {
+		return SSHTarget{}, err
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return SSHTarget{}, err
@@ -1334,7 +1515,7 @@ func (r *Repository) UpdateSSHTarget(ctx context.Context, targetID string, param
 			encrypted_secret = ?, agent_id = ?, proxy_target_id = ?, credential_id = ?, folder_id = ?, updated_at = ?
 		WHERE id = ?
 	`, current.Name, current.Alias, current.Host, current.Port, current.RemoteUsername, current.AuthType,
-		nullableBytes(current.EncryptedSecret), nullableString(current.AgentID), nullableString(current.ProxyTargetID),
+		nullableBytes(sealedSecret), nullableString(current.AgentID), nullableString(current.ProxyTargetID),
 		nullableString(current.CredentialID), nullableString(current.FolderID), formatTime(current.UpdatedAt), current.ID); err != nil {
 		return SSHTarget{}, err
 	}
@@ -1369,11 +1550,15 @@ func (r *Repository) CreateSSHCredential(ctx context.Context, params CreateSSHCr
 	if credential.Username == "" {
 		return SSHCredential{}, errors.New("credential username is required")
 	}
+	sealedSecret, err := r.sealSecret(credential.EncryptedSecret)
+	if err != nil {
+		return SSHCredential{}, err
+	}
 	if _, err := r.db.ExecContext(ctx, `
 		INSERT INTO ssh_credentials (id, owner_type, owner_id, name, username, auth_type, encrypted_secret, created_by, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, credential.ID, credential.OwnerType, credential.OwnerID, credential.Name, credential.Username, credential.AuthType,
-		nullableBytes(credential.EncryptedSecret), credential.CreatedBy, formatTime(credential.CreatedAt), formatTime(credential.UpdatedAt)); err != nil {
+		nullableBytes(sealedSecret), credential.CreatedBy, formatTime(credential.CreatedAt), formatTime(credential.UpdatedAt)); err != nil {
 		return SSHCredential{}, err
 	}
 	return r.GetSSHCredential(ctx, credential.ID)
@@ -1392,7 +1577,7 @@ func (r *Repository) ListSSHCredentials(ctx context.Context, ownerType, ownerID 
 	defer rows.Close()
 	var credentials []SSHCredential
 	for rows.Next() {
-		credential, err := scanSSHCredentialRows(rows)
+		credential, err := r.scanSSHCredentialRows(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -1407,7 +1592,7 @@ func (r *Repository) GetSSHCredential(ctx context.Context, credentialID string) 
 		FROM ssh_credentials
 		WHERE id = ?
 	`, credentialID)
-	credential, err := scanSSHCredentialRows(row)
+	credential, err := r.scanSSHCredentialRows(row)
 	if err != nil {
 		return SSHCredential{}, wrapScanErr(err)
 	}
@@ -1432,11 +1617,15 @@ func (r *Repository) UpdateSSHCredential(ctx context.Context, credentialID strin
 		current.EncryptedSecret = append([]byte(nil), params.EncryptedSecret...)
 	}
 	current.UpdatedAt = time.Now().UTC()
+	sealedSecret, err := r.sealSecret(current.EncryptedSecret)
+	if err != nil {
+		return SSHCredential{}, err
+	}
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE ssh_credentials
 		SET name = ?, username = ?, auth_type = ?, encrypted_secret = ?, updated_at = ?
 		WHERE id = ?
-	`, current.Name, current.Username, current.AuthType, nullableBytes(current.EncryptedSecret), formatTime(current.UpdatedAt), current.ID)
+	`, current.Name, current.Username, current.AuthType, nullableBytes(sealedSecret), formatTime(current.UpdatedAt), current.ID)
 	if err != nil {
 		return SSHCredential{}, err
 	}
@@ -1983,12 +2172,16 @@ func (r *Repository) CreateLLMPolicyConfig(ctx context.Context, params CreateLLM
 	if cfg.TimeoutSeconds <= 0 {
 		cfg.TimeoutSeconds = 10
 	}
-	_, err := r.db.ExecContext(ctx, `
+	sealedKey, err := r.sealSecret(cfg.EncryptedAPIKey)
+	if err != nil {
+		return LLMPolicyConfig{}, err
+	}
+	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO llm_policy_configs (
 			id, owner_type, owner_id, name, base_url, api_key_encrypted, model,
 			timeout_seconds, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, cfg.ID, cfg.OwnerType, cfg.OwnerID, cfg.Name, cfg.BaseURL, nullableBytes(cfg.EncryptedAPIKey),
+	`, cfg.ID, cfg.OwnerType, cfg.OwnerID, cfg.Name, cfg.BaseURL, nullableBytes(sealedKey),
 		cfg.Model, cfg.TimeoutSeconds, formatTime(cfg.CreatedAt))
 	if err != nil {
 		return LLMPolicyConfig{}, err
@@ -2003,7 +2196,7 @@ func (r *Repository) GetLLMPolicyConfig(ctx context.Context, id string) (LLMPoli
 		FROM llm_policy_configs
 		WHERE id = ?
 	`, id)
-	return scanLLMPolicyConfig(row)
+	return r.scanLLMPolicyConfig(row)
 }
 
 func (r *Repository) ListLLMPolicyConfigs(ctx context.Context, ownerType, ownerID string) ([]LLMPolicyConfig, error) {
@@ -2020,7 +2213,7 @@ func (r *Repository) ListLLMPolicyConfigs(ctx context.Context, ownerType, ownerI
 	defer rows.Close()
 	var configs []LLMPolicyConfig
 	for rows.Next() {
-		cfg, err := scanLLMPolicyConfigRows(rows)
+		cfg, err := r.scanLLMPolicyConfigRows(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -2034,7 +2227,11 @@ func (r *Repository) UpdateLLMPolicyConfig(ctx context.Context, id string, param
 	if timeout <= 0 {
 		timeout = 10
 	}
-	apiKey := nullableBytes(params.EncryptedAPIKey)
+	sealedKey, err := r.sealSecret(params.EncryptedAPIKey)
+	if err != nil {
+		return LLMPolicyConfig{}, err
+	}
+	apiKey := nullableBytes(sealedKey)
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE llm_policy_configs
 		SET name = ?, base_url = ?, api_key_encrypted = COALESCE(?, api_key_encrypted),
@@ -2861,7 +3058,7 @@ func decodeMCPToolGroups(raw string) []string {
 	return normalizeMCPToolGroups(strings.Split(raw, ","))
 }
 
-func scanTarget(row *sql.Row) (SSHTarget, error) {
+func (r *Repository) scanTarget(row *sql.Row) (SSHTarget, error) {
 	var target SSHTarget
 	var created, updated string
 	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Name, &target.Alias, &target.TargetType,
@@ -2869,6 +3066,10 @@ func scanTarget(row *sql.Row) (SSHTarget, error) {
 		&target.AgentID, &target.ProxyTargetID, &target.CredentialID, &target.FolderID, &target.CreatedBy, &created, &updated)
 	if err != nil {
 		return SSHTarget{}, wrapScanErr(err)
+	}
+	target.EncryptedSecret, err = r.openSecret(target.EncryptedSecret)
+	if err != nil {
+		return SSHTarget{}, err
 	}
 	if strings.TrimSpace(target.Name) == "" {
 		target.Name = target.Alias
@@ -2882,7 +3083,7 @@ type targetScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanTargetRows(row targetScanner) (SSHTarget, error) {
+func (r *Repository) scanTargetRows(row targetScanner) (SSHTarget, error) {
 	var target SSHTarget
 	var created, updated string
 	err := row.Scan(&target.ID, &target.OwnerType, &target.OwnerID, &target.Name, &target.Alias, &target.TargetType,
@@ -2890,6 +3091,10 @@ func scanTargetRows(row targetScanner) (SSHTarget, error) {
 		&target.AgentID, &target.ProxyTargetID, &target.CredentialID, &target.FolderID, &target.CreatedBy, &created, &updated)
 	if err != nil {
 		return SSHTarget{}, wrapScanErr(err)
+	}
+	target.EncryptedSecret, err = r.openSecret(target.EncryptedSecret)
+	if err != nil {
+		return SSHTarget{}, err
 	}
 	if strings.TrimSpace(target.Name) == "" {
 		target.Name = target.Alias
@@ -2899,11 +3104,15 @@ func scanTargetRows(row targetScanner) (SSHTarget, error) {
 	return target, nil
 }
 
-func scanSSHCredentialRows(row targetScanner) (SSHCredential, error) {
+func (r *Repository) scanSSHCredentialRows(row targetScanner) (SSHCredential, error) {
 	var credential SSHCredential
 	var created, updated string
 	err := row.Scan(&credential.ID, &credential.OwnerType, &credential.OwnerID, &credential.Name,
 		&credential.Username, &credential.AuthType, &credential.EncryptedSecret, &credential.CreatedBy, &created, &updated)
+	if err != nil {
+		return SSHCredential{}, err
+	}
+	credential.EncryptedSecret, err = r.openSecret(credential.EncryptedSecret)
 	if err != nil {
 		return SSHCredential{}, err
 	}
@@ -2944,15 +3153,15 @@ func scanBatchCommandHistoryRows(row targetScanner) (BatchCommandHistory, error)
 	return item, nil
 }
 
-func scanLLMPolicyConfig(row *sql.Row) (LLMPolicyConfig, error) {
-	cfg, err := scanLLMPolicyConfigRows(row)
+func (r *Repository) scanLLMPolicyConfig(row *sql.Row) (LLMPolicyConfig, error) {
+	cfg, err := r.scanLLMPolicyConfigRows(row)
 	if err != nil {
 		return LLMPolicyConfig{}, wrapScanErr(err)
 	}
 	return cfg, nil
 }
 
-func scanLLMPolicyConfigRows(row targetScanner) (LLMPolicyConfig, error) {
+func (r *Repository) scanLLMPolicyConfigRows(row targetScanner) (LLMPolicyConfig, error) {
 	var cfg LLMPolicyConfig
 	var apiKey []byte
 	var created string
@@ -2962,6 +3171,10 @@ func scanLLMPolicyConfigRows(row targetScanner) (LLMPolicyConfig, error) {
 		return LLMPolicyConfig{}, err
 	}
 	cfg.EncryptedAPIKey = append([]byte(nil), apiKey...)
+	cfg.EncryptedAPIKey, err = r.openSecret(cfg.EncryptedAPIKey)
+	if err != nil {
+		return LLMPolicyConfig{}, err
+	}
 	cfg.CreatedAt = parseTime(created)
 	return cfg, nil
 }

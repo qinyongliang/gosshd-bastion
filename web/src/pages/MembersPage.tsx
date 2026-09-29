@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, UserPlus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { CommandBox, ErrorMessage, Field, Modal, ModalActions, Panel, Select, SimpleTable, Toolbar, UserCell } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -14,9 +14,14 @@ export function MembersPage({ data }: { data: ConsoleData }) {
   const [modal, setModal] = useState<"" | "add" | "groups" | "invite" | "transfer">("");
   const [inviteCode, setInviteCode] = useState("");
   const [neverExpires, setNeverExpires] = useState(true);
+  const [groupTargets, setGroupTargets] = useState<Record<string, string[]>>({});
   const queryClient = useQueryClient();
   const add = useMutation({ mutationFn: (body: Record<string, string>) => api.addOrgMember(data.activeOrg.id, body), onSuccess: async () => { setModal(""); await queryClient.invalidateQueries(); } });
   const group = useMutation({ mutationFn: (body: Record<string, string>) => api.createGroup(data.activeOrg.id, body), onSuccess: async () => queryClient.invalidateQueries() });
+  const saveGroupTargets = useMutation({
+    mutationFn: ({ groupID, targetIDs }: { groupID: string; targetIDs: string[] }) => api.replaceGroupTargets(data.activeOrg.id, groupID, targetIDs),
+    onSuccess: async () => queryClient.invalidateQueries(),
+  });
   const update = useMutation({ mutationFn: ({ userID, role }: { userID: string; role: string }) => api.updateOrgMember(data.activeOrg.id, userID, { role }), onSuccess: async () => queryClient.invalidateQueries() });
   const transfer = useMutation({ mutationFn: (body: Record<string, string>) => api.transferOrgOwner(data.activeOrg.id, body.user_id), onSuccess: async () => { setModal(""); await queryClient.invalidateQueries(); } });
   const invite = useMutation({
@@ -26,6 +31,9 @@ export function MembersPage({ data }: { data: ConsoleData }) {
     onSuccess: (out) => setInviteCode(out.code),
   });
   const members = useMemo(() => sortMembers(data.members, query, sort), [data.members, query, sort]);
+  useEffect(() => {
+    setGroupTargets(Object.fromEntries(data.groups.map((item) => [item.id, item.target_ids || []])));
+  }, [data.groups]);
   const canInvite = !data.activeOrg.is_personal && (data.activeOrg.role === "owner" || data.activeOrg.role === "admin");
   const openInvite = () => {
     invite.reset();
@@ -81,7 +89,17 @@ export function MembersPage({ data }: { data: ConsoleData }) {
           <Field label="group-slug" name="slug" required />
           <ErrorMessage error={group.error} /><ModalActions onCancel={() => setModal("")} submit={group.isPending ? t("loading") : t("addUserGroup")} />
         </form>
-        <SimpleTable headers={[t("commonName"), "Slug"]} rows={data.groups.map((item) => [item.name, item.slug])} />
+        <SimpleTable headers={[t("commonName"), "Slug", t("membersGroupTargets"), t("commonActions")]} rows={data.groups.map((item) => [
+          item.name,
+          item.slug,
+          <select multiple size={Math.min(6, Math.max(2, data.targets.length))} value={groupTargets[item.id] || []} onChange={(event) => setGroupTargets((current) => ({
+            ...current,
+            [item.id]: Array.from(event.target.selectedOptions, (option) => option.value),
+          }))}>
+            {data.targets.map((target) => <option key={target.id} value={target.id}>{target.name || target.alias}</option>)}
+          </select>,
+          <button type="button" onClick={() => saveGroupTargets.mutate({ groupID: item.id, targetIDs: groupTargets[item.id] || [] })} disabled={saveGroupTargets.isPending}>{t("membersGroupTargetsSave")}</button>,
+        ])} />
       </Modal>}
       {modal === "invite" && <Modal title={t("orgInviteCreateTitle")} onClose={() => setModal("")} closeOnEscape={false}>
         {inviteCode ? <CommandBox label={t("orgJoinCode")} value={inviteCode} copyLabel={t("commonCopy")} /> : <form className="stack" onSubmit={(event) => formSubmit(event, (body) => invite.mutate(body))}>
