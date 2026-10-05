@@ -19,6 +19,7 @@ import type {
   PublicKey,
   Runtime,
   Target,
+  TemporarySSHAuthorization,
   BatchCommandHistory,
   SSHCredential,
   TargetFolder,
@@ -88,6 +89,13 @@ export const api = {
   copyTarget: (id: string) => request<{ target: Target }>(`/api/targets/${id}/copy`, post({})),
   updateTarget: (id: string, body: Record<string, unknown>) => request<{ target: Target }>(`/api/targets/${id}`, patch(body)),
   deleteTarget: (id: string) => request<void>(`/api/targets/${id}`, { method: "DELETE" }),
+  temporarySSHAuthorizations: (targetID: string) => request<{ authorizations: TemporarySSHAuthorization[] }>(`/api/targets/${targetID}/temporary-authorizations`),
+  createTemporarySSHAuthorization: (targetID: string, body: { name?: string; duration_seconds?: number }) =>
+    request<{ authorization: TemporarySSHAuthorization }>(`/api/targets/${targetID}/temporary-authorizations`, post(body)),
+  renewTemporarySSHAuthorization: (targetID: string, id: string, body: { duration_seconds?: number }) =>
+    request<{ authorization: TemporarySSHAuthorization }>(`/api/targets/${targetID}/temporary-authorizations/${id}/renew`, post(body)),
+  deleteTemporarySSHAuthorization: (targetID: string, id: string) =>
+    request<void>(`/api/targets/${targetID}/temporary-authorizations/${id}`, { method: "DELETE" }),
   credentials: (owner: Owner) => request<{ credentials: SSHCredential[] }>(`/api/credentials?${ownerQuery(owner)}`),
   createCredential: (body: Record<string, unknown>) => request<{ credential: SSHCredential }>("/api/credentials", post(body)),
   updateCredential: (id: string, body: Record<string, unknown>) => request<{ credential: SSHCredential }>(`/api/credentials/${id}`, patch(body)),

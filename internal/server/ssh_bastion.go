@@ -30,7 +30,18 @@ const (
 
 func (a *App) handleBastionSSHConn(conn *gossh.ServerConn, chans <-chan gossh.NewChannel, reqs <-chan *gossh.Request, userID, publicKeyFingerprint string) {
 	alias := conn.User()
-	target, err := a.resolveBastionTarget(context.Background(), userID, alias)
+	var target store.SSHTarget
+	var err error
+	temporaryID := conn.Permissions.Extensions["temporary_authorization_id"]
+	if temporaryID != "" {
+		var grant store.TemporarySSHAuthorization
+		grant, target, err = a.temporarySSHAuthorizationTarget(context.Background(), temporaryID)
+		if err == nil && grant.CreatedBy != userID {
+			err = errTemporarySSHAuthorization
+		}
+	} else {
+		target, err = a.resolveBastionTarget(context.Background(), userID, alias)
+	}
 	if err != nil {
 		go gossh.DiscardRequests(reqs)
 		for ch := range chans {
@@ -43,6 +54,13 @@ func (a *App) handleBastionSSHConn(conn *gossh.ServerConn, chans <-chan gossh.Ne
 	defer forwardManager.closeAll()
 	go a.handleBastionGlobalRequests(forwardManager, reqs, userID, publicKeyFingerprint, target, sourceIP)
 	for ch := range chans {
+		if temporaryID != "" {
+			if _, _, err := a.temporarySSHAuthorizationTarget(context.Background(), temporaryID); err != nil {
+				_ = ch.Reject(gossh.Prohibited, errTemporarySSHAuthorization.Error())
+				_ = conn.Close()
+				return
+			}
+		}
 		switch ch.ChannelType() {
 		case "session":
 			go a.handleBastionSession(userID, publicKeyFingerprint, target, ch, sourceIP)

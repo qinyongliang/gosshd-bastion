@@ -90,6 +90,17 @@ export type Target = {
   folder_id?: string;
 };
 
+export type TemporarySSHAuthorization = {
+  id: string;
+  target_id: string;
+  name: string;
+  token: string;
+  created_by: string;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type SSHCredential = {
   id: string;
   owner_type: string;
