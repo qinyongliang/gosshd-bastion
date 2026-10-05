@@ -762,7 +762,7 @@ function TagColorEditor({ data, target }: { data: ConsoleData; target: Target })
 function InstallDrawer({ enrollment, onClose }: { enrollment: Enrollment; onClose: () => void }) {
   const { t } = useI18n();
   return <Drawer title={t("serviceInstallTitle")} subtitle={t("serviceInstallBody")} onClose={onClose}>
-    <div className="grid two">
+    <div className="grid two service-install-commands">
       <section className="section-block embedded">
         <h3>Linux / macOS</h3>
         <CommandBox label={t("serviceRunOnce")} value={enrollment.install_sh || ""} />
