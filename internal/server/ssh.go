@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
 	gossh "golang.org/x/crypto/ssh"
@@ -63,6 +64,27 @@ func (a *App) sshServerConfig() (*gossh.ServerConfig, error) {
 	}
 	cfg := &gossh.ServerConfig{
 		ServerVersion: "SSH-2.0-gosshd",
+		NoClientAuth:  true,
+		NoClientAuthCallback: func(meta gossh.ConnMetadata) (*gossh.Permissions, error) {
+			if _, err := uuid.Parse(meta.User()); err != nil {
+				return nil, errTemporarySSHAuthorization
+			}
+			ctx := context.Background()
+			if err := a.ensureServices(ctx); err != nil {
+				return nil, err
+			}
+			grant, err := a.store.Repository().GetTemporarySSHAuthorizationByToken(ctx, meta.User())
+			if err != nil {
+				return nil, errTemporarySSHAuthorization
+			}
+			if _, _, err := a.temporarySSHAuthorizationTarget(ctx, grant.ID); err != nil {
+				return nil, err
+			}
+			return &gossh.Permissions{Extensions: map[string]string{
+				"user_id":                    grant.CreatedBy,
+				"temporary_authorization_id": grant.ID,
+			}}, nil
+		},
 		PublicKeyCallback: func(meta gossh.ConnMetadata, key gossh.PublicKey) (*gossh.Permissions, error) {
 			if err := a.ensureServices(context.Background()); err != nil {
 				return nil, err
@@ -132,7 +154,14 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 
 	if conn.Permissions != nil {
 		if userID := conn.Permissions.Extensions["user_id"]; userID != "" {
-			log.Printf("ssh authenticated bastion connection: ssh_user=%s user_id=%s fingerprint=%s", conn.User(), userID, conn.Permissions.Extensions["public_key_fingerprint"])
+			if id := conn.Permissions.Extensions["temporary_authorization_id"]; id != "" {
+				done := make(chan struct{})
+				defer close(done)
+				go a.watchTemporarySSHAuthorization(conn, id, done)
+				log.Printf("ssh temporary authorization connection: user_id=%s authorization_id=%s", userID, id)
+			} else {
+				log.Printf("ssh authenticated bastion connection: ssh_user=%s user_id=%s fingerprint=%s", conn.User(), userID, conn.Permissions.Extensions["public_key_fingerprint"])
+			}
 			a.handleBastionSSHConn(conn, chans, reqs, userID, conn.Permissions.Extensions["public_key_fingerprint"])
 			return
 		}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -18,7 +19,12 @@ func Open(ctx context.Context, path string, keyMaterial ...[]byte) (*Store, erro
 	if path == "" {
 		path = filepath.Join(".", "gosshd.db")
 	}
-	db, err := sql.Open("sqlite", path)
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	// Foreign keys must be enabled on every pooled connection, not only during setup.
+	db, err := sql.Open("sqlite", path+separator+"_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}

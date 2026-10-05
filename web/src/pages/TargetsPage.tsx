@@ -6,6 +6,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { api, type Enrollment } from "../api";
 import { ActionMenu, CommandBox, ConfirmDialog, CopyButton, Drawer, Empty, ErrorMessage, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toggle, Toolbar } from "../components/ui";
+import { TemporarySSHAuthorizationsModal } from "../components/TemporarySSHAuthorizationsModal";
 import { useI18n } from "../i18n";
 import { appDescription } from "../lib/branding";
 import { formSubmit, formValues } from "../lib/forms";
@@ -304,6 +305,7 @@ function FolderNode(props: {
 function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selecting, selected, onSelect }: { data: ConsoleData; target: Target; onOpen: (id: string) => void; onEdit: (id: string) => void; onDelete: (target: Target) => void; deleting: boolean; selecting: boolean; selected: boolean; onSelect: () => void }) {
   const { t } = useI18n();
   const [moving, setMoving] = useState(false);
+  const [temporaryAuthorizationsOpen, setTemporaryAuthorizationsOpen] = useState(false);
   const credential = data.credentials.find((item) => item.id === target.credential_id);
   return <div className="target-tree-row">
     <div className="target-tree-main">
@@ -319,11 +321,13 @@ function TargetTreeRow({ data, target, onOpen, onEdit, onDelete, deleting, selec
       <CopyButton value={`ssh -p ${data.runtime.ssh_port || 22} ${target.alias}@${data.runtime.ssh_host || location.hostname}`} label={t("commonCopy")} />
       <ActionMenu label={t("commonMore")}>
         <button type="button" onClick={() => onEdit(target.id)}><Edit3 />{t("commonEdit")}</button>
+        <button type="button" onClick={() => setTemporaryAuthorizationsOpen(true)}><KeyRound />{t("temporarySSHAuthorizationsMenu")}</button>
         <button type="button" onClick={() => setMoving(true)}><Move />{t("serviceBatchMove")}</button>
         <button type="button" className="danger" onClick={() => onDelete(target)} disabled={deleting}><Trash2 />{t("commonDelete")}</button>
       </ActionMenu>
     </span>
     {moving && <TargetMoveCopyModal data={data} targetIDs={[target.id]} action="move" onClose={() => setMoving(false)} />}
+    {temporaryAuthorizationsOpen && <TemporarySSHAuthorizationsModal target={target} runtime={data.runtime} onClose={() => setTemporaryAuthorizationsOpen(false)} />}
   </div>;
 }
 

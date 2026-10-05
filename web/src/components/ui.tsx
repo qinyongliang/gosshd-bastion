@@ -106,7 +106,7 @@ export function ActionMenu({ label, children }: { label: string; children: React
     });
   });
   return <AntDropdown open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" destroyOnHidden popupRender={() => <div className="action-menu-popover antd-action-menu" role="menu">{menuChildren}</div>}>
-    <AntButton className="action-menu-trigger" icon={<MoreHorizontal />} aria-haspopup="menu" aria-expanded={open}>{label}</AntButton>
+    <AntButton className="action-menu-trigger" icon={<MoreHorizontal />} aria-label={label} aria-haspopup="menu" aria-expanded={open}>{label}</AntButton>
   </AntDropdown>;
 }
 

@@ -25,6 +25,8 @@ ssh provider-region-service@gosshd.site "command"
 
 Your public key identifies the operator. The target alias resolves to a personal or organization SSH service. Allowed commands are forwarded to the real host; denied commands return a standard SSH failure such as `exit status 126` and are written to audit.
 
+For temporary access, open **SSH services -> the service's menu -> Temporary authorizations**. Create a UUID with a configurable lifetime (24 hours by default) and copy the generated `ssh -p PORT UUID@HOST` command. Holding that UUID permits access to its service without a client key, using the creator's command policies and audit identity. Renewal retains the UUID and extends its expiry; expiry or deletion closes its connections. Members manage their own grants, while organization administrators and system administrators can manage all grants for services they can access.
+
 ## Core Capabilities
 
 - **AI-native SSH control plane:** users and agents reach private servers through one governed entry point.

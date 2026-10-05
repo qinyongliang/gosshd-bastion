@@ -30,6 +30,18 @@ func TestAddServiceUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "add_service.test.mjs")
 }
 
+func TestTemporarySSHAuthorizationsUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "temporary_ssh_authorizations.test.mjs")
+}
+
+func TestMobileTemporarySSHAuthorizationsUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, true, "temporary_ssh_authorizations.test.mjs")
+}
+
+func TestMobileActionsUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, true, "mobile_interactions.test.mjs")
+}
+
 func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
 	nodePath := os.Getenv("GOSSHD_UI_E2E_NODE")
 	playwrightPath := os.Getenv("GOSSHD_UI_E2E_PLAYWRIGHT")
