@@ -160,7 +160,7 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 				go a.watchTemporarySSHAuthorization(conn, id, done)
 				log.Printf("ssh temporary authorization connection: user_id=%s authorization_id=%s", userID, id)
 			} else {
-				log.Printf("ssh authenticated bastion connection: ssh_user=%s user_id=%s fingerprint=%s", conn.User(), userID, conn.Permissions.Extensions["public_key_fingerprint"])
+				log.Printf("ssh authenticated bastion connection: user_id=%s fingerprint=%s", userID, conn.Permissions.Extensions["public_key_fingerprint"])
 			}
 			a.handleBastionSSHConn(conn, chans, reqs, userID, conn.Permissions.Extensions["public_key_fingerprint"])
 			return
