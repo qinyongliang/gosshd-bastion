@@ -1,3 +1,4 @@
+import { ConfigProvider } from "antd";
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 
 type Theme = "light" | "dark";
@@ -15,10 +16,19 @@ function systemTheme(): Theme {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   const [theme, updateTheme] = useState<Theme>(() => {
     const stored = window.localStorage.getItem(storageKey);
     return stored === "dark" || stored === "light" ? stored : systemTheme();
   });
+
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!media) return;
+    const onChange = () => setReducedMotion(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia?.("(prefers-color-scheme: dark)");
@@ -43,7 +53,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     },
   }), [theme]);
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return <ThemeContext.Provider value={value}><ConfigProvider theme={{ token: { motion: !reducedMotion } }}>{children}</ConfigProvider></ThemeContext.Provider>;
 }
 
 export function useTheme() {
