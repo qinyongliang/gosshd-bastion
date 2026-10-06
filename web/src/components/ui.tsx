@@ -3,7 +3,7 @@ import { Button as AntButton, Drawer as AntDrawer, Dropdown as AntDropdown, Inpu
 import { Activity, Check, Copy, MoreHorizontal, Play, Search, X } from "lucide-react";
 import { Children, cloneElement, isValidElement, ReactNode, useEffect, useState, type CSSProperties } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { useI18n } from "../i18n";
+import { dateLocale, useI18n } from "../i18n";
 import type { AuditLog, Member, Target } from "../types";
 import { copyText, tagColor } from "../utils";
 import { formatDate } from "../lib/forms";
@@ -13,39 +13,39 @@ import { HighlightedCommand } from "./HighlightedCommand";
 export function AuditTable({ logs, onReplay, onLiveOutput, compact = false }: { logs: AuditLog[]; onReplay?: (log: AuditLog) => void; onLiveOutput?: (log: AuditLog) => void; compact?: boolean }) {
   const { t } = useI18n();
   const [detail, setDetail] = useState<{ title: string; value: string; mono?: boolean } | null>(null);
-  const headers = compact
-    ? [t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableDuration"), t("auditTableStarted")]
-    : [t("auditTableUser"), t("auditTableKey"), t("auditTableTarget"), t("auditTableCommand"), t("auditTableType"), t("auditTableDecision"), t("auditTableReason"), t("auditTableExit"), t("auditTableDuration"), t("auditTableStarted")];
-  if (onReplay || onLiveOutput) headers.push(t("commonActions"));
+  const columns = [
+    ...(!compact ? [["user", "auditTableUser"], ["key", "auditTableKey"]] : []),
+    ["target", "auditTableTarget"], ["command", "auditTableCommand"], ["decision", "auditTableDecision"],
+    ["reason", "auditTableReason"], ["exit", "auditTableExit"], ["duration", "auditTableDuration"], ["started", "auditTableStarted"],
+    ...(onReplay || onLiveOutput ? [["actions", "commonActions"]] : []),
+  ];
+  const headers = columns.map(([, label]) => t(label));
   const openDetail = (title: string, value: string, mono = false) => {
     const trimmed = value.trim();
     if (!trimmed || trimmed === "-") return;
     setDetail({ title, value: trimmed, mono });
   };
-  return <>
-    <div className={clsx("audit-table-compact", compact ? "audit-table-client" : "audit-table-full")}><SimpleTable headers={headers} rows={logs.map((log) => {
+  const rows = logs.map((log) => {
       const userPrimary = log.user_display_name || log.user_email || "-";
       const userSecondary = log.user_email && log.user_email !== userPrimary ? log.user_email : "";
       const row: ReactNode[] = compact ? [
         <AuditTextCell title={t("auditTableTarget")} primary={log.target_name || log.target_alias || "-"} secondary={log.target_endpoint || ""} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono lines={2} onOpen={openDetail} />,
-        log.request_type,
         <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
         <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} lines={2} onOpen={openDetail} />,
         String(log.exit_code ?? ""),
         formatAuditDuration(log, t("auditRunning")),
-        formatDate(log.started_at),
+        <AuditStartedAt value={log.started_at} />,
       ] : [
         <AuditTextCell title={t("auditTableUser")} primary={userPrimary} secondary={userSecondary} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableKey")} primary={log.public_key_name || "-"} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableTarget")} primary={log.target_name || log.target_alias || "-"} secondary={log.target_endpoint || ""} onOpen={openDetail} />,
-        <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono onOpen={openDetail} />,
-        log.request_type,
+        <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono lines={2} onOpen={openDetail} />,
         <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,
-        <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableReason")} primary={log.policy_reason || "-"} lines={2} onOpen={openDetail} />,
         String(log.exit_code ?? ""),
         formatAuditDuration(log, t("auditRunning")),
-        formatDate(log.started_at),
+        <AuditStartedAt value={log.started_at} />,
       ];
       if (onReplay || onLiveOutput) {
         row.push(log.running && onLiveOutput
@@ -55,11 +55,29 @@ export function AuditTable({ logs, onReplay, onLiveOutput, compact = false }: { 
             : <span className="muted">-</span>);
       }
       return row;
-    })} /></div>
+    });
+  return <>
+    <div className={clsx("audit-table-compact", compact ? "audit-table-client" : "audit-table-full")}>
+      <div className="table-wrap"><table>
+        <colgroup>{columns.map(([key]) => <col key={key} className={`audit-col-${key}`} />)}</colgroup>
+        <thead><tr>{headers.map((label, index) => <th key={columns[index][0]} scope="col">{label}</th>)}</tr></thead>
+        <tbody>{rows.map((row, index) => <tr key={logs[index].id}>{row.map((cell, columnIndex) => <td key={columns[columnIndex][0]} data-label={headers[columnIndex]} data-column={columns[columnIndex][0]}>{cell}</td>)}</tr>)}</tbody>
+      </table></div>
+    </div>
     {detail && <Modal title={detail.title} onClose={() => setDetail(null)} wide className="audit-detail-modal">
       {detail.mono ? <HighlightedCommand command={detail.value} className="audit-detail-content" /> : <pre className="audit-detail-content">{detail.value}</pre>}
     </Modal>}
   </>;
+}
+
+function AuditStartedAt({ value }: { value: string }) {
+  const { locale } = useI18n();
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return <span>{value || "-"}</span>;
+  return <time className="audit-started-at" dateTime={value} title={formatDate(value)}>
+    <span>{new Intl.DateTimeFormat(dateLocale(locale), { dateStyle: "short" }).format(date)}</span>
+    <span>{new Intl.DateTimeFormat(dateLocale(locale), { timeStyle: "medium" }).format(date)}</span>
+  </time>;
 }
 
 function AuditTextCell({ title, primary, secondary = "", mono = false, lines = 1, onOpen }: { title: string; primary: string; secondary?: string; mono?: boolean; lines?: 1 | 2; onOpen: (title: string, value: string, mono?: boolean) => void }) {
@@ -106,7 +124,7 @@ export function ActionMenu({ label, children }: { label: string; children: React
     });
   });
   return <AntDropdown open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" destroyOnHidden popupRender={() => <div className="action-menu-popover antd-action-menu" role="menu">{menuChildren}</div>}>
-    <AntButton className="action-menu-trigger" icon={<MoreHorizontal />} aria-label={label} aria-haspopup="menu" aria-expanded={open}>{label}</AntButton>
+    <button type="button" className="action-menu-trigger" aria-label={label} aria-haspopup="menu" aria-expanded={open}><MoreHorizontal /><span>{label}</span></button>
   </AntDropdown>;
 }
 
@@ -123,11 +141,11 @@ export function Metric({ label, value, icon }: { label: string; value: number; i
 }
 
 export function Modal({ title, children, onClose, wide = false, stacked = false, className = "", closeOnEscape = true }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; stacked?: boolean; className?: string; closeOnEscape?: boolean }) {
-  return <AntModal open onCancel={onClose} title={title} footer={null} keyboard={closeOnEscape} maskClosable={closeOnEscape} width={wide ? 1000 : 560} className={clsx(className, stacked && "stacked")} destroyOnHidden>{children}</AntModal>;
+  return <AntModal open onCancel={onClose} closeIcon={<X />} title={title} footer={null} keyboard={closeOnEscape} maskClosable={closeOnEscape} width={wide ? 1000 : 560} className={clsx(className, stacked && "stacked")} destroyOnHidden>{children}</AntModal>;
 }
 
 export function Drawer({ title, subtitle, children, onClose }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void }) {
-  return <AntDrawer open onClose={onClose} title={<div><strong>{title}</strong>{subtitle && <small className="drawer-subtitle">{subtitle}</small>}</div>} placement="right" width={Math.min(720, typeof window === "undefined" ? 720 : window.innerWidth)} destroyOnHidden>{children}</AntDrawer>;
+  return <AntDrawer open onClose={onClose} closeIcon={<X />} title={<div><strong>{title}</strong>{subtitle && <small className="drawer-subtitle">{subtitle}</small>}</div>} placement="right" width={Math.min(720, typeof window === "undefined" ? 720 : window.innerWidth)} destroyOnHidden>{children}</AntDrawer>;
 }
 
 export function Field({ label, name, type = "text", defaultValue = "", required = false, placeholder = "", disabled = false }: { label: string; name: string; type?: string; defaultValue?: string; required?: boolean; placeholder?: string; disabled?: boolean }) {
