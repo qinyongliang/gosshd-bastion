@@ -1,5 +1,7 @@
 import clsx from "clsx";
-import { Button as AntButton, Drawer as AntDrawer, Dropdown as AntDropdown, Input as AntInput, Modal as AntModal, Select as AntSelect, Spin } from "antd";
+import { Button as AntButton, Drawer as AntDrawer, Dropdown as AntDropdown, Input as AntInput, Modal as AntModal, Pagination as AntPagination, Select as AntSelect, Spin } from "antd";
+import enUS from "antd/locale/en_US";
+import zhCN from "antd/locale/zh_CN";
 import { Activity, Check, Copy, MoreHorizontal, Play, Search, X } from "lucide-react";
 import { Children, cloneElement, isValidElement, ReactNode, useEffect, useState, type CSSProperties } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -173,6 +175,29 @@ export function Segmented({ value, items, onChange }: { value: string; items: (r
 export function Toolbar({ query, setQuery, children }: { query: string; setQuery: (value: string) => void; children?: ReactNode }) {
   const { t } = useI18n();
   return <div className="toolbar"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("commonSearchPlaceholder")} />{children}<button type="button" onClick={() => setQuery("")}>{t("commonClearFilters")}</button></div>;
+}
+
+export function Pagination({ page, pageSize, total, onChange, disabled = false, compact = false }: {
+  page: number; pageSize: number; total: number; onChange: (page: number, pageSize: number) => void; disabled?: boolean; compact?: boolean;
+}) {
+  const { t, locale } = useI18n();
+  return <nav className={clsx("pager", "app-pagination", compact && "compact")} aria-label={t("paginationNavigation")} onKeyDown={(event) => {
+    if (event.key === "Enter" && event.target instanceof HTMLInputElement) event.preventDefault();
+  }}>
+    <AntPagination current={page} pageSize={pageSize} total={total} disabled={disabled}
+      pageSizeOptions={[10, 20, 50, 100]} showSizeChanger={{ "aria-label": t("paginationPageSize") }}
+      showQuickJumper={{ goButton: true }} showLessItems
+      locale={{ ...(locale === "zh-CN" ? zhCN.Pagination : enUS.Pagination), jump_to_confirm: t("paginationGo") }}
+      showTotal={(count: number) => t("paginationTotal").replace("{count}", String(count))}
+      onChange={(nextPage: number, nextSize: number) => onChange(nextSize === pageSize ? nextPage : 1, nextSize)}
+      itemRender={(_page: number, type: string, element: ReactNode) => {
+        if ((type === "prev" || type === "next") && isValidElement<{ children?: ReactNode; "aria-label"?: string }>(element)) {
+          const label = t(type === "prev" ? "paginationPreviousPage" : "paginationNextPage");
+          return cloneElement(element, { children: label, "aria-label": label });
+        }
+        return element;
+      }} />
+  </nav>;
 }
 
 export function SimpleTable({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
