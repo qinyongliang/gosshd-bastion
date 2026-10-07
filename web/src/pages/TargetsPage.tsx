@@ -5,7 +5,7 @@ import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from 
 import { useSearchParams } from "react-router-dom";
 
 import { api, type Enrollment } from "../api";
-import { ActionMenu, CommandBox, ConfirmDialog, CopyButton, Drawer, Empty, ErrorMessage, Field, Metric, Modal, ModalActions, Panel, Select, SimpleTable, Tag, TagList, Toggle, Toolbar } from "../components/ui";
+import { ActionMenu, CommandBox, ConfirmDialog, CopyButton, Drawer, Empty, ErrorMessage, Field, Metric, Modal, ModalActions, Pagination, Panel, Select, SimpleTable, Tag, TagList, Toggle, Toolbar } from "../components/ui";
 import { TemporarySSHAuthorizationsModal } from "../components/TemporarySSHAuthorizationsModal";
 import { useI18n } from "../i18n";
 import { appDescription } from "../lib/branding";
@@ -474,21 +474,22 @@ function BatchCommandModal({ data, onClose, onSubmit }: { data: ConsoleData; onC
   const [command, setCommand] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const histories = useQuery({
-    queryKey: ["batch-command-histories", data.activeOrg.id, query, page],
+    queryKey: ["batch-command-histories", data.activeOrg.id, query, page, pageSize],
     queryFn: () => api.batchCommandHistories({
       owner_type: "organization",
       owner_id: data.activeOrg.id,
       query,
       page,
-      page_size: 10,
+      page_size: pageSize,
     }),
+    placeholderData: (previous, query) => query?.queryKey[1] === data.activeOrg.id ? previous : undefined,
   });
   const historyRows = histories.data?.histories || [];
   const total = histories.data?.total || 0;
-  const pageSize = histories.data?.page_size || 10;
   return <Modal title={t("serviceBatchCommand")} onClose={onClose} wide>
     <form className="stack" onSubmit={async (event) => {
       event.preventDefault();
@@ -521,11 +522,8 @@ function BatchCommandModal({ data, onClose, onSubmit }: { data: ConsoleData; onC
             </button>
           )) : <p className="muted">{t("serviceBatchCommandHistoryEmpty")}</p>}
         </div>
-        <div className="pager compact">
-          <button type="button" disabled={page <= 1 || histories.isFetching} onClick={() => setPage(page - 1)}>{t("commonPrevious")}</button>
-          <span>{t("commonPage")} {page}</span>
-          <button type="button" disabled={total <= page * pageSize || histories.isFetching} onClick={() => setPage(page + 1)}>{t("commonNext")}</button>
-        </div>
+        <Pagination page={page} pageSize={pageSize} total={total} disabled={histories.isFetching} compact
+          onChange={(nextPage, nextSize) => { setPage(nextPage); setPageSize(nextSize); }} />
       </div>
       {submitError && <p className="form-error">{submitError}</p>}
       <ModalActions onCancel={onClose} submit={submitting ? t("loading") : t("serviceBatchCommandRun")} />

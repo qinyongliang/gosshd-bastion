@@ -42,6 +42,10 @@ func TestMobileActionsUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, true, "mobile_interactions.test.mjs")
 }
 
+func TestPaginationUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "pagination.test.mjs")
+}
+
 func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
 	nodePath := os.Getenv("GOSSHD_UI_E2E_NODE")
 	playwrightPath := os.Getenv("GOSSHD_UI_E2E_PLAYWRIGHT")

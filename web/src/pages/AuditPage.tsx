@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ManualReviewChoice } from "../api";
 import { ManualReviewScopePicker } from "../components/ManualReviewScopePicker";
 import { HighlightedCommand } from "../components/HighlightedCommand";
-import { AuditTable, Empty, Modal, Panel } from "../components/ui";
+import { AuditTable, Empty, Modal, Pagination, Panel } from "../components/ui";
 import { useI18n } from "../i18n";
 import { formatDate, formSubmit } from "../lib/forms";
 import type { AuditLog, AuditRecording, ConsoleData } from "../types";
@@ -21,7 +21,11 @@ export function AuditPage({ data }: { data: ConsoleData }) {
   const audit = useQuery({
     queryKey: ["audit-page", data.activeOrg.id, isClientMode, filters],
     queryFn: () => api.audit(isClientMode ? filters : { ...filters, organization_id: data.activeOrg.id }),
+    placeholderData: (previous, query) => query?.queryKey[1] === data.activeOrg.id ? previous : undefined,
   });
+  useEffect(() => {
+    setFilters((current) => ({ ...current, page: 1 }));
+  }, [data.activeOrg.id]);
   const replay = useQuery({ queryKey: ["audit-recording", replayID], queryFn: () => api.auditRecording(replayID), enabled: Boolean(replayID) });
   const running = useQuery({
     queryKey: ["audit-running", data.activeOrg.id, isClientMode],
@@ -46,7 +50,7 @@ export function AuditPage({ data }: { data: ConsoleData }) {
         started_from: body.started_from || "",
         started_to: body.started_to || "",
         page: 1,
-        page_size: 20,
+        page_size: filters.page_size,
       }))}>
         <Search />
         <input name="query" defaultValue={filters.query} placeholder={t(isClientMode ? "auditClientSearchPlaceholder" : "auditSearchPlaceholder")} />
@@ -72,11 +76,8 @@ export function AuditPage({ data }: { data: ConsoleData }) {
       <Panel title={t("auditList")} subtitle="">
         {logs.length ? <AuditTable logs={logs} compact={isClientMode} onReplay={(log) => setReplayID(log.id)} onLiveOutput={(log) => setLiveID(log.id)} /> : <Empty title={t("auditEmptyTitle")} body={t("auditEmptyBody")} />}
       </Panel>
-      <div className="pager">
-        <button type="button" disabled={filters.page <= 1} onClick={() => setFilters({ ...filters, page: filters.page - 1 })}>{t("commonPrevious")}</button>
-        <span>{t("commonPage")} {audit.data?.page || 1}</span>
-        <button type="button" disabled={(audit.data?.total || 0) <= filters.page * filters.page_size} onClick={() => setFilters({ ...filters, page: filters.page + 1 })}>{t("commonNext")}</button>
-      </div>
+      <Pagination page={filters.page} pageSize={filters.page_size} total={audit.data?.total || 0} disabled={audit.isFetching}
+        onChange={(page, page_size) => setFilters((current) => ({ ...current, page, page_size }))} />
       {replayID && <AuditReplayModal recording={replay.data} fallbackLog={logs.find((item) => item.id === replayID)} loading={replay.isLoading} onClose={() => setReplayID("")} />}
       {liveID && <RunningOutputModal id={liveID} fallbackLog={logs.find((item) => item.id === liveID)} onClose={() => setLiveID("")} />}
       {authorizationOpen && <TemporaryAuthorizationModal data={data} onClose={() => setAuthorizationOpen(false)} />}

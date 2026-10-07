@@ -3227,6 +3227,15 @@ html[data-theme="dark"] .manual-review-actions button.danger {
 .batch-command-history-list code{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;min-width:0;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 "SFMono-Regular",Consolas,monospace}
 .batch-command-history-list>button>span{white-space:nowrap;color:var(--muted);font-size:12px;line-height:1.6}
 .batch-command-history .pager{padding:4px 0}
+.app-pagination{width:100%;min-width:0;flex-wrap:wrap}
+.app-pagination .ant-pagination{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;max-width:100%}
+.app-pagination .ant-pagination>li{margin:0}
+.app-pagination .ant-pagination-prev,.app-pagination .ant-pagination-next{width:auto;min-width:64px}
+.app-pagination .ant-pagination-item-link{min-height:32px;padding-inline:10px;white-space:nowrap}
+.app-pagination .ant-pagination-options{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:0}
+.app-pagination .ant-pagination-options-quick-jumper{display:flex;align-items:center;gap:8px;height:auto;margin:0;white-space:nowrap}
+.app-pagination .ant-pagination-options-quick-jumper input{width:64px;min-height:32px;height:32px;margin:0;padding:4px 8px}
+.app-pagination .ant-pagination-options-quick-jumper button{min-height:32px;margin:0;padding:0 10px}
 .ant-modal-close,.ant-drawer-close,.ant-modal-close:hover,.ant-drawer-close:hover{color:#dc2626!important}
 .ant-modal-close svg,.ant-drawer-close svg,.ant-modal-close .anticon,.ant-drawer-close .anticon{color:#dc2626!important;stroke:#dc2626!important;width:18px!important;height:18px!important;flex-shrink:0!important}
 .mobile-sidebar-close svg,.manual-review-close svg,.connection-tab-close svg,.editor-pane-actions svg.lucide-x{color:#dc2626!important;stroke:#dc2626!important}
