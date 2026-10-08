@@ -189,6 +189,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/audit", a.requireUser(a.handleListAuditLogs))
 	mux.HandleFunc("GET /api/audit/running", a.requireUser(a.handleListRunningAuditLogs))
 	mux.HandleFunc("GET /api/audit-live/{id}", a.requireUser(a.handleGetRunningAuditLog))
+	mux.HandleFunc("POST /api/audit-live/{id}/stop", a.requireUser(a.handleStopRunningAuditLog))
 	mux.HandleFunc("GET /api/audit/{id}/recording", a.requireUser(a.handleAuditRecording))
 	mux.HandleFunc("GET /install/{file}", a.handleInstall)
 }

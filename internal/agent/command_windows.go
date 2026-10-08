@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -86,13 +87,48 @@ func (c *Client) handlePipeCommand(stream io.ReadWriteCloser, reader *bufio.Read
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: err.Error()})
 		return
 	}
+	var stop func()
+	var finish func()
+	waited := false
+	if req.Type == protocol.StreamExec {
+		var mu sync.Mutex
+		finished := false
+		finish = func() {
+			mu.Lock()
+			finished = true
+			mu.Unlock()
+		}
+		stop = func() {
+			mu.Lock()
+			defer mu.Unlock()
+			if finished {
+				return
+			}
+			finished = true
+			kill := exec.Command("taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F")
+			kill.SysProcAttr = hiddenWindowSysProcAttr()
+			_ = kill.Run()
+			_ = cmd.Process.Kill()
+		}
+		defer func() {
+			if !waited {
+				stop()
+				_ = waitExitCode(cmd)
+			}
+			finish()
+		}()
+	}
 	if err := protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: true}); err != nil {
 		return
 	}
-	go copyFramesToWriter(stdin, reader)
+	go copyFramesToWriter(stdin, reader, stop)
 	go copyWindowsPipeReaderToFrame(stream, protocol.FrameStdout, stdout, c.cfg.Shell)
 	go copyWindowsPipeReaderToFrame(stream, protocol.FrameStderr, stderr, c.cfg.Shell)
 	code := waitExitCode(cmd)
+	waited = true
+	if finish != nil {
+		finish()
+	}
 	_ = stdin.Close()
 	_ = protocol.WriteFrame(stream, protocol.ExitFrame(code))
 }
@@ -258,8 +294,13 @@ func hiddenWindowSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW, HideWindow: true}
 }
 
-func copyFramesToWriter(w io.WriteCloser, reader *bufio.Reader) {
+func copyFramesToWriter(w io.WriteCloser, reader *bufio.Reader, onDisconnect ...func()) {
 	defer w.Close()
+	defer func() {
+		if len(onDisconnect) > 0 && onDisconnect[0] != nil {
+			onDisconnect[0]()
+		}
+	}()
 	for {
 		frame, err := protocol.ReadFrame(reader)
 		if err != nil {

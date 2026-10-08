@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,8 @@ type runningAudit struct {
 	output         strings.Builder
 	endedAt        time.Time
 	exitCode       *int
+	cancel         context.CancelFunc
+	stopping       bool
 }
 
 type runningAuditStore struct {
@@ -125,7 +128,27 @@ func (r *runningAudit) finish(exitCode int, endedAt time.Time) {
 	r.mu.Lock()
 	r.exitCode = &exitCode
 	r.endedAt = endedAt.UTC()
+	r.cancel = nil
 	r.mu.Unlock()
+}
+
+func (r *runningAudit) setCancel(cancel context.CancelFunc) {
+	r.mu.Lock()
+	r.cancel = cancel
+	r.mu.Unlock()
+}
+
+func (r *runningAudit) stop() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.endedAt.IsZero() || r.cancel == nil {
+		return false
+	}
+	if !r.stopping {
+		r.stopping = true
+		r.cancel()
+	}
+	return true
 }
 
 func (r *runningAudit) snapshot() runningAuditSnapshot {
