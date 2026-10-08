@@ -51,6 +51,9 @@ func dialWithoutClientKey(addr, username string) (*gossh.Client, error) {
 func TestTemporarySSHAuthorizationExecWithoutKeyAndAudits(t *testing.T) {
 	app, addr, user, target := temporarySSHTestFixture(t)
 	grant := createTemporarySSHTestGrant(t, app, user, target, time.Now().Add(time.Hour))
+	if _, err := app.store.DB().ExecContext(context.Background(), "UPDATE temporary_ssh_authorizations SET name = ? WHERE id = ?", "临时维护授权", grant.ID); err != nil {
+		t.Fatal(err)
+	}
 	client, err := dialWithoutClientKey(addr, grant.Token)
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +74,9 @@ func TestTemporarySSHAuthorizationExecWithoutKeyAndAudits(t *testing.T) {
 	}
 	if len(page.Logs) != 1 || page.Logs[0].TargetID != target.ID || page.Logs[0].UserID != user.ID || page.Logs[0].PublicKeyFingerprint != "" {
 		t.Fatal("temporary SSH command did not retain scoped audit identity")
+	}
+	if page.Logs[0].PublicKeyName != "临时维护授权" {
+		t.Fatal("temporary authorization name missing from key column")
 	}
 }
 

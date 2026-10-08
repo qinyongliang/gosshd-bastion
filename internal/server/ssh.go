@@ -81,8 +81,9 @@ func (a *App) sshServerConfig() (*gossh.ServerConfig, error) {
 				return nil, err
 			}
 			return &gossh.Permissions{Extensions: map[string]string{
-				"user_id":                    grant.CreatedBy,
-				"temporary_authorization_id": grant.ID,
+				"user_id":                      grant.CreatedBy,
+				"temporary_authorization_id":   grant.ID,
+				"temporary_authorization_name": grant.Name,
 			}}, nil
 		},
 		PublicKeyCallback: func(meta gossh.ConnMetadata, key gossh.PublicKey) (*gossh.Permissions, error) {
@@ -154,7 +155,9 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 
 	if conn.Permissions != nil {
 		if userID := conn.Permissions.Extensions["user_id"]; userID != "" {
+			fingerprint := conn.Permissions.Extensions["public_key_fingerprint"]
 			if id := conn.Permissions.Extensions["temporary_authorization_id"]; id != "" {
+				fingerprint = temporaryAuthorizationAuditPrefix + conn.Permissions.Extensions["temporary_authorization_name"]
 				done := make(chan struct{})
 				defer close(done)
 				go a.watchTemporarySSHAuthorization(conn, id, done)
@@ -162,7 +165,7 @@ func (a *App) handleSSHConn(raw net.Conn, cfg *gossh.ServerConfig) {
 			} else {
 				log.Printf("ssh authenticated bastion connection: user_id=%s fingerprint=%s", userID, conn.Permissions.Extensions["public_key_fingerprint"])
 			}
-			a.handleBastionSSHConn(conn, chans, reqs, userID, conn.Permissions.Extensions["public_key_fingerprint"])
+			a.handleBastionSSHConn(conn, chans, reqs, userID, fingerprint)
 			return
 		}
 	}

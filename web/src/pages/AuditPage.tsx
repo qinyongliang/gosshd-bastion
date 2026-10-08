@@ -17,11 +17,16 @@ export function AuditPage({ data }: { data: ConsoleData }) {
   const [replayID, setReplayID] = useState("");
   const [liveID, setLiveID] = useState("");
   const [authorizationOpen, setAuthorizationOpen] = useState(false);
+  const [handoffs, setHandoffs] = useState<AuditLog[]>([]);
+  const previousRunning = useRef<{ scope: string; logs: AuditLog[] }>({ scope: "", logs: [] });
+  const auditScope = `${data.activeOrg.id}:${isClientMode}`;
+  const retainFinished = filters.page === 1 && !filters.query && !filters.decision && !filters.request_type && !filters.started_from && !filters.started_to;
   const canAuthorize = data.user.is_system_admin || data.activeOrg.role === "owner" || data.activeOrg.role === "admin";
   const audit = useQuery({
     queryKey: ["audit-page", data.activeOrg.id, isClientMode, filters],
     queryFn: () => api.audit(isClientMode ? filters : { ...filters, organization_id: data.activeOrg.id }),
     placeholderData: (previous, query) => query?.queryKey[1] === data.activeOrg.id ? previous : undefined,
+    refetchInterval: 3000,
   });
   useEffect(() => {
     setFilters((current) => ({ ...current, page: 1 }));
@@ -32,7 +37,33 @@ export function AuditPage({ data }: { data: ConsoleData }) {
     queryFn: () => api.runningAudit(isClientMode ? {} : { organization_id: data.activeOrg.id }),
     refetchInterval: 1000,
   });
-  const logs = [...(running.data?.logs || []), ...(audit.data?.logs || data.auditPage.logs)].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+  useEffect(() => {
+    const current = running.data?.logs || [];
+    if (previousRunning.current.scope !== auditScope) {
+      setHandoffs([]);
+      previousRunning.current = { scope: auditScope, logs: current };
+      return;
+    }
+    const activeIDs = new Set(current.map((item) => item.id));
+    const finished = previousRunning.current.logs.filter((item) => !activeIDs.has(item.id));
+    previousRunning.current = { scope: auditScope, logs: current };
+    if (!finished.length) return;
+    const ids = new Set(finished.map((item) => item.id));
+    if (retainFinished) {
+      setHandoffs((previous) => [...new Map([...previous, ...finished.map((item) => ({ ...item, running: false }))].map((item) => [item.id, item])).values()].slice(-filters.page_size));
+    }
+    void audit.refetch().then((result) => {
+      if (result.isSuccess && previousRunning.current.scope === auditScope) {
+        setHandoffs((previous) => previous.filter((item) => !ids.has(item.id)));
+      }
+    });
+  }, [running.data, auditScope]);
+  useEffect(() => { setHandoffs([]); }, [filters]);
+  const history = audit.data?.logs || data.auditPage.logs;
+  const activeLogs = running.data?.logs || [];
+  const activeIDs = new Set(activeLogs.map((item) => item.id));
+  const justFinished = retainFinished && previousRunning.current.scope === auditScope ? previousRunning.current.logs.filter((item) => !activeIDs.has(item.id)) : [];
+  const logs = [...new Map([...handoffs, ...justFinished, ...activeLogs, ...history].map((item) => [item.id, item])).values()].sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
   return (
     <div className="audit-page">
       <section className="resource-head">
@@ -76,7 +107,7 @@ export function AuditPage({ data }: { data: ConsoleData }) {
       <Panel title={t("auditList")} subtitle="">
         {logs.length ? <AuditTable logs={logs} compact={isClientMode} onReplay={(log) => setReplayID(log.id)} onLiveOutput={(log) => setLiveID(log.id)} /> : <Empty title={t("auditEmptyTitle")} body={t("auditEmptyBody")} />}
       </Panel>
-      <Pagination page={filters.page} pageSize={filters.page_size} total={audit.data?.total || 0} disabled={audit.isFetching}
+      <Pagination page={filters.page} pageSize={filters.page_size} total={audit.data?.total || 0} disabled={audit.isLoading || audit.isPlaceholderData}
         onChange={(page, page_size) => setFilters((current) => ({ ...current, page, page_size }))} />
       {replayID && <AuditReplayModal recording={replay.data} fallbackLog={logs.find((item) => item.id === replayID)} loading={replay.isLoading} onClose={() => setReplayID("")} />}
       {liveID && <RunningOutputModal id={liveID} fallbackLog={logs.find((item) => item.id === liveID)} onClose={() => setLiveID("")} />}

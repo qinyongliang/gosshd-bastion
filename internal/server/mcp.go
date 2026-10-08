@@ -219,13 +219,12 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 			}
 			started := time.Now().UTC()
 			run := a.runCommandInTerminalSession(ctx, session, in.Command, terminalSessionCommandOptions{
-				UserID:    actor.ID,
-				StartedAt: started,
+				PublicKeyName: "MCP session",
+				UserID:        actor.ID,
+				StartedAt:     started,
 			})
-			if run.Err != nil {
-				return nil, mcpSessionCommandOutput{}, run.Err
-			}
-			_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
+			_, _ = a.createAuditLog(context.WithoutCancel(ctx), store.CreateCommandAuditLogParams{
+				ID:             run.AuditID,
 				UserID:         actor.ID,
 				TargetID:       session.target.ID,
 				OrganizationID: organizationIDForTarget(session.target),
@@ -240,6 +239,9 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 				EndedAt:        &run.EndedAt,
 				RemoteAddress:  session.sourceIP,
 			})
+			if run.Err != nil {
+				return nil, mcpSessionCommandOutput{}, run.Err
+			}
 			return nil, mcpSessionCommandOutput{Allowed: run.Allowed, PolicyReason: run.Decision.Reason, Output: run.Output, ExitCode: run.ExitCode}, nil
 		})
 

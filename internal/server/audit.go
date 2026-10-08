@@ -3,13 +3,32 @@ package server
 import (
 	"context"
 	"errors"
+	"log"
 	"path/filepath"
 	"strings"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
+const temporaryAuthorizationAuditPrefix = "temporary-authorization:"
+
+func normalizeAuditIdentity(params *store.CreateCommandAuditLogParams) {
+	if strings.HasPrefix(params.PublicKeyFingerprint, temporaryAuthorizationAuditPrefix) {
+		params.PublicKeyName = strings.TrimPrefix(params.PublicKeyFingerprint, temporaryAuthorizationAuditPrefix)
+		if params.PublicKeyName == "" {
+			params.PublicKeyName = "Temporary SSH authorization"
+		}
+		params.PublicKeyFingerprint = ""
+	}
+}
+
 func (a *App) createAuditLog(ctx context.Context, params store.CreateCommandAuditLogParams) (store.CommandAuditLog, error) {
+	normalizeAuditIdentity(&params)
+	defer func() {
+		if a.runningAudits != nil && params.ID != "" {
+			a.runningAudits.remove(a.runningAudits.get(params.ID))
+		}
+	}()
 	if err := a.ensureServices(ctx); err != nil {
 		return store.CommandAuditLog{}, err
 	}
@@ -42,7 +61,11 @@ func (a *App) createAuditLog(ctx context.Context, params store.CreateCommandAudi
 			return store.CommandAuditLog{}, err
 		}
 	}
-	return a.audit.Repository().CreateCommandAuditLog(ctx, params)
+	entry, err := a.audit.Repository().CreateCommandAuditLog(ctx, params)
+	if err != nil {
+		log.Printf("persist command audit failed: %v", err)
+	}
+	return entry, err
 }
 
 func (a *App) absoluteRecordingPath(rel string) string {
