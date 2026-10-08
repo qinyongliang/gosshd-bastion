@@ -136,7 +136,8 @@ export const api = {
 
   audit: (params: Record<string, unknown>) => request<{ logs: AuditLog[]; total: number; page: number; page_size: number }>(`/api/audit?${queryString(params)}`),
   runningAudit: (params: Record<string, unknown>) => request<{ logs: AuditLog[] }>(`/api/audit/running?${queryString(params)}`),
-  runningAuditOutput: (id: string) => request<{ log: AuditLog; output: string }>(`/api/audit-live/${id}`),
+  runningAuditOutput: (id: string) => request<{ log: AuditLog; output?: string }>(`/api/audit-live/${id}`),
+  stopRunningAudit: (id: string) => request<{ ok: boolean }>(`/api/audit-live/${id}/stop`, post({})),
   auditRecording: (id: string) => request<AuditRecording>(`/api/audit/${id}/recording`),
   targetSystem: (targetID: string) => request<TargetSystemSnapshot>(`/api/targets/${targetID}/system`),
   targetSystemMetrics: (targetID: string) => request<TargetSystemSnapshot>(`/api/targets/${targetID}/system?scope=metrics`),

@@ -50,6 +50,10 @@ func TestAuditHandoffUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "audit_handoff.test.mjs")
 }
 
+func TestRunningOutputUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "running_output.test.mjs")
+}
+
 func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
 	nodePath := os.Getenv("GOSSHD_UI_E2E_NODE")
 	playwrightPath := os.Getenv("GOSSHD_UI_E2E_PLAYWRIGHT")

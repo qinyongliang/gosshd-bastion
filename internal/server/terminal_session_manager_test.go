@@ -543,9 +543,12 @@ func TestTrySendCommandReportsSentWhenWaitingFails(t *testing.T) {
 
 func TestRunCommandInTerminalSessionTimeoutReleasesCommandLock(t *testing.T) {
 	input := &strings.Builder{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	session := &terminalSession{
 		id:      "session-1",
-		ctx:     context.Background(),
+		ctx:     ctx,
+		cancel:  cancel,
 		input:   input,
 		clients: map[*terminalWSWriter]bool{},
 		screen:  newTerminalScreenBuffer(24),
@@ -559,14 +562,68 @@ func TestRunCommandInTerminalSessionTimeoutReleasesCommandLock(t *testing.T) {
 	if !run.Routed || !run.Allowed || run.Err == nil {
 		t.Fatalf("expected routed command to time out while waiting for terminal integration, run=%+v", run)
 	}
-	if got := input.String(); got != " echo no-finish-event\r" {
-		t.Fatalf("command input = %q, want %q", got, " echo no-finish-event\r")
+	if got := input.String(); got != " echo no-finish-event\r\x03" {
+		t.Fatalf("command input = %q, want command followed by Ctrl+C", got)
+	}
+	if !session.closed {
+		t.Fatal("unresponsive command should close its terminal session")
 	}
 
 	if !session.commandMu.TryLock() {
 		t.Fatal("command lock should be released after timeout")
 	}
 	session.commandMu.Unlock()
+}
+
+type interruptCompletingWriter struct {
+	session *terminalSession
+	app     *App
+	input   strings.Builder
+}
+
+func (w *interruptCompletingWriter) Write(data []byte) (int, error) {
+	w.input.Write(data)
+	if strings.Contains(string(data), "\r") {
+		w.session.writeOutput("output", []byte("before stop\r\n"))
+		for _, live := range w.app.runningAudits.list("user-1", "", false) {
+			live.stop()
+		}
+	}
+	if strings.Contains(string(data), "\x03") {
+		w.session.writeOutput("output", []byte("interrupted\r\n\x1b]633;D;130\a"))
+	}
+	return len(data), nil
+}
+
+func TestRunningAuditStopInterruptsTerminalAndKeepsSessionUsable(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app := &App{runningAudits: newRunningAuditStore()}
+	session := &terminalSession{
+		id: "stop-session", ctx: ctx, cancel: cancel,
+		clients: map[*terminalWSWriter]bool{}, screen: newTerminalScreenBuffer(24),
+	}
+	input := &interruptCompletingWriter{session: session, app: app}
+	session.input = input
+	run := app.runCommandInTerminalSession(context.Background(), session, "sleep 60", terminalSessionCommandOptions{
+		UserID: "user-1", SkipPolicyReview: true,
+	})
+	if !errors.Is(run.Err, context.Canceled) || run.ExitCode != 130 {
+		t.Fatalf("command did not stop: %+v", run)
+	}
+	if input.input.String() != " sleep 60\r\x03" || session.closed {
+		t.Fatalf("stop failed to interrupt or unnecessarily closed session: %q", input.input.String())
+	}
+	if !strings.Contains(run.Output, "before stop") || !strings.Contains(run.Output, "interrupted") {
+		t.Fatalf("stop discarded command output: %q", run.Output)
+	}
+	if live := app.runningAudits.get(run.AuditID); live == nil || live.snapshot().EndedAt.IsZero() {
+		t.Fatal("stopped command was not marked finished")
+	}
+	session.input = &carriageReturnCommandWriter{session: session}
+	if next := session.trySendCommand(context.Background(), "echo next"); next.Err != nil || next.Result.ExitCode != 0 {
+		t.Fatalf("terminal could not execute another command: %+v", next)
+	}
 }
 
 func TestHistorySuppressedTerminalCommandAddsLeadingSpace(t *testing.T) {

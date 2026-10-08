@@ -477,6 +477,18 @@ func (s *terminalSession) trySendCommandLocked(ctx context.Context, command stri
 		return terminalCommandResult{}, false, err
 	}
 	result, err := collectCommandOutput(ctx, s.ctx, waiter, sinks...)
+	if ctx.Err() != nil && s.ctx.Err() == nil {
+		// Keep the command lock until the remote command actually exits.
+		_ = s.interrupt()
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		tail, stopErr := collectCommandOutput(stopCtx, s.ctx, waiter, sinks...)
+		result.Output += tail.Output
+		result.ExitCode = tail.ExitCode
+		if stopErr != nil {
+			s.close("command stopped")
+		}
+	}
 	return result, true, err
 }
 

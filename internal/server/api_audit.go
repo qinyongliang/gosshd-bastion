@@ -111,6 +111,17 @@ func (a *App) handleGetRunningAuditLog(w http.ResponseWriter, r *http.Request, u
 	}
 	item := a.runningAudits.get(r.PathValue("id"))
 	if item == nil {
+		log, err := a.audit.Repository().GetCommandAuditLog(r.Context(), r.PathValue("id"))
+		if err == nil {
+			if !a.canReadAuditLog(r, user, log) {
+				writeError(w, http.StatusForbidden, "audit output access denied")
+				return
+			}
+			writeJSON(w, http.StatusOK, struct {
+				Log apiAuditLog `json:"log"`
+			}{Log: apiAuditLogFromStore(log)})
+			return
+		}
 		writeError(w, http.StatusNotFound, "running audit not found")
 		return
 	}
@@ -123,6 +134,27 @@ func (a *App) handleGetRunningAuditLog(w http.ResponseWriter, r *http.Request, u
 		Log    apiAuditLog `json:"log"`
 		Output string      `json:"output"`
 	}{Log: apiAuditLogFromRunning(snapshot), Output: snapshot.Output})
+}
+
+func (a *App) handleStopRunningAuditLog(w http.ResponseWriter, r *http.Request, user store.User) {
+	if a.runningAudits == nil {
+		writeError(w, http.StatusNotFound, "running audit not found")
+		return
+	}
+	item := a.runningAudits.get(r.PathValue("id"))
+	if item == nil {
+		writeError(w, http.StatusNotFound, "running audit not found")
+		return
+	}
+	if !a.canReadRunningAudit(r, user, item.snapshot()) {
+		writeError(w, http.StatusForbidden, "command stop access denied")
+		return
+	}
+	if !item.stop() {
+		writeError(w, http.StatusConflict, "command is no longer running or cannot be stopped")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
 }
 
 func (a *App) handleAuditRecording(w http.ResponseWriter, r *http.Request, user store.User) {

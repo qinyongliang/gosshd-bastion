@@ -1,6 +1,6 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Terminal } from "@xterm/xterm";
-import { RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { RefreshCw, Search, ShieldCheck, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ManualReviewChoice } from "../api";
 import { ManualReviewScopePicker } from "../components/ManualReviewScopePicker";
@@ -110,7 +110,7 @@ export function AuditPage({ data }: { data: ConsoleData }) {
       <Pagination page={filters.page} pageSize={filters.page_size} total={audit.data?.total || 0} disabled={audit.isLoading || audit.isPlaceholderData}
         onChange={(page, page_size) => setFilters((current) => ({ ...current, page, page_size }))} />
       {replayID && <AuditReplayModal recording={replay.data} fallbackLog={logs.find((item) => item.id === replayID)} loading={replay.isLoading} onClose={() => setReplayID("")} />}
-      {liveID && <RunningOutputModal id={liveID} fallbackLog={logs.find((item) => item.id === liveID)} onClose={() => setLiveID("")} />}
+      {liveID && <RunningOutputModal key={liveID} id={liveID} fallbackLog={logs.find((item) => item.id === liveID)} onClose={() => setLiveID("")} />}
       {authorizationOpen && <TemporaryAuthorizationModal data={data} onClose={() => setAuthorizationOpen(false)} />}
     </div>
   );
@@ -234,25 +234,52 @@ function formatRemaining(totalSeconds: number) {
 
 function RunningOutputModal({ id, fallbackLog, onClose }: { id: string; fallbackLog?: AuditLog; onClose: () => void }) {
   const { t } = useI18n();
-  const live = useQuery({ queryKey: ["audit-running-output", id], queryFn: () => api.runningAuditOutput(id), refetchInterval: 700 });
+  const queryClient = useQueryClient();
+  const live = useQuery({
+    queryKey: ["audit-running-output", id],
+    queryFn: async () => {
+      const data = await api.runningAuditOutput(id);
+      const previous = queryClient.getQueryData<{ output?: string }>(["audit-running-output", id]);
+      return { ...data, output: data.output ?? previous?.output };
+    },
+    refetchInterval: (query) => query.state.data?.log.ended_at ? false : 700,
+    retry: false,
+  });
   const log = live.data?.log || fallbackLog;
   const output = live.data?.output ?? log?.live_output ?? "";
+  const finished = Boolean(log?.ended_at);
+  const stop = useMutation({
+    mutationFn: () => api.stopRunningAudit(id),
+    onSuccess: () => {
+      void live.refetch();
+      void queryClient.invalidateQueries({ queryKey: ["audit-running"] });
+      void queryClient.invalidateQueries({ queryKey: ["audit-page"] });
+    },
+    onError: () => { void live.refetch(); },
+  });
   const started = log?.started_at ? new Date(log.started_at).getTime() : Date.now();
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
+    if (finished) return;
     const timer = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [finished]);
   const duration = log?.ended_at ? new Date(log.ended_at).getTime() - started : Math.max(0, now - started);
-  return <Modal title={t("auditLiveOutput")} onClose={onClose} wide className="audit-detail-modal">
+  return <Modal title={`${t("auditLiveOutput")} · ${t("auditTableDuration")}: ${durationText(duration)}`} onClose={onClose} wide className="audit-detail-modal">
     <div className="terminal-player running-output-player">
-      <div className="terminal-meta">
+      <div className="terminal-meta running-output-meta">
         <span><b>{t("auditTableTarget")}</b>{log?.target_name || log?.target_alias || "-"}</span>
-        <span><b>{t("auditTableDuration")}</b>{durationText(duration)}</span>
-        <span className="running-output-status">● {t("auditLiveOutput")}</span>
+        <span className={`running-output-status${finished ? " finished" : ""}`} role="status">● {t(finished ? "auditCommandFinished" : stop.isPending || stop.isSuccess ? "auditCommandStopping" : "auditLiveOutput")}</span>
       </div>
       {log?.command && <HighlightedCommand command={log.command} className="audit-detail-content running-output-command" />}
       <pre className="audit-detail-content running-output-content">{output || t("auditReplayEmpty")}</pre>
+      {live.error && <div className="status error" role="alert">{live.error.message}</div>}
+      {stop.error && !finished && <div className="status error" role="alert">{stop.error.message}</div>}
+      <div className="modal-actions">
+        <button type="button" className="danger" disabled={!log?.running || finished || stop.isPending || stop.isSuccess} onClick={() => stop.mutate()}>
+          <Square />{t(stop.isPending || stop.isSuccess && !finished ? "auditCommandStopping" : "auditCommandStop")}
+        </button>
+      </div>
     </div>
   </Modal>;
 }

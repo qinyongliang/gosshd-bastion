@@ -10,11 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) {
@@ -41,7 +43,39 @@ func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, 
 		return
 	}
 	defer ptmx.Close()
-	go copyFramesToWriter(ptmx, reader)
+	var stop func()
+	var finish func()
+	waited := false
+	if req.Type == protocol.StreamExec {
+		var mu sync.Mutex
+		finished := false
+		finish = func() {
+			mu.Lock()
+			finished = true
+			mu.Unlock()
+		}
+		stop = func() {
+			mu.Lock()
+			defer mu.Unlock()
+			if finished {
+				return
+			}
+			finished = true
+			// A shell may put its child command in a separate foreground group.
+			if pgid, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPGRP); err == nil && pgid > 0 {
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			}
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		defer func() {
+			if !waited {
+				stop()
+				_ = waitExitCode(cmd)
+			}
+			finish()
+		}()
+	}
+	go copyFramesToWriter(ptmx, reader, stop)
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := ptmx.Read(buf)
@@ -55,6 +89,10 @@ func (c *Client) handleCommand(stream io.ReadWriteCloser, reader *bufio.Reader, 
 		}
 	}
 	code := waitExitCode(cmd)
+	waited = true
+	if finish != nil {
+		finish()
+	}
 	_ = protocol.WriteFrame(stream, protocol.ExitFrame(code))
 }
 
@@ -126,7 +164,12 @@ func shellBaseName(shell string) string {
 	return strings.TrimPrefix(base, "-")
 }
 
-func copyFramesToWriter(w io.Writer, reader *bufio.Reader) {
+func copyFramesToWriter(w io.Writer, reader *bufio.Reader, onDisconnect ...func()) {
+	defer func() {
+		if len(onDisconnect) > 0 && onDisconnect[0] != nil {
+			onDisconnect[0]()
+		}
+	}()
 	for {
 		frame, err := protocol.ReadFrame(reader)
 		if err != nil {
@@ -150,6 +193,9 @@ func waitExitCode(cmd *exec.Cmd) int {
 	if err := cmd.Wait(); err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
 			if status, ok := exit.Sys().(syscall.WaitStatus); ok {
+				if status.Signaled() {
+					return 128 + int(status.Signal())
+				}
 				return status.ExitStatus()
 			}
 		}

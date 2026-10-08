@@ -270,6 +270,8 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		sendExit(ch, code)
 		return
 	}
+	execCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	var live *runningAudit
 	if a.runningAudits != nil {
 		live = a.runningAudits.start(store.CreateCommandAuditLogParams{
@@ -280,7 +282,10 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 			PolicyReason: decision.Reason, StartedAt: startedAt,
 		})
 	}
-	exitCode := a.execOnTarget(ctx, target, ch, execInput.ExecuteCommand, execInput.StdinPrefix, func(data []byte) {
+	if live != nil {
+		live.setCancel(cancel)
+	}
+	exitCode := a.execOnTarget(execCtx, target, ch, execInput.ExecuteCommand, execInput.StdinPrefix, func(data []byte) {
 		if live != nil {
 			live.append(string(data))
 		}
@@ -639,6 +644,8 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 		session.writeOutput("error", []byte(run.Output))
 		return run
 	}
+	commandCtx, cancelCommand := context.WithCancel(ctx)
+	defer cancelCommand()
 	var live *runningAudit
 	if a.runningAudits != nil {
 		live = a.runningAudits.start(store.CreateCommandAuditLogParams{
@@ -649,6 +656,7 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 			PolicyDecision: run.Decision.Action, PolicyReason: run.Decision.Reason, StartedAt: startedAt,
 		})
 		run.AuditID = live.id
+		live.setCancel(cancelCommand)
 		defer func() {
 			if live != nil {
 				live.finish(run.ExitCode, run.EndedAt)
@@ -659,10 +667,10 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 		}()
 	}
 
-	waitCtx := ctx
+	waitCtx := commandCtx
 	if timeout := terminalSessionCommandWaitTimeout(opts); timeout > 0 {
 		var cancel context.CancelFunc
-		waitCtx, cancel = context.WithTimeout(ctx, timeout)
+		waitCtx, cancel = context.WithTimeout(commandCtx, timeout)
 		defer cancel()
 	}
 	result, sent, err := session.trySendCommandLocked(waitCtx, normalizedCommand, func(chunk string) {
@@ -851,7 +859,7 @@ func (a *App) handleBastionSFTP(userID, publicKeyFingerprint string, target stor
 
 func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh.Channel, command string, stdinPrefix []byte, sinks ...func([]byte)) int {
 	if target.TargetType == store.TargetAgent {
-		return a.agentFramedSessionWithSink(target.AgentID, ch, protocol.StreamRequest{
+		return a.agentFramedSessionWithContext(ctx, target.AgentID, ch, protocol.StreamRequest{
 			Type:    protocol.StreamExec,
 			Command: command,
 			Width:   80,
@@ -870,6 +878,11 @@ func (a *App) execOnTarget(ctx context.Context, target store.SSHTarget, ch gossh
 		return 255
 	}
 	defer session.Close()
+	stopSession := context.AfterFunc(ctx, func() {
+		_ = session.Signal(gossh.SIGKILL)
+		_ = client.Close()
+	})
+	defer stopSession()
 	stdin, err := session.StdinPipe()
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
@@ -1248,12 +1261,18 @@ func (a *App) agentFramedSession(agentID string, ch gossh.Channel, req protocol.
 }
 
 func (a *App) agentFramedSessionWithSink(agentID string, ch gossh.Channel, req protocol.StreamRequest, recorder *terminalRecorder, sink io.Writer, stdinPrefix ...[]byte) int {
+	return a.agentFramedSessionWithContext(context.Background(), agentID, ch, req, recorder, sink, stdinPrefix...)
+}
+
+func (a *App) agentFramedSessionWithContext(ctx context.Context, agentID string, ch gossh.Channel, req protocol.StreamRequest, recorder *terminalRecorder, sink io.Writer, stdinPrefix ...[]byte) int {
 	reader, stream, err := a.openAgentStream(agentID, req)
 	if err != nil {
 		_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 		return 255
 	}
 	defer stream.Close()
+	stopStream := context.AfterFunc(ctx, func() { _ = stream.Close() })
+	defer stopStream()
 
 	go func() {
 		if len(stdinPrefix) > 0 && len(stdinPrefix[0]) > 0 {
