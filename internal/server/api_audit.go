@@ -190,7 +190,7 @@ func apiAuditLogFromRunning(log runningAuditSnapshot) apiAuditLog {
 		ID: log.ID, UserID: log.UserID, TargetID: log.TargetID, TargetName: log.TargetName, TargetAlias: log.TargetAlias,
 		TargetEndpoint: auditRunningTargetEndpoint(log), OrganizationID: log.OrganizationID, Command: log.Command,
 		RequestType: log.RequestType, PolicyDecision: log.PolicyDecision, PolicyReason: log.PolicyReason,
-		ExitCode: log.ExitCode, StartedAt: log.StartedAt.Format(time.RFC3339), Running: true, LiveOutput: log.Output,
+		ExitCode: log.ExitCode, StartedAt: log.StartedAt.Format(time.RFC3339), Running: log.EndedAt.IsZero(), LiveOutput: log.Output, PublicKeyName: log.PublicKeyName,
 	}
 	if !log.EndedAt.IsZero() {
 		out.EndedAt = log.EndedAt.Format(time.RFC3339)

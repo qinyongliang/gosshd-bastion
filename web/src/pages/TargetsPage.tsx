@@ -744,7 +744,12 @@ function TagColorEditor({ data, target }: { data: ConsoleData; target: Target })
     },
     onError: (_error, _body, context) => {
       if (!context?.tag) return;
-      setColors((current) => ({ ...current, [context.tag]: context.previous || "gray" }));
+      setColors((current) => {
+        const restored = { ...current };
+        if (context.previous === undefined) delete restored[context.tag];
+        else restored[context.tag] = context.previous;
+        return restored;
+      });
     },
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["targets"] }),
   });
@@ -752,9 +757,9 @@ function TagColorEditor({ data, target }: { data: ConsoleData; target: Target })
   return <section className="section-block embedded">
     <h3>{t("serviceTagColors")}</h3>
     {tags.length ? tags.map((tag) => <div className="tag-color-row" key={tag}>
-      <Tag tag={tag} color={colors[tag] || tagColor(tag, target.tag_colors)} />
+      <span className="tag-row"><Tag tag={tag} color={colors[tag] || tagColor(tag, target.tag_colors)} /></span>
       <div className="tag-color-swatches">
-        {["gray", "red", "orange", "yellow", "green", "blue", "purple"].map((item) => <button key={item} type="button" aria-pressed={colors[tag] === item} aria-label={`${t("serviceTagColorSet")} ${tag} ${t(`tagColor${item[0].toUpperCase()}${item.slice(1)}`)}`} className={`tag-color-${item} ${colors[tag] === item ? "selected" : ""}`} disabled={color.isPending} onClick={() => color.mutate({ owner_type: "organization", owner_id: data.activeOrg.id, name: tag, color: item })}>{item}</button>)}
+        {["gray", "red", "orange", "yellow", "green", "blue", "purple"].map((item) => <button key={item} type="button" aria-pressed={(colors[tag] || tagColor(tag, target.tag_colors)) === item} aria-label={`${t("serviceTagColorSet")} ${tag} ${t(`tagColor${item[0].toUpperCase()}${item.slice(1)}`)}`} className={`tag-color-${item} ${(colors[tag] || tagColor(tag, target.tag_colors)) === item ? "selected" : ""}`} disabled={color.isPending} onClick={() => color.mutate({ owner_type: target.owner_type, owner_id: target.owner_id, name: tag, color: item })}>{t(`tagColor${item[0].toUpperCase()}${item.slice(1)}`)}</button>)}
       </div>
     </div>) : <p className="muted">{t("serviceNoTagsForColors")}</p>}
     {color.error && <ErrorMessage error={color.error} />}
@@ -764,7 +769,7 @@ function TagColorEditor({ data, target }: { data: ConsoleData; target: Target })
 function InstallDrawer({ enrollment, onClose }: { enrollment: Enrollment; onClose: () => void }) {
   const { t } = useI18n();
   return <Drawer title={t("serviceInstallTitle")} subtitle={t("serviceInstallBody")} onClose={onClose}>
-    <div className="grid two service-install-commands">
+    <div className="grid service-install-commands">
       <section className="section-block embedded">
         <h3>Linux / macOS</h3>
         <CommandBox label={t("serviceRunOnce")} value={enrollment.install_sh || ""} />

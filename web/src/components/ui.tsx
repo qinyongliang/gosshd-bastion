@@ -30,6 +30,7 @@ export function AuditTable({ logs, onReplay, onLiveOutput, compact = false }: { 
   const rows = logs.map((log) => {
       const userPrimary = log.user_display_name || log.user_email || "-";
       const userSecondary = log.user_email && log.user_email !== userPrimary ? log.user_email : "";
+      const keyName = log.public_key_name === "Temporary SSH authorization" && !log.public_key_fingerprint ? t("temporarySSHAuthorizationUnnamed") : log.public_key_name || "-";
       const row: ReactNode[] = compact ? [
         <AuditTextCell title={t("auditTableTarget")} primary={log.target_name || log.target_alias || "-"} secondary={log.target_endpoint || ""} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono lines={2} onOpen={openDetail} />,
@@ -40,7 +41,7 @@ export function AuditTable({ logs, onReplay, onLiveOutput, compact = false }: { 
         <AuditStartedAt value={log.started_at} />,
       ] : [
         <AuditTextCell title={t("auditTableUser")} primary={userPrimary} secondary={userSecondary} onOpen={openDetail} />,
-        <AuditTextCell title={t("auditTableKey")} primary={log.public_key_name || "-"} onOpen={openDetail} />,
+        <AuditTextCell title={t("auditTableKey")} primary={keyName} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableTarget")} primary={log.target_name || log.target_alias || "-"} secondary={log.target_endpoint || ""} onOpen={openDetail} />,
         <AuditTextCell title={t("auditTableCommand")} primary={log.command || "-"} mono lines={2} onOpen={openDetail} />,
         <span className={clsx("badge", log.policy_decision === "allow" ? "success" : "danger")}>{log.policy_decision === "allow" ? t("commonAllow") : t("commonDeny")}</span>,

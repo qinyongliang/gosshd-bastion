@@ -581,6 +581,7 @@ type CreatePolicyRuleParams struct {
 }
 
 type CreateCommandAuditLogParams struct {
+	ID                   string
 	UserID               string
 	UserEmail            string
 	UserDisplayName      string

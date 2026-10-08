@@ -202,7 +202,7 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		sendExit(ch, 126)
 		return
 	}
-	if run, routedSessionID, routedThroughTerminal := a.tryExecInOpenTerminalSession(ctx, userID, target, execInput.RouteCommand, sourceIP, startedAt); routedThroughTerminal {
+	if run, routedSessionID, routedThroughTerminal := a.tryExecInOpenTerminalSession(ctx, userID, target, execInput.RouteCommand, sourceIP, startedAt, publicKeyFingerprint); routedThroughTerminal {
 		if routedSessionID != "" {
 			sessionID = routedSessionID
 		}
@@ -217,6 +217,7 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 			endedAt = time.Now().UTC()
 		}
 		_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
+			ID:                   run.AuditID,
 			UserID:               userID,
 			TargetID:             target.ID,
 			OrganizationID:       organizationIDForTarget(target),
@@ -285,11 +286,13 @@ func (a *App) handleBastionExec(userID, publicKeyFingerprint string, target stor
 		}
 	})
 	endedAt := time.Now().UTC()
+	auditID := ""
 	if live != nil {
 		live.finish(exitCode, endedAt)
-		a.runningAudits.remove(live)
+		auditID = live.id
 	}
 	_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
+		ID:                   auditID,
 		UserID:               userID,
 		TargetID:             target.ID,
 		OrganizationID:       organizationIDForTarget(target),
@@ -498,7 +501,7 @@ func splitShellWords(command string) []string {
 	return words
 }
 
-func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, target store.SSHTarget, command, sourceIP string, startedAt time.Time) (terminalSessionCommandRun, string, bool) {
+func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, target store.SSHTarget, command, sourceIP string, startedAt time.Time, publicKeyFingerprint string) (terminalSessionCommandRun, string, bool) {
 	lookup := a.terminalSessions.earliestOnlineForUserTargetWithDiagnostics(userID, target.ID)
 	session := lookup.Session
 	if session == nil {
@@ -506,10 +509,11 @@ func (a *App) tryExecInOpenTerminalSession(ctx context.Context, userID string, t
 		return terminalSessionCommandRun{}, "", false
 	}
 	run := a.runCommandInTerminalSession(ctx, session, command, terminalSessionCommandOptions{
-		UserID:      userID,
-		StartedAt:   startedAt,
-		SourceIP:    sourceIP,
-		NonBlocking: true,
+		PublicKeyFingerprint: publicKeyFingerprint,
+		UserID:               userID,
+		StartedAt:            startedAt,
+		SourceIP:             sourceIP,
+		NonBlocking:          true,
 	})
 	if !run.Routed {
 		log.Printf("ssh exec terminal route fallback: user=%s target=%s alias=%s session=%s command=%q err=%v", userID, target.ID, target.Alias, session.id, command, run.Err)
@@ -551,16 +555,19 @@ func summarizeTerminalRouteSnapshots(snapshots []terminalSessionRouteSnapshot) s
 }
 
 type terminalSessionCommandOptions struct {
-	UserID           string
-	Decision         bastion.Decision
-	StartedAt        time.Time
-	SourceIP         string
-	NonBlocking      bool
-	SkipPolicyReview bool
-	WaitTimeout      time.Duration
+	PublicKeyFingerprint string
+	PublicKeyName        string
+	UserID               string
+	Decision             bastion.Decision
+	StartedAt            time.Time
+	SourceIP             string
+	NonBlocking          bool
+	SkipPolicyReview     bool
+	WaitTimeout          time.Duration
 }
 
 type terminalSessionCommandRun struct {
+	AuditID   string
 	Routed    bool
 	Allowed   bool
 	Decision  bastion.Decision
@@ -635,15 +642,19 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 	var live *runningAudit
 	if a.runningAudits != nil {
 		live = a.runningAudits.start(store.CreateCommandAuditLogParams{
+			PublicKeyFingerprint: opts.PublicKeyFingerprint, PublicKeyName: opts.PublicKeyName,
 			UserID: opts.UserID, TargetID: session.target.ID, TargetName: session.target.Name, TargetAlias: session.target.Alias,
 			TargetHost: session.target.Host, TargetPort: session.target.Port, TargetUsername: session.target.RemoteUsername,
 			OrganizationID: organizationIDForTarget(session.target), Command: normalizedCommand, RequestType: store.RequestExec,
 			PolicyDecision: run.Decision.Action, PolicyReason: run.Decision.Reason, StartedAt: startedAt,
 		})
+		run.AuditID = live.id
 		defer func() {
 			if live != nil {
 				live.finish(run.ExitCode, run.EndedAt)
-				a.runningAudits.remove(live)
+				if !run.Routed {
+					a.runningAudits.remove(live)
+				}
 			}
 		}()
 	}

@@ -3151,6 +3151,10 @@ html[data-theme="dark"] .manual-review-actions button.danger {
 .audit-cell-command{font-size:12px}
 .command-box code.command-box-code{min-width:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;text-overflow:clip;font-size:12px;line-height:1.55}
 .service-install-commands .command-box{grid-template-columns:minmax(0,1fr) auto}
+.service-install-commands{grid-template-columns:minmax(0,1fr)}
+.tag-color-row{display:grid;gap:12px;margin-top:16px}
+.tag-color-row>.tag-row{justify-self:start}
+.tag-color-swatches{display:flex;flex-wrap:wrap;gap:8px}
 .service-install-commands .command-box>span{grid-column:1/-1}
 .service-install-commands .command-box code.command-box-code{white-space:nowrap;overflow-wrap:normal;word-break:normal;overflow-x:auto;overflow-y:hidden}
 .command-box.multiline .command-box-code{max-height:280px;margin:0;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}

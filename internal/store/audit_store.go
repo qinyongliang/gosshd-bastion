@@ -59,12 +59,16 @@ func (s *AuditStore) Close() error {
 }
 
 func (r *AuditRepository) CreateCommandAuditLog(ctx context.Context, params CreateCommandAuditLogParams) (CommandAuditLog, error) {
+	id := strings.TrimSpace(params.ID)
+	if id == "" {
+		id = uuid.NewString()
+	}
 	started := params.StartedAt
 	if started.IsZero() {
 		started = time.Now().UTC()
 	}
 	log := CommandAuditLog{
-		ID:                   uuid.NewString(),
+		ID:                   id,
 		UserID:               strings.TrimSpace(params.UserID),
 		UserEmail:            strings.TrimSpace(params.UserEmail),
 		UserDisplayName:      strings.TrimSpace(params.UserDisplayName),
