@@ -50,6 +50,16 @@ jobs:
       - name: Test tunnel error diagnostics
         run: go test ./internal/server -run '^TestTunnelError' -count=1
 
+      - name: Verify control styles and tunnel traffic in browser
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ui-e2e" --no-save playwright@1.56.1
+          node "$RUNNER_TEMP/ui-e2e/node_modules/playwright/cli.js" install --with-deps chromium
+          export GOSSHD_UI_E2E_NODE="$(command -v node)"
+          export GOSSHD_UI_E2E_PLAYWRIGHT="$RUNNER_TEMP/ui-e2e/node_modules/playwright"
+          export GOSSHD_UI_E2E_BROWSER="$(node -e 'console.log(require(process.argv[1]).chromium.executablePath())' "$GOSSHD_UI_E2E_PLAYWRIGHT")"
+          go test ./internal/server -run '^Test(ControlStyles|TunnelTraffic)UIE2EWithBrowser$' -count=1 -timeout=4m
+
       - name: Build binaries and packages
         shell: bash
         run: |

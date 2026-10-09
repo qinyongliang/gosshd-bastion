@@ -79,7 +79,7 @@ export function MembersPage({ data }: { data: ConsoleData }) {
         <form className="grid two" onSubmit={(event) => formSubmit(event, (body) => add.mutate(body))}>
           <Field label={t("commonEmail")} name="email" />
           <Field label={t("membersUserID")} name="user_id" />
-          <Select label={t("commonRole")} name="role" options={[["member", t("roleMember")], ["admin", t("roleAdmin")]]} />
+          <Select label={t("commonRole")} name="role" defaultValue="member" options={[["member", t("roleMember")], ["admin", t("roleAdmin")]]} />
           <ErrorMessage error={add.error} /><ModalActions onCancel={() => setModal("")} submit={add.isPending ? t("loading") : t("addMember")} />
         </form>
       </Modal>}

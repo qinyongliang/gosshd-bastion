@@ -38,7 +38,11 @@ import {
 import { useI18n } from "../i18n";
 import { useTheme } from "../theme";
 import { TunnelPathStatus } from "../components/TunnelPathStatus";
-import { TunnelTrafficDialog, formatBytes } from "../components/TunnelTraffic";
+import {
+  TunnelTrafficDialog,
+  formatBytes,
+  tunnelTrafficCopy,
+} from "../components/TunnelTraffic";
 import type { ConsoleData, Target, Tunnel, TunnelConfig } from "../types";
 
 const copy = {
@@ -110,8 +114,6 @@ const copy = {
     unavailable: "未建立监听",
     traffic: "流量与连接",
     totalTraffic: "累计流量",
-    upload: "上传",
-    download: "下载",
     opened: "累计连接",
     peak: "峰值并发",
     p2p: "直连",
@@ -193,8 +195,6 @@ const copy = {
     unavailable: "Listener not established",
     traffic: "Traffic & connections",
     totalTraffic: "Total traffic",
-    upload: "Upload",
-    download: "Download",
     opened: "Total connections",
     peak: "Peak concurrency",
     p2p: "Direct",
@@ -398,6 +398,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
   const { locale } = useI18n();
   const { theme } = useTheme();
   const w = copy[locale];
+  const trafficWords = tunnelTrafficCopy[locale];
   const qc = useQueryClient();
   const allowed =
     data.user.is_system_admin ||
@@ -642,12 +643,14 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
                       )}
                     </strong>
                     <span>
-                      ↑{" "}
+                      {trafficWords.up} ({trafficWords.upDirection}):{" "}
                       {formatBytes(
                         (t.traffic?.relay_up || 0) +
                           (t.traffic?.direct_up || 0),
-                      )}{" "}
-                      · ↓{" "}
+                      )}
+                    </span>
+                    <span>
+                      {trafficWords.down} ({trafficWords.downDirection}):{" "}
                       {formatBytes(
                         (t.traffic?.relay_down || 0) +
                           (t.traffic?.direct_down || 0),
