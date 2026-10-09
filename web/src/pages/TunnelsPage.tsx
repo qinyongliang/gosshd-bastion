@@ -28,6 +28,7 @@ import {
 import { useState } from "react";
 import { api } from "../api";
 import { MachinePicker } from "../components/MachinePicker";
+import { TunnelErrorNotice } from "../components/TunnelErrorNotice";
 import {
   ConfirmDialog,
   ErrorMessage,
@@ -705,11 +706,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
                     </code>
                   )}
                 </div>
-                {t.error && (
-                  <div className="tunnel-runtime-error" role="status">
-                    {t.error}
-                  </div>
-                )}
+                <TunnelErrorNotice tunnel={t} />
               </article>
             ))}
           </>

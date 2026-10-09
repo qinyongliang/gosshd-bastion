@@ -25,6 +25,7 @@ type tunnelStatus struct {
 	DirectConnections int                    `json:"direct_connections"`
 	Status            string                 `json:"status"`
 	Error             string                 `json:"error,omitempty"`
+	ErrorDiagnostic   *tunnelErrorDiagnostic `json:"error_diagnostic,omitempty"`
 	ListenAddress     string                 `json:"listen_address,omitempty"`
 	Connections       int                    `json:"connections"`
 }
@@ -81,6 +82,7 @@ func (r *tunnelRun) setError(err error) {
 	r.mu.Lock()
 	r.state.Status = "error"
 	r.state.Error = err.Error()
+	r.state.ErrorDiagnostic = nil
 	r.mu.Unlock()
 }
 
@@ -342,6 +344,8 @@ func (m *tunnelManager) start(r *tunnelRun) {
 	var listener net.Listener
 	var control *yamux.Stream
 	var entrySession *yamux.Session
+	var entrySSHClient *gossh.Client
+	entryMachine := "Bastion"
 	if r.config.EntryTargetID == "" {
 		listener, err = net.Listen("tcp", address)
 	} else {
@@ -349,6 +353,10 @@ func (m *tunnelManager) start(r *tunnelRun) {
 		if e != nil {
 			r.setError(e)
 			return
+		}
+		entryMachine = target.Name
+		if entryMachine == "" {
+			entryMachine = target.Alias
 		}
 		if entryEndpoint != nil {
 			entrySession, err = m.app.registry.Get(entryEndpoint.id)
@@ -380,17 +388,25 @@ func (m *tunnelManager) start(r *tunnelRun) {
 		} else {
 			var client *gossh.Client
 			client, err = m.app.openTargetSSHClient(r.ctx, target)
-			if err == nil {
-				if !r.track(client) {
-					return
-				}
-				listener, err = client.Listen("tcp", address)
-				go func() { _ = client.Wait(); r.cancel() }()
+			if err != nil {
+				r.setError(err)
+				return
 			}
+			entrySSHClient = client
+			if !r.track(client) {
+				return
+			}
+			listener, err = client.Listen("tcp", address)
+			go func() { _ = client.Wait(); r.cancel() }()
 		}
 	}
 	if err != nil {
-		r.setError(err)
+		diagnostic := diagnoseTunnelListenError(r.ctx, err, entryMachine, r.config.ListenHost, r.config.ListenPort, entrySSHClient)
+		r.mu.Lock()
+		r.state.Status = "error"
+		r.state.Error = err.Error()
+		r.state.ErrorDiagnostic = diagnostic
+		r.mu.Unlock()
 		return
 	}
 	if listener != nil {
@@ -487,6 +503,7 @@ func (m *tunnelManager) forward(r *tunnelRun, source net.Conn) {
 	if err != nil {
 		r.mu.Lock()
 		r.state.Error = err.Error()
+		r.state.ErrorDiagnostic = nil
 		r.mu.Unlock()
 		return
 	}
@@ -499,6 +516,7 @@ func (m *tunnelManager) forward(r *tunnelRun, source net.Conn) {
 	r.metrics.opened()
 	r.state.Connections++
 	r.state.Error = ""
+	r.state.ErrorDiagnostic = nil
 	r.mu.Unlock()
 	defer func() {
 		r.mu.Lock()

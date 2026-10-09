@@ -3302,7 +3302,15 @@ html[data-theme="dark"] .manual-review-actions button.danger {
 .tunnel-card-foot { display:flex; align-items:center; flex-wrap:wrap; gap:16px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
 .tunnel-card-foot span { display:inline-flex; align-items:center; gap:6px; }
 .tunnel-card-foot code { margin-left:auto; font-size:11px; overflow-wrap:anywhere; }
-.tunnel-runtime-error { margin-top:12px; padding:9px 12px; background:rgba(220,74,74,.08); color:#de6666; border-radius:7px; font-size:12px; overflow-wrap:anywhere; }
+.tunnel-runtime-error { margin-top:12px; padding:12px; background:rgba(220,74,74,.08); color:#de6666; border-radius:7px; font-size:12px; overflow-wrap:anywhere; min-width:0; }
+.tunnel-error-heading { display:flex; align-items:flex-start; gap:7px; font-size:13px; line-height:1.5; }
+.tunnel-error-heading svg { flex-shrink:0; margin-top:2px; }
+.tunnel-error-context { display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:8px; }
+.tunnel-error-context span { min-width:0; }
+.tunnel-runtime-error p { margin:8px 0 0; line-height:1.6; }
+.tunnel-runtime-error details { margin-top:8px; }
+.tunnel-runtime-error summary { cursor:pointer; }
+.tunnel-runtime-error details code { display:block; margin-top:6px; white-space:pre-wrap; overflow-wrap:anywhere; }
 .tunnel-empty { text-align:center; padding:60px 24px; border:1px dashed var(--line); border-radius:14px; color:var(--muted); }
 .tunnel-empty > svg { color:#6386bd; }
 .tunnel-empty h3 { color:var(--text); }

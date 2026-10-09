@@ -345,7 +345,7 @@ export type Tunnel = TunnelConfig & {
  id: string; organization_id: string; enabled: boolean; expires_at?: string;
  created_by?: string; creator_name?: string; source?: string; temporary?: boolean; forward_type?: "local" | "remote"; remote_address?: string; public_key_fingerprint?: string;
  status: "running" | "starting" | "error" | "stopped" | "expired";
- error?: string; listen_address?: string; connections: number;
+ error?: string; error_diagnostic?: {code: string; stage: string; machine: string; address: string}; listen_address?: string; connections: number;
  transport: "relay" | "negotiating" | "direct" | "mixed"; direct_connections: number; traffic: TunnelTraffic; paths?: TunnelConnectionPath[];
 };
 export type TunnelTraffic = {bucket_start: number; relay_up: number; relay_down: number; direct_up: number; direct_down: number; connections_opened: number; peak_connections: number};

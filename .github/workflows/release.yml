@@ -47,6 +47,9 @@ jobs:
         shell: bash
         run: pnpm run build
 
+      - name: Test tunnel error diagnostics
+        run: go test ./internal/server -run '^TestTunnelError' -count=1
+
       - name: Build binaries and packages
         shell: bash
         run: |
