@@ -75,7 +75,33 @@ jobs:
 
       - name: Test backend
         shell: pwsh
-        run: go test ./internal/server ./internal/store ./internal/auth
+        run: |
+          $lines = & go test -json ./internal/server ./internal/store ./internal/auth 2>&1
+          $testExit = $LASTEXITCODE
+          $lines | Set-Content backend-tests.log
+          $events = @()
+          foreach ($line in $lines) {
+            Write-Host $line
+            try { $events += ($line | ConvertFrom-Json -ErrorAction Stop) } catch {}
+          }
+          if ($testExit -ne 0) {
+            foreach ($failure in ($events | Where-Object { $_.Action -eq 'fail' })) {
+              $message = ($events | Where-Object { $_.Package -eq $failure.Package -and $_.Test -eq $failure.Test -and $_.Output } | ForEach-Object { $_.Output }) -join ''
+              if (-not $message) { $message = ($lines | Select-Object -Last 20) -join [Environment]::NewLine }
+              if ($message.Length -gt 8000) { $message = $message.Substring($message.Length - 8000) }
+              $message = $message.Replace('%', '%25').Replace([string][char]13, '%0D').Replace([string][char]10, '%0A')
+              Write-Host "::error title=Backend test failed::$($failure.Package) $($failure.Test): $message"
+            }
+            exit $testExit
+          }
+
+      - name: Preserve backend test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-backend-test-diagnostics
+          path: backend-tests.log
+
 
       - name: Build Windows client package
         shell: pwsh
