@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Button, Select, Tag } from "antd";
+import { Button, Select } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { useI18n } from "../i18n";
@@ -165,9 +165,6 @@ export function TunnelTrafficDialog({
         />
       )}
       <div className="tunnel-chart-footer">
-        <Tag>
-          {zh ? "审核库 · 5 分钟聚合" : "Audit database · 5-minute buckets"}
-        </Tag>
         <span>
           {zh ? "当前并发" : "Active now"}: {tunnel.connections}
         </span>
