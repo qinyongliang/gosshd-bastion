@@ -39,11 +39,12 @@ import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution";
 import "monaco-editor/esm/vs/language/json/monaco.contribution";
 import "monaco-editor-nginx";
 import { Terminal } from "@xterm/xterm";
-import { Activity, ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Cpu, Folder, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Search, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
+import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { MachinePicker, serverTitle } from "../components/MachinePicker";
 import { ManualReviewPoller } from "../components/ManualReviewPoller";
 import { BrandMark, ConfirmDialog, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -52,7 +53,7 @@ import { MOBILE_TERMINAL_KEY_ROWS, TERMINAL_SHORTCUT_LABELS, applyTerminalModifi
 import type { TerminalModifier, TerminalShortcutKey } from "../terminalShortcuts";
 import { useTheme } from "../theme";
 import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
-import { tagColor, targetEndpoint } from "../utils";
+import { targetEndpoint } from "../utils";
 import { FileManager } from "./FileManager";
 import aiCollaborationIcon from "../assets/ai-collaboration.png";
 
@@ -560,7 +561,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
           </div>
         </Link>
 
-        <ServerSwitcher targets={targets} folders={data.targetFolders} currentTargetID={activeTarget?.id || ""} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} />
+        <MachinePicker targets={targets} folders={data.targetFolders} currentTargetID={activeTarget?.id || ""} openSignal={switcherOpenSignal} onOpenTarget={activateTarget} />
 
         {activeTarget && <div className="connect-appbar-host">
           <Server />
@@ -1778,202 +1779,6 @@ export function TerminalPanel({ data, target, paneID, restoreSession = false, ac
   );
 }
 
-function ServerSwitcher({
-  targets,
-  folders,
-  currentTargetID,
-  openSignal,
-  onOpenTarget,
-}: {
-  targets: Target[];
-  folders: ConsoleData["targetFolders"];
-  currentTargetID: string;
-  openSignal: number;
-  onOpenTarget: (targetID: string) => void;
-}) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
-  const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const currentTarget = targets.find((item) => item.id === currentTargetID);
-  const currentTitle = currentTarget ? serverTitle(currentTarget) : t("connectSwitchServer");
-  const folderPathByTarget = useMemo(() => Object.fromEntries(targets.map((item) => [item.id, targetFolderPath(item, folders)])), [targets, folders]);
-  const filteredTargets = useMemo(() => {
-    const text = query.trim().toLowerCase();
-    if (!text) return targets;
-    return targets.filter((item) => [
-      folderPathByTarget[item.id],
-      folderPathByTarget[item.id] ? `${folderPathByTarget[item.id]}/${item.alias}` : item.alias,
-      folderPathByTarget[item.id] ? `${folderPathByTarget[item.id]}/${item.name}` : item.name,
-      item.name,
-      item.alias,
-      targetEndpoint(item),
-      item.remote_username,
-      ...(item.tags || []),
-    ].join(" ").toLowerCase().includes(text));
-  }, [folderPathByTarget, query, targets]);
-  const toggleFolder = (folderID: string) => {
-    setCollapsedFolders((current) => {
-      const next = new Set(current);
-      if (next.has(folderID)) next.delete(folderID); else next.add(folderID);
-      return next;
-    });
-  };
-  const treeItems = useMemo(
-    () => buildSwitcherTree(filteredTargets, folders, folderPathByTarget, query.trim() ? new Set() : collapsedFolders, toggleFolder),
-    [collapsedFolders, filteredTargets, folderPathByTarget, folders, query],
-  );
-
-  useEffect(() => {
-    if (openSignal <= 0) return;
-    setOpen(true);
-    setSelectedIndex(0);
-    if (isMobileViewport()) blurActiveElement(); else window.setTimeout(() => inputRef.current?.focus(), 0);
-  }, [openSignal]);
-
-  useEffect(() => {
-    if (!open) return;
-    setSelectedIndex(0);
-    if (isMobileViewport()) blurActiveElement(); else window.setTimeout(() => inputRef.current?.focus(), 0);
-  }, [open]);
-
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
-
-  useEffect(() => {
-    if (!treeItems.length) {
-      setSelectedIndex(0);
-      return;
-    }
-    setSelectedIndex((index) => nextSelectableSwitcherIndex(treeItems, clampNumber(index, 0, treeItems.length - 1), 1));
-  }, [treeItems]);
-
-  useEffect(() => {
-    if (!open) return;
-    itemRefs.current[selectedIndex]?.scrollIntoView({ block: "nearest" });
-  }, [open, selectedIndex]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  const openTarget = (target: Target) => {
-    onOpenTarget(target.id);
-    setOpen(false);
-    setQuery("");
-  };
-
-  const onMenuKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setSelectedIndex((index) => nextSelectableSwitcherIndex(treeItems, index + 1, 1));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setSelectedIndex((index) => nextSelectableSwitcherIndex(treeItems, index - 1, -1));
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      setSelectedIndex(nextSelectableSwitcherIndex(treeItems, 0, 1));
-    } else if (event.key === "End") {
-      event.preventDefault();
-      setSelectedIndex(nextSelectableSwitcherIndex(treeItems, treeItems.length - 1, -1));
-    } else if (event.key === "Enter") {
-      const selected = treeItems[selectedIndex];
-      if (!selected || selected.type !== "target") return;
-      event.preventDefault();
-      openTarget(selected.target);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      setOpen(false);
-    }
-  };
-
-  return (
-    <div className="server-switcher" ref={rootRef}>
-      <button
-        type="button"
-        className={`icon-button connect-server-switcher ${open ? "active" : ""}`}
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label={t("connectSwitchServer")}
-        title={currentTitle}
-      >
-        <Server />
-      </button>
-      {open && (
-        <section className="server-switcher-menu" role="menu" aria-label={t("connectSwitchServer")} onKeyDown={onMenuKeyDown}>
-          <label className="server-switcher-search">
-            <Search />
-            <input
-              ref={inputRef}
-              data-connect-switcher-search
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("connectSwitchSearchPlaceholder")}
-            />
-          </label>
-          <div className="server-switcher-list">
-            {treeItems.map((treeItem, index) => treeItem.type === "folder" ? (
-              <button
-                type="button"
-                key={treeItem.id}
-                className="server-switcher-folder"
-                style={{ "--tree-depth": treeItem.depth } as CSSProperties}
-                onClick={() => treeItem.onToggle()}
-              >
-                {treeItem.collapsed ? <ChevronRight /> : <ChevronDown />}
-                <FolderIcon />
-                <strong>{treeItem.name}</strong>
-              </button>
-            ) : (
-              <button
-                type="button"
-                key={treeItem.target.id}
-                ref={(element) => { itemRefs.current[index] = element; }}
-                className={`server-switcher-item ${treeItem.target.id === currentTargetID ? "active" : ""} ${index === selectedIndex ? "selected" : ""}`}
-                style={{ "--tree-depth": treeItem.depth } as CSSProperties}
-                onClick={() => openTarget(treeItem.target)}
-                onPointerMove={() => setSelectedIndex(index)}
-                role="menuitem"
-                title={serverTitle(treeItem.target)}
-              >
-                <span className="server-switcher-icon">{treeItem.target.target_type === "agent" ? <Server /> : <HardDrive />}</span>
-                <span className="server-switcher-main">
-                  <strong>{treeItem.target.name}</strong>
-                  <code>{treeItem.target.alias}</code>
-                  <small>{targetEndpoint(treeItem.target)}</small>
-                  <span className="server-switcher-tags">
-                    {(treeItem.target.tags || []).map((tag) => (
-                      <span key={tag} className={`tag-chip tag-color-${tagColor(tag, treeItem.target.tag_colors)}`}>{tag}</span>
-                    ))}
-                  </span>
-                </span>
-              </button>
-            ))}
-            {!filteredTargets.length && <div className="server-switcher-empty">{t("serviceEmptyTitle")}</div>}
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
 
 function keyMatches(event: KeyboardEvent, key: string, code: string) {
   return event.key.toLowerCase() === key || event.code === code;
@@ -1993,52 +1798,6 @@ function isEditableElementOutsideTerminal(element: HTMLElement | null, terminalC
   return Boolean(element.closest("button,a,input,textarea,select,[contenteditable='true']"));
 }
 
-type SwitcherTreeItem =
-  | { type: "folder"; id: string; name: string; depth: number; collapsed: boolean; onToggle: () => void }
-  | { type: "target"; target: Target; depth: number };
-
-function buildSwitcherTree(targets: Target[], folders: ConsoleData["targetFolders"], folderPathByTarget: Record<string, string>, collapsedFolders: Set<string>, onToggleFolder: (folderID: string) => void): SwitcherTreeItem[] {
-  const out: SwitcherTreeItem[] = [];
-  const targetIDs = new Set(targets.map((item) => item.id));
-  const children = new Map<string, typeof folders>();
-  for (const folder of folders) {
-    const key = folder.parent_id || "";
-    children.set(key, [...(children.get(key) || []), folder]);
-  }
-  const walkFolder = (parentID: string, depth: number) => {
-    for (const folder of (children.get(parentID) || []).sort((a, b) => a.name.localeCompare(b.name))) {
-      const folderPath = folderPathFromFolder(folder, folders);
-      const descendants = targets.filter((target) => target.folder_id === folder.id || folderPathByTarget[target.id]?.startsWith(`${folderPath}/`));
-      if (!descendants.length) continue;
-      const collapsed = collapsedFolders.has(folder.id);
-      out.push({ type: "folder", id: folder.id, name: folder.name, depth, collapsed, onToggle: () => onToggleFolder(folder.id) });
-      if (collapsed) continue;
-      for (const target of targets.filter((item) => item.folder_id === folder.id && targetIDs.has(item.id)).sort((a, b) => a.name.localeCompare(b.name))) {
-        out.push({ type: "target", target, depth: depth + 1 });
-      }
-      walkFolder(folder.id, depth + 1);
-    }
-  };
-  for (const target of targets.filter((item) => !item.folder_id).sort((a, b) => a.name.localeCompare(b.name))) {
-    out.push({ type: "target", target, depth: 0 });
-  }
-  walkFolder("", 0);
-  return out;
-}
-
-function nextSelectableSwitcherIndex(items: SwitcherTreeItem[], start: number, direction: 1 | -1) {
-  if (!items.length) return 0;
-  let index = wrapIndex(start, items.length);
-  for (let i = 0; i < items.length; i += 1) {
-    if (items[index]?.type === "target") return index;
-    index = wrapIndex(index + direction, items.length);
-  }
-  return 0;
-}
-
-function FolderIcon() {
-  return <Folder />;
-}
 
 function contextMenuPointInTabs(clientX: number, clientY: number, container: HTMLElement | null) {
   const menuWidth = 150;
@@ -2444,43 +2203,4 @@ function clampNumber(value: number, min = 0, max = 100) {
   if (value < min) return min;
   if (value > max) return max;
   return value;
-}
-
-function wrapIndex(value: number, length: number) {
-  if (length <= 0) return 0;
-  return (value + length) % length;
-}
-
-function serverTitle(target: Target) {
-  const endpoint = targetEndpoint(target);
-  const tags = (target.tags || []).join(", ");
-  return [target.name, target.alias, endpoint, tags].filter(Boolean).join(" · ");
-}
-
-function targetFolderPath(target: Target, folders: ConsoleData["targetFolders"]) {
-  const byID = new Map(folders.map((folder) => [folder.id, folder]));
-  const names: string[] = [];
-  const seen = new Set<string>();
-  for (let folderID = target.folder_id || ""; folderID;) {
-    if (seen.has(folderID)) break;
-    seen.add(folderID);
-    const folder = byID.get(folderID);
-    if (!folder) break;
-    names.unshift(folder.name);
-    folderID = folder.parent_id || "";
-  }
-  return names.join("/");
-}
-
-function folderPathFromFolder(folder: ConsoleData["targetFolders"][number], folders: ConsoleData["targetFolders"]) {
-  const byID = new Map(folders.map((item) => [item.id, item]));
-  const names: string[] = [];
-  const seen = new Set<string>();
-  for (let current: typeof folder | undefined = folder; current;) {
-    if (seen.has(current.id)) break;
-    seen.add(current.id);
-    names.unshift(current.name);
-    current = current.parent_id ? byID.get(current.parent_id) : undefined;
-  }
-  return names.join("/");
 }
