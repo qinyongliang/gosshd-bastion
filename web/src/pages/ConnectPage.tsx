@@ -1273,8 +1273,8 @@ function SystemSnapshotPanel({
               {(snapshot.network || []).slice(0, 4).map((item) => (
                 <div className="telemetry-network" key={item.interface}>
                   <strong title={networkInterfaceName(item.interface)}>{networkInterfaceName(item.interface)}</strong>
-                  <span><b>↓</b>{formatBytesPerSecond(interfaceRates[item.interface]?.rx)}</span>
-                  <span><b>↑</b>{formatBytesPerSecond(interfaceRates[item.interface]?.tx)}</span>
+                  <span title={`${t("connectSystemRX")}: ${formatBytesPerSecond(interfaceRates[item.interface]?.rx)}`}><b aria-hidden="true">↓</b><span className="telemetry-network-rate-value">{formatBytesPerSecond(interfaceRates[item.interface]?.rx)}</span></span>
+                  <span title={`${t("connectSystemTX")}: ${formatBytesPerSecond(interfaceRates[item.interface]?.tx)}`}><b aria-hidden="true">↑</b><span className="telemetry-network-rate-value">{formatBytesPerSecond(interfaceRates[item.interface]?.tx)}</span></span>
                 </div>
               ))}
               {!snapshot.network?.length && <p>{t("connectSystemNoData")}</p>}
