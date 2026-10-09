@@ -59,6 +59,9 @@ func (a *App) actorForMCPRequest(r *http.Request) (mcpActor, error) {
 	if err != nil {
 		return mcpActor{}, err
 	}
+	if user.DisabledAt != nil {
+		return mcpActor{}, errors.New("account disabled")
+	}
 	_ = a.store.Repository().TouchMCPToken(r.Context(), token.ID, time.Now().UTC())
 	runtimeInfo, err := a.runtimeInfo(r.Context(), r)
 	if err != nil {
@@ -84,6 +87,7 @@ func allMCPToolGroups() map[string]bool {
 		"target":  true,
 		"policy":  true,
 		"audit":   true,
+		"tunnel":  true,
 	}
 }
 
@@ -276,11 +280,14 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 	actor := actorCtx.User
 	s := mcp.NewServer(&mcp.Implementation{Name: "gosshd-bastion", Version: a.cfg.version()}, &mcp.ServerOptions{
-		Instructions: "When operating remote servers, prefer the session tool group. First call session_list to find an active bastion terminal session. Use session_send_command only when shell_busy is false; for a busy session, use session_screen to inspect it or session_interrupt to send Ctrl+C. These tools preserve web-terminal replay, audit logs, command policy checks, and manual approval flow.",
+		Instructions: "When operating remote servers, prefer the session tool group. First call session_list to find an active bastion terminal session. Use session_send_command only when shell_busy is false; for a busy session, use session_screen to inspect it or session_interrupt to send Ctrl+C. These tools preserve web-terminal replay, audit logs, command policy checks, and manual approval flow. For tunnel management use tunnel_list, tunnel_get, tunnel_create, tunnel_update, tunnel_enable, tunnel_stop, tunnel_delete and tunnel_traffic. Creation saves a stopped configuration; enabling starts it. SSH temporary forwards are visible while active and can only be stopped.",
 	})
 
 	if mcpToolGroupAllowed(actorCtx.ToolGroups, "session") {
 		a.addMCPSessionTools(s, actor)
+	}
+	if mcpToolGroupAllowed(actorCtx.ToolGroups, "tunnel") {
+		a.addMCPTunnelTools(s, actor)
 	}
 	if !mcpAnyManagementToolGroupAllowed(actorCtx.ToolGroups) {
 		return s

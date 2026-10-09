@@ -3407,3 +3407,5 @@ html[data-theme="dark"] .manual-review-actions button.danger {
 .tunnel-peer-endpoint dd { margin:0; overflow-wrap:anywhere; }
 .tunnel-peer-endpoint code { font-size:11px; }
 @media(max-width:600px){.tunnel-path-peers{grid-template-columns:1fr}.tunnel-path-between{margin:0;transform:rotate(90deg);justify-self:center}.tunnel-path-content{max-height:65dvh}}
+
+.tunnel-owner-note { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 12px; color: var(--muted); margin: 0 0 16px; overflow-wrap: anywhere; }

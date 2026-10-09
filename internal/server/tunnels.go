@@ -85,20 +85,22 @@ func (r *tunnelRun) setError(err error) {
 }
 
 type tunnelManager struct {
-	blocked map[string]string
-	metrics map[string]*tunnelMetrics
-	app     *App
-	ctx     context.Context
-	cancel  context.CancelFunc
-	done    chan struct{}
-	wake    chan struct{}
-	mu      sync.Mutex
-	runs    map[string]*tunnelRun
+	closing   bool
+	temporary map[string]*temporaryTunnel
+	blocked   map[string]string
+	metrics   map[string]*tunnelMetrics
+	app       *App
+	ctx       context.Context
+	cancel    context.CancelFunc
+	done      chan struct{}
+	wake      chan struct{}
+	mu        sync.Mutex
+	runs      map[string]*tunnelRun
 }
 
 func newTunnelManager(a *App) *tunnelManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &tunnelManager{metrics: map[string]*tunnelMetrics{}, blocked: map[string]string{}, app: a, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), runs: map[string]*tunnelRun{}}
+	m := &tunnelManager{temporary: map[string]*temporaryTunnel{}, metrics: map[string]*tunnelMetrics{}, blocked: map[string]string{}, app: a, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), runs: map[string]*tunnelRun{}}
 	go m.loop()
 	return m
 }
@@ -108,7 +110,23 @@ func (m *tunnelManager) notify() {
 	default:
 	}
 }
-func (m *tunnelManager) close() { m.cancel(); <-m.done }
+func (m *tunnelManager) close() {
+	m.mu.Lock()
+	m.closing = true
+	items := make([]*temporaryTunnel, 0, len(m.temporary))
+	for _, t := range m.temporary {
+		items = append(items, t)
+	}
+	m.mu.Unlock()
+	for _, t := range items {
+		t.stop()
+	}
+	for _, t := range items {
+		<-t.done
+	}
+	m.cancel()
+	<-m.done
+}
 func (m *tunnelManager) loop() {
 	defer close(m.done)
 	ticker := time.NewTicker(time.Second)

@@ -15,6 +15,12 @@ import (
 type apiTunnel struct {
 	store.Tunnel
 	tunnelStatus
+	Source               string `json:"source"`
+	Temporary            bool   `json:"temporary,omitempty"`
+	CreatorName          string `json:"creator_name,omitempty"`
+	ForwardType          string `json:"forward_type,omitempty"`
+	RemoteAddress        string `json:"remote_address,omitempty"`
+	PublicKeyFingerprint string `json:"public_key_fingerprint,omitempty"`
 }
 
 func (a *App) validateTunnel(ctx context.Context, user store.User, orgID string, c store.TunnelConfig) error {
@@ -81,14 +87,10 @@ func (a *App) handleListTunnels(w http.ResponseWriter, r *http.Request, u store.
 		writeError(w, 403, "organization admin required")
 		return
 	}
-	tunnels, err := a.store.Repository().ListTunnels(r.Context(), org)
+	out, err := a.listTunnelViews(r.Context(), u, org)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
-	}
-	out := make([]apiTunnel, 0, len(tunnels))
-	for _, t := range tunnels {
-		out = append(out, apiTunnel{t, a.tunnelAPIStatus(t)})
 	}
 	writeJSON(w, 200, map[string]any{"tunnels": out})
 }
@@ -114,28 +116,46 @@ func (a *App) handleSaveTunnel(w http.ResponseWriter, r *http.Request, u store.U
 		writeError(w, 403, "organization admin required")
 		return
 	}
-	body.Name = strings.TrimSpace(body.Name)
-	body.DestinationHost = strings.TrimSpace(body.DestinationHost)
-	body.ListenHost = strings.TrimSpace(body.ListenHost)
-	if err := a.validateTunnel(r.Context(), u, t.OrganizationID, body.TunnelConfig); err != nil {
-		writeError(w, 400, err.Error())
-		return
-	}
 	t.TunnelConfig = body.TunnelConfig
-
-	t, err := a.store.Repository().SaveTunnel(r.Context(), t)
+	saved, err := a.saveManagedTunnel(r.Context(), u, t)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		var invalid tunnelConfigError
+		if errors.As(err, &invalid) {
+			writeError(w, 400, err.Error())
+		} else {
+			writeError(w, 500, err.Error())
+		}
 		return
 	}
-	a.tunnels.notify()
-	writeJSON(w, 200, map[string]any{"tunnel": apiTunnel{t, a.tunnelAPIStatus(t)}})
+	writeJSON(w, 200, map[string]any{"tunnel": saved})
 }
 func (a *App) handleTunnelAction(w http.ResponseWriter, r *http.Request, u store.User) {
+	if strings.HasPrefix(r.PathValue("id"), "ssh-") {
+		t, err := a.temporaryTunnel(r.Context(), u, r.PathValue("id"))
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				writeError(w, 404, "tunnel not found")
+			} else {
+				writeError(w, 403, "organization admin required")
+			}
+			return
+		}
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/stop") {
+			writeError(w, 400, "temporary SSH tunnels can only be stopped; recreate them from the SSH client")
+			return
+		}
+		t.stop()
+		writeJSON(w, 200, map[string]bool{"ok": true})
+		return
+	}
 	repo := a.store.Repository()
 	t, err := repo.GetTunnel(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeError(w, 404, "tunnel not found")
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, 404, "tunnel not found")
+		} else {
+			writeError(w, 500, err.Error())
+		}
 		return
 	}
 	if a.requireOrganizationAdmin(r.Context(), t.OrganizationID, u) != nil {
@@ -147,31 +167,24 @@ func (a *App) handleTunnelAction(w http.ResponseWriter, r *http.Request, u store
 			a.tunnels.stop(t.ID)
 		}
 	} else {
-		enabled := strings.HasSuffix(r.URL.Path, "/enable")
-		if enabled {
-			if err = a.validateTunnel(r.Context(), u, t.OrganizationID, t.TunnelConfig); err != nil {
-				writeError(w, 400, err.Error())
-				return
+		saved, operationErr := a.setManagedTunnelEnabled(r.Context(), u, t, strings.HasSuffix(r.URL.Path, "/enable"))
+		if operationErr != nil {
+			var invalid tunnelConfigError
+			if errors.As(operationErr, &invalid) {
+				writeError(w, 400, operationErr.Error())
+			} else {
+				writeError(w, 500, operationErr.Error())
 			}
+			return
 		}
-		if enabled {
-			t, err = repo.EnableTunnelForUser(r.Context(), t.ID, t.DurationSeconds, u.ID)
-		} else {
-			t, err = repo.SetTunnelEnabled(r.Context(), t.ID, false, t.DurationSeconds)
-		}
-		if err == nil {
-			a.tunnels.stop(t.ID)
-		}
+		writeJSON(w, 200, map[string]any{"tunnel": saved})
+		return
 	}
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
-	if r.Method == http.MethodDelete {
-		writeJSON(w, 200, map[string]bool{"ok": true})
-		return
-	}
-	writeJSON(w, 200, map[string]any{"tunnel": apiTunnel{t, a.tunnelAPIStatus(t)}})
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
 func (a *App) tunnelAPIStatus(t store.Tunnel) tunnelStatus {
@@ -212,9 +225,13 @@ func (a *App) tunnelAPIStatus(t store.Tunnel) tunnelStatus {
 	return state
 }
 func (a *App) handleTunnelTraffic(w http.ResponseWriter, r *http.Request, u store.User) {
-	t, err := a.store.Repository().GetTunnel(r.Context(), r.PathValue("id"))
+	t, err := a.lookupTunnel(r.Context(), u, r.PathValue("id"))
 	if err != nil {
-		writeError(w, 404, "tunnel not found")
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, 404, "tunnel not found")
+		} else {
+			writeError(w, 403, "organization admin required")
+		}
 		return
 	}
 	if a.requireOrganizationAdmin(r.Context(), t.OrganizationID, u) != nil {
@@ -243,6 +260,16 @@ func (a *App) handleTunnelTraffic(w http.ResponseWriter, r *http.Request, u stor
 		return
 	}
 	from -= from % 300
+	out, err := a.tunnelTrafficBuckets(r.Context(), t, from, to)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"interval_seconds": 300, "buckets": out})
+}
+
+// tunnelTrafficBuckets merges audit storage and unflushed live counters under one lock.
+func (a *App) tunnelTrafficBuckets(ctx context.Context, t store.Tunnel, from, to int64) ([]store.TunnelTraffic, error) {
 	a.tunnels.mu.Lock()
 	metrics := a.tunnels.metrics[t.ID]
 	a.tunnels.mu.Unlock()
@@ -250,10 +277,9 @@ func (a *App) handleTunnelTraffic(w http.ResponseWriter, r *http.Request, u stor
 		metrics.mu.Lock()
 		defer metrics.mu.Unlock()
 	}
-	rows, err := a.audit.Repository().TunnelTraffic(r.Context(), t.ID, from, to)
+	rows, err := a.audit.Repository().TunnelTraffic(ctx, t.ID, from, to)
 	if err != nil {
-		writeError(w, 500, err.Error())
-		return
+		return nil, err
 	}
 	values := map[int64]store.TunnelTraffic{}
 	for _, v := range rows {
@@ -281,5 +307,5 @@ func (a *App) handleTunnelTraffic(w http.ResponseWriter, r *http.Request, u stor
 		v.BucketStart = bucket
 		out = append(out, v)
 	}
-	writeJSON(w, 200, map[string]any{"interval_seconds": 300, "buckets": out})
+	return out, nil
 }

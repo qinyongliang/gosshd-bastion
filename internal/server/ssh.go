@@ -475,6 +475,8 @@ func bridgeAgentTCP(reg *AgentRegistry, id, target string, client io.ReadWriteCl
 }
 
 type forwardManager struct {
+	onListen  func(net.Listener) net.Listener
+	closed    bool
 	conn      *gossh.ServerConn
 	mu        sync.Mutex
 	listeners []net.Listener
@@ -490,7 +492,7 @@ func (m *forwardManager) handleGlobalRequests(reqs <-chan *gossh.Request) {
 		case "tcpip-forward":
 			m.handleTCPIPForward(req)
 		case "cancel-tcpip-forward":
-			req.Reply(true, nil)
+			m.cancelTCPIPForward(req)
 		default:
 			req.Reply(false, nil)
 		}
@@ -517,6 +519,9 @@ func (m *forwardManager) handleTCPIPForward(req *gossh.Request) {
 		return
 	}
 	actual := uint32(ln.Addr().(*net.TCPAddr).Port)
+	if m.onListen != nil {
+		ln = m.onListen(ln)
+	}
 	if payload.Port == 0 {
 		var resp [4]byte
 		binary.BigEndian.PutUint32(resp[:], actual)
@@ -525,6 +530,11 @@ func (m *forwardManager) handleTCPIPForward(req *gossh.Request) {
 		req.Reply(true, nil)
 	}
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		_ = ln.Close()
+		return
+	}
 	m.listeners = append(m.listeners, ln)
 	m.mu.Unlock()
 	connectedHost := payload.Address
@@ -543,12 +553,15 @@ func (m *forwardManager) acceptForwarded(ln net.Listener, bindHost string, bindP
 			}
 			return
 		}
-		go m.openForwardedChannel(conn, bindHost, bindPort)
+		go m.openForwardedChannel(conn, bindHost, bindPort, ln)
 	}
 }
 
-func (m *forwardManager) openForwardedChannel(conn net.Conn, bindHost string, bindPort uint32) {
+func (m *forwardManager) openForwardedChannel(conn net.Conn, bindHost string, bindPort uint32, ln net.Listener) {
 	defer conn.Close()
+	if tracked, ok := ln.(*trackedForwardListener); ok {
+		defer tracked.tunnel.untrack(conn)
+	}
 	host, portText, _ := net.SplitHostPort(conn.RemoteAddr().String())
 	port, _ := strconv.ParseUint(portText, 10, 32)
 	payload := gossh.Marshal(forwardedTCPIPPayload{
@@ -562,14 +575,47 @@ func (m *forwardManager) openForwardedChannel(conn net.Conn, bindHost string, bi
 		return
 	}
 	go gossh.DiscardRequests(reqs)
-	bridge(conn, ch)
+	if tracked, ok := ln.(*trackedForwardListener); ok {
+		defer tracked.tunnel.untrack(conn)
+		bridgeSSHForward(conn, ch, tracked.tunnel)
+	} else {
+		bridge(conn, ch)
+	}
 }
 
 func (m *forwardManager) closeAll() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, ln := range m.listeners {
+	items := m.listeners
+	m.closed = true
+	m.listeners = nil
+	m.mu.Unlock()
+	for _, ln := range items {
 		_ = ln.Close()
 	}
-	m.listeners = nil
+}
+func (m *forwardManager) cancelTCPIPForward(req *gossh.Request) {
+	var payload tcpipForwardPayload
+	if gossh.Unmarshal(req.Payload, &payload) != nil {
+		req.Reply(false, nil)
+		return
+	}
+	host := payload.Address
+	if host == "" || host == "localhost" {
+		host = "127.0.0.1"
+	}
+	address := net.JoinHostPort(host, strconv.Itoa(int(payload.Port)))
+	m.mu.Lock()
+	var found net.Listener
+	for i, ln := range m.listeners {
+		if ln.Addr().String() == address {
+			found = ln
+			m.listeners = append(m.listeners[:i], m.listeners[i+1:]...)
+			break
+		}
+	}
+	m.mu.Unlock()
+	if found != nil {
+		_ = found.Close()
+	}
+	req.Reply(found != nil, nil)
 }

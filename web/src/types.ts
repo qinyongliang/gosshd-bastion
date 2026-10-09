@@ -343,6 +343,7 @@ export type TunnelConfig = {
 };
 export type Tunnel = TunnelConfig & {
  id: string; organization_id: string; enabled: boolean; expires_at?: string;
+ created_by?: string; creator_name?: string; source?: string; temporary?: boolean; forward_type?: "local" | "remote"; remote_address?: string; public_key_fingerprint?: string;
  status: "running" | "starting" | "error" | "stopped" | "expired";
  error?: string; listen_address?: string; connections: number;
  transport: "relay" | "negotiating" | "direct" | "mixed"; direct_connections: number; traffic: TunnelTraffic; paths?: TunnelConnectionPath[];

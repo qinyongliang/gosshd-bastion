@@ -2,14 +2,15 @@ package server
 
 import (
 	"context"
-	"github.com/qinyongliang/gosshd-bastion/internal/tunnel"
 	"io"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
+	"github.com/qinyongliang/gosshd-bastion/internal/tunnel"
 )
 
 // Buckets are written only at five-minute boundaries or lifecycle transitions.
@@ -134,6 +135,15 @@ func (m *tunnelManager) flushMetrics(all bool) {
 	m.mu.Unlock()
 	for _, v := range items {
 		v.flush(m.app.audit.Repository(), all)
+		if strings.HasPrefix(v.id, "ssh-") {
+			m.mu.Lock()
+			v.mu.Lock()
+			if m.temporary[v.id] == nil && v.active == 0 && len(v.buckets) == 0 {
+				delete(m.metrics, v.id)
+			}
+			v.mu.Unlock()
+			m.mu.Unlock()
+		}
 	}
 }
 func (m *tunnelManager) traffic(t store.Tunnel) (store.TunnelTraffic, int, int, error) {
