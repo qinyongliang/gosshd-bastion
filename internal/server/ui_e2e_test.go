@@ -42,6 +42,14 @@ func TestMobileActionsUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, true, "mobile_interactions.test.mjs")
 }
 
+func TestControlStylesUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "control_styles.test.mjs")
+}
+
+func TestTunnelTrafficUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "tunnel_traffic.test.mjs")
+}
+
 func TestPaginationUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "pagination.test.mjs")
 }

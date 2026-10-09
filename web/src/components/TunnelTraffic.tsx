@@ -6,6 +6,21 @@ import { useI18n } from "../i18n";
 import type { Tunnel, TunnelTraffic } from "../types";
 import { ErrorMessage, Modal } from "./ui";
 
+export const tunnelTrafficCopy = {
+  "zh-CN": {
+    up: "发往目标",
+    down: "目标返回",
+    upDirection: "入口 → 目标服务",
+    downDirection: "目标服务 → 入口",
+  },
+  en: {
+    up: "To destination",
+    down: "From destination",
+    upDirection: "Entry → Destination service",
+    downDirection: "Destination service → Entry",
+  },
+};
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   const k = Math.min(Math.floor(Math.log(n) / Math.log(1024)), 4);
@@ -20,6 +35,7 @@ export function TunnelTrafficDialog({
 }) {
   const { locale } = useI18n();
   const zh = locale === "zh-CN";
+  const words = tunnelTrafficCopy[locale];
   const [days, setDays] = useState(1);
   const [metric, setMetric] = useState("traffic");
   const [path, setPath] = useState("all");
@@ -60,12 +76,12 @@ export function TunnelTrafficDialog({
     metric === "traffic"
       ? [
           {
-            label: zh ? "上传" : "Upload",
+            label: `${words.up} (${words.upDirection})`,
             color: "#4385ef",
             values: buckets.map((b) => selected(b, true)),
           },
           {
-            label: zh ? "下载" : "Download",
+            label: `${words.down} (${words.downDirection})`,
             color: "#32a987",
             values: buckets.map((b) => selected(b, false)),
           },
@@ -141,7 +157,9 @@ export function TunnelTrafficDialog({
 
       <div className="tunnel-chart-summary">
         <div>
-          <small>{zh ? "所选时段流量" : "Traffic in range"}</small>
+          <small>
+            {zh ? "所选时段流量" : "Traffic in range"}
+          </small>
           <strong>{formatBytes(total)}</strong>
         </div>
         <div>
