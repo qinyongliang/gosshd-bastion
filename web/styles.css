@@ -316,6 +316,11 @@ html[data-theme="dark"] .server-switcher-search {
   height: 0;
 }
 
+.server-switcher-item,
+.server-switcher-folder {
+  flex: 0 0 auto;
+}
+
 .server-switcher-item {
   position: relative;
   display: grid;
