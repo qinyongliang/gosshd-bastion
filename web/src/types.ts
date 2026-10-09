@@ -336,3 +336,18 @@ export type FileReadResult = {
   content: string;
   modified_at?: string;
 };
+
+export type TunnelConfig = {
+ name: string; entry_target_id: string; listen_host: string; listen_port: number;
+ exit_target_id: string; destination_host: string; destination_port: number; duration_seconds: number;
+};
+export type Tunnel = TunnelConfig & {
+ id: string; organization_id: string; enabled: boolean; expires_at?: string;
+ status: "running" | "starting" | "error" | "stopped" | "expired";
+ error?: string; listen_address?: string; connections: number;
+ transport: "relay" | "negotiating" | "direct" | "mixed"; direct_connections: number; traffic: TunnelTraffic; paths?: TunnelConnectionPath[];
+};
+export type TunnelTraffic = {bucket_start: number; relay_up: number; relay_down: number; direct_up: number; direct_down: number; connections_opened: number; peak_connections: number};
+export type TunnelCandidate = {address: string; port: number; protocol: string; type: string; network: string; interface?: string; local_address?: string; local_port?: number};
+export type TunnelPeerInfo = {active: boolean; state: string; local?: TunnelCandidate; remote?: TunnelCandidate; rtt_ms?: number; updated_at: string};
+export type TunnelConnectionPath = {id: string; entry_agent_id: string; exit_agent_id: string; entry?: TunnelPeerInfo; exit?: TunnelPeerInfo; updated_at: string};

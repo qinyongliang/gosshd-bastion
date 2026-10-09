@@ -16,6 +16,7 @@ import { MembersPage } from "./pages/MembersPage";
 import { OrganizationsPage } from "./pages/OrganizationsPage";
 import { PoliciesPage } from "./pages/PoliciesPage";
 import { SystemAdminPage } from "./pages/SystemAdminPage";
+import { TunnelsPage } from "./pages/TunnelsPage";
 import { TargetsPage } from "./pages/TargetsPage";
 import type { ConsoleData, Organization, Runtime, User } from "./types";
 
@@ -80,6 +81,7 @@ function ClientRoutes({ data }: { data: ConsoleData }) {
       <Route path="/" element={<Navigate to="/local-terminal" replace />} />
       <Route path="/local-terminal" element={<LocalTerminalPage data={data} />} />
       <Route path="/targets" element={<TargetsPage data={data} />} />
+      <Route path="/tunnels" element={<TunnelsPage data={data} />} />
       <Route path="/agents" element={<Navigate to="/targets" replace />} />
       <Route path="/policies" element={<PoliciesPage data={data} />} />
       <Route path="/keys" element={<KeysPage data={data} />} />
@@ -97,6 +99,7 @@ function ManagedRoutes({ data }: { data: ConsoleData }) {
       <Route path="/org-admin" element={<MembersPage data={data} />} />
       <Route path="/keys" element={<KeysPage data={data} />} />
       <Route path="/targets" element={<TargetsPage data={data} />} />
+      <Route path="/tunnels" element={<TunnelsPage data={data} />} />
       <Route path="/agents" element={<Navigate to="/targets" replace />} />
       <Route path="/policies" element={<PoliciesPage data={data} />} />
       <Route path="/audit" element={<AuditPage data={data} />} />

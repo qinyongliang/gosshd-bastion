@@ -32,6 +32,7 @@ type App struct {
 	manualReviews       *manualReviewHub
 	runningAudits       *runningAuditStore
 	terminalSessions    *terminalSessionManager
+	tunnels             *tunnelManager
 	auditRecordingsPath string
 	brandingCache       brandingSettings
 	brandingCacheValid  bool
@@ -61,6 +62,9 @@ func (a *App) Registry() *AgentRegistry {
 }
 
 func (a *App) Close() error {
+	if a.tunnels != nil {
+		a.tunnels.close()
+	}
 	if a.localAgentCancel != nil {
 		a.localAgentCancel()
 		a.localAgentCancel = nil
@@ -113,6 +117,7 @@ func (a *App) ensureServices(ctx context.Context) error {
 	a.auditRecordingsPath = a.auditRecordingPath()
 	a.auth = auth.NewService(st.Repository())
 	a.bastion = bastion.NewService(st.Repository())
+	a.tunnels = newTunnelManager(a)
 	if a.cfg.ClientMode {
 		user, err := st.Repository().EnsureClientUser(ctx)
 		if err != nil {
@@ -312,6 +317,7 @@ func (a *App) sessionCookieName() string {
 }
 
 func (a *App) Run(ctx context.Context) error {
+ if err:=a.ensureServices(ctx);err!=nil{return err}
 	mux := http.NewServeMux()
 	a.routes(mux)
 	a.httpSrv = newHTTPServer(a.cfg.HTTPListen, mux)
@@ -460,6 +466,9 @@ func publicSSHPort(configured int, listen string) int {
 }
 
 func (a *App) RunListeners(ctx context.Context, httpLn net.Listener, sshLn net.Listener) error {
+	if err := a.ensureServices(ctx); err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
 	a.routes(mux)
 	a.httpSrv = newHTTPServer("", mux)

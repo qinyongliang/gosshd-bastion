@@ -70,6 +70,7 @@ export function pageTitle(t?: Translate) {
     "org-admin": "members",
     keys: "authorization",
     targets: "services",
+    tunnels: "tunnels",
     policies: "commandPolicy",
     audit: "auditPageTitle",
     "system-admin": "settings",

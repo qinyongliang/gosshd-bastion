@@ -510,6 +510,10 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		GOARCH:  goarch,
 	})
 	log.Printf("agent online: %s", registryID)
+	go a.serveAgentTunnelConnections(registryID, session)
+	if a.tunnels != nil {
+		a.tunnels.notify()
+	}
 	go func() {
 		<-session.CloseChan()
 		a.registry.Unregister(registryID, session)

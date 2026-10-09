@@ -106,7 +106,7 @@ export function NavButton({ to, label, icon, onClick }: { to: string; label: str
   return <Link className={clsx("nav-link", active && "active")} to={to} onClick={onClick}>{icon}{label}</Link>;
 }
 
-export function ActionMenu({ label, children }: { label: string; children: ReactNode }) {
+export function ActionMenu({ label, children, alwaysDropdown = false }: { label: string; children: ReactNode; alwaysDropdown?: boolean }) {
   const [desktop, setDesktop] = useState(false);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -116,7 +116,7 @@ export function ActionMenu({ label, children }: { label: string; children: React
     observer.observe(workspace);
     return () => observer.disconnect();
   }, []);
-  if (desktop) return <div className="action-menu-inline">{children}</div>;
+  if (desktop && !alwaysDropdown) return <div className="action-menu-inline">{children}</div>;
   const menuChildren = Children.map(children, (child) => {
     if (!isValidElement<{ onClick?: (event: React.MouseEvent) => void; "data-keep-menu"?: string }>(child)) return child;
     return cloneElement(child, {

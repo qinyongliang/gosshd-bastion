@@ -10,6 +10,7 @@ import (
 )
 
 var spaRoutes = map[string]bool{
+ "tunnels": true,
 	"":               true,
 	"dashboard":      true,
 	"orgs":           true,

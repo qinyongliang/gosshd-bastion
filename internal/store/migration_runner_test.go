@@ -15,8 +15,9 @@ func TestMainSchemaMigrationsFreshAndRepeated(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertMigrationVersions(t, st.DB(), 1, 2, 3, 4)
+		assertMigrationVersions(t, st.DB(), 1, 2, 3, 4, 5)
 		assertSchemaObject(t, st.DB(), "table", "temporary_ssh_authorizations")
+		assertSchemaObject(t, st.DB(), "table", "tunnels")
 		for _, index := range []string{"idx_ssh_targets_proxy_target", "idx_policy_targets_target", "idx_command_audit_target_started", "idx_temporary_ssh_authorizations_target"} {
 			assertSchemaObject(t, st.DB(), "index", index)
 		}
@@ -52,8 +53,9 @@ func TestMainSchemaMigrationsUpgradeLegacyData(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	assertMigrationVersions(t, st.DB(), 1, 2, 3, 4)
+	assertMigrationVersions(t, st.DB(), 1, 2, 3, 4, 5)
 	assertSchemaObject(t, st.DB(), "table", "temporary_ssh_authorizations")
+	assertSchemaObject(t, st.DB(), "table", "tunnels")
 	var name, alias string
 	if err := st.DB().QueryRowContext(ctx, "SELECT name, alias FROM ssh_targets WHERE id = 'target-1'").Scan(&name, &alias); err != nil {
 		t.Fatal(err)
@@ -95,7 +97,7 @@ func TestAuditSchemaMigrationsBaselineExistingData(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	assertMigrationVersions(t, st.DB(), 1)
+	assertMigrationVersions(t, st.DB(), 1, 2)
 	var command string
 	if err := st.DB().QueryRowContext(ctx, "SELECT command FROM command_audit_logs WHERE id = 'audit-1'").Scan(&command); err != nil || command != "pwd" {
 		t.Fatalf("legacy audit changed: command=%q err=%v", command, err)
