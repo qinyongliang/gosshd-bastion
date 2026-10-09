@@ -1411,6 +1411,12 @@ func (a *App) handleBastionDirectTCPIP(userID, publicKeyFingerprint string, targ
 		return
 	}
 	go gossh.DiscardRequests(reqs)
+	temporary, finish := a.registerSSHForward(userID, publicKeyFingerprint, target, sourceIP, "local", payload.HostToConnect, int(payload.PortToConnect))
+	defer finish()
+	sessionID = temporary.config.ID
+	if !temporary.track(ch) {
+		return
+	}
 	exitCode := 0
 	if target.TargetType == store.TargetAgent {
 		reader, stream, err := a.openAgentStream(target.AgentID, protocol.StreamRequest{Type: protocol.StreamTCP, Target: destination})
@@ -1419,11 +1425,11 @@ func (a *App) handleBastionDirectTCPIP(userID, publicKeyFingerprint string, targ
 			_, _ = ch.Stderr().Write([]byte(err.Error() + "\n"))
 			_ = ch.Close()
 		} else {
-			bridge(ch, struct {
+			bridgeSSHForward(ch, struct {
 				io.Reader
 				io.Writer
 				io.Closer
-			}{Reader: reader, Writer: stream, Closer: stream})
+			}{Reader: reader, Writer: stream, Closer: stream}, temporary)
 		}
 	} else {
 		client, err := a.openTargetSSHClient(ctx, target)
@@ -1437,7 +1443,7 @@ func (a *App) handleBastionDirectTCPIP(userID, publicKeyFingerprint string, targ
 				exitCode = 255
 				_ = ch.Close()
 			} else {
-				bridge(ch, conn)
+				bridgeSSHForward(ch, conn, temporary)
 			}
 		}
 	}
@@ -1460,6 +1466,17 @@ func (a *App) handleBastionDirectTCPIP(userID, publicKeyFingerprint string, targ
 }
 
 func (a *App) handleBastionGlobalRequests(manager *forwardManager, reqs <-chan *gossh.Request, userID, publicKeyFingerprint string, target store.SSHTarget, sourceIP string) {
+	var forwardID string
+	manager.onListen = func(ln net.Listener) net.Listener {
+		address := ln.Addr().(*net.TCPAddr)
+		temporary, finish := a.registerSSHForward(userID, publicKeyFingerprint, target, sourceIP, "remote", address.IP.String(), address.Port)
+		forwardID = temporary.config.ID
+		wrapped := &trackedForwardListener{Listener: ln, tunnel: temporary, finish: finish}
+		if !temporary.track(wrapped) {
+			_ = wrapped.Close()
+		}
+		return wrapped
+	}
 	for req := range reqs {
 		switch req.Type {
 		case "tcpip-forward":
@@ -1492,7 +1509,11 @@ func (a *App) handleBastionGlobalRequests(manager *forwardManager, reqs <-chan *
 				req.Reply(false, nil)
 				continue
 			}
+			forwardID = ""
 			manager.handleTCPIPForward(req)
+			if forwardID != "" {
+				sessionID = forwardID
+			}
 			endedAt := time.Now().UTC()
 			_, _ = a.createAuditLog(ctx, store.CreateCommandAuditLogParams{
 				UserID:               userID,
@@ -1509,7 +1530,7 @@ func (a *App) handleBastionGlobalRequests(manager *forwardManager, reqs <-chan *
 				RemoteAddress:        sourceIP,
 			})
 		case "cancel-tcpip-forward":
-			req.Reply(true, nil)
+			manager.cancelTCPIPForward(req)
 		default:
 			req.Reply(false, nil)
 		}

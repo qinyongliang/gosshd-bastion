@@ -143,7 +143,7 @@ function toolGroupLabel(t: (key: string, fallback?: string) => string, group: st
 }
 
 function mcpToolGroupsForMode(clientMode: boolean) {
-  const groups = ["session", "auth", "member", "target", "policy", "audit"];
+  const groups = ["session", "auth", "member", "target", "policy", "audit", "tunnel"];
   return clientMode ? groups.filter((group) => group !== "member") : groups;
 }
 

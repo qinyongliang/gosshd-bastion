@@ -27,6 +27,15 @@ import type { ConsoleData, Target, Tunnel, TunnelConfig } from "../types";
 const copy = {
   "zh-CN": {
     title: "隧道管理",
+    creator: "创建者",
+    temporary: "SSH 临时转发",
+    managed: "持久配置",
+    source: "来源地址",
+    localUnknown: "SSH 客户端 · 监听地址未知",
+    remoteUnknown: "目标地址未知",
+    sshClient: "SSH 客户端",
+    temporaryHelp:
+      "由 SSH 客户端维持，断开后结束。可停止，需从客户端重新创建；本地监听或远端目标未由 SSH 协议上报。",
     subtitle: "用网络流向理解每条 TCP 隧道，统一配置入口、出口和运行时长。",
     create: "新建隧道",
     edit: "编辑隧道",
@@ -112,6 +121,15 @@ const copy = {
       "兼容的 Agent 会先中转，再自动尝试 P2P；切换路径保持已有 TCP 连接。",
   },
   en: {
+    creator: "Created by",
+    temporary: "Temporary SSH forward",
+    managed: "Persistent configuration",
+    source: "Source address",
+    localUnknown: "SSH client · listener unknown",
+    remoteUnknown: "Destination unknown",
+    sshClient: "SSH client",
+    temporaryHelp:
+      "Owned by the SSH client and ends on disconnect. Stop here; recreate from the client. SSH does not report the local listener or remote destination.",
     title: "Tunnels",
     subtitle:
       "See how traffic flows through each TCP tunnel. Manage endpoints and runtime in one place.",
@@ -514,6 +532,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
                   <Tooltip title={w.edit}>
                     <Button
                       aria-label={w.edit}
+                      disabled={t.temporary}
                       icon={<Pencil size={15} />}
                       onClick={() => setEditing(t)}
                     />
@@ -522,6 +541,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
                     <Button
                       danger
                       aria-label={w.remove}
+                      disabled={t.temporary}
                       icon={<Trash2 size={15} />}
                       onClick={() =>
                         setConfirmation({ tunnel: t, action: "delete" })
@@ -530,12 +550,71 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
                   </Tooltip>
                 </div>
               </div>
-              <Flow
-                config={t}
-                targets={data.targets}
-                words={w}
-                transport={t.transport}
-              />
+              <div className="tunnel-owner-note">
+                <Tag>{t.temporary ? w.temporary : w.managed}</Tag>
+                <span>
+                  {w.creator}: {t.creator_name || t.created_by || "—"}
+                </span>
+                {t.remote_address && (
+                  <span title={t.public_key_fingerprint}>
+                    {w.source}: {t.remote_address}
+                  </span>
+                )}
+              </div>
+              {t.temporary ? (
+                <div className="tunnel-flow" aria-label={w.flow}>
+                  <div className="tunnel-flow-nodes">
+                    <div className="tunnel-node entry-node">
+                      <small>{w.entry}</small>
+                      <strong>
+                        {t.forward_type === "local"
+                          ? w.localUnknown
+                          : w.bastion}
+                      </strong>
+                      <code>
+                        {t.forward_type === "remote"
+                          ? t.listen_address
+                          : t.remote_address}
+                      </code>
+                    </div>
+                    <div className="tunnel-flow-arrow">
+                      <span>SSH</span>
+                      <ArrowRight aria-label="→" />
+                    </div>
+                    <div className="tunnel-node exit-node">
+                      <small>{w.exit}</small>
+                      <strong>
+                        {t.forward_type === "remote"
+                          ? w.sshClient
+                          : data.targets.find((x) => x.id === t.exit_target_id)
+                              ?.name || w.missing}
+                      </strong>
+                    </div>
+                    <div className="tunnel-flow-arrow destination-arrow">
+                      <ArrowRight aria-label="→" />
+                    </div>
+                    <div className="tunnel-node destination-node">
+                      <small>{w.destination}</small>
+                      <strong>
+                        {t.forward_type === "local"
+                          ? t.destination_host
+                          : w.remoteUnknown}
+                      </strong>
+                      {t.forward_type === "local" && (
+                        <code>TCP / {t.destination_port}</code>
+                      )}
+                    </div>
+                  </div>
+                  <p className="tunnel-help">{w.temporaryHelp}</p>
+                </div>
+              ) : (
+                <Flow
+                  config={t}
+                  targets={data.targets}
+                  words={w}
+                  transport={t.transport}
+                />
+              )}
               <div className="tunnel-card-metrics">
                 <div>
                   <small>{w.totalTraffic}</small>
@@ -585,7 +664,9 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
                   <Clock3 size={14} />
                   {t.expires_at
                     ? `${w.expires}: ${new Date(t.expires_at).toLocaleString(locale)}`
-                    : w.permanent}
+                    : t.temporary
+                      ? w.temporary
+                      : w.permanent}
                 </span>
                 <span>
                   {w.connections}: {t.connections}

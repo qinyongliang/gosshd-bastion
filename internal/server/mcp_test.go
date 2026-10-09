@@ -482,6 +482,9 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	if description := mcpToolDescription(tools, "session_send_command"); !strings.Contains(description, "Preferred tool for running commands on remote servers") {
 		t.Fatalf("expected session_send_command to prefer session use, got %q", description)
 	}
+	if mcpHasTool(tools, "tunnel_create") || mcpHasTool(tools, "tunnel_stop") {
+		t.Fatal("default session token received tunnel permissions")
+	}
 	if mcpHasTool(tools, "org_list") {
 		t.Fatalf("did not expect org_list tool with default session-only token auth, got %+v", tools.Tools)
 	}
