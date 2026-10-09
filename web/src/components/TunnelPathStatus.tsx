@@ -1,6 +1,7 @@
 import { Popover, Tag } from "antd";
 import { ArrowRight, Network } from "lucide-react";
 import { useI18n } from "../i18n";
+import { TunnelErrorNotice } from "./TunnelErrorNotice";
 import type { Target, Tunnel, TunnelPeerInfo } from "../types";
 
 const words = {
@@ -133,7 +134,7 @@ export function TunnelPathStatus({
           {w.shown}: {tunnel.paths.length} / {tunnel.connections}
         </small>
       )}
-      {tunnel.error && <p className="tunnel-runtime-error">{tunnel.error}</p>}
+      <TunnelErrorNotice tunnel={tunnel} />
     </div>
   );
   return (
