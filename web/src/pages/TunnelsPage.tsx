@@ -1,10 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Input, InputNumber, Select, Switch, Tag, Tooltip } from "antd";
+import {
+  Button,
+  ConfigProvider,
+  Input,
+  InputNumber,
+  Select,
+  Switch,
+  Tag,
+  Tooltip,
+  theme as antdTheme,
+} from "antd";
 import {
   ArrowRight,
   ChartNoAxesCombined,
   Clock3,
-  GitBranch,
   Globe,
   Network,
   Pencil,
@@ -18,8 +27,15 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
-import { ConfirmDialog, ErrorMessage, Modal } from "../components/ui";
+import { MachinePicker } from "../components/MachinePicker";
+import {
+  ConfirmDialog,
+  ErrorMessage,
+  Modal,
+  Segmented,
+} from "../components/ui";
 import { useI18n } from "../i18n";
+import { useTheme } from "../theme";
 import { TunnelPathStatus } from "../components/TunnelPathStatus";
 import { TunnelTrafficDialog, formatBytes } from "../components/TunnelTraffic";
 import type { ConsoleData, Target, Tunnel, TunnelConfig } from "../types";
@@ -28,15 +44,13 @@ const copy = {
   "zh-CN": {
     title: "隧道管理",
     creator: "创建者",
-    temporary: "SSH 临时转发",
+    temporary: "临时隧道",
     managed: "持久配置",
     source: "来源地址",
-    localUnknown: "SSH 客户端 · 监听地址未知",
+    localUnknown: "客户端 · 监听地址未知",
     remoteUnknown: "目标地址未知",
-    sshClient: "SSH 客户端",
-    temporaryHelp:
-      "由 SSH 客户端维持，断开后结束。可停止，需从客户端重新创建；本地监听或远端目标未由 SSH 协议上报。",
-    subtitle: "用网络流向理解每条 TCP 隧道，统一配置入口、出口和运行时长。",
+    sshClient: "客户端",
+    temporaryHelp: "客户端断开后结束，可在此停止。",
     create: "新建隧道",
     edit: "编辑隧道",
     search: "搜索隧道或目标地址",
@@ -46,35 +60,29 @@ const copy = {
     error: "连接失败 · 自动重试",
     stopped: "已停止",
     expired: "已到期",
-    entry: "入口 · 接收连接",
-    exit: "出口 · 发起访问",
+    entry: "入口",
+    exit: "出口",
     destination: "目标服务",
     bastion: "堡垒机",
-    relay: "经堡垒机中转",
+    relay: "中转",
     access: "访问者",
-    returns: "箭头表示请求方向，响应沿原路返回。",
-    jump: "SSH 连接链路",
     direct: "直接连接",
     listen: "监听地址",
+    listenHint: "在入口机器监听。127.0.0.1 仅本机可访问。",
+    destinationHint: "从出口机器访问；127.0.0.1 表示出口机器自身。",
     port: "监听端口",
     targetHost: "目标地址",
     targetPort: "目标端口",
     entryMachine: "入口机器",
     exitMachine: "出口机器",
     name: "隧道名称",
-    duration: "每次启用时长",
-    permanent: "永久启用",
-    timed: "定时停止",
+    namePlaceholder: "例如：数据库访问",
+    duration: "启用时长",
+    permanent: "永久",
+    timed: "限时",
     hours: "小时",
-    durationHelp: "到期自动停止。重连或服务器重启不会重置到期时间。",
-    saved: "配置持久保存，启用后自动恢复断开的连接。",
-    loopback: "仅本机访问",
-    public: "允许其他机器访问",
-    listenHelp:
-      "此地址在入口机器上监听。127.0.0.1 仅本机可访问；0.0.0.0 监听所有 IPv4 网卡。",
-    destHelp: "目标地址从出口机器访问。127.0.0.1 表示出口机器自身。",
-    sshHelp:
-      "SSH 入口依赖远程端口转发权限。对外监听还需要 SSH 服务允许 GatewayPorts，防火墙需放行监听端口。",
+    loopback: "本机",
+    public: "全部网卡",
     save: "保存配置",
     cancel: "取消",
     start: "启用",
@@ -91,18 +99,12 @@ const copy = {
     enableOnSave: "保存后立即启用",
     restricted: "组织管理员可以配置和维护隧道。",
     missing: "机器已删除",
-    editHelp:
-      "修改运行中的配置会重新建立隧道，现有连接会关闭；新时长在下次启用时生效。",
-    flow: "网络流向预览",
-    client: "客户端连接入口端口",
-    outbound: "由出口机器连接目标",
+    editHelp: "保存后会断开现有连接。",
+    flow: "网络流向",
     refresh: "刷新",
     total: "条配置",
     status: "状态",
-    ssh: "SSH",
-    agent: "Agent",
     machineRequired: "请选择机器",
-    jumpHelp: "虚线显示建立 SSH 连接时使用的跳板链路。",
     enabled: "已启用",
     unavailable: "未建立监听",
     traffic: "流量与连接",
@@ -111,28 +113,21 @@ const copy = {
     download: "下载",
     opened: "累计连接",
     peak: "峰值并发",
-    p2p: "P2P 直连",
-    agentSegment: "可切换的 Agent 传输段",
-    agentSegmentHelp: "仅此段在中转与直连间切换，SSH 段保持原来的连接。",
+    p2p: "直连",
     mixed: "部分直连",
     negotiating: "中转 · 尝试直连",
     relayPath: "中转",
-    autoP2P:
-      "兼容的 Agent 会先中转，再自动尝试 P2P；切换路径保持已有 TCP 连接。",
   },
   en: {
     creator: "Created by",
-    temporary: "Temporary SSH forward",
+    temporary: "Temporary tunnel",
     managed: "Persistent configuration",
     source: "Source address",
-    localUnknown: "SSH client · listener unknown",
+    localUnknown: "Client · listener unknown",
     remoteUnknown: "Destination unknown",
-    sshClient: "SSH client",
-    temporaryHelp:
-      "Owned by the SSH client and ends on disconnect. Stop here; recreate from the client. SSH does not report the local listener or remote destination.",
+    sshClient: "Client",
+    temporaryHelp: "Ends when the client disconnects. Stop here when needed.",
     title: "Tunnels",
-    subtitle:
-      "See how traffic flows through each TCP tunnel. Manage endpoints and runtime in one place.",
     create: "New tunnel",
     edit: "Edit tunnel",
     search: "Search tunnels or destinations",
@@ -142,37 +137,31 @@ const copy = {
     error: "Connection failed · retrying",
     stopped: "Stopped",
     expired: "Expired",
-    entry: "Entry · accepts connections",
-    exit: "Exit · connects onward",
+    entry: "Entry",
+    exit: "Exit",
     destination: "Destination service",
     bastion: "Bastion",
-    relay: "Via bastion relay",
+    relay: "Relay",
     access: "Client",
-    returns: "Arrows show requests. Responses return along the same path.",
-    jump: "SSH connection path",
     direct: "Direct connection",
     listen: "Listen address",
+    listenHint:
+      "Binds on the entry machine. 127.0.0.1 allows local access only.",
+    destinationHint:
+      "Reached from the exit machine; 127.0.0.1 means that machine itself.",
     port: "Listen port",
     targetHost: "Destination address",
     targetPort: "Destination port",
     entryMachine: "Entry machine",
     exitMachine: "Exit machine",
     name: "Tunnel name",
-    duration: "Runtime per activation",
-    permanent: "Always enabled",
-    timed: "Stop after duration",
+    namePlaceholder: "e.g. Database access",
+    duration: "Runtime",
+    permanent: "Permanent",
+    timed: "Timed",
     hours: "hours",
-    durationHelp:
-      "Stops on expiry. Reconnects and server restarts keep the original deadline.",
-    saved: "Configurations persist. Enabled tunnels reconnect automatically.",
-    loopback: "Local access only",
-    public: "Allow remote access",
-    listenHelp:
-      "Listens on the entry machine. 127.0.0.1 is local only; 0.0.0.0 binds all IPv4 interfaces.",
-    destHelp:
-      "Resolved and reached from the exit machine. 127.0.0.1 means the exit machine itself.",
-    sshHelp:
-      "SSH entries require remote forwarding permission. Public listeners also need GatewayPorts and an open firewall port.",
+    loopback: "Local",
+    public: "All interfaces",
     save: "Save configuration",
     cancel: "Cancel",
     start: "Enable",
@@ -193,19 +182,12 @@ const copy = {
     enableOnSave: "Enable after saving",
     restricted: "Organization admins can configure and maintain tunnels.",
     missing: "Deleted machine",
-    editHelp:
-      "Editing a running tunnel reconnects it and closes existing connections. A new duration applies at the next activation.",
-    flow: "Network flow preview",
-    client: "Client connects to the entry port",
-    outbound: "Exit connects to the destination",
+    editHelp: "Saving closes active connections.",
+    flow: "Network flow",
     refresh: "Refresh",
     total: "configurations",
     status: "Status",
-    ssh: "SSH",
-    agent: "Agent",
     machineRequired: "Select a machine",
-    jumpHelp:
-      "Dashed lines show the jump hosts used to establish SSH connections.",
     enabled: "Enabled",
     unavailable: "Listener not established",
     traffic: "Traffic & connections",
@@ -214,15 +196,10 @@ const copy = {
     download: "Download",
     opened: "Total connections",
     peak: "Peak concurrency",
-    p2p: "P2P direct",
-    agentSegment: "Agent transport segment",
-    agentSegmentHelp:
-      "Only this segment changes paths; SSH connections stay established.",
+    p2p: "Direct",
     mixed: "Partially direct",
     negotiating: "Relay · trying direct",
     relayPath: "Relay",
-    autoP2P:
-      "Compatible Agents start over relay, then try P2P. Path changes preserve established TCP connections.",
   },
 };
 type Words = (typeof copy)["en"];
@@ -242,160 +219,183 @@ const endpoint = (host: string, port: number) =>
 function Flow({
   config,
   targets,
-  words,
-  preview = false,
+  words: w,
   transport,
+  editor,
 }: {
   config: TunnelConfig;
   targets: Target[];
   words: Words;
-  preview?: boolean;
   transport?: Tunnel["transport"];
+  editor?: {
+    data: ConsoleData;
+    onChange: (patch: Partial<TunnelConfig>) => void;
+  };
 }) {
   const machine = (id: string) =>
-    id
-      ? targets.find((t) => t.id === id)?.name || words.missing
-      : words.bastion;
-  const kind = (id: string) =>
-    !id
-      ? words.bastion
-      : targets.find((t) => t.id === id)?.target_type === "agent"
-        ? words.agent
-        : words.ssh;
-  const chain = (id: string) => {
-    const names: string[] = [];
-    const seen = new Set<string>();
-    let target = targets.find((t) => t.id === id);
-    while (
-      target?.proxy_target_id &&
-      !seen.has(target.proxy_target_id) &&
-      names.length < 4
-    ) {
-      seen.add(target.proxy_target_id);
-      target = targets.find((t) => t.id === target?.proxy_target_id);
-      names.unshift(target?.name || words.missing);
-    }
-    return names;
-  };
-  const anchor = (id: string): Target | undefined => {
-    let target = targets.find((t) => t.id === id);
-    const seen = new Set<string>();
-    while (
-      target &&
-      target.target_type !== "agent" &&
-      target.proxy_target_id &&
-      !seen.has(target.id)
-    ) {
-      seen.add(target.id);
-      target = targets.find((t) => t.id === target?.proxy_target_id);
-    }
-    return target?.target_type === "agent" ? target : undefined;
-  };
-  const entryAnchor = anchor(config.entry_target_id),
-    exitAnchor = anchor(config.exit_target_id);
+    id ? targets.find((t) => t.id === id)?.name || w.missing : w.bastion;
+  const machinePicker = (side: "entry" | "exit") => (
+    <div className="field">
+      <span>{side === "entry" ? w.entryMachine : w.exitMachine}</span>
+      <MachinePicker
+        targets={targets}
+        folders={editor!.data.targetFolders}
+        currentTargetID={
+          side === "entry" ? config.entry_target_id : config.exit_target_id
+        }
+        label={side === "entry" ? w.entryMachine : w.exitMachine}
+        variant="field"
+        additionalOptions={
+          editor!.data.user.is_system_admin
+            ? [{ value: "", label: w.bastion }]
+            : []
+        }
+        onOpenTarget={(id) =>
+          editor!.onChange(
+            side === "entry" ? { entry_target_id: id } : { exit_target_id: id },
+          )
+        }
+      />
+    </div>
+  );
+  const heading = (step: number, label: string, icon: React.ReactNode) => (
+    <div className="tunnel-node-label">
+      <span className="tunnel-step">{step}</span>
+      {icon}
+      <strong>{label}</strong>
+    </div>
+  );
+  const routeLabel =
+    transport === "direct" ? w.p2p : transport === "mixed" ? w.mixed : w.relay;
   return (
     <div
-      className={`tunnel-flow ${preview ? "is-preview" : ""}`}
-      aria-label={words.flow}
+      className={`tunnel-flow ${editor ? "tunnel-flow-editor" : ""}`}
+      aria-label={w.flow}
     >
       <div className="tunnel-flow-nodes">
         <div className="tunnel-node entry-node">
-          <div className="tunnel-node-label">
-            <Server size={16} />
-            {words.entry}
-          </div>
-          <strong>{machine(config.entry_target_id)}</strong>
-          <code>{endpoint(config.listen_host, config.listen_port)}</code>
-          <span className="tunnel-node-kind">
-            {kind(config.entry_target_id)}
-          </span>
-          {chain(config.entry_target_id).length > 0 && (
-            <div className="tunnel-jump">
-              <GitBranch size={13} />
-              <span>
-                {words.jump}: {words.bastion} ⇢{" "}
-                {chain(config.entry_target_id).join(" ⇢ ")} ⇢{" "}
-                {machine(config.entry_target_id)}
-              </span>
-            </div>
+          {heading(1, w.entry, <Server />)}
+          {editor ? (
+            <>
+              {machinePicker("entry")}
+              <div className="tunnel-input-row">
+                <label className="field">
+                  <Tooltip title={w.listenHint}>
+                    <span>{w.listen}</span>
+                  </Tooltip>
+                  <Input
+                    required
+                    value={config.listen_host}
+                    onChange={(e) =>
+                      editor.onChange({ listen_host: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>{w.port}</span>
+                  <InputNumber
+                    aria-label={w.port}
+                    min={1}
+                    max={65535}
+                    value={config.listen_port}
+                    onChange={(v) => editor.onChange({ listen_port: v || 1 })}
+                  />
+                </label>
+              </div>
+              <div className="tunnel-bind-presets">
+                <Segmented
+                  value={config.listen_host}
+                  items={[
+                    ["127.0.0.1", w.loopback],
+                    ["0.0.0.0", w.public],
+                  ]}
+                  onChange={(listen_host) => editor.onChange({ listen_host })}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <strong>{machine(config.entry_target_id)}</strong>
+              <code>{endpoint(config.listen_host, config.listen_port)}</code>
+            </>
           )}
         </div>
-        <div className="tunnel-flow-arrow">
-          <span>
-            {transport === "direct"
-              ? words.p2p
-              : transport === "mixed"
-                ? words.mixed
-                : words.relay}
-          </span>
-          <ArrowRight aria-label="→" />
-        </div>
+        <FlowArrow label={editor ? undefined : routeLabel} />
         <div className="tunnel-node exit-node">
-          <div className="tunnel-node-label">
-            <Network size={16} />
-            {words.exit}
-          </div>
-          <strong>{machine(config.exit_target_id)}</strong>
-          <span className="tunnel-node-detail">{words.outbound}</span>
-          <span className="tunnel-node-kind">
-            {kind(config.exit_target_id)}
-          </span>
-          {chain(config.exit_target_id).length > 0 && (
-            <div className="tunnel-jump">
-              <GitBranch size={13} />
-              <span>
-                {words.jump}: {words.bastion} ⇢{" "}
-                {chain(config.exit_target_id).join(" ⇢ ")} ⇢{" "}
-                {machine(config.exit_target_id)}
-              </span>
+          {heading(2, w.exit, <Network />)}
+          {editor ? (
+            machinePicker("exit")
+          ) : (
+            <>
+              <strong>{machine(config.exit_target_id)}</strong>
+            </>
+          )}
+          {editor && (
+            <div className="tunnel-exit-symbol" aria-hidden="true">
+              <Network />
+              <ArrowRight />
             </div>
           )}
         </div>
-        <div className="tunnel-flow-arrow destination-arrow">
-          <ArrowRight aria-label="→" />
-        </div>
+        <FlowArrow />
         <div className="tunnel-node destination-node">
-          <div className="tunnel-node-label">
-            <Globe size={16} />
-            {words.destination}
-          </div>
-          <strong>{config.destination_host || "…"}</strong>
-          <code>TCP / {config.destination_port}</code>
-          <span className="tunnel-node-detail">{words.destHelp}</span>
+          {heading(3, w.destination, <Globe />)}
+          {editor ? (
+            <>
+              <label className="field">
+                <Tooltip title={w.destinationHint}>
+                  <span>{w.targetHost}</span>
+                </Tooltip>
+                <Input
+                  required
+                  value={config.destination_host}
+                  onChange={(e) =>
+                    editor.onChange({ destination_host: e.target.value })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>{w.targetPort}</span>
+                <InputNumber
+                  aria-label={w.targetPort}
+                  min={1}
+                  max={65535}
+                  value={config.destination_port}
+                  onChange={(v) =>
+                    editor.onChange({ destination_port: v || 1 })
+                  }
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <strong>
+                {endpoint(
+                  config.destination_host || "…",
+                  config.destination_port,
+                )}
+              </strong>
+            </>
+          )}
         </div>
       </div>
-      {entryAnchor && exitAnchor && (
-        <div className="tunnel-agent-path">
-          <span>{words.agentSegment}</span>
-          <strong>{entryAnchor.name}</strong>
-          <ArrowRight />
-          <Tag color={transport === "direct" ? "cyan" : undefined}>
-            {transport === "direct"
-              ? words.p2p
-              : transport === "mixed"
-                ? words.mixed
-                : words.relayPath}
-          </Tag>
-          <ArrowRight />
-          <strong>{exitAnchor.name}</strong>
-          {(config.entry_target_id !== entryAnchor.id ||
-            config.exit_target_id !== exitAnchor.id) && (
-            <small>{words.agentSegmentHelp}</small>
-          )}
-        </div>
-      )}
-      {preview && (
-        <div className="tunnel-flow-caption">
-          <span>{words.client}</span>
-          <span>{words.returns}</span>
-        </div>
-      )}
+    </div>
+  );
+}
+function FlowArrow({ label }: { label?: string }) {
+  return (
+    <div className="tunnel-flow-arrow">
+      {label && <span>{label}</span>}
+      <svg viewBox="0 0 80 32" aria-label="→">
+        <path d="M2 16h72m-10-9 10 9-10 9" />
+      </svg>
     </div>
   );
 }
 
 export function TunnelsPage({ data }: { data: ConsoleData }) {
   const { locale } = useI18n();
+  const { theme } = useTheme();
   const w = copy[locale];
   const qc = useQueryClient();
   const allowed =
@@ -441,303 +441,319 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
         .includes(query.toLowerCase()),
   );
   return (
-    <div className="tunnels-page">
-      <section className="resource-head">
-        <div>
-          <small>TCP · NETWORK</small>
-          <h2>{w.title}</h2>
-          <p>{w.subtitle}</p>
-        </div>
-        <Button
-          type="primary"
-          icon={<Plus size={16} />}
-          disabled={!allowed}
-          onClick={() => setEditing("new")}
-        >
-          {w.create}
-        </Button>
-      </section>
-      <div className="tunnel-persistence-note">
-        <RefreshCw size={16} />
-        <span>{w.saved}</span>
-      </div>
-      {!allowed ? (
-        <p>{w.restricted}</p>
-      ) : (
-        <>
-          <div className="tunnel-toolbar">
-            <Input
-              prefix={<Search size={16} />}
-              placeholder={w.search}
-              aria-label={w.search}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <Select
-              aria-label={w.status}
-              value={filter}
-              onChange={setFilter}
-              options={[
-                "all",
-                "running",
-                "starting",
-                "error",
-                "stopped",
-                "expired",
-              ].map((value) => ({ value, label: w[value as keyof Words] }))}
-            />
-            <span>
-              {all.length} {w.total}
-            </span>
-            <Tooltip title={w.refresh}>
-              <Button
-                aria-label={w.refresh}
-                icon={<RefreshCw size={16} />}
-                onClick={() => void tunnels.refetch()}
-              />
-            </Tooltip>
+    <ConfigProvider
+      theme={{
+        algorithm:
+          theme === "dark"
+            ? antdTheme.darkAlgorithm
+            : antdTheme.defaultAlgorithm,
+        token: {
+          colorBgContainer: theme === "dark" ? "#111827" : "#fff",
+          colorBgElevated: theme === "dark" ? "#111827" : "#fff",
+          colorText: theme === "dark" ? "#f2f4f7" : "#182230",
+          colorBorder: theme === "dark" ? "#344054" : "#e4e7ec",
+          controlHeight: 40,
+          fontSize: 13,
+          borderRadius: 8,
+        },
+      }}
+    >
+      <div className="tunnels-page">
+        <section className="resource-head">
+          <div>
+            <h2>{w.title}</h2>
           </div>
-          <ErrorMessage error={tunnels.error || action.error} />
-          {items.length === 0 && !tunnels.isLoading && (
-            <div className="tunnel-empty">
-              <Network size={40} />
-              <h3>{all.length ? w.search : w.empty}</h3>
-              <p>{w.emptyHelp}</p>
-              {!all.length && (
-                <Button type="primary" onClick={() => setEditing("new")}>
-                  {w.create}
-                </Button>
-              )}
+          <Button
+            type="primary"
+            icon={<Plus size={16} />}
+            disabled={!allowed}
+            onClick={() => setEditing("new")}
+          >
+            {w.create}
+          </Button>
+        </section>
+        {!allowed ? (
+          <p>{w.restricted}</p>
+        ) : (
+          <>
+            <div className="tunnel-toolbar">
+              <Input
+                prefix={<Search size={16} />}
+                placeholder={w.search}
+                aria-label={w.search}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <Select
+                aria-label={w.status}
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  "all",
+                  "running",
+                  "starting",
+                  "error",
+                  "stopped",
+                  "expired",
+                ].map((value) => ({ value, label: w[value as keyof Words] }))}
+              />
+              <span>
+                {all.length} {w.total}
+              </span>
+              <Tooltip title={w.refresh}>
+                <Button
+                  aria-label={w.refresh}
+                  icon={<RefreshCw size={16} />}
+                  onClick={() => void tunnels.refetch()}
+                />
+              </Tooltip>
             </div>
-          )}
-          {items.map((t) => (
-            <article className="tunnel-card" key={t.id}>
-              <div className="tunnel-card-head">
-                <div>
-                  <h3>{t.name}</h3>
-                  <TunnelPathStatus tunnel={t} targets={data.targets} />
-                </div>
-                <div className="tunnel-card-actions">
-                  <Button
-                    disabled={action.isPending}
-                    icon={t.enabled ? <Square size={14} /> : <Play size={14} />}
-                    onClick={() =>
-                      t.enabled
-                        ? setConfirmation({ tunnel: t, action: "stop" })
-                        : action.mutate({ tunnel: t, action: "enable" })
-                    }
-                  >
-                    {t.enabled ? w.stop : w.start}
+            <ErrorMessage error={tunnels.error || action.error} />
+            {items.length === 0 && !tunnels.isLoading && (
+              <div className="tunnel-empty">
+                <Network size={40} />
+                <h3>{all.length ? w.search : w.empty}</h3>
+                <p>{w.emptyHelp}</p>
+                {!all.length && (
+                  <Button type="primary" onClick={() => setEditing("new")}>
+                    {w.create}
                   </Button>
-                  <Tooltip title={w.edit}>
-                    <Button
-                      aria-label={w.edit}
-                      disabled={t.temporary}
-                      icon={<Pencil size={15} />}
-                      onClick={() => setEditing(t)}
-                    />
-                  </Tooltip>
-                  <Tooltip title={w.remove}>
-                    <Button
-                      danger
-                      aria-label={w.remove}
-                      disabled={t.temporary}
-                      icon={<Trash2 size={15} />}
-                      onClick={() =>
-                        setConfirmation({ tunnel: t, action: "delete" })
-                      }
-                    />
-                  </Tooltip>
-                </div>
-              </div>
-              <div className="tunnel-owner-note">
-                <Tag>{t.temporary ? w.temporary : w.managed}</Tag>
-                <span>
-                  {w.creator}: {t.creator_name || t.created_by || "—"}
-                </span>
-                {t.remote_address && (
-                  <span title={t.public_key_fingerprint}>
-                    {w.source}: {t.remote_address}
-                  </span>
                 )}
               </div>
-              {t.temporary ? (
-                <div className="tunnel-flow" aria-label={w.flow}>
-                  <div className="tunnel-flow-nodes">
-                    <div className="tunnel-node entry-node">
-                      <small>{w.entry}</small>
-                      <strong>
-                        {t.forward_type === "local"
-                          ? w.localUnknown
-                          : w.bastion}
-                      </strong>
-                      <code>
-                        {t.forward_type === "remote"
-                          ? t.listen_address
-                          : t.remote_address}
-                      </code>
-                    </div>
-                    <div className="tunnel-flow-arrow">
-                      <span>SSH</span>
-                      <ArrowRight aria-label="→" />
-                    </div>
-                    <div className="tunnel-node exit-node">
-                      <small>{w.exit}</small>
-                      <strong>
-                        {t.forward_type === "remote"
-                          ? w.sshClient
-                          : data.targets.find((x) => x.id === t.exit_target_id)
-                              ?.name || w.missing}
-                      </strong>
-                    </div>
-                    <div className="tunnel-flow-arrow destination-arrow">
-                      <ArrowRight aria-label="→" />
-                    </div>
-                    <div className="tunnel-node destination-node">
-                      <small>{w.destination}</small>
-                      <strong>
-                        {t.forward_type === "local"
-                          ? t.destination_host
-                          : w.remoteUnknown}
-                      </strong>
-                      {t.forward_type === "local" && (
-                        <code>TCP / {t.destination_port}</code>
-                      )}
-                    </div>
+            )}
+            {items.map((t) => (
+              <article className="tunnel-card" key={t.id}>
+                <div className="tunnel-card-head">
+                  <div>
+                    <h3>{t.temporary ? w.temporary : t.name}</h3>
+                    <TunnelPathStatus tunnel={t} targets={data.targets} />
                   </div>
-                  <p className="tunnel-help">{w.temporaryHelp}</p>
-                </div>
-              ) : (
-                <Flow
-                  config={t}
-                  targets={data.targets}
-                  words={w}
-                  transport={t.transport}
-                />
-              )}
-              <div className="tunnel-card-metrics">
-                <div>
-                  <small>{w.totalTraffic}</small>
-                  <strong>
-                    {formatBytes(
-                      (t.traffic?.relay_up || 0) +
-                        (t.traffic?.relay_down || 0) +
-                        (t.traffic?.direct_up || 0) +
-                        (t.traffic?.direct_down || 0),
-                    )}
-                  </strong>
-                  <span>
-                    ↑{" "}
-                    {formatBytes(
-                      (t.traffic?.relay_up || 0) + (t.traffic?.direct_up || 0),
-                    )}{" "}
-                    · ↓{" "}
-                    {formatBytes(
-                      (t.traffic?.relay_down || 0) +
-                        (t.traffic?.direct_down || 0),
-                    )}
-                  </span>
-                </div>
-                <div>
-                  <small>{w.connections}</small>
-                  <strong>{t.connections}</strong>
-                  <span>
-                    {w.p2p}: {t.direct_connections || 0}
-                  </span>
-                </div>
-                <div>
-                  <small>{w.opened}</small>
-                  <strong>{t.traffic?.connections_opened || 0}</strong>
-                  <span>
-                    {w.peak}: {t.traffic?.peak_connections || 0}
-                  </span>
-                </div>
-                <Button
-                  icon={<ChartNoAxesCombined size={16} />}
-                  onClick={() => setTraffic(t)}
-                >
-                  {w.traffic}
-                </Button>
-              </div>
-              <div className="tunnel-card-foot">
-                <span>
-                  <Clock3 size={14} />
-                  {t.expires_at
-                    ? `${w.expires}: ${new Date(t.expires_at).toLocaleString(locale)}`
-                    : t.temporary
-                      ? w.temporary
-                      : w.permanent}
-                </span>
-                <span>
-                  {w.connections}: {t.connections}
-                </span>
-                {t.enabled && t.duration_seconds > 0 && (
-                  <Tooltip title={w.renewHelp}>
+                  <div className="tunnel-card-actions">
                     <Button
-                      size="small"
-                      type="text"
+                      disabled={action.isPending}
+                      icon={
+                        t.enabled ? <Square size={14} /> : <Play size={14} />
+                      }
                       onClick={() =>
-                        setConfirmation({ tunnel: t, action: "enable" })
+                        t.enabled
+                          ? setConfirmation({ tunnel: t, action: "stop" })
+                          : action.mutate({ tunnel: t, action: "enable" })
                       }
                     >
-                      {w.renew}
+                      {t.enabled ? w.stop : w.start}
                     </Button>
-                  </Tooltip>
-                )}
-                {t.listen_address && t.status === "running" && (
-                  <code>
-                    {w.listen}: {t.listen_address}
-                  </code>
-                )}
-              </div>
-              {t.error && (
-                <div className="tunnel-runtime-error" role="status">
-                  {t.error}
+                    <Tooltip title={w.edit}>
+                      <Button
+                        aria-label={w.edit}
+                        disabled={t.temporary}
+                        icon={<Pencil size={15} />}
+                        onClick={() => setEditing(t)}
+                      />
+                    </Tooltip>
+                    <Tooltip title={w.remove}>
+                      <Button
+                        danger
+                        aria-label={w.remove}
+                        disabled={t.temporary}
+                        icon={<Trash2 size={15} />}
+                        onClick={() =>
+                          setConfirmation({ tunnel: t, action: "delete" })
+                        }
+                      />
+                    </Tooltip>
+                  </div>
                 </div>
-              )}
-            </article>
-          ))}
-        </>
-      )}
-      {traffic && (
-        <TunnelTrafficDialog
-          tunnel={all.find((t) => t.id === traffic.id) || traffic}
-          onClose={() => setTraffic(null)}
-        />
-      )}
-      {editing && (
-        <TunnelEditor
-          key={`${data.activeOrg.id}-${editing === "new" ? "new" : editing.id}`}
-          data={data}
-          tunnel={editing === "new" ? null : editing}
-          words={w}
-          onClose={() => setEditing(null)}
-          onSaved={() => qc.invalidateQueries({ queryKey: key })}
-        />
-      )}
-      {confirmation && (
-        <ConfirmDialog
-          title={confirmation.tunnel.name}
-          confirmLabel={
-            confirmation.action === "delete"
-              ? w.remove
-              : confirmation.action === "stop"
-                ? w.stop
-                : w.renew
-          }
-          danger={confirmation.action !== "enable"}
-          body={
-            confirmation.action === "delete"
-              ? w.removeConfirm
-              : confirmation.action === "stop"
-                ? w.stopConfirm
-                : w.renewHelp
-          }
-          onClose={() => setConfirmation(null)}
-          onConfirm={() => action.mutate(confirmation)}
-        />
-      )}
-    </div>
+                <div className="tunnel-owner-note">
+                  <Tooltip title={t.temporary ? w.temporaryHelp : undefined}>
+                    <Tag>{t.temporary ? w.temporary : w.managed}</Tag>
+                  </Tooltip>
+                  <span>
+                    {w.creator}: {t.creator_name || t.created_by || "—"}
+                  </span>
+                  {t.remote_address && (
+                    <span title={t.public_key_fingerprint}>
+                      {w.source}: {t.remote_address}
+                    </span>
+                  )}
+                </div>
+                {t.temporary ? (
+                  <div className="tunnel-flow" aria-label={w.flow}>
+                    <div className="tunnel-flow-nodes">
+                      <div className="tunnel-node entry-node">
+                        <small>{w.entry}</small>
+                        <strong>
+                          {t.forward_type === "local"
+                            ? w.localUnknown
+                            : w.bastion}
+                        </strong>
+                        <code>
+                          {t.forward_type === "remote"
+                            ? t.listen_address
+                            : t.remote_address}
+                        </code>
+                      </div>
+                      <div className="tunnel-flow-arrow">
+                        <ArrowRight aria-label="→" />
+                      </div>
+                      <div className="tunnel-node exit-node">
+                        <small>{w.exit}</small>
+                        <strong>
+                          {t.forward_type === "remote"
+                            ? w.sshClient
+                            : data.targets.find(
+                                (x) => x.id === t.exit_target_id,
+                              )?.name || w.missing}
+                        </strong>
+                      </div>
+                      <div className="tunnel-flow-arrow destination-arrow">
+                        <ArrowRight aria-label="→" />
+                      </div>
+                      <div className="tunnel-node destination-node">
+                        <small>{w.destination}</small>
+                        <strong>
+                          {t.forward_type === "local"
+                            ? t.destination_host
+                            : w.remoteUnknown}
+                        </strong>
+                        {t.forward_type === "local" && (
+                          <code>{t.destination_port}</code>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <Flow
+                    config={t}
+                    targets={data.targets}
+                    words={w}
+                    transport={t.transport}
+                  />
+                )}
+                <div className="tunnel-card-metrics">
+                  <div>
+                    <small>{w.totalTraffic}</small>
+                    <strong>
+                      {formatBytes(
+                        (t.traffic?.relay_up || 0) +
+                          (t.traffic?.relay_down || 0) +
+                          (t.traffic?.direct_up || 0) +
+                          (t.traffic?.direct_down || 0),
+                      )}
+                    </strong>
+                    <span>
+                      ↑{" "}
+                      {formatBytes(
+                        (t.traffic?.relay_up || 0) +
+                          (t.traffic?.direct_up || 0),
+                      )}{" "}
+                      · ↓{" "}
+                      {formatBytes(
+                        (t.traffic?.relay_down || 0) +
+                          (t.traffic?.direct_down || 0),
+                      )}
+                    </span>
+                  </div>
+                  <div>
+                    <small>{w.connections}</small>
+                    <strong>{t.connections}</strong>
+                    <span>
+                      {w.p2p}: {t.direct_connections || 0}
+                    </span>
+                  </div>
+                  <div>
+                    <small>{w.opened}</small>
+                    <strong>{t.traffic?.connections_opened || 0}</strong>
+                    <span>
+                      {w.peak}: {t.traffic?.peak_connections || 0}
+                    </span>
+                  </div>
+                  <Button
+                    icon={<ChartNoAxesCombined size={16} />}
+                    onClick={() => setTraffic(t)}
+                  >
+                    {w.traffic}
+                  </Button>
+                </div>
+                <div className="tunnel-card-foot">
+                  <span>
+                    <Clock3 size={14} />
+                    {t.expires_at
+                      ? `${w.expires}: ${new Date(t.expires_at).toLocaleString(locale)}`
+                      : t.temporary
+                        ? w.temporary
+                        : w.permanent}
+                  </span>
+                  <span>
+                    {w.connections}: {t.connections}
+                  </span>
+                  {t.enabled && t.duration_seconds > 0 && (
+                    <Tooltip title={w.renewHelp}>
+                      <Button
+                        size="small"
+                        type="text"
+                        onClick={() =>
+                          setConfirmation({ tunnel: t, action: "enable" })
+                        }
+                      >
+                        {w.renew}
+                      </Button>
+                    </Tooltip>
+                  )}
+                  {t.listen_address && t.status === "running" && (
+                    <code>
+                      {w.listen}: {t.listen_address}
+                    </code>
+                  )}
+                </div>
+                {t.error && (
+                  <div className="tunnel-runtime-error" role="status">
+                    {t.error}
+                  </div>
+                )}
+              </article>
+            ))}
+          </>
+        )}
+        {traffic && (
+          <TunnelTrafficDialog
+            tunnel={all.find((t) => t.id === traffic.id) || traffic}
+            onClose={() => setTraffic(null)}
+          />
+        )}
+        {editing && (
+          <TunnelEditor
+            key={`${data.activeOrg.id}-${editing === "new" ? "new" : editing.id}`}
+            data={data}
+            tunnel={editing === "new" ? null : editing}
+            words={w}
+            onClose={() => setEditing(null)}
+            onSaved={() => qc.invalidateQueries({ queryKey: key })}
+          />
+        )}
+        {confirmation && (
+          <ConfirmDialog
+            title={confirmation.tunnel.name}
+            confirmLabel={
+              confirmation.action === "delete"
+                ? w.remove
+                : confirmation.action === "stop"
+                  ? w.stop
+                  : w.renew
+            }
+            danger={confirmation.action !== "enable"}
+            body={
+              confirmation.action === "delete"
+                ? w.removeConfirm
+                : confirmation.action === "stop"
+                  ? w.stopConfirm
+                  : w.renewHelp
+            }
+            onClose={() => setConfirmation(null)}
+            onConfirm={() => action.mutate(confirmation)}
+          />
+        )}
+      </div>
+    </ConfigProvider>
   );
 }
 
@@ -780,13 +796,6 @@ function TunnelEditor({
   const [timed, setTimed] = useState(config.duration_seconds > 0);
   const set = <K extends keyof TunnelConfig>(key: K, value: TunnelConfig[K]) =>
     setConfig((c) => ({ ...c, [key]: value }));
-  const machineOptions = [
-    ...(data.user.is_system_admin ? [{ value: "", label: w.bastion }] : []),
-    ...data.targets.map((t) => ({
-      value: t.id,
-      label: `${t.name} · ${t.target_type === "agent" ? w.agent : w.ssh}`,
-    })),
-  ];
   const mutation = useMutation({
     mutationFn: async () => {
       const result =
@@ -820,16 +829,6 @@ function TunnelEditor({
           mutation.mutate();
         }}
       >
-        <div className="tunnel-preview-heading">
-          <Network size={17} />
-          <strong>{w.flow}</strong>
-          <Tag>TCP</Tag>
-        </div>
-        <Flow config={config} targets={data.targets} words={w} preview />
-        {(data.targets.find((t) => t.id === config.entry_target_id)
-          ?.proxy_target_id ||
-          data.targets.find((t) => t.id === config.exit_target_id)
-            ?.proxy_target_id) && <p className="tunnel-help">{w.jumpHelp}</p>}
         <label className="field tunnel-name">
           <span>{w.name}</span>
           <Input
@@ -837,139 +836,40 @@ function TunnelEditor({
             maxLength={128}
             value={config.name}
             onChange={(e) => set("name", e.target.value)}
-            placeholder="Web / Database / TCP"
+            placeholder={w.namePlaceholder}
           />
         </label>
-        <div className="tunnel-form-grid">
-          <fieldset>
-            <legend>
-              <Server size={16} />
-              {w.entry}
-            </legend>
-            <label className="field">
-              <span>{w.entryMachine}</span>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                aria-label={w.entryMachine}
-                value={
-                  config.entry_target_id === "__select__"
-                    ? undefined
-                    : config.entry_target_id
-                }
-                placeholder={w.machineRequired}
-                options={machineOptions}
-                onChange={(v) => set("entry_target_id", v)}
-              />
-            </label>
-            <div className="tunnel-input-row">
-              <label className="field">
-                <span>{w.listen}</span>
-                <Input
-                  required
-                  value={config.listen_host}
-                  onChange={(e) => set("listen_host", e.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>{w.port}</span>
-                <InputNumber
-                  aria-label={w.port}
-                  min={1}
-                  max={65535}
-                  value={config.listen_port}
-                  onChange={(v) => set("listen_port", v || 1)}
-                />
-              </label>
-            </div>
-            <div className="tunnel-bind-presets">
-              <Button
-                size="small"
-                type={
-                  config.listen_host === "127.0.0.1" ? "primary" : "default"
-                }
-                onClick={() => set("listen_host", "127.0.0.1")}
-              >
-                {w.loopback}
-              </Button>
-              <Button
-                size="small"
-                type={config.listen_host === "0.0.0.0" ? "primary" : "default"}
-                onClick={() => set("listen_host", "0.0.0.0")}
-              >
-                {w.public}
-              </Button>
-            </div>
-            <p className="tunnel-help">{w.listenHelp}</p>
-          </fieldset>
-          <fieldset>
-            <legend>
-              <Network size={16} />
-              {w.exit}
-            </legend>
-            <label className="field">
-              <span>{w.exitMachine}</span>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                aria-label={w.exitMachine}
-                value={
-                  config.exit_target_id === "__select__"
-                    ? undefined
-                    : config.exit_target_id
-                }
-                placeholder={w.machineRequired}
-                options={machineOptions}
-                onChange={(v) => set("exit_target_id", v)}
-              />
-            </label>
-            <div className="tunnel-input-row">
-              <label className="field">
-                <span>{w.targetHost}</span>
-                <Input
-                  required
-                  value={config.destination_host}
-                  onChange={(e) => set("destination_host", e.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>{w.targetPort}</span>
-                <InputNumber
-                  aria-label={w.targetPort}
-                  min={1}
-                  max={65535}
-                  value={config.destination_port}
-                  onChange={(v) => set("destination_port", v || 1)}
-                />
-              </label>
-            </div>
-            <p className="tunnel-help">{w.destHelp}</p>
-          </fieldset>
+        <div className="tunnel-preview-heading">
+          <Network size={17} />
+          <strong>{w.flow}</strong>
         </div>
-        {data.targets.find((t) => t.id === config.entry_target_id)
-          ?.target_type === "direct" && (
-          <div className="tunnel-ssh-note">{w.sshHelp}</div>
-        )}
-        <p className="tunnel-help tunnel-p2p-help">{w.autoP2P}</p>
+        <Flow
+          config={config}
+          targets={data.targets}
+          words={w}
+          editor={{
+            data,
+            onChange: (patch) => setConfig((c) => ({ ...c, ...patch })),
+          }}
+        />
         <div className="tunnel-duration">
-          <label className="field">
+          <div className="field">
             <span>
               <Clock3 size={14} />
               {w.duration}
             </span>
-            <Select
-              aria-label={w.duration}
+            <Segmented
               value={timed ? "timed" : "permanent"}
-              options={[
-                { value: "permanent", label: w.permanent },
-                { value: "timed", label: w.timed },
+              items={[
+                ["permanent", w.permanent],
+                ["timed", w.timed],
               ]}
               onChange={(v) => {
                 setTimed(v === "timed");
                 set("duration_seconds", v === "timed" ? 3600 : 0);
               }}
             />
-          </label>
+          </div>
           {timed && (
             <label className="field">
               <span>{w.hours}</span>
@@ -985,12 +885,15 @@ function TunnelEditor({
               />
             </label>
           )}
-          <p className="tunnel-help">{w.durationHelp}</p>
         </div>
-        {tunnel?.enabled && <p className="tunnel-help">{w.editHelp}</p>}
+        {tunnel?.enabled && <p className="tunnel-edit-warning">{w.editHelp}</p>}
         {!tunnel && (
           <label className="tunnel-enable">
-            <Switch checked={enable} onChange={setEnable} />
+            <Switch
+              checked={enable}
+              onChange={setEnable}
+              aria-label={w.enableOnSave}
+            />
             <span>{w.enableOnSave}</span>
           </label>
         )}

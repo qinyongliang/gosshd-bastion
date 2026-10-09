@@ -11,12 +11,12 @@ const words = {
     error: "连接失败 · 自动重试",
     stopped: "已停止",
     expired: "已到期",
-    direct: "P2P 直连",
+    direct: "直连",
     mixed: "部分直连",
     negotiating: "中转 · 尝试直连",
     relay: "服务器中转",
-    entry: "入口 Agent",
-    exit: "出口 Agent",
+    entry: "入口",
+    exit: "出口",
     nic: "出口网卡",
     local: "本地地址",
     selected: "选中直连地址",
@@ -24,7 +24,7 @@ const words = {
     protocol: "传输协议",
     candidate: "连接方式",
     rtt: "往返延迟",
-    pending: "等待 Agent 上报实际路径",
+    pending: "等待路径更新",
     unknown: "未识别",
     noPair: "尚未选中直连路径",
     host: "本地网卡候选",
@@ -33,11 +33,9 @@ const words = {
     turn: "TURN 候选",
     connection: "连接",
     updated: "上报时间",
-    relayHelp:
-      "流量当前经堡垒机中转；成功协商后会在保留 TCP 连接的情况下切换直连。",
+    relayHelp: "暂无连接路径。",
     stoppedHelp: "当前没有运行中的隧道连接。",
     shown: "显示最近上报的连接",
-    reported: "两端信息分别来自实际运行的 Agent，网卡是选中路径使用的网卡。",
     details: "查看网络路径",
     lastPath: "以下为最近选中的直连路径，当前数据使用中转。",
   },
@@ -48,12 +46,12 @@ const words = {
     error: "Connection failed · retrying",
     stopped: "Stopped",
     expired: "Expired",
-    direct: "P2P direct",
+    direct: "Direct",
     mixed: "Partially direct",
     negotiating: "Relay · trying direct",
     relay: "Server relay",
-    entry: "Entry Agent",
-    exit: "Exit Agent",
+    entry: "Entry",
+    exit: "Exit",
     nic: "Egress interface",
     local: "Local address",
     selected: "Selected address",
@@ -61,7 +59,7 @@ const words = {
     protocol: "Protocol",
     candidate: "Candidate type",
     rtt: "Round-trip time",
-    pending: "Waiting for Agent path report",
+    pending: "Waiting for path update",
     unknown: "Unidentified",
     noPair: "No direct path selected yet",
     host: "Local interface candidate",
@@ -70,12 +68,9 @@ const words = {
     turn: "TURN candidate",
     connection: "Connection",
     updated: "Reported at",
-    relayHelp:
-      "Traffic currently crosses the bastion. Successful negotiation switches to direct transport while keeping TCP connections.",
+    relayHelp: "No connection paths yet.",
     stoppedHelp: "There are no active tunnel connections.",
     shown: "Most recently reported connections",
-    reported:
-      "Each Agent reports its actual selected path and egress interface.",
     details: "Inspect network path",
     lastPath:
       "This is the last selected direct path. Traffic currently uses relay.",
@@ -102,7 +97,6 @@ export function TunnelPathStatus({
     targets.find((t) => t.agent_id === id)?.name || id;
   const content = (
     <div className="tunnel-path-content">
-      <p className="tunnel-path-explanation">{w.reported}</p>
       {!tunnel.paths?.length && (
         <p>{tunnel.enabled ? w.relayHelp : w.stoppedHelp}</p>
       )}

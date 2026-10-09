@@ -133,16 +133,12 @@ export function TunnelTrafficDialog({
             options={[
               { value: "all", label: zh ? "全部路径" : "All paths" },
               { value: "relay", label: zh ? "服务器中转" : "Server relay" },
-              { value: "direct", label: zh ? "Agent 直连" : "Agent direct" },
+              { value: "direct", label: zh ? "直连" : "Direct" },
             ]}
           />
         )}
       </div>
-      <p className="tunnel-help">
-        {zh
-          ? "每 5 分钟统计一个时间段。直连由 Agent 上报，中转由服务器统计；当前时间段为实时暂存数据。上传表示入口 → 目标，下载表示目标 → 入口。"
-          : "Five-minute time buckets. Agents report direct traffic; the server counts relay traffic. The current bucket is provisional. Upload flows entry → destination; download flows back."}
-      </p>
+
       <div className="tunnel-chart-summary">
         <div>
           <small>{zh ? "所选时段流量" : "Traffic in range"}</small>
