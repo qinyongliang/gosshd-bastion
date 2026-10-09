@@ -60,6 +60,7 @@ func (a *App) ensureClientLocalAgent(ctx context.Context, user store.User) error
 	agentCtx, cancel := context.WithCancel(context.Background())
 	a.localAgentCancel = cancel
 	a.registry.Register(localAgentID, serverSession)
+	go a.serveAgentTunnelConnections(localAgentID, serverSession)
 	a.backgroundWG.Add(1)
 	go func() {
 		defer a.backgroundWG.Done()

@@ -9,10 +9,16 @@ import (
 
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
+	"github.com/hashicorp/yamux"
 	"github.com/pkg/sftp"
+	"time"
 )
 
 func (c *Client) handleStream(stream io.ReadWriteCloser) {
+	c.handleStreamWithSession(stream, nil)
+}
+
+func (c *Client) handleStreamWithSession(stream io.ReadWriteCloser, session *yamux.Session) {
 	defer stream.Close()
 	reader := bufio.NewReader(stream)
 	req, err := protocol.ReadJSONLine[protocol.StreamRequest](reader)
@@ -20,6 +26,10 @@ func (c *Client) handleStream(stream io.ReadWriteCloser) {
 		return
 	}
 	switch req.Type {
+	case protocol.StreamTunnelPeer:
+		c.handleTunnelPeer(stream, reader, req)
+	case protocol.StreamTunnelListen:
+		c.handleTunnelListen(stream, reader, session, req)
 	case protocol.StreamExec, protocol.StreamShell:
 		c.handleCommand(stream, reader, req)
 	case protocol.StreamSFTP:
@@ -57,7 +67,7 @@ func (c *Client) handleTCP(stream io.ReadWriteCloser, reader *bufio.Reader, targ
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: "missing target"})
 		return
 	}
-	conn, err := net.Dial("tcp", target)
+	conn, err := net.DialTimeout("tcp", target, 10*time.Second)
 	if err != nil {
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: err.Error()})
 		return
@@ -66,11 +76,11 @@ func (c *Client) handleTCP(stream io.ReadWriteCloser, reader *bufio.Reader, targ
 	if err := protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: true}); err != nil {
 		return
 	}
-	bridge(conn, struct {
-		io.Reader
-		io.Writer
-		io.Closer
-	}{Reader: reader, Writer: stream, Closer: stream})
+	if muxStream, ok := stream.(*yamux.Stream); ok {
+		bridgeTunnel(conn, &tunnelStream{Reader: reader, stream: muxStream})
+	} else {
+		bridge(conn, readWriteCloser{Reader: reader, Writer: stream, Closer: stream})
+	}
 }
 
 func bridge(a io.ReadWriter, b io.ReadWriteCloser) {

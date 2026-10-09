@@ -1521,6 +1521,9 @@ func (a *App) openTargetSSHClient(ctx context.Context, target store.SSHTarget) (
 }
 
 func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSHTarget, depth int) (*gossh.Client, error) {
+	return a.openTunnelSSHClient(ctx, target, depth, a.targetHostKeyCallback())
+}
+func (a *App) openTunnelSSHClient(ctx context.Context, target store.SSHTarget, depth int, verify gossh.HostKeyCallback) (*gossh.Client, error) {
 	if depth > 3 {
 		return nil, errors.New("ssh proxy chain is too deep")
 	}
@@ -1536,7 +1539,7 @@ func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSH
 	cfg := &gossh.ClientConfig{
 		User:            target.RemoteUsername,
 		Auth:            auth,
-		HostKeyCallback: a.targetHostKeyCallback(),
+		HostKeyCallback: verify,
 		Timeout:         5 * time.Second,
 	}
 	addr := net.JoinHostPort(target.Host, fmt.Sprintf("%d", target.Port))
@@ -1554,31 +1557,40 @@ func (a *App) openTargetSSHClientWithDepth(ctx context.Context, target store.SSH
 				if err != nil {
 					return nil, fmt.Errorf("connect proxy target: %w", err)
 				}
-				clientConn, chans, reqs, err := gossh.NewClientConn(conn, addr, cfg)
+				clientConn, chans, reqs, err := tunnelSSHHandshake(ctx, conn, addr, cfg)
 				if err != nil {
 					_ = conn.Close()
 					return nil, err
 				}
 				return gossh.NewClient(clientConn, chans, reqs), nil
 			}
-			proxyClient, err := a.openTargetSSHClientWithDepth(ctx, proxyTarget, depth+1)
+			proxyClient, err := a.openTunnelSSHClient(ctx, proxyTarget, depth+1, verify)
 			if err != nil {
 				return nil, fmt.Errorf("connect proxy target: %w", err)
 			}
-			conn, err := proxyClient.Dial("tcp", addr)
+			conn, err := proxyClient.DialContext(ctx, "tcp", addr)
 			if err != nil {
 				_ = proxyClient.Close()
 				return nil, fmt.Errorf("dial target through proxy: %w", err)
 			}
 			chained := closeChainConn{Conn: conn, closer: proxyClient}
-			clientConn, chans, reqs, err := gossh.NewClientConn(chained, addr, cfg)
+			clientConn, chans, reqs, err := tunnelSSHHandshake(ctx, chained, addr, cfg)
 			if err != nil {
 				_ = chained.Close()
 				return nil, err
 			}
 			return gossh.NewClient(clientConn, chans, reqs), nil
 		}
-		return gossh.Dial("tcp", addr, cfg)
+		conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", addr)
+		if err != nil {
+			return nil, err
+		}
+		clientConn, chans, reqs, err := tunnelSSHHandshake(ctx, conn, addr, cfg)
+		if err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		return gossh.NewClient(clientConn, chans, reqs), nil
 	}
 	if target.TargetType == store.TargetAgent {
 		tcpConn, err := a.openAgentTCPConn(target.AgentID, addr)
@@ -1881,3 +1893,14 @@ type dummyAddr string
 
 func (a dummyAddr) Network() string { return string(a) }
 func (a dummyAddr) String() string  { return string(a) }
+
+func tunnelSSHHandshake(ctx context.Context, conn net.Conn, address string, cfg *gossh.ClientConfig) (gossh.Conn, <-chan gossh.NewChannel, <-chan *gossh.Request, error) {
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	client, chans, reqs, err := gossh.NewClientConn(conn, address, cfg)
+	if err == nil {
+		_ = conn.SetDeadline(time.Time{})
+	}
+	return client, chans, reqs, err
+}

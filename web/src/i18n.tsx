@@ -8,6 +8,7 @@ export type Locale = "en" | "zh-CN";
 const storageKey = "gosshd_locale";
 
 const en = {
+  tunnels: "Tunnels",
   add: "Add",
   addMember: "Add member",
   addPublicKey: "Add public key",
@@ -17,6 +18,8 @@ const en = {
   admin: "System admin",
   adminAccountsBody: "Search users, adjust system admin access, and reset local account passwords.",
   adminAccountsTitle: "Account management",
+  adminNoResults: "No matching records",
+  adminNoResultsBody: "Try a different search or status filter.",
   adminAppDescription: "System description",
   adminAppName: "System name",
   adminAuthSettings: "Login and registration",
@@ -573,6 +576,7 @@ const en = {
 };
 
 const zh = {
+  tunnels: "隧道管理",
   add: "添加",
   addMember: "添加成员",
   addPublicKey: "添加公钥",
@@ -582,6 +586,8 @@ const zh = {
   admin: "系统管理员",
   adminAccountsBody: "搜索用户、调整系统管理员权限、重置本地账号密码。",
   adminAccountsTitle: "账号管理",
+  adminNoResults: "暂无匹配记录",
+  adminNoResultsBody: "试试其他关键词或状态筛选。",
   adminAppDescription: "系统描述",
   adminAppName: "系统名称",
   adminAuthSettings: "登录与注册",

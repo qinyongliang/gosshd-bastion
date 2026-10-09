@@ -127,7 +127,7 @@ func (c *Client) ServeSession(ctx context.Context, session *yamux.Session) error
 		if err != nil {
 			return err
 		}
-		go c.handleStream(stream)
+		go c.handleStreamWithSession(stream, session)
 	}
 }
 

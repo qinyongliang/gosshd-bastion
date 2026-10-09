@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { KeyRound, LayoutDashboard, ListChecks, LockKeyhole, Menu, Server, Settings, Shield, Users, X } from "lucide-react";
+import { KeyRound, LayoutDashboard, ListChecks, LockKeyhole, Menu, Network, Server, Settings, Shield, Users, X } from "lucide-react";
 import { ComponentType, ReactNode, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -32,6 +32,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
   const nav: Array<[string, string, ComponentType<{ className?: string }>]> = isClientMode
     ? [
         ["/targets", t("services"), Server],
+        ["/tunnels", t("tunnels"), Network],
         ["/policies", t("commandPolicy"), Shield],
         ["/audit", t("audit"), ListChecks],
       ]
@@ -41,6 +42,7 @@ export function Shell({ data, children }: { data: ConsoleData; children: ReactNo
         ["/org-admin", t("members"), Users],
         ["/keys", t("authorization"), KeyRound],
         ["/targets", t("services"), Server],
+        ["/tunnels", t("tunnels"), Network],
         ["/policies", t("commandPolicy"), Shield],
         ["/audit", t("audit"), ListChecks],
       ];

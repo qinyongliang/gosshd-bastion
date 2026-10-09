@@ -5,6 +5,7 @@ import "strings"
 const DefaultVersion = "dev"
 
 type Config struct {
+	TunnelSTUNServers      string
 	ClientMode             bool
 	HTTPListen             string
 	SSHListen              string

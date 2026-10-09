@@ -19,11 +19,14 @@ import (
 const (
 	WebSocketPath = "/ws/agent"
 
-	StreamExec          = "exec"
-	StreamShell         = "shell"
-	StreamSFTP          = "sftp"
-	StreamTCP           = "tcp"
-	StreamCancelForward = "cancel-forward"
+	StreamExec             = "exec"
+	StreamShell            = "shell"
+	StreamSFTP             = "sftp"
+	StreamTCP              = "tcp"
+	StreamCancelForward    = "cancel-forward"
+	StreamTunnelPeer       = "tunnel-peer"
+	StreamTunnelListen     = "tunnel-listen"
+	StreamTunnelConnection = "tunnel-connection"
 )
 
 const (
@@ -43,24 +46,38 @@ type AgentHello struct {
 	GOARCH          string `json:"goarch,omitempty"`
 }
 
+type TunnelSSHHop struct {
+	Address  string `json:"address"`
+	Username string `json:"username"`
+	AuthType string `json:"auth_type"`
+	Secret   []byte `json:"secret"`
+	HostKey  []byte `json:"host_key"`
+}
 type StreamRequest struct {
-	Type    string `json:"type"`
-	Command string `json:"command,omitempty"`
-	Target  string `json:"target,omitempty"`
-	Width   int    `json:"width,omitempty"`
-	Height  int    `json:"height,omitempty"`
+	TunnelHops  []TunnelSSHHop `json:"tunnel_hops,omitempty"`
+	Peer        bool           `json:"peer,omitempty"`
+	STUNServers []string       `json:"stun_servers,omitempty"`
+	TunnelID    string         `json:"tunnel_id,omitempty"`
+	Type        string         `json:"type"`
+	Command     string         `json:"command,omitempty"`
+	Target      string         `json:"target,omitempty"`
+	Width       int            `json:"width,omitempty"`
+	Height      int            `json:"height,omitempty"`
 }
 
 type StreamResponse struct {
-	OK                  bool   `json:"ok"`
-	Error               string `json:"error,omitempty"`
-	ExitCode            int    `json:"exit_code,omitempty"`
-	ServerVersion       string `json:"server_version,omitempty"`
-	AgentDownloadURL    string `json:"agent_download_url,omitempty"`
-	AgentDownloadSHA256 string `json:"agent_download_sha256,omitempty"`
-	AssignedAgentID     string `json:"assigned_agent_id,omitempty"`
-	TargetID            string `json:"target_id,omitempty"`
-	TargetAlias         string `json:"target_alias,omitempty"`
+	Peer                bool     `json:"peer,omitempty"`
+	STUNServers         []string `json:"stun_servers,omitempty"`
+	ListenAddress       string   `json:"listen_address,omitempty"`
+	OK                  bool     `json:"ok"`
+	Error               string   `json:"error,omitempty"`
+	ExitCode            int      `json:"exit_code,omitempty"`
+	ServerVersion       string   `json:"server_version,omitempty"`
+	AgentDownloadURL    string   `json:"agent_download_url,omitempty"`
+	AgentDownloadSHA256 string   `json:"agent_download_sha256,omitempty"`
+	AssignedAgentID     string   `json:"assigned_agent_id,omitempty"`
+	TargetID            string   `json:"target_id,omitempty"`
+	TargetAlias         string   `json:"target_alias,omitempty"`
 }
 
 type Frame struct {

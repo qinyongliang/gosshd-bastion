@@ -1,4 +1,7 @@
 import type {
+  TunnelTraffic,
+  Tunnel,
+  TunnelConfig,
   AdminOrg,
   AdminUser,
   AuditLog,
@@ -53,6 +56,12 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
 }
 
 export const api = {
+ tunnelTraffic: (id: string, from: number, to: number) => request<{interval_seconds: number; buckets: TunnelTraffic[]}>(`/api/tunnels/${id}/traffic?from=${from}&to=${to}`),
+ tunnels: (orgID: string) => request<{tunnels: Tunnel[]}>(`/api/tunnels?organization_id=${encodeURIComponent(orgID)}`),
+ createTunnel: (body: TunnelConfig & {organization_id: string}) => request<{tunnel: Tunnel}>("/api/tunnels", post(body)),
+ updateTunnel: (id: string, body: TunnelConfig) => request<{tunnel: Tunnel}>(`/api/tunnels/${id}`, put(body)),
+ tunnelAction: (id: string, action: "enable" | "stop") => request<{tunnel: Tunnel}>(`/api/tunnels/${id}/${action}`, post({})),
+ deleteTunnel: (id: string) => request<void>(`/api/tunnels/${id}`, {method:"DELETE"}),
   me: () => request<{ user: User; organizations: Organization[]; runtime: Runtime }>("/api/me"),
   changeOwnPassword: (body: Record<string, unknown>) => request<void>("/api/me/password", put(body)),
   authProviders: () => request<Providers>("/api/auth/providers"),

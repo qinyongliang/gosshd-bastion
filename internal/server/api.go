@@ -77,6 +77,13 @@ type apiPublicKeysResponse struct {
 }
 
 func (a *App) apiRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/tunnels/{id}/traffic", a.requireUser(a.handleTunnelTraffic))
+	mux.HandleFunc("GET /api/tunnels", a.requireUser(a.handleListTunnels))
+	mux.HandleFunc("POST /api/tunnels", a.requireUser(a.handleSaveTunnel))
+	mux.HandleFunc("PUT /api/tunnels/{id}", a.requireUser(a.handleSaveTunnel))
+	mux.HandleFunc("POST /api/tunnels/{id}/enable", a.requireUser(a.handleTunnelAction))
+	mux.HandleFunc("POST /api/tunnels/{id}/stop", a.requireUser(a.handleTunnelAction))
+	mux.HandleFunc("DELETE /api/tunnels/{id}", a.requireUser(a.handleTunnelAction))
 	mux.HandleFunc("POST /api/auth/register", a.handleRegister)
 	mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
