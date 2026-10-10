@@ -58,6 +58,8 @@ try {
     await page.getByRole("button", { name: zh ? "登录" : "Sign in", exact: true }).click();
     await page.getByRole("link", { name: zh ? "SSH 服务" : "SSH services", exact: true }).waitFor();
     await page.goto(`${base}/targets/${target}/connect`);
+    await page.locator(".files-zone").waitFor();
+    if (await page.locator(".files-zone .collapsed-zone-button").count()) await page.locator(".files-zone .collapsed-zone-button").click();
     await page.locator(".file-manager-path").dblclick();
     const pathInput = page.getByLabel(zh ? "文件路径" : "File path", { exact: true });
     await pathInput.fill(dir);
@@ -71,8 +73,12 @@ try {
     if (mode === "cancel") {
       await page.getByRole("button", { name: "Cancel upload", exact: true }).click();
       await page.locator(".file-upload-toast.cancelled").waitFor();
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const names = await readdir(dir);
+      let names;
+      for (let attempt = 0; attempt < 60; attempt++) {
+        names = await readdir(dir);
+        if (!names.some((name) => name.startsWith(".gosshd-upload-"))) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
       assert(!names.includes(name));
       assert(!names.some((name) => name.startsWith(".gosshd-upload-")));
     } else {
