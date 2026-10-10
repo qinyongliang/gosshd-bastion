@@ -178,7 +178,7 @@ func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request,
 					}
 					return
 				}
-				e, err := a.tunnelAgentEndpoint(r.Context(), t.ID)
+				e, err := a.tunnelAgentEndpoint(r.Context(), t.ID, endpoint)
 				if err != nil || e == nil || e.session != endpoint.session || !reflect.DeepEqual(e.hops, endpoint.hops) {
 					select {
 					case rejected <- "target route changed; reconnect required":

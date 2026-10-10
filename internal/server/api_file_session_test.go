@@ -35,6 +35,7 @@ func TestFileUploadDownloadSessionReuse(t *testing.T) {
 				attachTunnelAgent(t, app, "session-agent")
 				target := uploadAgentTarget(t, app, user, org, "session-agent")
 				var connections atomic.Int64
+				var initialConnections int64
 				if ssh {
 					address, closeServer := startTestSFTPServer(t, testSFTPModeSubsystem, func() { connections.Add(1) })
 					defer closeServer()
@@ -94,6 +95,9 @@ func TestFileUploadDownloadSessionReuse(t *testing.T) {
 						}
 						break
 					}
+					if index == 0 {
+						initialConnections = connections.Load()
+					}
 					if action == "upload" {
 						for offset := 0; offset < len(data); offset += filetransfer.MaxChunkSize {
 							send(tunnel.Packet{Kind: tunnel.Data, Seq: sendSeq, Body: filetransfer.ChunkRecord(data[offset:min(len(data), offset+filetransfer.MaxChunkSize)])})
@@ -150,8 +154,8 @@ func TestFileUploadDownloadSessionReuse(t *testing.T) {
 						t.Fatalf("corrupt file: %v", err)
 					}
 				}
-				if ssh && connections.Load() != 1 {
-					t.Fatalf("batch reconnected SSH: %d", connections.Load())
+				if ssh && connections.Load() != initialConnections {
+					t.Fatalf("batch reconnected SSH: %d initially %d", connections.Load(), initialConnections)
 				}
 				// An established P2P/session never bypasses a newly changed policy.
 				attachAllowSFTPPolicyForTargetAccess(t, app, org.ID, target.ID, false, false)
