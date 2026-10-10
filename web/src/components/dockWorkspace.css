@@ -1,0 +1,51 @@
+.connect-body.dock-body { position: relative; display: block; min-width: 0; padding: 0; }
+.dock-workspace { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface); }
+.dock-view { position: absolute; min-width: 0; min-height: 0; overflow: hidden; }
+.dock-view > .pane-leaf, .dock-view > .connect-zone { width: 100%; height: 100%; }
+.dock-view .connect-host-panel { width: 100%; height: 100%; max-height: none; border: 0; animation: none; transition: none; }
+.dock-view .connect-host-panel.collapsed { padding: 0; }
+.dock-view .files-zone { display: grid; background: var(--surface); box-shadow: none; }
+.dock-view .connect-zone-head { flex-shrink: 0; min-height: 38px; padding: 0 8px; }
+.dock-view .connect-panel-title { min-width: 0; }
+.dock-view .connect-panel-title h3 { flex: 1; min-width: 0; margin: 0; }
+.dock-view-host { container-type: inline-size; }
+.dock-view .dock-drag-handle { display: inline-flex; flex: none; justify-content: flex-start; gap: 5px; min-width: 24px; min-height: 28px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: grab; touch-action: none; user-select: none; box-shadow: none; font-size: 12px; font-weight: 500; }
+.dock-view .dock-drag-handle.with-title { flex: 1; min-width: 0; overflow: hidden; }
+.dock-view .dock-drag-handle > svg { flex: none; width: 14px; height: 14px; opacity: .65; }
+.dock-view .dock-drag-handle > span { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-view .dock-drag-handle > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-view .dock-drag-handle > span > svg { flex: none; width: 14px; height: 14px; }
+.dock-view .dock-drag-handle:hover, .dock-view .dock-drag-handle:focus-visible { background: color-mix(in srgb, var(--primary) 9%, transparent); color: var(--primary); }
+.dock-view .dock-drag-handle:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.dock-view .dock-drag-handle:active { cursor: grabbing; }
+.dock-view .editor-pane-head > .dock-drag-handle { flex: 1; }
+.dock-view .editor-pane-actions { flex: none; }
+.dock-view-terminal .terminal-panel:not(.fullscreen) { grid-template-rows: 38px minmax(0, 1fr) auto; padding: 0; }
+.dock-view .terminal-pane-toolbar { position: static; grid-row: 1; grid-column: 1; width: 100%; min-height: 38px; padding: 3px 7px; justify-content: flex-end; border-bottom: 1px solid #26364b; background: #111c2c; opacity: 1; transform: none; pointer-events: auto; }
+.dock-view-terminal .terminal-viewport { grid-row: 2; }
+.dock-view-terminal .mobile-terminal-keys { grid-row: 3; }
+.dock-view .terminal-pane-toolbar > .dock-drag-handle { margin-right: auto; color: #98a2b3; }
+.dock-collapsed-tools { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; background: var(--surface-alt); }
+.dock-collapsed-tools > .dock-drag-handle { align-self: center; }
+.dock-collapsed-tools > .collapsed-zone-button { flex: 1; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+.dock-collapsed-horizontal .dock-collapsed-tools { flex-direction: row; align-items: center; }
+.dock-view.dock-collapsed-horizontal .dock-collapsed-tools > .collapsed-zone-button { display: flex; justify-content: flex-start; gap: 8px; width: auto; height: 32px; padding: 0 8px; }
+.dock-view.dock-collapsed-horizontal .collapsed-zone-button span { display: inline; writing-mode: horizontal-tb; }
+.dock-splitter { position: absolute; z-index: 3; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0; background: var(--line); touch-action: none; box-shadow: none; }
+.dock-splitter.row { cursor: col-resize; }
+.dock-splitter.column { cursor: row-resize; }
+.dock-splitter:hover, .dock-splitter:focus-visible { border: 0; background: var(--primary); outline: 0; }
+.dock-drag-overlay { position: absolute; inset: 0; z-index: 5; background: color-mix(in srgb, var(--surface) 8%, transparent); pointer-events: none; }
+.dock-view.drag-source { opacity: .6; }
+.dock-drop-preview { position: absolute; z-index: 6; display: grid; place-items: center; padding: 8px; border: 2px solid var(--primary); border-radius: 6px; background: color-mix(in srgb, var(--primary) 14%, transparent); pointer-events: none; }
+.dock-drop-preview > span { max-width: 100%; padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow); color: var(--text); font-size: 12px; text-align: center; }
+body.is-dragging-dock, body.is-dragging-dock * { cursor: grabbing !important; user-select: none !important; }
+body.is-resizing-dock, body.is-resizing-dock * { cursor: var(--dock-resize-cursor) !important; user-select: none !important; }
+.dock-workspace.dragging .dock-view { pointer-events: none; }
+.dock-workspace.dock-fullscreen .dock-view { z-index: 4; }
+@container (min-width: 560px) {
+  .dock-view-host > .connect-host-panel:not(.collapsed) { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(0, 1fr); align-content: start; align-items: start; }
+}
+@media (max-width: 760px) {
+  .dock-view .terminal-pane-toolbar { min-height: 34px; }
+}
