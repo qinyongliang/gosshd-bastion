@@ -1275,19 +1275,28 @@ func (a *App) handleTargetFileMkdir(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 	var body struct {
-		Path string `json:"path"`
+		Path  string   `json:"path"`
+		Paths []string `json:"paths"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	dir := pathpkg.Clean(strings.TrimSpace(body.Path))
-	if dir == "." || dir == "/" || dir == "" {
-		writeError(w, http.StatusBadRequest, "invalid directory path")
-		return
+	paths := body.Paths
+	if len(paths) == 0 {
+		paths = []string{body.Path}
+	}
+	for i, dir := range paths {
+		paths[i] = pathpkg.Clean(dir)
+		if strings.TrimSpace(dir) == "" || paths[i] == "." || paths[i] == "/" {
+			writeError(w, http.StatusBadRequest, "invalid directory path")
+			return
+		}
 	}
 	if !allowUpload {
-		a.auditWebSFTP(r.Context(), user, target, decision, "sftp mkdir "+dir, store.DecisionDeny, "upload/write is not allowed", 126, sshSourceIPFromRequest(r), startedAt)
+		for _, dir := range paths {
+			a.auditWebSFTP(r.Context(), user, target, decision, "sftp mkdir "+dir, store.DecisionDeny, "upload/write is not allowed", 126, sshSourceIPFromRequest(r), startedAt)
+		}
 		writeError(w, http.StatusForbidden, "SFTP mkdir is not allowed by policy")
 		return
 	}
@@ -1297,13 +1306,23 @@ func (a *App) handleTargetFileMkdir(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 	defer closeClient()
-	if err := client.MkdirAll(dir); err != nil {
-		a.auditWebSFTP(r.Context(), user, target, decision, "sftp mkdir "+dir, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r), startedAt)
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
+	for _, dir := range paths {
+		if r.Context().Err() != nil {
+			return
+		}
+		operationStarted := time.Now().UTC()
+		if err := client.MkdirAll(dir); err != nil {
+			a.auditWebSFTP(r.Context(), user, target, decision, "sftp mkdir "+dir, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r), operationStarted)
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp mkdir "+dir, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r), operationStarted)
 	}
-	a.auditWebSFTP(r.Context(), user, target, decision, "sftp mkdir "+dir, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r), startedAt)
-	writeJSON(w, http.StatusCreated, map[string]any{"path": dir})
+	if len(body.Paths) == 0 {
+		writeJSON(w, http.StatusCreated, map[string]any{"path": paths[0]})
+	} else {
+		writeJSON(w, http.StatusCreated, map[string]any{"paths": paths})
+	}
 }
 
 func (a *App) handleTargetFileDelete(w http.ResponseWriter, r *http.Request, user store.User) {
@@ -1766,7 +1785,7 @@ func terminalSizeFromQuery(r *http.Request) (int, int) {
 }
 
 func remotePathFromQuery(r *http.Request) string {
-	raw := strings.TrimSpace(r.URL.Query().Get("path"))
+	raw := r.URL.Query().Get("path")
 	if raw == "" {
 		return "."
 	}

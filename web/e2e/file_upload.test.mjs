@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_REQUIRE_PATH);
@@ -10,7 +10,7 @@ const target = process.env.GOSSHD_UPLOAD_TARGET;
 const dir = process.env.GOSSHD_UPLOAD_DIR;
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless: true });
 try {
-  for (const [mode, locale] of [["direct", "en"], ["interrupt", "zh-CN"], ["relay", "en"], ["empty", "zh-CN"], ["cancel", "en"], ["legacy", "en"]]) {
+  for (const [mode, locale] of [["direct", "en"], ["interrupt", "zh-CN"], ["relay", "en"], ["empty", "zh-CN"], ["cancel", "en"], ["legacy", "en"], ["folders", "en"]]) {
     const zh = locale === "zh-CN";
     const context = await browser.newContext({ locale: zh ? "zh-CN" : "en-US", viewport: { width: 1440, height: 1000 } });
     await context.addInitScript(({ mode, locale }) => {
@@ -76,7 +76,28 @@ try {
     const batch = ["direct", "interrupt", "relay"].includes(mode);
     const files = [{ name, mimeType: "application/octet-stream", buffer: content }];
     if (batch) files.push({ name: `${mode}-second.bin`, mimeType: "application/octet-stream", buffer: content.subarray(0, 10013) }, { name: `${mode}-empty.bin`, mimeType: "application/octet-stream", buffer: Buffer.alloc(0) });
-    await page.locator('input[type="file"]').setInputFiles(files);
+    if (mode === "folders") {
+      await page.locator(".file-manager").evaluate((manager) => {
+        const file = (name, content) => ({ name, isFile: true, isDirectory: false, file: (ok) => ok(new File([content], name)) });
+        const folder = (name, pages) => ({ name, isFile: false, isDirectory: true, createReader: () => {
+          let index = 0;
+          return { readEntries: (ok) => ok(pages[index++] || []) };
+        } });
+        const roots = [
+          folder("pack-a", [[file("same.txt", "first")], [folder("nested", [[file("empty.txt", ""), file("child.txt", "nested")]]), folder("empty-dir", [])]]),
+          folder("pack-b", [[file("same.txt", "second")]]),
+          folder("space ", [[file("kept.txt", "space")]]),
+          file("loose.txt", "loose"),
+        ];
+        const data = new DataTransfer();
+        for (const root of roots) {
+          const item = data.items.add(new File([], root.name));
+          Object.defineProperty(item, "webkitGetAsEntry", { value: () => root });
+        }
+        manager.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: data }));
+        manager.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: data }));
+      });
+    } else await page.locator('input[type="file"]').setInputFiles(files);
     if (mode === "cancel") {
       await page.getByRole("button", { name: "Cancel upload", exact: true }).click();
       await page.locator(".file-upload-toast.cancelled").waitFor();
@@ -91,6 +112,21 @@ try {
     } else {
       await page.locator(".file-upload-toast.success").waitFor();
       const stats = await page.evaluate(() => window.uploadTest);
+      if (mode === "folders") {
+        assert.equal(stats.sockets, 1, "folder uploads opened a WebSocket per file");
+        assert.equal(stats.offers, 1, "folder uploads renegotiated P2P per file");
+        assert.equal(stats.relayBytes, 0);
+        for (const [name, expected] of [["pack-a/same.txt", "first"], ["pack-a/nested/empty.txt", ""], ["pack-a/nested/child.txt", "nested"], ["pack-b/same.txt", "second"], ["space /kept.txt", "space"], ["loose.txt", "loose"]]) {
+          assert.equal(await readFile(join(dir, name), "utf8"), expected);
+        }
+        assert.equal((await stat(join(dir, "pack-a/empty-dir"))).isDirectory(), true);
+        assert.equal(await page.locator(".file-drop-overlay").count(), 0);
+        await auditResponse;
+        assert.deepEqual(errors, []);
+        await context.close();
+        console.log("recursive folder drop: passed");
+        continue;
+      }
       if (batch) {
         assert.equal(stats.sockets, 1, "batch opened a WebSocket per file");
         assert.equal(stats.offers, mode === "relay" ? 0 : 1, "batch renegotiated P2P per file");

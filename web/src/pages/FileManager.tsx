@@ -10,6 +10,10 @@ import { ConfirmDialog, ErrorMessage, Modal, ModalActions } from "../components/
 import { useI18n } from "../i18n";
 import type { FileEntry, FileProperties, Target, TargetSystemFilesystem, TargetSystemSnapshot } from "../types";
 import { copyText } from "../utils";
+import { collectDrop, filesUploadPlan, joinUploadPath, snapshotDrop } from "../fileDrop";
+import type { UploadPlan } from "../fileDrop";
+import { useFileSelection } from "./useFileSelection";
+import "./fileManagerInteractions.css";
 
 type FileSortKey = "name" | "size" | "mode" | "modified";
 type SortOrder = "asc" | "desc";
@@ -23,7 +27,10 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [pathDraft, setPathDraft] = useState(".");
-  const [selected, setSelected] = useState<FileEntry | null>(null);
+  const [dropActive, setDropActive] = useState(false);
+  const dragDepthRef = useRef(0);
+  const uploadBusyRef = useRef(false);
+  const downloadBatchRef = useRef(false);
   const [downloadTask, setDownloadTask] = useState<DownloadTask | null>(null);
   const downloadControllerRef = useRef<AbortController | null>(null);
   const downloadDismissTimerRef = useRef<number | null>(null);
@@ -36,7 +43,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const [transfer, setTransfer] = useState<{ action: "move" | "copy"; entry: FileEntry } | null>(null);
   const [properties, setProperties] = useState<FileProperties | null>(null);
   const [operationError, setOperationError] = useState<unknown>(null);
-  const [deleteEntry, setDeleteEntry] = useState<FileEntry | null>(null);
+  const [deleteEntries, setDeleteEntries] = useState<FileEntry[] | null>(null);
   const [contextMenu, setContextMenu] = useState<{ entry: FileEntry | null; x: number; y: number; left: number; top: number } | null>(null);
   const [crumbMenu, setCrumbMenu] = useState<BreadcrumbMenuState | null>(null);
   const [crumbFilter, setCrumbFilter] = useState("");
@@ -51,15 +58,18 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
 
   useEffect(() => {
     setPathDraft(path);
+    setDeleteEntries(null);
+    dragDepthRef.current = 0;
+    setDropActive(false);
   }, [path]);
 
   useEffect(() => {
-    setSelected(null);
     setTransfer(null);
     setProperties(null);
     setContextMenu(null);
     setCrumbMenu(null);
     setPathEditing(false);
+    setDeleteEntries(null);
   }, [target.id]);
 
   useEffect(() => () => {
@@ -84,7 +94,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     const next = contextMenuPositionInViewport(contextMenu.x, contextMenu.y, rect.width, rect.height);
     if (next.left === contextMenu.left && next.top === contextMenu.top) return;
     setContextMenu((current) => current && current.x === contextMenu.x && current.y === contextMenu.y ? { ...current, ...next } : current);
-  }, [contextMenu, selected?.path, selected?.type, uploading, nativeOpen]);
+  }, [contextMenu, uploading, nativeOpen]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -134,14 +144,15 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const listing = useQuery({
     queryKey: ["target-files", target.id, path, sort.key, sort.order],
     queryFn: () => api.listFiles(target.id, path, sort.key, sort.order),
+    placeholderData: (previous) => previous,
   });
 
   useEffect(() => {
+    if (listing.isPlaceholderData) return;
     const resolvedPath = listing.data?.path;
     if (!resolvedPath || resolvedPath === path) return;
     setPath(resolvedPath);
-    setSelected(null);
-  }, [listing.data?.path, path]);
+  }, [listing.data?.path, listing.isPlaceholderData, path]);
   const breadcrumbListing = useQuery({
     queryKey: ["target-files", target.id, crumbMenu?.path || "", "name", "asc", "breadcrumb"],
     queryFn: () => api.listFiles(target.id, crumbMenu?.path || ".", "name", "asc"),
@@ -166,9 +177,11 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     onError: (error) => setOperationError(error),
   });
   const remove = useMutation({
-    mutationFn: (entry: FileEntry) => api.deleteFile(target.id, entry.path),
-    onSuccess: refreshFiles,
+    mutationFn: async (items: FileEntry[]) => {
+      for (const entry of items) await api.deleteFile(target.id, entry.path);
+    },
     onError: (error) => setOperationError(error),
+    onSettled: refreshFiles,
   });
   const move = useMutation({
     mutationFn: ({ entry, destination }: { entry: FileEntry; destination: string }) => api.moveFile(target.id, entry.path, destination),
@@ -187,6 +200,9 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   });
 
   const entries = listing.data?.entries || [];
+  const selection = useFileSelection(`${target.id}:${path}`, entries.map((entry) => entry.path));
+  const selectedEntries = entries.filter((entry) => selection.selectedPaths.has(entry.path));
+  const menuEntries = contextMenu?.entry && selection.selectedPaths.has(contextMenu.entry.path) ? selectedEntries : contextMenu?.entry ? [contextMenu.entry] : [];
   const drives = system?.os === "windows" ? windowsDrives(system.filesystems || []) : [];
   const breadcrumbDirectories = (breadcrumbListing.data?.entries || []).filter((entry) => entry.type === "dir" && entry.name !== "." && entry.name !== "..");
   const canOpenParent = path !== "/" && !isWindowsDriveRoot(path);
@@ -194,7 +210,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
-    if (files.length) void startUpload(files);
+    if (files.length) void startUpload(async () => filesUploadPlan(files));
   };
 
   const dismissUploadTask = (delay: number) => {
@@ -205,68 +221,103 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     }, delay);
   };
 
-  const startUpload = async (files: File[]) => {
-    if (uploading || uploadControllerRef.current || !files.length) return;
+  const startUpload = async (prepare: (signal: AbortSignal) => Promise<UploadPlan>) => {
+    if (uploadBusyRef.current) return;
+    uploadBusyRef.current = true;
     uploadCancelledRef.current = false;
     setUploading(true);
+    const controller = new AbortController();
+    uploadControllerRef.current = controller;
+    const destination = path;
     let completed = 0;
     let failed = 0;
-    let currentFile = files[0];
+    let currentName = t("connectFilePreparingUpload");
+    let currentTotal = 0;
     let currentLoaded = 0;
     let currentSpeed = 0;
     let currentTransport: TransferTransport = "connecting";
-
-    for (let index = 0; index < files.length; index += 1) {
-      if (uploadCancelledRef.current) break;
-      const file = files[index];
-      currentFile = file;
-      currentLoaded = 0;
-      currentSpeed = 0;
-      currentTransport = "connecting";
-      const controller = new AbortController();
-      uploadControllerRef.current = controller;
-      uploadSpeedRef.current = { loaded: 0, timestamp: performance.now() };
-      setUploadTask({ fileName: file.name, loaded: 0, total: file.size, speed: 0, queueIndex: index, queueTotal: files.length, completed, failed, transport: "connecting", status: "uploading" });
-      try {
-        await api.uploadFile(target.id, path, file, (progress) => {
-          const now = performance.now();
-          const previous = uploadSpeedRef.current;
-          const elapsed = now - previous.timestamp;
-          currentLoaded = progress.loaded;
-          currentTransport = progress.transport || currentTransport;
-          currentSpeed = elapsed > 0 ? Math.max(0, progress.loaded - previous.loaded) / (elapsed / 1000) : 0;
-          uploadSpeedRef.current = { loaded: progress.loaded, timestamp: now };
-          setUploadTask((current) => current ? { ...current, loaded: progress.loaded, total: progress.total || current.total, speed: currentSpeed, transport: currentTransport } : current);
-        }, controller.signal);
-        completed += 1;
-      } catch (error) {
-        if (isAbortError(error) || uploadCancelledRef.current) {
-          setUploadTask((current) => current ? { ...current, status: "cancelled", completed, failed } : current);
-          break;
-        }
-        failed += 1;
-      } finally {
-        uploadControllerRef.current = null;
+    let queueTotal = 0;
+    if (uploadDismissTimerRef.current !== null) window.clearTimeout(uploadDismissTimerRef.current);
+    setUploadTask({ fileName: currentName, loaded: 0, total: 0, speed: 0, queueIndex: 0, queueTotal: 0, completed: 0, failed: 0, transport: "connecting", status: "uploading" });
+    try {
+      const plan = await prepare(controller.signal);
+      controller.signal.throwIfAborted();
+      queueTotal = plan.files.length + plan.directories.length;
+      if (plan.directories.length) {
+        await api.mkdirFiles(target.id, plan.directories.map((dir) => joinUploadPath(destination, dir)), controller.signal);
+        completed = plan.directories.length;
       }
+      for (let index = 0; index < plan.files.length; index += 1) {
+        controller.signal.throwIfAborted();
+        const { file, relativePath } = plan.files[index];
+        const slash = relativePath.lastIndexOf("/");
+        const directory = slash < 0 ? destination : joinUploadPath(destination, relativePath.slice(0, slash));
+        currentName = relativePath;
+        currentTotal = file.size;
+        currentLoaded = 0;
+        currentSpeed = 0;
+        currentTransport = "connecting";
+        uploadSpeedRef.current = { loaded: 0, timestamp: performance.now() };
+        setUploadTask({ fileName: currentName, loaded: 0, total: file.size, speed: 0, queueIndex: completed + failed, queueTotal, completed, failed, transport: "connecting", status: "uploading" });
+        try {
+          await api.uploadFile(target.id, directory, file, (progress) => {
+            const now = performance.now();
+            const previous = uploadSpeedRef.current;
+            const elapsed = now - previous.timestamp;
+            currentLoaded = progress.loaded;
+            currentTransport = progress.transport || currentTransport;
+            currentSpeed = elapsed > 0 ? Math.max(0, progress.loaded - previous.loaded) / (elapsed / 1000) : 0;
+            uploadSpeedRef.current = { loaded: progress.loaded, timestamp: now };
+            setUploadTask((current) => current ? { ...current, loaded: progress.loaded, total: progress.total || current.total, speed: currentSpeed, transport: currentTransport } : current);
+          }, controller.signal);
+          completed += 1;
+        } catch (error) {
+          if (isAbortError(error) || uploadCancelledRef.current) throw error;
+          failed += 1;
+          setOperationError(error);
+        }
+      }
+    } catch (error) {
+      if (!isAbortError(error) && !controller.signal.aborted) {
+        failed += 1;
+        setOperationError(error);
+      }
+    } finally {
+      uploadControllerRef.current = null;
+      uploadBusyRef.current = false;
+      setUploading(false);
     }
 
-    const cancelled = uploadCancelledRef.current;
+    const cancelled = controller.signal.aborted;
     const processed = completed + failed;
-    setUploading(false);
-    void queryClient.invalidateQueries({ queryKey: ["target-files", target.id, path] });
+    queueTotal = Math.max(queueTotal, processed);
+    void refreshFiles();
     setUploadTask({
-      fileName: currentFile.name,
-      loaded: cancelled ? currentLoaded : currentFile.size,
-      total: currentFile.size,
+      fileName: currentName,
+      loaded: cancelled || failed ? currentLoaded : currentTotal,
+      total: currentTotal,
       speed: cancelled ? currentSpeed : 0,
-      queueIndex: Math.min(processed, files.length - 1),
-      queueTotal: files.length,
+      queueIndex: Math.max(0, Math.min(processed, queueTotal - 1)),
+      queueTotal,
       completed,
       failed,
       transport: currentTransport,
       status: cancelled ? "cancelled" : failed ? "error" : "success",
     });
     dismissUploadTask(cancelled ? 1800 : failed ? 4200 : 2200);
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setDropActive(false);
+    if (uploadBusyRef.current) return;
+    try {
+      const sources = snapshotDrop(event.dataTransfer);
+      if (sources.length) void startUpload((signal) => collectDrop(sources, signal));
+    } catch (error) { setOperationError(error); }
   };
 
   const cancelUpload = () => {
@@ -277,9 +328,8 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const activateEntry = (entry: FileEntry) => {
     if (entry.type === "dir") {
       setPath(entry.path);
-      setSelected(null);
     } else {
-      setSelected(entry);
+      selection.selectOnly(entry.path);
       if (nativeOpen) {
         openNative.mutate(entry);
       } else {
@@ -288,8 +338,8 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     }
   };
 
-  const downloadEntry = async (entry: FileEntry) => {
-    if (downloadControllerRef.current) return;
+  const downloadEntry = async (entry: FileEntry): Promise<boolean> => {
+    if (downloadControllerRef.current) return false;
     if (downloadDismissTimerRef.current !== null) window.clearTimeout(downloadDismissTimerRef.current);
     const controller = new AbortController();
     downloadControllerRef.current = controller;
@@ -304,14 +354,24 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
         setDownloadTask((current) => current ? { ...current, ...progress, speed } : current);
       }, controller.signal);
       setDownloadTask((current) => current ? { ...current, status: result === "browser" ? "browser" : "success", speed: 0 } : current);
+      return true;
     } catch (error) {
       const cancelled = isAbortError(error) || controller.signal.aborted;
       setDownloadTask((current) => current ? { ...current, status: cancelled ? "cancelled" : "error", speed: 0 } : current);
       if (!cancelled) setOperationError(error);
+      return false;
     } finally {
       downloadControllerRef.current = null;
       downloadDismissTimerRef.current = window.setTimeout(() => { setDownloadTask(null); downloadDismissTimerRef.current = null; }, 4200);
     }
+  };
+
+  const downloadEntries = async (items: FileEntry[]) => {
+    if (downloadBatchRef.current) return;
+    downloadBatchRef.current = true;
+    try {
+      for (const entry of items) if (!await downloadEntry(entry)) break;
+    } finally { downloadBatchRef.current = false; }
   };
 
   const copyEntryPath = async (entry: FileEntry | null) => {
@@ -322,11 +382,12 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     if (action === "open" && entry) {
       activateEntry(entry);
     } else if (action === "download" && entry && entry.type === "file") {
-      void downloadEntry(entry);
+      void downloadEntries(menuEntries.length ? menuEntries : [entry]);
     } else if (action === "edit" && entry && entry.type === "file") {
       onEditFile?.(entry.path);
     } else if (action === "copy-path") {
-      await copyEntryPath(entry);
+      if (menuEntries.length) await copyText(menuEntries.map((item) => item.path).join("\n"));
+      else await copyEntryPath(entry);
     } else if (action === "refresh") {
       await listing.refetch();
     } else if (action === "upload") {
@@ -336,7 +397,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     } else if (action === "touch") {
       setTouchModal(true);
     } else if (action === "delete" && entry) {
-      setDeleteEntry(entry);
+      setDeleteEntries(menuEntries.length ? menuEntries : [entry]);
     } else if (action === "properties" && entry) {
       stat.mutate(entry);
     } else if ((action === "move" || action === "copy") && entry) {
@@ -347,7 +408,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const openFileMenu = (entry: FileEntry | null, event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    setSelected(entry);
+    if (entry) selection.contextSelect(entry.path);
     setContextMenu({ entry, x: event.clientX, y: event.clientY, left: event.clientX, top: event.clientY });
   };
 
@@ -384,7 +445,6 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
       return;
     }
     setPath(nextPath);
-    setSelected(null);
     setPathEditing(false);
   };
 
@@ -400,22 +460,22 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
         event.stopPropagation();
       }}
     >
-        {entry?.type === "dir" && (
+        {menuEntries.length === 1 && entry?.type === "dir" && (
           <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("open", entry)}>
             <FolderOpen />{t("connectFileOpenDir")}
           </button>
         )}
-        {entry?.type === "file" && nativeOpen && (
+        {menuEntries.length === 1 && entry?.type === "file" && nativeOpen && (
           <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("open", entry)}>
             <ExternalLink />{t("connectFileOpenDir")}
           </button>
         )}
-        {entry?.type === "file" && (
+        {menuEntries.length > 0 && menuEntries.every((item) => item.type === "file") && (
           <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("download", entry)}>
             <Download />{t("connectFileDownload")}
           </button>
         )}
-        {entry?.type === "file" && onEditFile && (
+        {menuEntries.length === 1 && entry?.type === "file" && onEditFile && (
           <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("edit", entry)}>
             <Edit3 />{t("connectFileEdit")}
           </button>
@@ -428,13 +488,13 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
         </button>
         {entry && (
           <>
-            <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("move", entry)}>
+            <button type="button" role="menuitem" className="file-context-menu-item" disabled={menuEntries.length !== 1} onClick={() => runMenuAction("move", entry)}>
               <Move />{t("connectFileMove")}
             </button>
-            <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("copy", entry)}>
+            <button type="button" role="menuitem" className="file-context-menu-item" disabled={menuEntries.length !== 1} onClick={() => runMenuAction("copy", entry)}>
               <Copy />{t("connectFileCopy")}
             </button>
-            <button type="button" role="menuitem" className="file-context-menu-item" onClick={() => runMenuAction("properties", entry)}>
+            <button type="button" role="menuitem" className="file-context-menu-item" disabled={menuEntries.length !== 1} onClick={() => runMenuAction("properties", entry)}>
               <Info />{t("connectFileProperties")}
             </button>
             <button type="button" role="menuitem" className="file-context-menu-item danger" onClick={() => runMenuAction("delete", entry)}>
@@ -472,7 +532,6 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
           filterDrives(drives, crumbFilter).map((drive) => (
             <button key={drive.path} type="button" title={drive.path} className={windowsDriveRoot(drive.path) === windowsDriveRoot(path) ? "active" : undefined} onClick={() => {
               setPath(windowsDriveRoot(drive.path));
-              setSelected(null);
               setCrumbMenu(null);
             }}>
               <HardDrive /><span>{drive.path}</span>
@@ -483,7 +542,6 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
           filterEntries(breadcrumbDirectories, crumbFilter).map((entry) => (
             <button key={entry.path} type="button" title={entry.name} className={normalizeRemotePath(entry.path) === normalizeRemotePath(path) ? "active" : undefined} onClick={() => {
               setPath(entry.path);
-              setSelected(null);
               setCrumbMenu(null);
             }}>
               <FolderOpen /><span>{entry.name}</span>
@@ -518,7 +576,25 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const editPath = () => { setCrumbMenu(null); setPathEditing(true); };
 
   return (
-    <section className="file-manager">
+    <section className={`file-manager ${dropActive ? "file-drop-active" : ""}`}
+      onDragEnter={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+        event.preventDefault(); event.stopPropagation();
+        dragDepthRef.current += 1;
+        setDropActive(true);
+      }}
+      onDragOver={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+        event.preventDefault(); event.stopPropagation();
+        event.dataTransfer.dropEffect = uploading ? "none" : "copy";
+      }}
+      onDragLeave={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+        event.stopPropagation();
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (!dragDepthRef.current) setDropActive(false);
+      }}
+      onDrop={onDrop}>
       <header className="file-manager-head">
         <div className="file-manager-path" title={path} onDoubleClick={editPath}>
           <HardDrive />
@@ -547,6 +623,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
           )}
         </div>
         <div className="file-manager-actions">
+          {selectedEntries.length > 0 && <span className="file-selection-count" title={t("connectFileSelectionHint")}>{t("connectFileSelected")} {selectedEntries.length}</span>}
           <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")} aria-label={t("commonRefresh")}>
             <RefreshCw />
           </button>
@@ -564,8 +641,10 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
         </div>
       </header>
       {breadcrumbMenu}
-      <div className="file-manager-body" onContextMenu={(event) => openFileMenu(null, event)}>
-        <table>
+      <div ref={selection.bodyRef} className={`file-manager-body file-list-selectable ${selection.rectangle ? "file-box-selecting" : ""}`} tabIndex={0}
+        aria-label={t("connectFilesTitle")} onPointerDown={selection.onPointerDown} onKeyDown={selection.onKeyDown}
+        onContextMenu={(event) => openFileMenu(null, event)}>
+        <table role="grid" aria-multiselectable="true">
           <thead>
             <tr>
               <th><SortButton active={sort.key === "name"} order={sort.order} onClick={() => changeSort("name")}>{t("connectFileName")}</SortButton></th>
@@ -576,7 +655,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
           </thead>
           <tbody>
             {canOpenParent && (
-              <tr className="file-row directory">
+              <tr className="file-row directory file-parent-row">
                 <td>
                   <button type="button" className="file-name" onClick={() => setPath(remoteParent(path))} onDoubleClick={() => setPath(remoteParent(path))}>
                     <FolderOpen />{t("connectFileParentDir")}
@@ -588,13 +667,15 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
             {entries.map((entry) => (
               <tr
                 key={entry.path}
-                className={`file-row ${entry.type} ${selected?.path === entry.path ? "selected" : ""}`}
-                onClick={() => entry.type === "dir" ? activateEntry(entry) : setSelected(entry)}
-                onDoubleClick={() => activateEntry(entry)}
+                data-file-path={entry.path}
+                aria-selected={selection.selectedPaths.has(entry.path)}
+                className={`file-row ${entry.type} ${selection.selectedPaths.has(entry.path) ? "selected" : ""}`}
+                onClick={(event) => selection.click(entry.path, event)}
+                onDoubleClick={(event) => { if (!selection.suppressClickRef.current && !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey) activateEntry(entry); }}
                 onContextMenu={(event) => openFileMenu(entry, event)}
               >
                   <td>
-                    <button type="button" className="file-name" onClick={() => entry.type === "dir" ? activateEntry(entry) : setSelected(entry)} onDoubleClick={() => activateEntry(entry)} title={entry.name}>
+                    <button type="button" className="file-name" title={entry.name}>
                       {entry.type === "dir" ? <FolderOpen /> : <HardDrive />}
                       <span>{entry.name}</span>
                     </button>
@@ -613,10 +694,12 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
             )}
           </tbody>
         </table>
+        {selection.rectangle && <div className="file-selection-rectangle" style={selection.rectangle} aria-hidden="true" />}
       </div>
+      {dropActive && <div className="file-drop-overlay"><Upload /><span>{t(uploading ? "connectFileUploadBusy" : "connectFileDropUpload")}</span></div>}
       {uploadTask && <FileTransferToast
         kind="upload" fileName={uploadTask.fileName} status={uploadTask.status} transport={uploadTask.transport}
-        title={uploadTask.status === "uploading" ? `${t("connectFileUploading")} ${uploadTask.queueIndex + 1}/${uploadTask.queueTotal}` : uploadTask.status === "success" ? t("connectFileUploadComplete") : uploadTask.status === "cancelled" ? t("connectFileUploadCancelled") : t("connectFileUploadFailed")}
+        title={uploadTask.status === "uploading" ? uploadTask.queueTotal ? `${t("connectFileUploading")} ${uploadTask.queueIndex + 1}/${uploadTask.queueTotal}` : t("connectFilePreparingUpload") : uploadTask.status === "success" ? t("connectFileUploadComplete") : uploadTask.status === "cancelled" ? t("connectFileUploadCancelled") : t("connectFileUploadFailed")}
         active={uploadTask.status === "uploading"} cancelLabel={t("connectFileUploadCancel")} onCancel={cancelUpload}
         percent={uploadQueuePercent(uploadTask)} detail={`${uploadQueuePercent(uploadTask)}% · ${uploadPercent(uploadTask)}% ${t("connectFileUploadCurrent")} · ${uploadTask.completed + uploadTask.failed}/${uploadTask.queueTotal}`}
         rate={uploadTask.status === "uploading" ? `${formatTransferRate(uploadTask.speed)}/s` : uploadTask.status === "error" ? `${uploadTask.failed}/${uploadTask.queueTotal}` : ""}
@@ -631,7 +714,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
       />}
       {contextMenu && fileMenu(contextMenu.entry)}
       {Boolean(operationError) && <div className="file-operation-error"><ErrorMessage error={operationError} /><button type="button" className="small" onClick={() => setOperationError(null)}>{t("close")}</button></div>}
-      {deleteEntry && <ConfirmDialog title={t("commonDelete")} body={t("connectFileDeleteConfirm", `Delete ${deleteEntry.path}?`)} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(deleteEntry)} onClose={() => setDeleteEntry(null)} />}
+      {deleteEntries && <ConfirmDialog title={t("commonDelete")} body={`${t("connectFileDeleteConfirm")} (${deleteEntries.length})\n${deleteEntries.map((entry) => entry.name).join(", ")}`} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(deleteEntries)} onClose={() => setDeleteEntries(null)} />}
       {mkdirModal && (
         <Modal title={t("connectFileNewFolder")} onClose={() => setMkdirModal(false)}>
           <form className="stack" onSubmit={submitMkdir}>
