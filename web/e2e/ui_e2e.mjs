@@ -86,7 +86,7 @@ try {
       const selectors = {
         body: ".connect-body",
         host: ".connect-host-panel",
-        main: ".connect-main",
+        main: ".dock-workspace",
         files: ".files-zone",
       };
       const rectangles = Object.fromEntries(Object.entries(selectors).map(([name, selector]) => {
