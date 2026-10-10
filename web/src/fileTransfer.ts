@@ -36,14 +36,41 @@ export function downloadFileP2P(targetID: string, path: string, sink: DownloadSi
   return transferFileP2P(targetID, path, undefined, sink, progress, signal);
 }
 
+type Session = { next?: (path: string, file?: File, sink?: DownloadSink, progress?: (p: TransferProgress) => void, signal?: AbortSignal) => Promise<{ path: string }>; close?: () => void; closed: boolean; disposed?: boolean; generation?: symbol; tail: Promise<unknown> };
+const sessions = new Map<string, Session>();
+export function closeFileTransfers(targetID: string) {
+  for (const [key, session] of sessions) if (key.startsWith(`${targetID}:`)) { session.disposed = true; session.disposed = true; session.close?.(); sessions.delete(key); }
+}
 function transferFileP2P(targetID: string, path: string, file?: File, sink?: DownloadSink, progress?: (p: TransferProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
+  const key = `${targetID}:${file ? "upload" : "download"}`;
+  let session = sessions.get(key);
+  if (!session) { session = { closed: true, tail: Promise.resolve() }; sessions.set(key, session); }
+  const current = session;
+  const result = current.tail.catch(() => {}).then(() => {
+    if (current.disposed || signal?.aborted) throw new DOMException("The file transfer was aborted", "AbortError");
+    if (!current.closed && current.next) return current.next(path, file, sink, progress, signal);
+    return openFileSession(current, targetID, path, file, sink, progress, signal);
+  });
+  current.tail = result;
+  return result;
+}
+
+function openFileSession(session: Session, targetID: string, path: string, file?: File, sink?: DownloadSink, progress?: (p: TransferProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
   const action = file ? "upload" : "download";
   let total = file?.size || 0;
   if (signal?.aborted) return Promise.reject(new DOMException("The file transfer was aborted", "AbortError"));
-  return new Promise((resolve, reject) => {
+  const generation = Symbol();
+  session.generation = generation;
+  const generation = Symbol();
+  session.generation = generation;
+  session.closed = false;
+  let closed = false;
+  let closed = false;
+  return new Promise((initialResolve, initialReject) => {
+    let resolve = initialResolve, reject = initialReject;
     const url = new URL(`/api/targets/${targetID}/files/${action}/ws`, location.href);
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    url.search = new URLSearchParams(file ? { path, name: file.name, size: String(file.size) } : { path }).toString();
+    url.search = new URLSearchParams(file ? { path, name: file.name, size: String(file.size), reuse: "1" } : { path, reuse: "1" }).toString();
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
     let peer: RTCPeerConnection | undefined;
@@ -61,25 +88,48 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
     const pending = new Map<number, { bytes: Uint8Array<ArrayBuffer>; sent: number }>();
     let interval: ReturnType<typeof setInterval> | undefined;
     let negotiationTimer: ReturnType<typeof setTimeout> | undefined;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let reusable = false, negotiated = false;
     let setupTimer: ReturnType<typeof setTimeout> | undefined;
-    const notify = () => progress?.({ loaded, total, transport });
+    const notify = () => { if (!settled) progress?.({ loaded, total, transport }); };
     const setTransport = (value: TransferTransport) => {
       if (transport !== value) { transport = value; notify(); }
     };
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
+    const close = () => {
+      closed = true;
+      if (session.generation === generation) session.closed = true;
       clearInterval(interval);
       clearTimeout(negotiationTimer);
       clearTimeout(setupTimer);
-      signal?.removeEventListener("abort", abort);
-      releaseWindow?.();
-      releaseNegotiation?.();
-      channel?.close();
-      peer?.close();
-      ws.close();
-      if (error) reject(error); else resolve({ path: destination });
+      clearTimeout(idleTimer);
+      channel?.close(); peer?.close(); ws.close();
     };
+    session.close = () => { if (!settled) finish(new DOMException("The file transfer was aborted", "AbortError")); else close(); };
+    const finish = (error?: Error) => {
+      if (settled) { if (error) close(); return; }
+      settled = true;
+      clearTimeout(negotiationTimer);
+      clearTimeout(setupTimer);
+      signal?.removeEventListener("abort", abort);
+      releaseWindow?.(); releaseNegotiation?.();
+      if (error || !reusable) close();
+      else idleTimer = setTimeout(close, 120_000);
+      if (error) reject(error); else resolve({ path: destination });
+      file = undefined; sink = undefined; progress = undefined; signal = undefined;
+    };
+    session.next = (newPath, newFile, newSink, newProgress, newSignal) => new Promise((res, rej) => {
+      clearTimeout(idleTimer);
+      resolve = res; reject = rej;
+      path = newPath; file = newFile; sink = newSink; progress = newProgress; signal = newSignal;
+      ready = false; settled = false; loaded = 0; total = file?.size || 0;
+      destination = path; recordsComplete = false; recordBuffer = new Uint8Array(0);
+      lastActivity = Date.now();
+      signal?.addEventListener("abort", abort, { once: true });
+      setupTimer = setTimeout(() => finish(new Error("File operation timed out")), 25_000);
+      try { ws.send(JSON.stringify(file ? { path, name: file.name, size: file.size } : { path })); }
+      catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
+      notify();
+    });
     const abort = () => finish(new DOMException("The file transfer was aborted", "AbortError"));
     signal?.addEventListener("abort", abort, { once: true });
     setupTimer = setTimeout(() => finish(new TransferUnavailable("File transfer channel unavailable")), 25_000);
@@ -96,14 +146,14 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
       relay(bytes);
     };
     const receive = (buffer: ArrayBuffer, fromDirect = false) => {
-      if (settled) return;
+      if (closed) return;
       if (buffer.byteLength < 9 || buffer.byteLength > 65536) { finish(new Error("Invalid file transfer response")); return; }
       const bytes = new Uint8Array(buffer);
       const seq = Number(new DataView(buffer).getBigUint64(1));
       lastActivity = Date.now();
       if (bytes[0] === ACK) {
         if (pending.delete(seq)) releaseWindow?.();
-      } else if (bytes[0] === DATA && sink) {
+      } else if (bytes[0] === DATA && action === "download") {
         if (!Number.isSafeInteger(seq) || seq < 1 || bytes.length > 8201) { finish(new Error("Invalid download sequence")); return; }
         if (seq < receiveNext) { acknowledge(seq, delivered.get(seq) || false, fromDirect); return; }
         if (seq >= receiveNext + WINDOW) return;
@@ -154,7 +204,7 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
               const data = recordBuffer.slice(9, 5 + length);
               if (loaded + data.length > total || crc32(data) !== new DataView(recordBuffer.buffer).getUint32(5)) throw new Error("Download checksum or size mismatch");
               await sink.write(data);
-              if (settled) return;
+              if (closed) return;
               loaded += data.length;
               setTransport(item.direct ? "direct" : "relay");
               notify();
@@ -194,13 +244,13 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
         channel.binaryType = "arraybuffer";
         channel.onmessage = (event: MessageEvent<ArrayBuffer>) => receive(event.data, true);
         channel.onopen = () => {
-          if (settled) return;
+          if (closed) return;
           direct = true;
           setTransport("direct");
           releaseNegotiation?.();
         };
         channel.onclose = channel.onerror = () => {
-          if (!settled) { direct = false; setTransport("relay"); }
+          if (!closed) { direct = false; setTransport("relay"); }
         };
         await peer.setLocalDescription(await peer.createOffer());
         await new Promise<void>((resolve) => {
@@ -214,15 +264,17 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
       } catch { if (!settled) { setTransport("relay"); releaseNegotiation?.(); } }
     };
     const start = async (servers: string[]) => {
-      void negotiate(servers);
-      await new Promise<void>((resolve) => {
-        releaseNegotiation = resolve;
-        // Both peers gather candidates before exchanging SDP. Allow the Agent's
-        // five-second STUN timeout before falling back, even on a small file.
-        negotiationTimer = setTimeout(resolve, 8000);
-        if (direct || transport === "relay") resolve();
-      });
-      if (!direct) setTransport("relay");
+      if (!negotiated) {
+        negotiated = true;
+        void negotiate(servers);
+        await new Promise<void>((resolve) => {
+          releaseNegotiation = resolve;
+          // Allow both peers to gather ICE before the first file starts.
+          negotiationTimer = setTimeout(resolve, 8000);
+          if (direct || transport === "relay") resolve();
+        });
+        if (!direct) setTransport("relay");
+      }
       try {
         if (!file) {
           await queue(new Uint8Array([1]));
@@ -250,7 +302,7 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
       } catch (error) { if (!settled) finish(error instanceof Error ? error : new Error(String(error))); }
     };
     ws.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
-      if (settled) return;
+      if (closed) return;
       try {
         if (typeof event.data === "string") {
           const message = JSON.parse(event.data);
@@ -258,6 +310,7 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
           if (message.type === "error") { finish(new Error(message.error || "File transfer failed")); return; }
           if (message.type === "ready" && !ready) {
             ready = true;
+            reusable = message.reuse === true;
             clearTimeout(setupTimer);
             destination = message.path;
             if (sink) {
@@ -266,10 +319,10 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
               if (total > sink.maxSize) { finish(new TransferUnavailable("Download requires native streaming")); return; }
             }
             lastActivity = Date.now();
-            interval = setInterval(() => {
-              if (settled) return;
+            if (!interval) interval = setInterval(() => {
+              if (closed) return;
               const now = Date.now();
-              if (now - lastActivity > 60_000) { finish(new Error("File transfer timed out")); return; }
+              if (!settled && now - lastActivity > 60_000) { finish(new Error("File transfer timed out")); return; }
               try {
                 for (const value of pending.values()) {
                   if (now - value.sent > 1500) {
@@ -291,12 +344,12 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
         const bytes = new Uint8Array(event.data);
         // Only the authenticated relay can report Agent status.
         if (bytes[0] === STATUS) {
+          if (settled) return;
           const status = JSON.parse(decoder.decode(bytes.subarray(9)));
           lastActivity = Date.now();
           if (status.type === "error") { finish(new Error(status.error || "File transfer failed")); return; }
           if (file) loaded = Math.max(loaded, Math.min(total, status.loaded));
-          // The Agent closes WebRTC after sending the receipt. Use its transport
-          // state even when onclose arrives before the receipt.
+          // Use the trusted Agent receipt for the completed file's transport.
           if (status.type === "complete") transport = status.direct ? "direct" : "relay";
           notify();
           if (status.type === "complete") {

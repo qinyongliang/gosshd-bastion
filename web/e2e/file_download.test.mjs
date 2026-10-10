@@ -19,11 +19,12 @@ try {
     const context = await browser.newContext({ acceptDownloads: true, locale: zh ? "zh-CN" : "en-US", viewport: { width: 1440, height: 1000 } });
     await context.addInitScript(({ mode, locale }) => {
       localStorage.setItem("gosshd_locale", locale);
-      window.downloadTest = { directBytes: 0, relayBytes: 0, interrupted: false, chunks: [], saved: false, aborted: false };
+      window.downloadTest = { directBytes: 0, relayBytes: 0, interrupted: false, chunks: [], saved: false, aborted: false, sockets: 0, offers: 0 };
       const OriginalWS = WebSocket;
       window.WebSocket = class extends OriginalWS {
         constructor(...args) {
           super(...args);
+          if (this.url.includes("/files/download/ws")) window.downloadTest.sockets++;
           if (this.url.includes("/files/download/ws")) this.addEventListener("message", (event) => {
             if (event.data instanceof ArrayBuffer && new Uint8Array(event.data)[0] === 1) {
               window.downloadTest.relayBytes += event.data.byteLength;
@@ -32,6 +33,8 @@ try {
           });
         }
       };
+      const offer = RTCPeerConnection.prototype.createOffer;
+      RTCPeerConnection.prototype.createOffer = function(...args) { window.downloadTest.offers++; return offer.apply(this, args); };
       if (["relay", "cancel", "corrupt", "stream-cancel"].includes(mode)) {
         window.RTCPeerConnection = undefined;
       } else {
@@ -128,6 +131,21 @@ try {
         const data = await response.json();
         return (data.logs || []).some((log) => log.command?.includes(name) && log.exit_code === 0 && (legacy || log.policy_reason?.includes(checksum)));
       }, { target, name, checksum, legacy: mode === "legacy" || mode === "native" });
+    }
+    if (["direct", "interrupt", "relay", "stream"].includes(mode)) {
+      for (const expected of [content, Buffer.alloc(0)]) {
+        await writeFile(join(dir, name), expected);
+        await page.evaluate(() => { window.downloadTest.chunks = []; window.downloadTest.saved = false; });
+        const saved = mode === "stream" ? null : page.waitForEvent("download");
+        await page.locator(".file-manager-body").getByRole("button", { name, exact: true }).dblclick();
+        await page.locator(".file-download-toast.success").waitFor();
+        if (saved) { const file = await saved; assert.deepEqual(await readFile(await file.path()), expected); }
+        else { await page.waitForFunction(() => window.downloadTest.saved); const chunks = await page.evaluate(() => window.downloadTest.chunks); assert.deepEqual(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), expected); }
+      }
+      const stats = await page.evaluate(() => ({ sockets: window.downloadTest.sockets, offers: window.downloadTest.offers }));
+      assert.equal(stats.sockets, 1, "downloads reopened WebSocket");
+      assert.equal(stats.offers, mode === "relay" ? 0 : 1, "downloads repeated P2P negotiation");
+      await writeFile(join(dir, name), content);
     }
     assert.deepEqual(await readFile(join(dir, name)), content, "source was changed by download");
     assert.deepEqual(errors, []);

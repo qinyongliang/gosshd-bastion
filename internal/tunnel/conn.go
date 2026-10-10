@@ -49,6 +49,8 @@ type Conn struct {
 	incoming      chan Packet
 	closedWrite   bool
 	SignalHandler func([]byte)
+	// File operations carry server-authorized paths and must never arrive via P2P.
+	FileOperationHandler func([]byte)
 }
 
 func NewConn(relay *Relay) *Conn {
@@ -232,6 +234,10 @@ func (c *Conn) receive(p Packet, direct bool) {
 	case Signal:
 		if c.SignalHandler != nil {
 			c.SignalHandler(p.Body)
+		}
+	case FileOperation:
+		if !direct && c.FileOperationHandler != nil {
+			c.FileOperationHandler(p.Body)
 		}
 	case Probe:
 		c.mu.Lock()

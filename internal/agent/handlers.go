@@ -26,6 +26,8 @@ func (c *Client) handleStreamWithSession(stream io.ReadWriteCloser, session *yam
 		return
 	}
 	switch req.Type {
+	case protocol.StreamFileSession:
+		c.handleFileSession(stream, reader, req)
 	case protocol.StreamFileUpload:
 		c.handleFileUpload(stream, reader, req)
 	case protocol.StreamFileDownload:

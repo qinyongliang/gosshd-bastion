@@ -24,6 +24,7 @@ const (
 	StreamSFTP             = "sftp"
 	StreamFileUpload       = "file-upload"
 	StreamFileDownload     = "file-download"
+	StreamFileSession      = "file-session"
 	StreamTCP              = "tcp"
 	StreamCancelForward    = "cancel-forward"
 	StreamTunnelPeer       = "tunnel-peer"
@@ -56,6 +57,7 @@ type TunnelSSHHop struct {
 	HostKey  []byte `json:"host_key"`
 }
 type StreamRequest struct {
+	FileAction    string               `json:"file_action,omitempty"`
 	Download      *FileDownloadRequest `json:"download,omitempty"`
 	Upload        *FileUploadRequest   `json:"upload,omitempty"`
 	SourceAddress string               `json:"source_address,omitempty"`
@@ -92,6 +94,7 @@ type FileTransferStatus struct {
 }
 
 type StreamResponse struct {
+	Reuse               bool     `json:"reuse,omitempty"`
 	Size                int64    `json:"size,omitempty"`
 	Peer                bool     `json:"peer,omitempty"`
 	STUNServers         []string `json:"stun_servers,omitempty"`

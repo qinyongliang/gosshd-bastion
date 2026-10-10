@@ -1622,14 +1622,13 @@ func sanitizeOpenTempName(name string) string {
 }
 
 func (a *App) authorizeTargetSFTP(w http.ResponseWriter, r *http.Request, user store.User, action string) (store.SSHTarget, bastion.Decision, bool, bool, bool) {
-	target, err := a.targetForUser(r.Context(), r.PathValue("id"), user)
+	target, decision, allowUpload, allowDownload, err := a.targetSFTPAccess(r.Context(), r.PathValue("id"), user, sshSourceIPFromRequest(r))
 	if err != nil {
-		writeOwnerError(w, err)
-		return store.SSHTarget{}, bastion.Decision{}, false, false, false
-	}
-	decision, allowUpload, allowDownload, err := a.bastion.EvaluateSFTPAccess(r.Context(), user.ID, target.ID, sshSourceIPFromRequest(r))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		if target.ID != "" {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		} else {
+			writeOwnerError(w, err)
+		}
 		return store.SSHTarget{}, bastion.Decision{}, false, false, false
 	}
 	if decision.Action == store.DecisionDeny {
@@ -1638,6 +1637,16 @@ func (a *App) authorizeTargetSFTP(w http.ResponseWriter, r *http.Request, user s
 		return store.SSHTarget{}, bastion.Decision{}, false, false, false
 	}
 	return target, decision, allowUpload, allowDownload, true
+}
+
+// Shared by HTTP operations and subsequent files on an authenticated session.
+func (a *App) targetSFTPAccess(ctx context.Context, id string, user store.User, sourceIP string) (store.SSHTarget, bastion.Decision, bool, bool, error) {
+	target, err := a.targetForUser(ctx, id, user)
+	if err != nil {
+		return store.SSHTarget{}, bastion.Decision{}, false, false, err
+	}
+	decision, upload, download, err := a.bastion.EvaluateSFTPAccess(ctx, user.ID, target.ID, sourceIP)
+	return target, decision, upload, download, err
 }
 
 func (a *App) openSFTPClient(ctx context.Context, target store.SSHTarget) (*sftp.Client, func(), error) {

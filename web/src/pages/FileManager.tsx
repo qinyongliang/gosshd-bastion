@@ -1,3 +1,4 @@
+import { closeFileTransfers } from "../fileTransfer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, CheckCircle2, ChevronRight, Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
 import type { ReactNode } from "react";
@@ -62,12 +63,13 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   }, [target.id]);
 
   useEffect(() => () => {
+    closeFileTransfers(target.id);
     uploadCancelledRef.current = true;
     uploadControllerRef.current?.abort();
     downloadControllerRef.current?.abort();
     if (downloadDismissTimerRef.current !== null) window.clearTimeout(downloadDismissTimerRef.current);
     if (uploadDismissTimerRef.current !== null) window.clearTimeout(uploadDismissTimerRef.current);
-  }, []);
+  }, [target.id]);
 
   useEffect(() => {
     if (pathEditing) pathInputRef.current?.focus();
