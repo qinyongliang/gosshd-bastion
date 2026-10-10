@@ -39,13 +39,14 @@ import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution";
 import "monaco-editor/esm/vs/language/json/monaco.contribution";
 import "monaco-editor-nginx";
 import { Terminal } from "@xterm/xterm";
-import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Globe, GripVertical, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, Save, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
+import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Globe, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, RotateCcw, Save, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { MachinePicker, serverTitle } from "../components/MachinePicker";
 import { ManualReviewPoller } from "../components/ManualReviewPoller";
+import { DockDragHandle, DockWorkspace } from "../components/DockWorkspace";
 import { BrandMark, ConfirmDialog, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appName, documentTitle } from "../lib/branding";
@@ -55,6 +56,8 @@ import { useTheme } from "../theme";
 import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
 import { targetEndpoint } from "../utils";
 import { FileManager } from "./FileManager";
+import { contentPaneTree, defaultWorkspaceLayout, findPane, firstLeafID, newPaneID, paneLeaves, readWorkspacePreferences, removePane, restoreWorkspace, saveWorkspace, splitPane } from "../workspaceLayout";
+import type { EditorPaneNode, PaneLeaf, PaneNode, PaneSide, TerminalPaneNode } from "../workspaceLayout";
 import aiCollaborationIcon from "../assets/ai-collaboration.png";
 
 let monacoConfigured = false;
@@ -81,30 +84,6 @@ type ConnectionTab = {
   pendingCommand?: string;
 };
 
-type PaneNode = TerminalPaneNode | EditorPaneNode | SplitPaneNode;
-type PaneDirection = "row" | "column";
-type PaneSide = "left" | "right" | "up" | "down";
-type TerminalPaneNode = {
-  type: "terminal";
-  id: string;
-  targetID: string;
-  restoreSession: boolean;
-};
-type EditorPaneNode = {
-  type: "editor";
-  id: string;
-  targetID: string;
-  path: string;
-};
-type SplitPaneNode = {
-  type: "split";
-  id: string;
-  direction: PaneDirection;
-  ratio: number;
-  first: PaneNode;
-  second: PaneNode;
-};
-
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 const SYSTEM_METRICS_REFRESH_MS = 5000;
@@ -125,6 +104,7 @@ type TerminalPanelProps = {
   pendingCommand?: string;
   onPendingCommandConsumed?: () => void;
   manualReview?: boolean;
+  dockable?: boolean;
 };
 
 type TerminalRuntime = {
@@ -185,21 +165,20 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const terminalFocusedByDefault = shouldFocusTerminalByDefault();
-  const [hostOpen, setHostOpen] = useState(() => !terminalFocusedByDefault);
-  const [filesOpen, setFilesOpen] = useState(() => !terminalFocusedByDefault);
+  const [mobileLayout] = useState(isMobileViewport);
+  const layoutStorageKey = `gosshd-workspace-layout:v1:${data.user.id}:${data.activeOrg.id}:${mobileLayout ? "mobile" : "desktop"}`;
+  const [hostOpen, setHostOpen] = useState(() => readWorkspacePreferences(layoutStorageKey)?.hostOpen ?? !terminalFocusedByDefault);
+  const [filesOpen, setFilesOpen] = useState(() => readWorkspacePreferences(layoutStorageKey)?.filesOpen ?? !terminalFocusedByDefault);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
-  const [hostWidth, setHostWidth] = useState(248);
-  const [filesWidth, setFilesWidth] = useState(330);
   const initialConnectionIsFresh = useRef(getConnectNewParam()).current;
-  const [tabs, setTabs] = useState<ConnectionTab[]>(() => target ? [newConnectionTab(target.id, getConnectCommandParam(), !initialConnectionIsFresh)] : []);
+  const createConnectionTab = (targetID: string, command = "", restoreSession = false) => newConnectionTab(targetID, command, restoreSession, layoutStorageKey, mobileLayout, new Set(targets.map((item) => item.id)));
+  const [tabs, setTabs] = useState<ConnectionTab[]>(() => target ? [createConnectionTab(target.id, getConnectCommandParam(), !initialConnectionIsFresh)] : []);
   const [activeTabID, setActiveTabID] = useState(() => tabs[0]?.id || "");
   const [tabMenu, setTabMenu] = useState<{ tabID: string; x: number; y: number } | null>(null);
   const [switcherOpenSignal, setSwitcherOpenSignal] = useState(0);
   const expectedRouteTabIDRef = useRef("");
   const suppressedRouteTargetIDRef = useRef("");
   const seenOpenMessageIDsRef = useRef<Set<string>>(new Set());
-  const bodyRef = useRef<HTMLElement>(null);
-  const mainRef = useRef<HTMLElement>(null);
   const activeTab = tabs.find((item) => item.id === activeTabID) || tabs[0] || null;
   const activePane = activeTab ? findPane(activeTab.layout, activeTab.activePaneID) : null;
   const activeTargetID = activePane && activePane.type !== "split" ? activePane.targetID : activeTab?.targetID;
@@ -212,6 +191,11 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const name = appName(data.runtime);
   const description = appDescription(data.runtime);
   const routePendingCommand = getConnectCommandParam();
+
+  useEffect(() => {
+    if (!activeTab) return;
+    saveWorkspace(layoutStorageKey, activeTab.targetID, activeTab.layout, activeTab.filePath, activeTab.activePaneID, { hostOpen, filesOpen });
+  }, [activeTab?.layout, activeTab?.filePath, activeTab?.activePaneID, activeTab?.targetID, hostOpen, filesOpen, layoutStorageKey]);
 
   useEffect(() => {
     if (initialConnectionIsFresh) clearConnectParam("new");
@@ -263,7 +247,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   };
 
   const appendConnectionTab = (nextTargetID: string, command = "") => {
-    const next = newConnectionTab(nextTargetID, command);
+    const next = createConnectionTab(nextTargetID, command);
     expectedRouteTabIDRef.current = next.id;
     suppressedRouteTargetIDRef.current = "";
     setTabs((current) => [...current, next]);
@@ -274,7 +258,8 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   useEffect(() => {
     if (!target) return;
     if (expectedRouteTabIDRef.current) {
-      expectedRouteTabIDRef.current = "";
+      const expectedTab = tabs.find((tab) => tab.id === expectedRouteTabIDRef.current);
+      if (expectedTab?.targetID === target.id && activeTab?.id === expectedTab.id) expectedRouteTabIDRef.current = "";
       return;
     }
     if (!activeTab) return;
@@ -285,7 +270,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       setActiveTabID(existing.id);
       return;
     }
-    const next = newConnectionTab(target.id, getConnectCommandParam());
+    const next = createConnectionTab(target.id, getConnectCommandParam());
     expectedRouteTabIDRef.current = next.id;
     setActiveTabID(next.id);
     setTabs((current) => [...current, next]);
@@ -384,21 +369,6 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     setTabs((current) => current.map((tab) => tab.id === activeTabID ? updater(tab) : tab));
   };
 
-  const splitActivePane = (side: PaneSide, targetID?: string) => {
-    if (!activeTab) return;
-    const basePane = findPane(activeTab.layout, activeTab.activePaneID);
-    if (!basePane || basePane.type === "split") return;
-    const nextTargetID = targetID || basePane.targetID;
-    const nextPane = newTerminalPane(nextTargetID);
-    updateActiveTab((tab) => ({
-      ...tab,
-      layout: splitPane(tab.layout, tab.activePaneID, nextPane, side),
-      activePaneID: nextPane.id,
-      targetID: nextTargetID,
-    }));
-    scheduleAllTerminalFits();
-  };
-
   const splitTabIntoActiveTab = (sourceTabID: string, side: PaneSide) => {
     if (!activeTab || sourceTabID === activeTab.id) return;
     setTabMenu(null);
@@ -406,7 +376,9 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       const source = current.find((item) => item.id === sourceTabID);
       const destination = current.find((item) => item.id === activeTabID);
       if (!source || !destination || source.id === destination.id) return current;
-      const nextLayout = splitPane(destination.layout, destination.activePaneID, source.layout, side);
+      const sourceContent = contentPaneTree(source.layout);
+      if (!sourceContent) return current;
+      const nextLayout = splitPane(destination.layout, destination.activePaneID, sourceContent, side);
       return current
         .filter((item) => item.id !== source.id)
         .map((item) => item.id === destination.id ? {
@@ -430,7 +402,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
 
   const closePane = (tabID: string, paneID: string) => {
     const tab = tabs.find((item) => item.id === tabID);
-    if (tab && tab.layout.id === paneID) {
+    if (tab && paneLeaves(tab.layout).filter((pane) => pane.type === "terminal" || pane.type === "editor").length === 1) {
       closeTabs("one", tabID);
       return;
     }
@@ -452,7 +424,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     const editorPane: EditorPaneNode = { type: "editor", id: newPaneID("editor"), targetID: paneTargetID, path: filePath };
     updateActiveTab((tab) => ({
       ...tab,
-      layout: splitPane(tab.layout, tab.activePaneID, editorPane, "up"),
+      layout: splitPane(tab.layout, tab.activePaneID, editorPane, "right"),
       activePaneID: editorPane.id,
     }));
   };
@@ -526,34 +498,17 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [activeTab?.id, activeTab?.activePaneID, data.runtime.client_mode]);
 
-  const startResize = (area: "host" | "files", event: React.PointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    const bodyRect = bodyRef.current?.getBoundingClientRect();
-    const mainRect = mainRef.current?.getBoundingClientRect();
-    if (!bodyRect || !mainRect) return;
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      if (area === "host") {
-        setHostWidth(clampNumber(moveEvent.clientX - bodyRect.left, 190, Math.min(360, bodyRect.width * 0.28)));
-      } else {
-        setFilesWidth(clampNumber(mainRect.right - moveEvent.clientX, 260, Math.min(480, mainRect.width * 0.38)));
-      }
-    };
-    const onPointerUp = () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      document.body.classList.remove("is-resizing-connect");
-    };
-
-    document.body.classList.add("is-resizing-connect");
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
+  const resetLayout = () => {
+    if (!activeTab) return;
+    updateActiveTab((tab) => ({ ...tab, layout: defaultWorkspaceLayout(contentPaneTree(tab.layout)!, tab.targetID, mobileLayout) }));
+    setHostOpen(!terminalFocusedByDefault);
+    setFilesOpen(!terminalFocusedByDefault);
   };
 
   return (
     <main className={`connect-workspace ${terminalFullscreen ? "terminal-fullscreen-active" : ""} ${hasOpenTabs ? "" : "no-tabs"}`}>
       <header className="connect-appbar">
-        <Link className="connect-appbar-brand" to="/">
+        <Link className="connect-appbar-brand" to="/" aria-label={name}>
           <BrandMark branding={data.runtime} className="connect-appbar-mark" />
           <div className="connect-appbar-title">
             <strong>{name}</strong>
@@ -580,6 +535,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         </div>}
 
         <div className="connect-appbar-actions">
+          {activeTab && <button type="button" className="icon-button" onClick={resetLayout} title={t("connectResetLayout")} aria-label={t("connectResetLayout")}><RotateCcw /></button>}
           <Segmented value={locale} items={[["en", "EN"], ["zh-CN", t("languageChinese")]]} onChange={(value) => setLocale(value as "en" | "zh-CN")} />
           <Segmented value={theme} items={[["dark", t("themeDark")], ["light", t("themeLight")]]} onChange={(value) => setTheme(value as "light" | "dark")} />
         </div>
@@ -599,150 +555,82 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
         onSplitTab={splitTabIntoActiveTab}
       />
 
-      <section
-        ref={bodyRef}
-        className={`connect-body ${hostOpen ? "" : "host-collapsed"}`}
-        style={{ "--host-width": `${hostWidth}px` } as CSSProperties}
-      >
-        <aside className={`connect-host-panel ${hostOpen ? "" : "collapsed"}`}>
-          {hostOpen ? (
-            <>
-              <section className="connect-panel compact">
-                <header className="connect-panel-title">
-                  <h3><Monitor />{t("connectHostInfo")}</h3>
-                  <button type="button" className="icon-button" onClick={() => setHostOpen(false)} title={t("connectCollapseSidebar")}>
-                    <ChevronLeft />
-                  </button>
-                </header>
-                {activeTarget ? <dl className="connect-host-list">
-                  <div><dt>{t("serviceName")}</dt><dd>{activeTarget.name}</dd></div>
-                  <div><dt>{t("serviceAlias")}</dt><dd><code>{activeTarget.alias}</code></dd></div>
-                  <div><dt>{t("targetHost")}</dt><dd>{activeTarget.host || "-"}</dd></div>
-                  <div><dt>{t("targetPort")}</dt><dd>{activeTarget.port || 22}</dd></div>
-                  <div><dt>{t("serviceRemoteUser")}</dt><dd>{activeTarget.remote_username}</dd></div>
-                  <div><dt>{t("commonTag")}</dt><dd>{(activeTarget.tags || []).join(", ") || "-"}</dd></div>
-                </dl> : <div className="connect-zone-empty"><span>{t("connectNoOpenTabsBody")}</span></div>}
-              </section>
-              {activeTarget && <SystemSnapshotPanel
-                targetID={activeTarget.id}
-                snapshot={systemSnapshot}
-                sampleSnapshot={systemMetrics.data || system.data}
-                isLoading={system.isLoading}
-                isFetching={system.isFetching || systemMetrics.isFetching || systemFilesystems.isFetching}
-                error={system.error || systemMetrics.error || systemFilesystems.error}
-                onRefresh={refreshSystem}
-              />}
-            </>
-          ) : (
-            <button type="button" className="collapsed-zone-button" onClick={() => setHostOpen(true)} title={t("connectExpandSidebar")}>
-              <ChevronRight />
-              <span>{t("connectHostInfo")}</span>
-            </button>
-          )}
-        </aside>
-        {hostOpen && !terminalFullscreen && (
-          <button type="button" className="connect-resizer host-resizer" onPointerDown={(event) => startResize("host", event)} aria-label={t("connectHostInfo")}>
-            <GripVertical />
-          </button>
-        )}
-
-        <section
-          ref={mainRef}
-          className={`connect-main ${filesOpen ? "" : "files-collapsed"}`}
-          style={{ "--files-width": `${filesWidth}px` } as CSSProperties}
-        >
-          <div className="connect-zone terminal-zone">
-            <div className="terminal-tab-stack">
-              {hasOpenTabs ? (
-                tabs.map((tab) => (
-                  <div key={tab.id} className={`terminal-tab-layer ${tab.id === activeTabID ? "active" : "inactive"}`}>
-                    <PaneTree
-                      data={data}
-                      node={tab.layout}
-                      targets={targets}
-                      activePaneID={tab.activePaneID}
-                      isFullscreen={terminalFullscreen && tab.id === activeTabID}
-                      tabActive={tab.id === activeTabID}
-                      pendingCommand={tab.id === activeTabID ? (tab.pendingCommand || routePendingCommand) : ""}
-                      onPendingCommandConsumed={() => {
-                        clearConnectCommandParam();
-                        setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, pendingCommand: "" } : item));
-                      }}
-                      onActivate={(paneID) => {
-                        setActiveTabID(tab.id);
-                        setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, activePaneID: paneID } : item));
-                      }}
-                      onClose={(paneID) => closePane(tab.id, paneID)}
-                      onFullscreenChange={setTerminalFullscreen}
-                      onSplit={(side, targetID) => {
-                        setActiveTabID(tab.id);
-                        setTabs((current) => current.map((item) => {
-                          if (item.id !== tab.id) return item;
-                          const basePane = findPane(item.layout, item.activePaneID);
-                          if (!basePane || basePane.type === "split") return item;
-                          const nextPane = newTerminalPane(targetID || basePane.targetID);
-                          return {
-                            ...item,
-                            layout: splitPane(item.layout, item.activePaneID, nextPane, side),
-                            activePaneID: nextPane.id,
-                            targetID: nextPane.targetID,
-                          };
-                        }));
-                        scheduleAllTerminalFits();
-                      }}
-                      onResizeSplit={(splitID, ratio) => {
-                        setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, layout: resizeSplit(item.layout, splitID, ratio) } : item));
-                        scheduleAllTerminalFits();
-                      }}
-                    />
-                  </div>
-                ))
-              ) : (
-                <div className="connect-zone-empty">
-                  <strong>{t("connectNoOpenTabsTitle")}</strong>
-                  <span>{t("connectNoOpenTabsBody")}</span>
-                </div>
-              )}
-            </div>
-          </div>
-          {filesOpen && !terminalFullscreen && (
-            <button type="button" className="connect-resizer files-resizer" onPointerDown={(event) => startResize("files", event)} aria-label={t("connectFilesTitle")}>
-              <GripVertical />
-            </button>
-          )}
-          <div className={`connect-zone files-zone ${filesOpen ? "" : "collapsed"}`}>
-            {filesOpen ? (
-              <>
-            <div className="connect-zone-head">
-              <span><HardDrive />{t("connectFilesTitle")}</span>
-              <button type="button" className="icon-button" onClick={() => setFilesOpen(false)} title={t("connectCollapseSidebar")}>
-                <ChevronRight />
-              </button>
-            </div>
-            {hasOpenTabs && activeTarget ? (
-              <FileManager
-                key={activeTab.id}
-                target={activeTarget}
-                path={activeTab.filePath}
-                onPathChange={(filePath) => setTabs((current) => current.map((tab) => tab.id === activeTab.id ? { ...tab, filePath } : tab))}
-                system={systemSnapshot}
-                nativeOpen={Boolean(data.runtime.client_mode)}
-                onEditFile={openEditorForActiveTarget}
-              />
-            ) : (
-              <div className="connect-zone-empty">
-                <span>{t("connectFilesNoOpenTabs")}</span>
-              </div>
-            )}
-              </>
-            ) : (
-              <button type="button" className="collapsed-zone-button" onClick={() => setFilesOpen(true)} title={t("connectFilesTitle")}>
-                <ChevronLeft />
-                <span>{t("connectFilesTitle")}</span>
-              </button>
-            )}
-          </div>
-        </section>
+      <section className="connect-body dock-body">
+        {hasOpenTabs ? tabs.map((tab) => {
+          const selectedPane = findPane(tab.layout, tab.activePaneID);
+          const tabTarget = targets.find((item) => item.id === (selectedPane && selectedPane.type !== "split" ? selectedPane.targetID : tab.targetID));
+          const tabActive = tab.id === activeTabID;
+          const collapsed = new Set(paneLeaves(tab.layout).filter((pane) => (pane.type === "host" && !hostOpen) || (pane.type === "files" && !filesOpen)).map((pane) => pane.id));
+          return <div key={tab.id} className={`terminal-tab-layer ${tabActive ? "active" : "inactive"}`}>
+            <DockWorkspace
+              layout={tab.layout}
+              active={tabActive}
+              collapsed={collapsed}
+              fullscreenPaneID={terminalFullscreen && tabActive ? tab.activePaneID : undefined}
+              onLayoutChange={(layout) => {
+                setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, layout } : item));
+                scheduleAllTerminalFits();
+              }}
+              renderPane={(pane) => {
+                if (pane.type === "host") return <aside className={`connect-host-panel ${hostOpen ? "" : "collapsed"}`}>
+                  {hostOpen ? <>
+                    <section className="connect-panel compact">
+                      <header className="connect-panel-title">
+                        <h3><DockDragHandle paneID={pane.id}><Monitor />{t("connectHostInfo")}</DockDragHandle></h3>
+                        <button type="button" className="icon-button" onClick={() => setHostOpen(false)} title={t("connectCollapseSidebar")}><ChevronLeft /></button>
+                      </header>
+                      {tabTarget && <dl className="connect-host-list">
+                        <div><dt>{t("serviceName")}</dt><dd>{tabTarget.name}</dd></div>
+                        <div><dt>{t("serviceAlias")}</dt><dd><code>{tabTarget.alias}</code></dd></div>
+                        <div><dt>{t("targetHost")}</dt><dd>{tabTarget.host || "-"}</dd></div>
+                        <div><dt>{t("targetPort")}</dt><dd>{tabTarget.port || 22}</dd></div>
+                        <div><dt>{t("serviceRemoteUser")}</dt><dd>{tabTarget.remote_username}</dd></div>
+                        <div><dt>{t("commonTag")}</dt><dd>{(tabTarget.tags || []).join(", ") || "-"}</dd></div>
+                      </dl>}
+                    </section>
+                    {tabTarget && <SystemSnapshotPanel targetID={tabTarget.id} snapshot={tabActive ? systemSnapshot : undefined} sampleSnapshot={tabActive ? systemMetrics.data || system.data : undefined} isLoading={system.isLoading} isFetching={system.isFetching || systemMetrics.isFetching || systemFilesystems.isFetching} error={system.error || systemMetrics.error || systemFilesystems.error} onRefresh={refreshSystem} />}
+                  </> : <div className="dock-collapsed-tools"><DockDragHandle paneID={pane.id} /><button type="button" className="collapsed-zone-button" onClick={() => setHostOpen(true)} title={t("connectExpandSidebar")}><ChevronRight /><span>{t("connectHostInfo")}</span></button></div>}
+                </aside>;
+                if (pane.type === "files") return <div className={`connect-zone files-zone ${filesOpen ? "" : "collapsed"}`}>
+                  {filesOpen ? <>
+                    <div className="connect-zone-head">
+                      <DockDragHandle paneID={pane.id}><HardDrive />{t("connectFilesTitle")}</DockDragHandle>
+                      <button type="button" className="icon-button" onClick={() => setFilesOpen(false)} title={t("connectCollapseSidebar")}><ChevronRight /></button>
+                    </div>
+                    {tabTarget ? <FileManager target={tabTarget} path={tab.filePath} onPathChange={(filePath) => setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, filePath } : item))} system={tabActive ? systemSnapshot : undefined} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} /> : <div className="connect-zone-empty"><span>{t("connectFilesNoOpenTabs")}</span></div>}
+                  </> : <div className="dock-collapsed-tools"><DockDragHandle paneID={pane.id} /><button type="button" className="collapsed-zone-button" onClick={() => setFilesOpen(true)} title={t("connectFilesTitle")}><ChevronLeft /><span>{t("connectFilesTitle")}</span></button></div>}
+                </div>;
+                return <PaneTree
+                  data={data}
+                  node={pane}
+                  targets={targets}
+                  activePaneID={tab.activePaneID}
+                  isFullscreen={terminalFullscreen && tabActive}
+                  tabActive={tabActive}
+                  pendingCommand={tabActive ? (tab.pendingCommand || routePendingCommand) : ""}
+                  onPendingCommandConsumed={() => {
+                    clearConnectCommandParam();
+                    setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, pendingCommand: "" } : item));
+                  }}
+                  onActivate={(paneID) => {
+                    setActiveTabID(tab.id);
+                    setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, activePaneID: paneID } : item));
+                  }}
+                  onClose={(paneID) => closePane(tab.id, paneID)}
+                  onFullscreenChange={setTerminalFullscreen}
+                  onSplit={(side, targetID) => {
+                    setTabs((current) => current.map((item) => {
+                      if (item.id !== tab.id) return item;
+                      const nextPane = newTerminalPane(targetID || pane.targetID);
+                      return { ...item, layout: splitPane(item.layout, pane.id, nextPane, side), activePaneID: nextPane.id, targetID: nextPane.targetID };
+                    }));
+                    scheduleAllTerminalFits();
+                  }}
+                />;
+              }}
+            />
+          </div>;
+        }) : <div className="connect-zone-empty"><strong>{t("connectNoOpenTabsTitle")}</strong><span>{t("connectNoOpenTabsBody")}</span></div>}
       </section>
     </main>
   );
@@ -816,118 +704,29 @@ function ConnectionTabs({
   );
 }
 
-function PaneTree({
-  data,
-  node,
-  targets,
-  activePaneID,
-  isFullscreen,
-  onActivate,
-  onClose,
-  onFullscreenChange,
-  onSplit,
-  onResizeSplit,
-  tabActive,
-  pendingCommand,
-  onPendingCommandConsumed,
-}: {
+function PaneTree({ data, node, targets, activePaneID, isFullscreen, tabActive, pendingCommand, onPendingCommandConsumed, onActivate, onClose, onFullscreenChange, onSplit }: {
   data: ConsoleData;
-  node: PaneNode;
+  node: PaneLeaf;
   targets: Target[];
   activePaneID: string;
   isFullscreen: boolean;
+  tabActive: boolean;
+  pendingCommand?: string;
+  onPendingCommandConsumed?: () => void;
   onActivate: (paneID: string) => void;
   onClose: (paneID: string) => void;
   onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
   onSplit: (side: PaneSide, targetID?: string) => void;
-  onResizeSplit: (splitID: string, ratio: number) => void;
-  tabActive: boolean;
-  pendingCommand?: string;
-  onPendingCommandConsumed?: () => void;
 }) {
-  if (node.type === "split") {
-    return <SplitPaneView data={data} node={node} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} tabActive={tabActive} pendingCommand={pendingCommand} onPendingCommandConsumed={onPendingCommandConsumed} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />;
-  }
   const target = targets.find((item) => item.id === node.targetID);
   if (!target) return null;
   const active = tabActive && node.id === activePaneID;
   const activate = () => onActivate(node.id);
-  if (node.type === "editor") {
-    return <EditorPane paneID={node.id} target={target} filePath={node.path} active={active} onActivate={activate} onClose={() => onClose(node.id)} />;
-  }
-  return (
-    <div className={`pane-leaf ${active ? "active" : ""}`} onPointerDown={activate}>
-      <TerminalPanel
-        data={data}
-        target={target}
-        restoreSession={node.restoreSession}
-        active={active}
-        isFullscreen={isFullscreen && active}
-        onFullscreenChange={onFullscreenChange}
-        onClose={() => onClose(node.id)}
-        onSplit={onSplit}
-        paneID={node.id}
-        pendingCommand={pendingCommand}
-        onPendingCommandConsumed={onPendingCommandConsumed}
-      />
-    </div>
-  );
-}
-
-function SplitPaneView({
-  data,
-  node,
-  targets,
-  activePaneID,
-  isFullscreen,
-  onActivate,
-  onClose,
-  onFullscreenChange,
-  onSplit,
-  onResizeSplit,
-  tabActive,
-  pendingCommand,
-  onPendingCommandConsumed,
-}: {
-  data: ConsoleData;
-  node: SplitPaneNode;
-  targets: Target[];
-  activePaneID: string;
-  isFullscreen: boolean;
-  onActivate: (paneID: string) => void;
-  onClose: (paneID: string) => void;
-  onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
-  onSplit: (side: PaneSide, targetID?: string) => void;
-  onResizeSplit: (splitID: string, ratio: number) => void;
-  tabActive: boolean;
-  pendingCommand?: string;
-  onPendingCommandConsumed?: () => void;
-}) {
-  const splitRef = useRef<HTMLDivElement>(null);
-  const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    const rect = splitRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      const raw = node.direction === "row" ? (moveEvent.clientX - rect.left) / rect.width : (moveEvent.clientY - rect.top) / rect.height;
-      onResizeSplit(node.id, clampNumber(raw, 0.18, 0.82));
-    };
-    const onPointerUp = () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      document.body.classList.remove("is-resizing-connect");
-    };
-    document.body.classList.add("is-resizing-connect");
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-  };
-  return (
-    <div ref={splitRef} className={`pane-split ${node.direction}`} style={{ "--split-ratio": `${node.ratio * 100}%` } as CSSProperties}>
-      <PaneTree data={data} node={node.first} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} tabActive={tabActive} pendingCommand={pendingCommand} onPendingCommandConsumed={onPendingCommandConsumed} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />
-      <button type="button" className="pane-splitter" onPointerDown={startResize} aria-label="Resize pane" />
-      <PaneTree data={data} node={node.second} targets={targets} activePaneID={activePaneID} isFullscreen={isFullscreen} tabActive={tabActive} pendingCommand={pendingCommand} onPendingCommandConsumed={onPendingCommandConsumed} onActivate={onActivate} onClose={onClose} onFullscreenChange={onFullscreenChange} onSplit={onSplit} onResizeSplit={onResizeSplit} />
-    </div>
-  );
+  if (node.type === "editor") return <EditorPane paneID={node.id} target={target} filePath={node.path} active={active} onActivate={activate} onClose={() => onClose(node.id)} />;
+  if (node.type !== "terminal") return null;
+  return <div className={`connect-zone terminal-zone pane-leaf ${active ? "active" : ""}`} onPointerDown={activate}>
+    <TerminalPanel data={data} target={target} restoreSession={node.restoreSession} active={active} isFullscreen={isFullscreen && active} onFullscreenChange={onFullscreenChange} onClose={() => onClose(node.id)} onSplit={onSplit} paneID={node.id} pendingCommand={pendingCommand} onPendingCommandConsumed={onPendingCommandConsumed} dockable />
+  </div>;
 }
 
 function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: { paneID: string; target: Target; filePath: string; active: boolean; onActivate: () => void; onClose: () => void }) {
@@ -1059,7 +858,7 @@ function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: {
   return (
     <section className={`editor-pane pane-leaf ${active ? "active" : ""}`} onPointerDown={onActivate}>
       <header className="editor-pane-head">
-        <span title={filePath}>{dirty ? "* " : ""}{filePath}</span>
+        <DockDragHandle paneID={paneID}><span title={filePath}>{dirty ? "* " : ""}{filePath}</span></DockDragHandle>
         <div className="editor-pane-actions">
           <button type="button" className="icon-button" onClick={() => void save()} title={t("save")} disabled={file.isLoading}>
             <Save />
@@ -1081,7 +880,7 @@ function EditorPane({ paneID, target, filePath, active, onActivate, onClose }: {
             height="100%"
             width="100%"
             theme={editorTheme}
-            path={filePath}
+            path={`gosshd://${encodeURIComponent(target.id)}/${encodeURIComponent(paneID)}/${encodeURIComponent(filePath)}`}
             language={editorLanguage}
             value={content}
             wrapperProps={{ className: "editor-monaco-wrapper" }}
@@ -1342,7 +1141,7 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-export function TerminalPanel({ data, target, paneID, restoreSession = false, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, pendingCommand = "", onPendingCommandConsumed, manualReview = true }: TerminalPanelProps) {
+export function TerminalPanel({ data, target, paneID, restoreSession = false, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, pendingCommand = "", onPendingCommandConsumed, manualReview = true, dockable = false }: TerminalPanelProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const runtime = useMemo(() => getTerminalRuntime(paneID, target.id, restoreSession), [paneID, restoreSession, target.id]);
@@ -1702,7 +1501,7 @@ export function TerminalPanel({ data, target, paneID, restoreSession = false, ac
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "F11") {
+      if (event.key === "F11" && runtime.active) {
         event.preventDefault();
         onFullscreenChange((prev) => !prev);
       }
@@ -1745,6 +1544,7 @@ export function TerminalPanel({ data, target, paneID, restoreSession = false, ac
     <section className={`terminal-panel ${active ? "active" : "inactive"} ${isFullscreen ? "fullscreen" : ""}`} aria-hidden={!active}>
       {manualReview && sessionID && <ManualReviewPoller data={data} sessionID={sessionID} />}
       <div className="terminal-pane-toolbar">
+        {dockable && <DockDragHandle paneID={paneID}><span>{t("connectTerminal")}</span></DockDragHandle>}
         <button type="button" className={`terminal-ai-button icon-button ${aiEnabled ? "active" : ""}`} onClick={toggleAI} aria-pressed={aiEnabled} title={aiEnabled ? t("connectAICollaborationOn") : t("connectAICollaborationOff")}>
           <img src={aiCollaborationIcon} alt="" />
         </button>
@@ -1811,13 +1611,14 @@ function contextMenuPointInTabs(clientX: number, clientY: number, container: HTM
   };
 }
 
-function newConnectionTab(targetID: string, pendingCommand = "", restoreSession = false): ConnectionTab {
-  const pane = newTerminalPane(targetID, restoreSession);
-  return { id: `${targetID}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`, targetID, layout: pane, activePaneID: pane.id, filePath: ".", pendingCommand };
-}
-
-function newPaneID(prefix: string) {
-  return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+function newConnectionTab(targetID: string, pendingCommand: string, restoreSession: boolean, storageKey: string, mobile: boolean, allowedTargets: ReadonlySet<string>): ConnectionTab {
+  const restored = restoreWorkspace(storageKey, targetID, restoreSession, mobile, allowedTargets);
+  let terminal = paneLeaves(restored.layout).find((pane) => pane.type === "terminal");
+  if (pendingCommand && !terminal) {
+    terminal = newTerminalPane(targetID);
+    restored.layout = splitPane(restored.layout, restored.activePaneID, terminal, "left");
+  }
+  return { id: newPaneID(targetID), targetID, ...restored, activePaneID: pendingCommand ? terminal!.id : restored.activePaneID, pendingCommand };
 }
 
 function newTerminalPane(targetID: string, restoreSession = false): TerminalPaneNode {
@@ -1974,48 +1775,6 @@ function disposePaneRuntime(node: PaneNode | null) {
   runtime.terminal?.dispose();
   runtime.terminal = null;
   terminalRuntimes.delete(node.id);
-}
-
-function findPane(node: PaneNode, paneID: string): PaneNode | null {
-  if (node.id === paneID) return node;
-  if (node.type !== "split") return null;
-  return findPane(node.first, paneID) || findPane(node.second, paneID);
-}
-
-function splitPane(node: PaneNode, paneID: string, nextPane: PaneNode, side: PaneSide): PaneNode {
-  if (node.id === paneID) {
-    return {
-      type: "split",
-      id: newPaneID("split"),
-      direction: side === "up" || side === "down" ? "column" : "row",
-      ratio: 0.5,
-      first: side === "left" || side === "up" ? nextPane : node,
-      second: side === "left" || side === "up" ? node : nextPane,
-    };
-  }
-  if (node.type !== "split") return node;
-  return { ...node, first: splitPane(node.first, paneID, nextPane, side), second: splitPane(node.second, paneID, nextPane, side) };
-}
-
-function removePane(node: PaneNode, paneID: string): { node: PaneNode | null; activePaneID: string } {
-  if (node.id === paneID) return { node: null, activePaneID: "" };
-  if (node.type !== "split") return { node, activePaneID: node.id };
-  const first = removePane(node.first, paneID);
-  if (!first.node) return { node: node.second, activePaneID: firstLeafID(node.second) };
-  const second = removePane(node.second, paneID);
-  if (!second.node) return { node: first.node, activePaneID: firstLeafID(first.node) };
-  return { node: { ...node, first: first.node, second: second.node }, activePaneID: first.activePaneID || second.activePaneID };
-}
-
-function resizeSplit(node: PaneNode, splitID: string, ratio: number): PaneNode {
-  if (node.type !== "split") return node;
-  if (node.id === splitID) return { ...node, ratio };
-  return { ...node, first: resizeSplit(node.first, splitID, ratio), second: resizeSplit(node.second, splitID, ratio) };
-}
-
-function firstLeafID(node: PaneNode): string {
-  if (node.type !== "split") return node.id;
-  return firstLeafID(node.first);
 }
 
 function tabSelectionIncludes(tabs: ConnectionTab[], index: number, mode: "one" | "left" | "right" | "others" | "all", tabID: string) {

@@ -1,6 +1,6 @@
 import { closeFileTransfers } from "../fileTransfer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, ChevronRight, Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, Move, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronRight, Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, MoreHorizontal, Move, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -14,7 +14,7 @@ import { copyText } from "../utils";
 type FileSortKey = "name" | "size" | "mode" | "modified";
 type SortOrder = "asc" | "desc";
 type BreadcrumbItem = { key: string; label: string; kind: "drives" | "dirs"; menuPath: string };
-type BreadcrumbMenuState = { kind: "drives" | "dirs"; path: string; left: number; top: number; width: number };
+type BreadcrumbMenuState = { key: string; kind: "drives" | "dirs"; path: string; left: number; top: number; width: number; maxHeight: number; above: boolean };
 type DownloadTask = { fileName: string; loaded: number; total: number; speed: number; transport?: TransferTransport; status: "downloading" | "success" | "cancelled" | "error" | "browser" };
 
 type UploadTask = { fileName: string; loaded: number; total: number; speed: number; queueIndex: number; queueTotal: number; completed: number; failed: number; transport?: TransferTransport; status: "uploading" | "success" | "cancelled" | "error" };
@@ -110,10 +110,10 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     const reposition = () => {
       const rect = crumbAnchorRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const width = Math.max(180, rect.width);
+      const position = breadcrumbMenuPositionInViewport(rect);
       setCrumbMenu((current) => {
-        if (!current || (current.left === rect.left && current.top === rect.bottom + 4 && current.width === width)) return current;
-        return { ...current, left: rect.left, top: rect.bottom + 4, width };
+        if (!current || (current.left === position.left && current.top === position.top && current.width === position.width && current.maxHeight === position.maxHeight && current.above === position.above)) return current;
+        return { ...current, ...position };
       });
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -460,37 +460,39 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const breadcrumbMenu = crumbMenu ? createPortal(
     <div
       className="file-breadcrumb-menu"
-      style={{ left: crumbMenu.left, top: crumbMenu.top, minWidth: crumbMenu.width }}
+      style={{ left: crumbMenu.left, top: crumbMenu.top, width: crumbMenu.width, maxHeight: crumbMenu.maxHeight, transform: crumbMenu.above ? "translateY(-100%)" : undefined }}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <label className="file-breadcrumb-search">
         <Search />
-        <input value={crumbFilter} onChange={(event) => setCrumbFilter(event.target.value)} autoFocus />
+        <input value={crumbFilter} onChange={(event) => setCrumbFilter(event.target.value)} placeholder={t("commonSearchPlaceholder")} aria-label={t("commonSearchPlaceholder")} autoFocus />
       </label>
       <div className="file-breadcrumb-options">
         {crumbMenu.kind === "drives" ? (
           filterDrives(drives, crumbFilter).map((drive) => (
-            <button key={drive.path} type="button" onClick={() => {
+            <button key={drive.path} type="button" title={drive.path} className={windowsDriveRoot(drive.path) === windowsDriveRoot(path) ? "active" : undefined} onClick={() => {
               setPath(windowsDriveRoot(drive.path));
               setSelected(null);
               setCrumbMenu(null);
             }}>
-              <HardDrive />{drive.path}
+              <HardDrive /><span>{drive.path}</span>
+              {windowsDriveRoot(drive.path) === windowsDriveRoot(path) && <Check />}
             </button>
           ))
         ) : (
           filterEntries(breadcrumbDirectories, crumbFilter).map((entry) => (
-            <button key={entry.path} type="button" onClick={() => {
+            <button key={entry.path} type="button" title={entry.name} className={normalizeRemotePath(entry.path) === normalizeRemotePath(path) ? "active" : undefined} onClick={() => {
               setPath(entry.path);
               setSelected(null);
               setCrumbMenu(null);
             }}>
-              <FolderOpen />{entry.name}
+              <FolderOpen /><span>{entry.name}</span>
+              {normalizeRemotePath(entry.path) === normalizeRemotePath(path) && <Check />}
             </button>
           ))
         )}
         {crumbMenu.kind === "dirs" && breadcrumbListing.isLoading && <div className="file-breadcrumb-empty">{t("loading")}</div>}
-        {crumbMenu.kind === "dirs" && !breadcrumbListing.isLoading && !filterEntries(breadcrumbDirectories, crumbFilter).length && <div className="file-breadcrumb-empty">{t("connectFileEmpty")}</div>}
+        {crumbMenu.kind === "dirs" && !breadcrumbListing.isLoading && !filterEntries(breadcrumbDirectories, crumbFilter).length && <div className="file-breadcrumb-empty">{t(crumbFilter.trim() ? "connectFileNoMatches" : "connectFileEmpty")}</div>}
         {crumbMenu.kind === "drives" && !filterDrives(drives, crumbFilter).length && <div className="file-breadcrumb-empty">{t("connectSystemNoData")}</div>}
       </div>
     </div>,
@@ -498,22 +500,27 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   ) : null;
 
   const openBreadcrumbMenu = (item: BreadcrumbItem, event: React.MouseEvent<HTMLElement>) => {
+    if (crumbMenu?.key === item.key) {
+      setCrumbMenu(null);
+      return;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
     crumbAnchorRef.current = event.currentTarget;
     setCrumbFilter("");
     setCrumbMenu({
+      key: item.key,
       kind: item.kind,
       path: item.menuPath,
-      left: rect.left,
-      top: rect.bottom + 4,
-      width: Math.max(180, rect.width),
+      ...breadcrumbMenuPositionInViewport(rect),
     });
   };
+
+  const editPath = () => { setCrumbMenu(null); setPathEditing(true); };
 
   return (
     <section className="file-manager">
       <header className="file-manager-head">
-        <div className="file-manager-path" title={path} onDoubleClick={() => { setCrumbMenu(null); setPathEditing(true); }}>
+        <div className="file-manager-path" title={path} onDoubleClick={editPath}>
           <HardDrive />
           {pathEditing ? (
             <input
@@ -536,11 +543,11 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
               aria-label="File path"
             />
           ) : (
-            <PathBreadcrumb path={path} drives={drives} driveLabel={t("connectSystemFilesystems")} onOpenMenu={openBreadcrumbMenu} />
+            <PathBreadcrumb path={path} drives={drives} driveLabel={t("connectSystemFilesystems")} activeKey={crumbMenu?.key} onOpenMenu={openBreadcrumbMenu} onEditPath={editPath} />
           )}
         </div>
         <div className="file-manager-actions">
-          <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")}>
+          <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")} aria-label={t("commonRefresh")}>
             <RefreshCw />
           </button>
           <input
@@ -551,8 +558,8 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
             onChange={handleFileChange}
             disabled={uploading}
           />
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} title={uploading ? t("connectFileUploading") : t("connectFileUpload")}>
-            <Upload />{uploading ? t("connectFileUploading") : t("connectFileUpload")}
+          <button type="button" className="file-upload-button" onClick={() => fileInputRef.current?.click()} disabled={uploading} title={uploading ? t("connectFileUploading") : t("connectFileUpload")} aria-label={uploading ? t("connectFileUploading") : t("connectFileUpload")}>
+            <Upload /><span>{uploading ? t("connectFileUploading") : t("connectFileUpload")}</span>
           </button>
         </div>
       </header>
@@ -600,7 +607,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
             {!entries.length && (
               <tr>
                 <td colSpan={4} className="file-empty">
-                  {listing.isLoading ? t("loading") : t("connectFileEmpty")}
+                  <div className="file-empty-state"><FolderOpen /><span>{listing.isLoading ? t("loading") : t("connectFileEmpty")}</span></div>
                 </td>
               </tr>
             )}
@@ -687,16 +694,17 @@ function SortButton({ active, order, onClick, children }: { active: boolean; ord
   );
 }
 
-function PathBreadcrumb({ path, drives, driveLabel, onOpenMenu }: { path: string; drives: TargetSystemFilesystem[]; driveLabel: string; onOpenMenu: (item: BreadcrumbItem, event: React.MouseEvent<HTMLElement>) => void }) {
+function PathBreadcrumb({ path, drives, driveLabel, activeKey, onOpenMenu, onEditPath }: { path: string; drives: TargetSystemFilesystem[]; driveLabel: string; activeKey?: string; onOpenMenu: (item: BreadcrumbItem, event: React.MouseEvent<HTMLElement>) => void; onEditPath: () => void }) {
   const items = breadcrumbItems(path, drives, driveLabel);
   return (
     <nav className="file-breadcrumb" aria-label="File path">
       {items.map((item, index) => (
-        <span key={item.key} className="file-breadcrumb-part">
+        <span key={item.key} className={`file-breadcrumb-part ${index > 0 && index < items.length - 2 ? "file-breadcrumb-ancestor" : ""}`}>
           {index > 0 && <ChevronRight />}
-          <button type="button" onClick={(event) => onOpenMenu(item, event)} title={item.label}>
+          <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => onOpenMenu(item, event)} title={item.label} aria-expanded={activeKey === item.key} aria-current={index === items.length - 1 ? "location" : undefined}>
             {item.label}
           </button>
+          {index === 0 && items.length > 3 && <span className="file-breadcrumb-overflow"><ChevronRight /><button type="button" title={path} aria-label={path} onClick={onEditPath}><MoreHorizontal /></button></span>}
         </span>
       ))}
     </nav>
@@ -950,6 +958,22 @@ function contextMenuPositionInViewport(x: number, y: number, width: number, heig
   return {
     left: clampNumber(x, margin, Math.max(margin, window.innerWidth - width - margin)),
     top: clampNumber(y, margin, Math.max(margin, window.innerHeight - height - margin)),
+  };
+}
+
+function breadcrumbMenuPositionInViewport(rect: DOMRect) {
+  const margin = 8;
+  const gap = 6;
+  const width = Math.min(300, window.innerWidth - margin * 2);
+  const below = window.innerHeight - rect.bottom - gap - margin;
+  const above = rect.top - gap - margin;
+  const openAbove = below < 240 && above > below;
+  return {
+    left: clampNumber(rect.left, margin, Math.max(margin, window.innerWidth - width - margin)),
+    top: openAbove ? rect.top - gap : rect.bottom + gap,
+    width,
+    maxHeight: Math.max(0, Math.min(360, openAbove ? above : below)),
+    above: openAbove,
   };
 }
 
