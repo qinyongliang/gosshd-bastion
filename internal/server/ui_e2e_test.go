@@ -50,6 +50,10 @@ func TestTunnelTrafficUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "tunnel_traffic.test.mjs")
 }
 
+func TestFileDownloadUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "file_download.test.mjs")
+}
+
 func TestFileUploadUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "file_upload.test.mjs")
 }
@@ -102,7 +106,7 @@ func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
 		"PLAYWRIGHT_CHROMIUM_EXECUTABLE="+browserPath,
 		"GOSSHD_UI_E2E_MOBILE_ONLY="+mobileOnlyValue,
 	)
-	if script == "file_upload.test.mjs" {
+	if script == "file_upload.test.mjs" || script == "file_download.test.mjs" {
 		if err := app.ensureServices(context.Background()); err != nil {
 			t.Fatal(err)
 		}

@@ -1,5 +1,6 @@
-import { uploadFileP2P, UploadUnavailable } from "./fileUpload";
-import type { UploadProgress } from "./fileUpload";
+import { uploadFileP2P, TransferUnavailable } from "./fileTransfer";
+import { downloadFile } from "./fileDownload";
+import type { TransferProgress } from "./fileTransfer";
 import type {
   TunnelTrafficStatistics,
   Tunnel,
@@ -45,7 +46,7 @@ export class ApiError extends Error {
   }
 }
 
-export type { UploadProgress } from "./fileUpload";
+export type { TransferProgress } from "./fileTransfer";
 
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", ...options });
@@ -192,13 +193,13 @@ export const api = {
   readFile: (targetID: string, path: string) => request<FileReadResult>(`/api/targets/${targetID}/files/read?${queryString({ path })}`),
   writeFile: (targetID: string, path: string, content: string) => request<{ path: string; size: number }>(`/api/targets/${targetID}/files/write`, post({ path, content })),
   touchFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/touch`, post({ path })),
-  downloadFile: (targetID: string, path: string) => `/api/targets/${targetID}/files/download?${queryString({ path })}`,
+  downloadFile,
   openFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/open?${queryString({ path })}`, post({})),
   mkdirFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/mkdir`, post({ path })),
   deleteFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/delete`, post({ path })),
   moveFile: (targetID: string, source: string, destination: string) => request<{ source: string; destination: string }>(`/api/targets/${targetID}/files/move`, post({ source, destination })),
   copyFile: (targetID: string, source: string, destination: string) => request<{ source: string; destination: string }>(`/api/targets/${targetID}/files/copy`, post({ source, destination })),
-  uploadFile: (targetID: string, path: string, file: File, onProgress?: (progress: UploadProgress) => void, signal?: AbortSignal) => uploadFile(targetID, path, file, onProgress, signal),
+  uploadFile: (targetID: string, path: string, file: File, onProgress?: (progress: TransferProgress) => void, signal?: AbortSignal) => uploadFile(targetID, path, file, onProgress, signal),
 };
 
 export type Enrollment = {
@@ -249,18 +250,18 @@ function terminalURL(path: string, cols: number, rows: number, sessionID = "") {
   return `${protocol}//${host}${path}?${params.toString()}`;
 }
 
-async function uploadFile(targetID: string, path: string, file: File, onProgress?: (progress: UploadProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
+async function uploadFile(targetID: string, path: string, file: File, onProgress?: (progress: TransferProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
   try {
     return await uploadFileP2P(targetID, path, file, onProgress, signal);
   } catch (error) {
-    if (!(error instanceof UploadUnavailable)) throw error;
+    if (!(error instanceof TransferUnavailable)) throw error;
     if (signal?.aborted) throw new DOMException("The upload was aborted", "AbortError");
     onProgress?.({ loaded: 0, total: file.size, transport: "relay" });
     return uploadFileHTTP(targetID, path, file, onProgress, signal);
   }
 }
 
-function uploadFileHTTP(targetID: string, path: string, file: File, onProgress?: (progress: UploadProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
+function uploadFileHTTP(targetID: string, path: string, file: File, onProgress?: (progress: TransferProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
   return new Promise((resolve, reject) => {
     const body = new FormData();
     body.append("file", file);

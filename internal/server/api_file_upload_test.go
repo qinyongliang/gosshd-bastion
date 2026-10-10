@@ -17,10 +17,10 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"
+	"github.com/qinyongliang/gosshd-bastion/internal/filetransfer"
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 	"github.com/qinyongliang/gosshd-bastion/internal/tunnel"
-	"github.com/qinyongliang/gosshd-bastion/internal/upload"
 )
 
 func uploadWS(t *testing.T, base string, client *http.Client, target, dir, name string, size int) *websocket.Conn {
@@ -96,7 +96,7 @@ func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {
 				seq++
 			}
 			if len(data) > 0 {
-				record := upload.ChunkRecord(data)
+				record := filetransfer.ChunkRecord(data)
 				if mode == "checksum" {
 					record[9] ^= 1
 				}
@@ -110,9 +110,9 @@ func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {
 			if strings.HasSuffix(mode, "cancel") {
 				ws.Close()
 			} else if mode == "forged completion" {
-				_ = ws.WriteMessage(websocket.BinaryMessage, (tunnel.Packet{Kind: tunnel.UploadStatus, Body: []byte(`{"type":"complete","loaded":13}`)}).Bytes())
+				_ = ws.WriteMessage(websocket.BinaryMessage, (tunnel.Packet{Kind: tunnel.TransferStatus, Body: []byte(`{"type":"complete","loaded":13}`)}).Bytes())
 			} else {
-				send(upload.FinishRecord())
+				send(filetransfer.FinishRecord())
 			}
 			if !strings.HasSuffix(mode, "cancel") && mode != "forged completion" {
 				for {
@@ -124,10 +124,10 @@ func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if packet.Kind != tunnel.UploadStatus {
+					if packet.Kind != tunnel.TransferStatus {
 						continue
 					}
-					var status protocol.FileUploadStatus
+					var status protocol.FileTransferStatus
 					if err := json.Unmarshal(packet.Body, &status); err != nil {
 						t.Fatal(err)
 					}
@@ -241,14 +241,15 @@ func TestFileUploadLegacyAgentFallback(t *testing.T) {
 	app.registry.Register("legacy", server)
 	t.Cleanup(func() { app.registry.Unregister("legacy", server) })
 	go func() {
-		stream, err := legacy.Accept()
-		if err != nil {
-			return
+		for {
+			stream, err := legacy.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = io.CopyN(io.Discard, stream, 1)
+			_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{Error: "unsupported stream type"})
+			_ = stream.Close()
 		}
-		defer stream.Close()
-		// Older Agents respond this way to an unknown stream type.
-		_, _ = io.CopyN(io.Discard, stream, 1)
-		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{Error: "unsupported stream type"})
 	}()
 	target := uploadAgentTarget(t, app, user, org, "legacy")
 	u, _ := url.Parse(srv.URL)
@@ -256,14 +257,16 @@ func TestFileUploadLegacyAgentFallback(t *testing.T) {
 	for _, c := range client.Jar.Cookies(u) {
 		headers.Add("Cookie", c.String())
 	}
-	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/api/targets/"+target.ID+"/files/upload/ws?size=0&name=empty", headers)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ws.Close()
-	_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
-	var response map[string]string
-	if err := ws.ReadJSON(&response); err != nil || response["type"] != "unavailable" {
-		t.Fatalf("missing legacy fallback: %+v %v", response, err)
+	for _, action := range []string{"upload", "download"} {
+		ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/api/targets/"+target.ID+"/files/"+action+"/ws?size=0&name=empty&path=file", headers)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+		var response map[string]string
+		if err := ws.ReadJSON(&response); err != nil || response["type"] != "unavailable" {
+			t.Fatalf("missing %s legacy fallback: %+v %v", action, response, err)
+		}
+		ws.Close()
 	}
 }

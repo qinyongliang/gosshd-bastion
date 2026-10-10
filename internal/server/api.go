@@ -156,6 +156,7 @@ func (a *App) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/targets/{id}/system", a.requireUser(a.handleTargetSystem))
 	mux.HandleFunc("GET /api/targets/{id}/files", a.requireUser(a.handleTargetFiles))
 	mux.HandleFunc("GET /api/targets/{id}/files/download", a.requireUser(a.handleTargetFileDownload))
+	mux.HandleFunc("GET /api/targets/{id}/files/download/ws", a.requireUser(a.handleTargetFileDownloadWS))
 	mux.HandleFunc("POST /api/targets/{id}/files/open", a.requireUser(a.handleTargetFileOpen))
 	mux.HandleFunc("POST /api/targets/{id}/files/upload", a.requireUser(a.handleTargetFileUpload))
 	mux.HandleFunc("GET /api/targets/{id}/files/upload/ws", a.requireUser(a.handleTargetFileUploadWS))
