@@ -511,7 +511,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   return (
     <section className="file-manager">
       <header className="file-manager-head">
-        <div className="file-manager-path" title={path} onDoubleClick={() => setPathEditing(true)}>
+        <div className="file-manager-path" title={path} onDoubleClick={() => { setCrumbMenu(null); setPathEditing(true); }}>
           <HardDrive />
           {pathEditing ? (
             <input
