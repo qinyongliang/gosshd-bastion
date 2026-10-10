@@ -943,6 +943,10 @@ func (a *App) handleTargetFileDownload(w http.ResponseWriter, r *http.Request, u
 	defer file.Close()
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+downloadName(filePath)+`"`)
+	if info, err := file.Stat(); err == nil && info.Mode().IsRegular() {
+		// Native and streaming HTTP fallbacks must detect truncated responses.
+		w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	}
 	if _, err := io.Copy(w, file); err != nil {
 		a.auditWebSFTP(context.Background(), user, target, decision, "sftp download "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r))
 		return

@@ -81,17 +81,24 @@ async function downloadHTTP(url: string, size: number, sink: DownloadSink, progr
   }
   if (!response.body) throw new Error("Download body unavailable");
   const reader = response.body.getReader();
+  const advertised = response.headers.get("Content-Length");
+  const expected = advertised === null ? undefined : Number(advertised);
+  if (expected !== undefined && (!Number.isSafeInteger(expected) || expected < 0 || expected > sink.maxSize)) {
+    await reader.cancel();
+    throw new Error("Invalid HTTP download size");
+  }
   let loaded = 0;
   try {
-    progress?.({ loaded, total: size, transport: "relay" });
+    progress?.({ loaded, total: expected ?? size, transport: "relay" });
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       loaded += value.length;
       if (loaded > sink.maxSize) throw new Error("File exceeds this browser's download buffer limit");
       await sink.write(value);
-      progress?.({ loaded, total: Math.max(size, loaded), transport: "relay" });
+      progress?.({ loaded, total: expected ?? Math.max(size, loaded), transport: "relay" });
     }
+    if (expected !== undefined && loaded !== expected) throw new Error("HTTP download size mismatch");
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();

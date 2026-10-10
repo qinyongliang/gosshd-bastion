@@ -2,6 +2,7 @@
 package filetransfer
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -38,9 +39,12 @@ func Send(dst io.Writer, src io.Reader, size int64) (string, error) {
 		return "", errors.New("invalid file transfer size")
 	}
 	hash := sha256.New()
+	// Batch source reads so a delegated SFTP source does not require an SSH
+	// round trip for every small tunnel record. Buffering stays bounded.
+	reader := bufio.NewReaderSize(src, MaxChunkSize*32)
 	buffer := make([]byte, MaxChunkSize)
 	for remaining := size; remaining > 0; {
-		n, err := io.ReadFull(src, buffer[:min(remaining, int64(len(buffer)))])
+		n, err := io.ReadFull(reader, buffer[:min(remaining, int64(len(buffer)))])
 		if err != nil {
 			return "", err
 		}
@@ -52,7 +56,7 @@ func Send(dst io.Writer, src io.Reader, size int64) (string, error) {
 		remaining -= int64(n)
 	}
 	var extra [1]byte
-	if n, err := src.Read(extra[:]); n != 0 || err != io.EOF {
+	if n, err := reader.Read(extra[:]); n != 0 || err != io.EOF {
 		return "", errors.New("file transfer size changed")
 	}
 	if err := writeRecord(dst, FinishRecord()); err != nil {
