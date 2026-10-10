@@ -23,6 +23,7 @@ const (
 	StreamShell            = "shell"
 	StreamSFTP             = "sftp"
 	StreamFileUpload       = "file-upload"
+	StreamFileDownload     = "file-download"
 	StreamTCP              = "tcp"
 	StreamCancelForward    = "cancel-forward"
 	StreamTunnelPeer       = "tunnel-peer"
@@ -55,17 +56,18 @@ type TunnelSSHHop struct {
 	HostKey  []byte `json:"host_key"`
 }
 type StreamRequest struct {
-	Upload        *FileUploadRequest `json:"upload,omitempty"`
-	SourceAddress string             `json:"source_address,omitempty"`
-	TunnelHops    []TunnelSSHHop     `json:"tunnel_hops,omitempty"`
-	Peer          bool               `json:"peer,omitempty"`
-	STUNServers   []string           `json:"stun_servers,omitempty"`
-	TunnelID      string             `json:"tunnel_id,omitempty"`
-	Type          string             `json:"type"`
-	Command       string             `json:"command,omitempty"`
-	Target        string             `json:"target,omitempty"`
-	Width         int                `json:"width,omitempty"`
-	Height        int                `json:"height,omitempty"`
+	Download      *FileDownloadRequest `json:"download,omitempty"`
+	Upload        *FileUploadRequest   `json:"upload,omitempty"`
+	SourceAddress string               `json:"source_address,omitempty"`
+	TunnelHops    []TunnelSSHHop       `json:"tunnel_hops,omitempty"`
+	Peer          bool                 `json:"peer,omitempty"`
+	STUNServers   []string             `json:"stun_servers,omitempty"`
+	TunnelID      string               `json:"tunnel_id,omitempty"`
+	Type          string               `json:"type"`
+	Command       string               `json:"command,omitempty"`
+	Target        string               `json:"target,omitempty"`
+	Width         int                  `json:"width,omitempty"`
+	Height        int                  `json:"height,omitempty"`
 }
 
 // The server selects the destination after enforcing SFTP upload permissions.
@@ -75,7 +77,12 @@ type FileUploadRequest struct {
 	Size int64  `json:"size"`
 }
 
-type FileUploadStatus struct {
+// The server selects the source after enforcing SFTP download permissions.
+type FileDownloadRequest struct {
+	Path string `json:"path"`
+}
+
+type FileTransferStatus struct {
 	Type        string `json:"type"`
 	Loaded      int64  `json:"loaded"`
 	DirectBytes uint64 `json:"direct_bytes"`
@@ -85,6 +92,7 @@ type FileUploadStatus struct {
 }
 
 type StreamResponse struct {
+	Size                int64    `json:"size,omitempty"`
 	Peer                bool     `json:"peer,omitempty"`
 	STUNServers         []string `json:"stun_servers,omitempty"`
 	ListenAddress       string   `json:"listen_address,omitempty"`

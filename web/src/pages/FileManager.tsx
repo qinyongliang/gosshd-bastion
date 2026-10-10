@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api";
-import type { UploadTransport } from "../fileUpload";
+import type { TransferTransport } from "../fileTransfer";
 import { ConfirmDialog, ErrorMessage, Modal, ModalActions } from "../components/ui";
 import { useI18n } from "../i18n";
 import type { FileEntry, FileProperties, Target, TargetSystemFilesystem, TargetSystemSnapshot } from "../types";
@@ -14,13 +14,18 @@ type FileSortKey = "name" | "size" | "mode" | "modified";
 type SortOrder = "asc" | "desc";
 type BreadcrumbItem = { key: string; label: string; kind: "drives" | "dirs"; menuPath: string };
 type BreadcrumbMenuState = { kind: "drives" | "dirs"; path: string; left: number; top: number; width: number };
-type UploadTask = { fileName: string; loaded: number; total: number; speed: number; queueIndex: number; queueTotal: number; completed: number; failed: number; transport?: UploadTransport; status: "uploading" | "success" | "cancelled" | "error" };
+type DownloadTask = { fileName: string; loaded: number; total: number; speed: number; transport?: TransferTransport; status: "downloading" | "success" | "cancelled" | "error" | "browser" };
+
+type UploadTask = { fileName: string; loaded: number; total: number; speed: number; queueIndex: number; queueTotal: number; completed: number; failed: number; transport?: TransferTransport; status: "uploading" | "success" | "cancelled" | "error" };
 
 export function FileManager({ target, path, onPathChange: setPath, system, nativeOpen = false, onEditFile }: { target: Target; path: string; onPathChange: (path: string) => void; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [pathDraft, setPathDraft] = useState(".");
   const [selected, setSelected] = useState<FileEntry | null>(null);
+  const [downloadTask, setDownloadTask] = useState<DownloadTask | null>(null);
+  const downloadControllerRef = useRef<AbortController | null>(null);
+  const downloadDismissTimerRef = useRef<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadTask, setUploadTask] = useState<UploadTask | null>(null);
   const [mkdirModal, setMkdirModal] = useState(false);
@@ -59,6 +64,8 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   useEffect(() => () => {
     uploadCancelledRef.current = true;
     uploadControllerRef.current?.abort();
+    downloadControllerRef.current?.abort();
+    if (downloadDismissTimerRef.current !== null) window.clearTimeout(downloadDismissTimerRef.current);
     if (uploadDismissTimerRef.current !== null) window.clearTimeout(uploadDismissTimerRef.current);
   }, []);
 
@@ -205,7 +212,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     let currentFile = files[0];
     let currentLoaded = 0;
     let currentSpeed = 0;
-    let currentTransport: UploadTransport = "connecting";
+    let currentTransport: TransferTransport = "connecting";
 
     for (let index = 0; index < files.length; index += 1) {
       if (uploadCancelledRef.current) break;
@@ -274,18 +281,35 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
       if (nativeOpen) {
         openNative.mutate(entry);
       } else {
-        downloadEntry(entry);
+        void downloadEntry(entry);
       }
     }
   };
 
-  const downloadEntry = (entry: FileEntry) => {
-    const anchor = document.createElement("a");
-    anchor.href = api.downloadFile(target.id, entry.path);
-    anchor.download = entry.name;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+  const downloadEntry = async (entry: FileEntry) => {
+    if (downloadControllerRef.current) return;
+    if (downloadDismissTimerRef.current !== null) window.clearTimeout(downloadDismissTimerRef.current);
+    const controller = new AbortController();
+    downloadControllerRef.current = controller;
+    let previous = { loaded: 0, timestamp: performance.now() };
+    setDownloadTask({ fileName: entry.name, loaded: 0, total: entry.size, speed: 0, transport: "connecting", status: "downloading" });
+    try {
+      const result = await api.downloadFile(target.id, entry.path, entry.name, entry.size, (progress) => {
+        const now = performance.now();
+        const elapsed = now - previous.timestamp;
+        const speed = elapsed > 0 ? Math.max(0, progress.loaded - previous.loaded) / (elapsed / 1000) : 0;
+        previous = { loaded: progress.loaded, timestamp: now };
+        setDownloadTask((current) => current ? { ...current, ...progress, speed } : current);
+      }, controller.signal);
+      setDownloadTask((current) => current ? { ...current, status: result === "browser" ? "browser" : "success", speed: 0 } : current);
+    } catch (error) {
+      const cancelled = isAbortError(error) || controller.signal.aborted;
+      setDownloadTask((current) => current ? { ...current, status: cancelled ? "cancelled" : "error", speed: 0 } : current);
+      if (!cancelled) setOperationError(error);
+    } finally {
+      downloadControllerRef.current = null;
+      downloadDismissTimerRef.current = window.setTimeout(() => { setDownloadTask(null); downloadDismissTimerRef.current = null; }, 4200);
+    }
   };
 
   const copyEntryPath = async (entry: FileEntry | null) => {
@@ -296,7 +320,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     if (action === "open" && entry) {
       activateEntry(entry);
     } else if (action === "download" && entry && entry.type === "file") {
-      downloadEntry(entry);
+      void downloadEntry(entry);
     } else if (action === "edit" && entry && entry.type === "file") {
       onEditFile?.(entry.path);
     } else if (action === "copy-path") {
@@ -581,30 +605,21 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
           </tbody>
         </table>
       </div>
-      {uploadTask && createPortal(
-        <div className={`file-upload-toast ${uploadTask.status}`} role="status" aria-live="polite">
-          <div className="file-upload-toast-head">
-            <span className="file-upload-toast-icon">
-              {uploadTask.status === "success" ? <CheckCircle2 /> : uploadTask.status === "error" ? <AlertCircle /> : <Upload />}
-            </span>
-            <div className="file-upload-toast-title">
-              <strong title={uploadTask.fileName}>{uploadTask.fileName}</strong>
-              <span>
-                {uploadTask.status === "uploading" ? `${t("connectFileUploading")} ${uploadTask.queueIndex + 1}/${uploadTask.queueTotal}` : uploadTask.status === "success" ? t("connectFileUploadComplete") : uploadTask.status === "cancelled" ? t("connectFileUploadCancelled") : t("connectFileUploadFailed")}
-                {" · "}{t(uploadTask.transport === "direct" ? "connectFileUploadDirect" : uploadTask.transport === "connecting" ? "connectFileUploadConnecting" : "connectFileUploadRelay")}
-              </span>
-            </div>
-            {uploadTask.status === "uploading" && <button type="button" className="icon-button" onClick={cancelUpload} title={t("connectFileUploadCancel")} aria-label={t("connectFileUploadCancel")}><X /></button>}
-          </div>
-          <div className="file-upload-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadQueuePercent(uploadTask)}>
-            <span style={{ width: `${uploadQueuePercent(uploadTask)}%` }} />
-          </div>
-          <div className="file-upload-meta">
-            <span>{uploadQueuePercent(uploadTask)}% · {uploadPercent(uploadTask)}% {t("connectFileUploadCurrent")} · {uploadTask.completed + uploadTask.failed}/{uploadTask.queueTotal}</span>
-            <strong>{uploadTask.status === "uploading" ? `${formatTransferRate(uploadTask.speed)}/s` : uploadTask.status === "error" ? `${uploadTask.failed}/${uploadTask.queueTotal}` : ""}</strong>
-          </div>
-        </div>, document.body
-      )}
+      {uploadTask && <FileTransferToast
+        kind="upload" fileName={uploadTask.fileName} status={uploadTask.status} transport={uploadTask.transport}
+        title={uploadTask.status === "uploading" ? `${t("connectFileUploading")} ${uploadTask.queueIndex + 1}/${uploadTask.queueTotal}` : uploadTask.status === "success" ? t("connectFileUploadComplete") : uploadTask.status === "cancelled" ? t("connectFileUploadCancelled") : t("connectFileUploadFailed")}
+        active={uploadTask.status === "uploading"} cancelLabel={t("connectFileUploadCancel")} onCancel={cancelUpload}
+        percent={uploadQueuePercent(uploadTask)} detail={`${uploadQueuePercent(uploadTask)}% · ${uploadPercent(uploadTask)}% ${t("connectFileUploadCurrent")} · ${uploadTask.completed + uploadTask.failed}/${uploadTask.queueTotal}`}
+        rate={uploadTask.status === "uploading" ? `${formatTransferRate(uploadTask.speed)}/s` : uploadTask.status === "error" ? `${uploadTask.failed}/${uploadTask.queueTotal}` : ""}
+      />}
+      {downloadTask && <FileTransferToast
+        kind="download" fileName={downloadTask.fileName} status={downloadTask.status} transport={downloadTask.transport}
+        title={t(downloadTask.status === "downloading" ? "connectFileDownloading" : downloadTask.status === "success" ? "connectFileDownloadComplete" : downloadTask.status === "browser" ? "connectFileDownloadBrowser" : downloadTask.status === "cancelled" ? "connectFileDownloadCancelled" : "connectFileDownloadFailed")}
+        active={downloadTask.status === "downloading"} cancelLabel={t("connectFileDownloadCancel")} onCancel={() => downloadControllerRef.current?.abort()}
+        percent={downloadTask.status === "success" ? 100 : downloadTask.total ? Math.min(100, Math.round(downloadTask.loaded / downloadTask.total * 100)) : 0}
+        detail={`${formatTransferRate(downloadTask.loaded)} / ${formatTransferRate(downloadTask.total)}`}
+        rate={downloadTask.status === "downloading" ? `${formatTransferRate(downloadTask.speed)}/s` : ""} raised={Boolean(uploadTask)}
+      />}
       {contextMenu && fileMenu(contextMenu.entry)}
       {Boolean(operationError) && <div className="file-operation-error"><ErrorMessage error={operationError} /><button type="button" className="small" onClick={() => setOperationError(null)}>{t("close")}</button></div>}
       {deleteEntry && <ConfirmDialog title={t("commonDelete")} body={t("connectFileDeleteConfirm", `Delete ${deleteEntry.path}?`)} confirmLabel={t("commonDelete")} danger onConfirm={() => remove.mutate(deleteEntry)} onClose={() => setDeleteEntry(null)} />}
@@ -978,4 +993,25 @@ function normalizeRemotePath(value: string): string {
   }
   const next = parts.join("/");
   return absolute ? `/${next}` || "/" : next || ".";
+}
+
+function FileTransferToast({ kind, fileName, status, transport, title, active, cancelLabel, onCancel, percent, detail, rate, raised }: {
+  kind: "upload" | "download"; fileName: string; status: string; transport?: TransferTransport; title: string; active: boolean;
+  cancelLabel: string; onCancel: () => void; percent: number; detail: string; rate: string; raised?: boolean;
+}) {
+  const { t } = useI18n();
+  return createPortal(
+    <div className={`file-upload-toast file-${kind}-toast ${status}`} style={raised ? { bottom: 184 } : undefined} role="status" aria-live="polite">
+      <div className="file-upload-toast-head">
+        <span className="file-upload-toast-icon">{status === "success" ? <CheckCircle2 /> : status === "error" ? <AlertCircle /> : kind === "download" ? <Download /> : <Upload />}</span>
+        <div className="file-upload-toast-title">
+          <strong title={fileName}>{fileName}</strong>
+          <span>{title}{" · "}{t(transport === "direct" ? "connectFileUploadDirect" : transport === "connecting" ? "connectFileUploadConnecting" : "connectFileUploadRelay")}</span>
+        </div>
+        {active && <button type="button" className="icon-button" onClick={onCancel} title={cancelLabel} aria-label={cancelLabel}><X /></button>}
+      </div>
+      <div className="file-upload-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div>
+      <div className="file-upload-meta"><span>{detail}</span><strong>{rate}</strong></div>
+    </div>, document.body
+  );
 }

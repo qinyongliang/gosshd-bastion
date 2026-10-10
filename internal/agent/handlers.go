@@ -28,6 +28,8 @@ func (c *Client) handleStreamWithSession(stream io.ReadWriteCloser, session *yam
 	switch req.Type {
 	case protocol.StreamFileUpload:
 		c.handleFileUpload(stream, reader, req)
+	case protocol.StreamFileDownload:
+		c.handleFileDownload(stream, reader, req)
 	case protocol.StreamTunnelPeer:
 		c.handleTunnelPeer(stream, reader, req)
 	case protocol.StreamTunnelListen:

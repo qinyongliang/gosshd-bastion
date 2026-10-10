@@ -3,7 +3,6 @@ package agent
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -13,9 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/sftp"
+	"github.com/qinyongliang/gosshd-bastion/internal/filetransfer"
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
-	"github.com/qinyongliang/gosshd-bastion/internal/tunnel"
-	"github.com/qinyongliang/gosshd-bastion/internal/upload"
 )
 
 type uploadDestination struct {
@@ -25,7 +23,7 @@ type uploadDestination struct {
 }
 
 func openUploadDestination(ctx context.Context, req protocol.StreamRequest) (*uploadDestination, error) {
-	if req.Upload == nil || req.Upload.Path == "" || req.Upload.Size < 0 || req.Upload.Size > upload.MaxSize {
+	if req.Upload == nil || req.Upload.Path == "" || req.Upload.Size < 0 || req.Upload.Size > filetransfer.MaxSize {
 		return nil, errors.New("invalid upload request")
 	}
 	dest := req.Upload.Path
@@ -132,35 +130,18 @@ func (c *Client) handleFileUpload(stream io.ReadWriteCloser, reader *bufio.Reade
 	if protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: true, Peer: true}) != nil {
 		return
 	}
-	relay := &tunnel.Relay{Reader: reader, Writer: stream, Closer: stream}
-	stable := tunnel.NewConn(relay)
-	negotiator := tunnel.NewNegotiator(stable, false, req.STUNServers)
-	defer stable.Close()
-	defer negotiator.Close()
-	go stable.Run()
-	go negotiator.Run()
-	stopWatch := make(chan struct{})
-	defer close(stopWatch)
-	go func() {
-		select {
-		case <-stable.Done():
-			cancel()
-		case <-stopWatch:
-		}
-	}()
-	send := func(status protocol.FileUploadStatus) error {
-		status.Direct = stable.Direct()
-		status.DirectBytes = stable.Counters().ReceivedDirect
-		body, _ := json.Marshal(status)
-		return relay.Send(tunnel.Packet{Kind: tunnel.UploadStatus, Body: body})
+	stable, relay, cleanup := startFileTransfer(ctx, cancel, stream, reader, req)
+	defer cleanup()
+	send := func(status protocol.FileTransferStatus) error {
+		return sendFileStatus(stable, relay, status, false)
 	}
 	var loaded int64
 	lastProgress := time.Now()
-	checksum, err := upload.Receive(stable, dst, req.Upload.Size, func(n int64) {
+	checksum, err := filetransfer.Receive(stable, dst, req.Upload.Size, func(n int64) {
 		loaded = n
 		if time.Since(lastProgress) >= 100*time.Millisecond || n == req.Upload.Size {
 			lastProgress = time.Now()
-			if send(protocol.FileUploadStatus{Type: "progress", Loaded: n}) != nil {
+			if send(protocol.FileTransferStatus{Type: "progress", Loaded: n}) != nil {
 				_ = stream.Close()
 			}
 		}
@@ -171,7 +152,7 @@ func (c *Client) handleFileUpload(stream io.ReadWriteCloser, reader *bufio.Reade
 	if err == nil {
 		err = dst.commit()
 	}
-	status := protocol.FileUploadStatus{Type: "complete", Loaded: loaded, SHA256: checksum}
+	status := protocol.FileTransferStatus{Type: "complete", Loaded: loaded, SHA256: checksum}
 	if err != nil {
 		status.Type = "error"
 		status.Error = err.Error()
