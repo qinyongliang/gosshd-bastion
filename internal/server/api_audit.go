@@ -205,14 +205,14 @@ func apiAuditLogFromStore(log store.CommandAuditLog) apiAuditLog {
 		PolicyDecision:       log.PolicyDecision,
 		PolicyReason:         log.PolicyReason,
 		ExitCode:             log.ExitCode,
-		StartedAt:            log.StartedAt.Format(time.RFC3339),
+		StartedAt:            log.StartedAt.Format(time.RFC3339Nano),
 		HasRecording:         log.RecordingPath != "",
 		RecordingDurationMS:  log.RecordingDurationMS,
 		RecordingWidth:       log.RecordingWidth,
 		RecordingHeight:      log.RecordingHeight,
 	}
 	if log.EndedAt != nil {
-		out.EndedAt = log.EndedAt.Format(time.RFC3339)
+		out.EndedAt = log.EndedAt.Format(time.RFC3339Nano)
 	}
 	return out
 }
@@ -222,10 +222,10 @@ func apiAuditLogFromRunning(log runningAuditSnapshot) apiAuditLog {
 		ID: log.ID, UserID: log.UserID, TargetID: log.TargetID, TargetName: log.TargetName, TargetAlias: log.TargetAlias,
 		TargetEndpoint: auditRunningTargetEndpoint(log), OrganizationID: log.OrganizationID, Command: log.Command,
 		RequestType: log.RequestType, PolicyDecision: log.PolicyDecision, PolicyReason: log.PolicyReason,
-		ExitCode: log.ExitCode, StartedAt: log.StartedAt.Format(time.RFC3339), Running: log.EndedAt.IsZero(), LiveOutput: log.Output, PublicKeyName: log.PublicKeyName,
+		ExitCode: log.ExitCode, StartedAt: log.StartedAt.Format(time.RFC3339Nano), Running: log.EndedAt.IsZero(), LiveOutput: log.Output, PublicKeyName: log.PublicKeyName,
 	}
 	if !log.EndedAt.IsZero() {
-		out.EndedAt = log.EndedAt.Format(time.RFC3339)
+		out.EndedAt = log.EndedAt.Format(time.RFC3339Nano)
 	}
 	return out
 }

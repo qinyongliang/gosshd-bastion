@@ -88,6 +88,8 @@ func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {
 				data = nil
 			}
 			ws := uploadWS(t, srv.URL, client, target.ID, dir, "file.bin", len(data))
+			// The audit must include time spent waiting for file data, even on failure.
+			time.Sleep(40 * time.Millisecond)
 			var seq uint64 = 1
 			send := func(body []byte) {
 				if err := ws.WriteMessage(websocket.BinaryMessage, (tunnel.Packet{Kind: tunnel.Data, Seq: seq, Body: body}).Bytes()); err != nil {
@@ -150,6 +152,9 @@ func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {
 				page, err := app.audit.Repository().ListCommandAuditLogs(context.Background(), store.AuditLogFilter{TargetID: target.ID, RequestType: store.RequestSFTP, Limit: 10})
 				if err == nil && len(entries) == 1 && len(page.Logs) > 0 {
 					logs := page.Logs
+					if logs[0].EndedAt == nil || logs[0].EndedAt.Sub(logs[0].StartedAt) < 40*time.Millisecond {
+						t.Fatalf("upload duration omitted transfer time: %+v", logs[0])
+					}
 					success := mode == "complete" || mode == "empty" || mode == "duplicate" || mode == "ssh"
 					if logs[0].ExitCode == nil || (*logs[0].ExitCode == 0) != success {
 						t.Fatalf("incorrect trusted audit: %+v", logs[0])
