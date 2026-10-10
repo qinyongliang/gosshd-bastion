@@ -98,6 +98,9 @@ try {
       await page.locator(".file-download-toast.error").waitFor();
       assert((await page.locator(".file-operation-error").textContent()).includes("checksum"));
     } else {
+      const toast = page.locator(mode === "native" ? ".file-download-toast.browser" : ".file-download-toast.success");
+      await toast.waitFor();
+      const toastText = await toast.textContent();
       if (downloadPromise) {
         const download = await downloadPromise;
         assert.equal(download.suggestedFilename(), name);
@@ -107,16 +110,15 @@ try {
         const chunks = await page.evaluate(() => window.downloadTest.chunks);
         assert.deepEqual(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), content, "streamed bytes differ");
       }
-      await page.locator(mode === "native" ? ".file-download-toast.browser" : ".file-download-toast.success").waitFor();
       const stats = await page.evaluate(() => ({ ...window.downloadTest, chunks: [] }));
       if (mode === "direct" || mode === "stream") {
         assert(stats.directBytes > 0, "Agent did not send directly to browser");
         assert.equal(stats.relayBytes, 0, "download content crossed the bastion on direct path");
-        assert((await page.locator(".file-download-toast").textContent()).includes("Direct"));
+        assert(toastText.includes("Direct"));
       }
       if (mode === "interrupt") {
         assert(stats.interrupted && stats.directBytes > 0 && stats.relayBytes > 0, "interruption did not continue on relay");
-        assert((await page.locator(".file-download-toast").textContent()).includes("中转"));
+        assert(toastText.includes("中转"));
       }
       if (mode === "relay") assert(stats.relayBytes > 0 && stats.directBytes === 0);
       const checksum = createHash("sha256").update(content).digest("hex");
