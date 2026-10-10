@@ -215,6 +215,9 @@ export function uploadFileP2P(targetID: string, path: string, file: File, progre
           lastActivity = Date.now();
           if (status.type === "error") { finish(new Error(status.error || "Upload failed")); return; }
           loaded = Math.max(loaded, Math.min(file.size, status.loaded));
+          // The Agent closes WebRTC after sending the receipt. Its disk-confirmed
+          // result is authoritative even if onclose arrives before the receipt.
+          if (status.type === "complete") transport = status.direct ? "direct" : "relay";
           notify();
           if (status.type === "complete") {
             if (status.loaded !== file.size || !/^[a-f0-9]{64}$/.test(status.sha256)) throw new Error("Invalid upload completion");
