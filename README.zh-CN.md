@@ -166,4 +166,4 @@ go test ./internal/server -run TestUIE2EWithBrowser -v
 
 Releases 会发布跨平台 server 压缩包、独立私有节点二进制和 checksums。本版本不发布 `full` 包。
 
-发布打包仅由 `v*` 标签或手动运行 Release 工作流触发；ARM64 单独构建仅手动触发。普通代码推送运行回归测试，不生成发布包。GitHub Actions 不再打包 Windows 桌面客户端，Windows server 和 Agent 仍随版本发布。
+发布打包仅由 `v*` 标签或手动运行 Release 工作流触发，并执行完整文件传输回归测试；ARM64 单独构建和 P2P 专项检查仅手动触发。普通代码推送不触发打包或专项检查。GitHub Actions 不再打包 Windows 桌面客户端，Windows server 和 Agent 仍随版本发布。

@@ -50,8 +50,10 @@ jobs:
           node --test web/e2e/workspace_layout.test.mjs
           node --test web/e2e/file_drop.test.mjs web/e2e/file_selection.test.mjs
           go test ./internal/store -count=1
-          go test ./internal/filetransfer ./internal/agent -run 'Test(Receive|Send|FileUpload|FileDownload)' -count=1
-          go test ./internal/server -run '^Test(File(Upload|Download|Transfer)|HTTPUploadAuditIncludesRequestBodyTransfer|AuditAPIPreservesSubsecondTimestamps)' -count=1
+          go test -race ./internal/filetransfer ./internal/agent -run 'Test(Receive|Send|FileUpload|FileDownload)' -count=1
+          go test -race ./internal/server -run '^Test(File(Upload|Download|Transfer)|HTTPUploadAuditIncludesRequestBodyTransfer|AuditAPIPreservesSubsecondTimestamps)' -count=1
+          go test ./internal/tunnel -count=1
+          go test ./internal/store -run '^TestMainStorePooledConnectionsWaitForWriters$' -count=1
           go test ./internal/server -run '^Test(Tunnel|TemporarySSHForward|TemporarySSHRemote|MCPTunnel)' -count=1
 
       - name: Verify control styles and tunnel traffic in browser

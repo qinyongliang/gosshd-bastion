@@ -166,4 +166,4 @@ go test ./internal/server -run TestUIE2EWithBrowser -v
 
 Releases publish cross-platform server archives, standalone private-node binaries, and checksums. This version does not publish a `full` package.
 
-Release packaging runs only for `v*` tags or manual Release dispatches; the standalone ARM64 build is manual only. Ordinary pushes run regression checks without packaging releases. GitHub Actions no longer packages the Windows desktop client; Windows server and Agent binaries remain in releases.
+Release packaging runs only for `v*` tags or manual Release dispatches and includes full file-transfer regression checks. Standalone ARM64 builds and dedicated P2P checks are manual only; ordinary pushes trigger neither packaging nor dedicated checks. GitHub Actions no longer packages the Windows desktop client; Windows server and Agent binaries remain in releases.

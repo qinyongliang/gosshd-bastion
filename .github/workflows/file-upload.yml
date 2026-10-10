@@ -1,13 +1,11 @@
 name: Web P2P file transfer checks
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - internal/**
-      - web/**
-      - .github/workflows/file-upload.yml
   workflow_dispatch:
+
+concurrency:
+  group: web-file-transfer-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
