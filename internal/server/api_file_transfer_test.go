@@ -107,6 +107,16 @@ func TestFileTransferBatchCopyMove(t *testing.T) {
 				action           string
 				upload, download bool
 			}{{"copy", true, false}, {"move", false, true}} {
+				// Capabilities from multiple attached policies are additive.
+				policies, err := app.store.Repository().ListPoliciesForTarget(ctx, target.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, existing := range policies {
+					if err := app.store.Repository().DetachPolicyFromTarget(ctx, existing.ID, target.ID); err != nil {
+						t.Fatal(err)
+					}
+				}
 				attachAllowSFTPPolicyForTargetAccess(t, app, org.ID, target.ID, policy.upload, policy.download)
 				before := connections.Load()
 				postJSON(t, client, endpoint+policy.action, map[string]any{"sources": []string{file, folder}, "destination": copied}, http.StatusForbidden, nil)
