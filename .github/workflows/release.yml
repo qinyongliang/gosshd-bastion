@@ -49,6 +49,7 @@ jobs:
 
       - name: Test tunnel diagnostics, source statistics and migrations
         run: |
+          node --test web/e2e/workspace_layout.test.mjs
           go test ./internal/store -count=1
           go test ./internal/filetransfer ./internal/agent -run 'Test(Receive|Send|FileUpload|FileDownload)' -count=1
           go test ./internal/server -run '^TestFile(Upload|Download)' -count=1
@@ -62,7 +63,7 @@ jobs:
           export GOSSHD_UI_E2E_NODE="$(command -v node)"
           export GOSSHD_UI_E2E_PLAYWRIGHT="$RUNNER_TEMP/ui-e2e/node_modules/playwright"
           export GOSSHD_UI_E2E_BROWSER="$(node -e 'console.log(require(process.argv[1]).chromium.executablePath())' "$GOSSHD_UI_E2E_PLAYWRIGHT")"
-          go test ./internal/server -run '^Test(ControlStyles|TunnelTraffic|FileUpload|FileDownload)UIE2EWithBrowser$' -count=1 -timeout=6m
+          go test ./internal/server -run '^Test(ControlStyles|TunnelTraffic|FileUpload|FileDownload|DraggableWorkspace)UIE2EWithBrowser$' -count=1 -timeout=8m
 
       - name: Build binaries and packages
         shell: bash
