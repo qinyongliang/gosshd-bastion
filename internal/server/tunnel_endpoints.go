@@ -19,7 +19,7 @@ type tunnelAgentEndpoint struct {
 
 // SSH machines behind an Agent are executed from that Agent, allowing the Agent-to-Agent
 // segment to migrate to P2P while the remote SSH and destination TCP sockets stay intact.
-func (a *App) tunnelAgentEndpoint(ctx context.Context, id string) (*tunnelAgentEndpoint, error) {
+func (a *App) tunnelAgentEndpoint(ctx context.Context, id string, reuse ...*tunnelAgentEndpoint) (*tunnelAgentEndpoint, error) {
 	if id == "" {
 		return nil, nil
 	}
@@ -52,18 +52,26 @@ func (a *App) tunnelAgentEndpoint(ctx context.Context, id string) (*tunnelAgentE
 		return result, nil
 	}
 	keys := map[string][]byte{}
-	verify := a.targetHostKeyCallback()
-	client, err := a.openTunnelSSHClient(ctx, original, 0, func(address string, remote net.Addr, key ssh.PublicKey) error {
-		if err := verify(address, remote, key); err != nil {
-			return err
+	if len(reuse) > 0 {
+		// Revalidate configuration without probing SSH again. The existing SSH
+		// connection already authenticated these exact host keys.
+		for _, hop := range reuse[0].hops {
+			keys[hop.Address] = hop.HostKey
 		}
-		keys[address] = append([]byte(nil), key.Marshal()...)
-		return nil
-	})
-	if err != nil {
-		return nil, err
+	} else {
+		verify := a.targetHostKeyCallback()
+		client, err := a.openTunnelSSHClient(ctx, original, 0, func(address string, remote net.Addr, key ssh.PublicKey) error {
+			if err := verify(address, remote, key); err != nil {
+				return err
+			}
+			keys[address] = append([]byte(nil), key.Marshal()...)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		_ = client.Close()
 	}
-	_ = client.Close()
 	for _, hop := range targets {
 		hop, err = a.resolveTargetCredential(ctx, hop)
 		if err != nil {
