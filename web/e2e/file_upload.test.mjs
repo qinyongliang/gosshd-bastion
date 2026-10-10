@@ -13,7 +13,6 @@ try {
   for (const [mode, locale] of [["direct", "en"], ["interrupt", "zh-CN"], ["relay", "en"], ["empty", "zh-CN"], ["cancel", "en"], ["legacy", "en"]]) {
     const zh = locale === "zh-CN";
     const context = await browser.newContext({ locale: zh ? "zh-CN" : "en-US", viewport: { width: 1440, height: 1000 } });
-    await context.grantPermissions(["notifications"]);
     await context.addInitScript(({ mode, locale }) => {
       localStorage.setItem("gosshd_locale", locale);
       window.uploadTest = { directBytes: 0, relayBytes: 0, interrupted: false };

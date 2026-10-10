@@ -581,7 +581,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
           </tbody>
         </table>
       </div>
-      {uploadTask && (
+      {uploadTask && createPortal(
         <div className={`file-upload-toast ${uploadTask.status}`} role="status" aria-live="polite">
           <div className="file-upload-toast-head">
             <span className="file-upload-toast-icon">
@@ -603,7 +603,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
             <span>{uploadQueuePercent(uploadTask)}% · {uploadPercent(uploadTask)}% {t("connectFileUploadCurrent")} · {uploadTask.completed + uploadTask.failed}/{uploadTask.queueTotal}</span>
             <strong>{uploadTask.status === "uploading" ? `${formatTransferRate(uploadTask.speed)}/s` : uploadTask.status === "error" ? `${uploadTask.failed}/${uploadTask.queueTotal}` : ""}</strong>
           </div>
-        </div>
+        </div>, document.body
       )}
       {contextMenu && fileMenu(contextMenu.entry)}
       {Boolean(operationError) && <div className="file-operation-error"><ErrorMessage error={operationError} /><button type="button" className="small" onClick={() => setOperationError(null)}>{t("close")}</button></div>}
