@@ -27,7 +27,7 @@ jobs:
           pnpm run build
       - name: Verify transfer records, sources, destinations and authorization
         run: |
-          node --test web/e2e/file_drop.test.mjs web/e2e/file_selection.test.mjs
+          node --test web/e2e/file_drop.test.mjs web/e2e/file_selection.test.mjs web/e2e/file_transfer_handshake.test.mjs
           go test -race ./internal/filetransfer ./internal/agent -run 'Test(Receive|Send|FileUpload|FileDownload)' -count=1
           go test -race ./internal/server -run '^TestFile(Upload|Download|Transfer)' -count=1 -timeout=3m
           go test ./internal/tunnel -count=1

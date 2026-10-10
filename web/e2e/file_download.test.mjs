@@ -83,9 +83,11 @@ try {
     await page.goto(`${base}/targets/${target}/connect`);
     await page.locator(".files-zone").waitFor();
     if (await page.locator(".files-zone .collapsed-zone-button").count()) await page.locator(".files-zone .collapsed-zone-button").click();
+    await page.waitForFunction(() => { const path = document.querySelector(".file-manager-path")?.getAttribute("title"); return path && path !== "."; });
     await page.locator(".file-manager-path").dblclick();
-    await page.getByLabel("File path", { exact: true }).fill(dir);
-    await page.getByLabel("File path", { exact: true }).press("Enter");
+    const pathInput = page.locator('.file-manager-path input[aria-label="File path"]');
+    await pathInput.fill(dir);
+    await pathInput.press("Enter");
     await page.waitForFunction((dir) => document.querySelector(".file-manager-path")?.getAttribute("title") === dir, dir);
     assert.equal(await page.locator(".file-breadcrumb-menu").count(), 0, "path editing left a menu over downloadable files");
     const downloadPromise = !mode.includes("cancel") && mode !== "corrupt" && !mode.startsWith("stream") ? page.waitForEvent("download") : null;
