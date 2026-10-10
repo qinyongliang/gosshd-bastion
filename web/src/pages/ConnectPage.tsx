@@ -39,14 +39,14 @@ import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution";
 import "monaco-editor/esm/vs/language/json/monaco.contribution";
 import "monaco-editor-nginx";
 import { Terminal } from "@xterm/xterm";
-import { Activity, ArrowLeft, ChevronLeft, ChevronRight, Cpu, Globe, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, RotateCcw, Save, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
+import { ArrowLeft, Cpu, Globe, HardDrive, Maximize, Minimize, Monitor, Network, RefreshCw, RotateCcw, Save, Server, SplitSquareHorizontal, SplitSquareVertical, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { MachinePicker, serverTitle } from "../components/MachinePicker";
 import { ManualReviewPoller } from "../components/ManualReviewPoller";
-import { DockDragHandle, DockWorkspace } from "../components/DockWorkspace";
+import { DockDragHandle, DockPanelToggle, DockWorkspace } from "../components/DockWorkspace";
 import { BrandMark, ConfirmDialog, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appName, documentTitle } from "../lib/branding";
@@ -171,7 +171,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const [filesOpen, setFilesOpen] = useState(() => readWorkspacePreferences(layoutStorageKey)?.filesOpen ?? !terminalFocusedByDefault);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const initialConnectionIsFresh = useRef(getConnectNewParam()).current;
-  const createConnectionTab = (targetID: string, command = "", restoreSession = false) => newConnectionTab(targetID, command, restoreSession, layoutStorageKey, mobileLayout, new Set(targets.map((item) => item.id)));
+  const createConnectionTab = (targetID: string, command = "", restoreSession = false) => newConnectionTab(targetID, command, restoreSession, layoutStorageKey, mobileLayout);
   const [tabs, setTabs] = useState<ConnectionTab[]>(() => target ? [createConnectionTab(target.id, getConnectCommandParam(), !initialConnectionIsFresh)] : []);
   const [activeTabID, setActiveTabID] = useState(() => tabs[0]?.id || "");
   const [tabMenu, setTabMenu] = useState<{ tabID: string; x: number; y: number } | null>(null);
@@ -194,8 +194,8 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
 
   useEffect(() => {
     if (!activeTab) return;
-    saveWorkspace(layoutStorageKey, activeTab.targetID, activeTab.layout, activeTab.filePath, activeTab.activePaneID, { hostOpen, filesOpen });
-  }, [activeTab?.layout, activeTab?.filePath, activeTab?.activePaneID, activeTab?.targetID, hostOpen, filesOpen, layoutStorageKey]);
+    saveWorkspace(layoutStorageKey, activeTab.targetID, activeTab.layout, { hostOpen, filesOpen });
+  }, [activeTab?.layout, activeTab?.targetID, hostOpen, filesOpen, layoutStorageKey]);
 
   useEffect(() => {
     if (initialConnectionIsFresh) clearConnectParam("new");
@@ -402,6 +402,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
 
   const closePane = (tabID: string, paneID: string) => {
     const tab = tabs.find((item) => item.id === tabID);
+    if (tab) saveWorkspace(layoutStorageKey, tab.targetID, tab.layout, { hostOpen, filesOpen });
     if (tab && paneLeaves(tab.layout).filter((pane) => pane.type === "terminal" || pane.type === "editor").length === 1) {
       closeTabs("one", tabID);
       return;
@@ -444,7 +445,10 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       if (mode === "all") next = [];
 
       for (const tab of current) {
-        if (!next.some((item) => item.id === tab.id)) disposePaneRuntime(tab.layout);
+        if (!next.some((item) => item.id === tab.id)) {
+          saveWorkspace(layoutStorageKey, tab.targetID, tab.layout, { hostOpen, filesOpen });
+          disposePaneRuntime(tab.layout);
+        }
       }
 
       if (!next.length) {
@@ -574,11 +578,14 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
               renderPane={(pane) => {
                 if (pane.type === "host") return <aside className={`connect-host-panel ${hostOpen ? "" : "collapsed"}`}>
                   {hostOpen ? <>
-                    <section className="connect-panel compact">
-                      <header className="connect-panel-title">
-                        <h3><DockDragHandle paneID={pane.id}><Monitor />{t("connectHostInfo")}</DockDragHandle></h3>
-                        <button type="button" className="icon-button" onClick={() => setHostOpen(false)} title={t("connectCollapseSidebar")}><ChevronLeft /></button>
-                      </header>
+                    <header className="connect-zone-head host-zone-head">
+                      <DockDragHandle paneID={pane.id}><Monitor />{t("connectHostInfo")}</DockDragHandle>
+                      <div className="host-panel-actions">
+                        <button type="button" className="icon-button" onClick={refreshSystem} disabled={system.isFetching || systemMetrics.isFetching || systemFilesystems.isFetching} title={t("commonRefresh")} aria-label={t("commonRefresh")}><RefreshCw /></button>
+                        <DockPanelToggle paneID={pane.id} open onToggle={() => setHostOpen(false)} />
+                      </div>
+                    </header>
+                    <div className="connect-host-body">
                       {tabTarget && <dl className="connect-host-list">
                         <div><dt>{t("serviceName")}</dt><dd>{tabTarget.name}</dd></div>
                         <div><dt>{t("serviceAlias")}</dt><dd><code>{tabTarget.alias}</code></dd></div>
@@ -587,18 +594,18 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                         <div><dt>{t("serviceRemoteUser")}</dt><dd>{tabTarget.remote_username}</dd></div>
                         <div><dt>{t("commonTag")}</dt><dd>{(tabTarget.tags || []).join(", ") || "-"}</dd></div>
                       </dl>}
-                    </section>
-                    {tabTarget && <SystemSnapshotPanel targetID={tabTarget.id} snapshot={tabActive ? systemSnapshot : undefined} sampleSnapshot={tabActive ? systemMetrics.data || system.data : undefined} isLoading={system.isLoading} isFetching={system.isFetching || systemMetrics.isFetching || systemFilesystems.isFetching} error={system.error || systemMetrics.error || systemFilesystems.error} onRefresh={refreshSystem} />}
-                  </> : <div className="dock-collapsed-tools"><DockDragHandle paneID={pane.id} /><button type="button" className="collapsed-zone-button" onClick={() => setHostOpen(true)} title={t("connectExpandSidebar")}><ChevronRight /><span>{t("connectHostInfo")}</span></button></div>}
+                      {tabTarget && <SystemSnapshotContent targetID={tabTarget.id} snapshot={tabActive ? systemSnapshot : undefined} sampleSnapshot={tabActive ? systemMetrics.data || system.data : undefined} isLoading={system.isLoading} error={system.error || systemMetrics.error || systemFilesystems.error} />}
+                    </div>
+                  </> : <div className="dock-collapsed-tools"><DockDragHandle paneID={pane.id} /><DockPanelToggle paneID={pane.id} open={false} onToggle={() => setHostOpen(true)}>{t("connectHostInfo")}</DockPanelToggle></div>}
                 </aside>;
                 if (pane.type === "files") return <div className={`connect-zone files-zone ${filesOpen ? "" : "collapsed"}`}>
                   {filesOpen ? <>
                     <div className="connect-zone-head">
                       <DockDragHandle paneID={pane.id}><HardDrive />{t("connectFilesTitle")}</DockDragHandle>
-                      <button type="button" className="icon-button" onClick={() => setFilesOpen(false)} title={t("connectCollapseSidebar")}><ChevronRight /></button>
+                      <DockPanelToggle paneID={pane.id} open onToggle={() => setFilesOpen(false)} />
                     </div>
                     {tabTarget ? <FileManager target={tabTarget} path={tab.filePath} onPathChange={(filePath) => setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, filePath } : item))} system={tabActive ? systemSnapshot : undefined} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} /> : <div className="connect-zone-empty"><span>{t("connectFilesNoOpenTabs")}</span></div>}
-                  </> : <div className="dock-collapsed-tools"><DockDragHandle paneID={pane.id} /><button type="button" className="collapsed-zone-button" onClick={() => setFilesOpen(true)} title={t("connectFilesTitle")}><ChevronLeft /><span>{t("connectFilesTitle")}</span></button></div>}
+                  </> : <div className="dock-collapsed-tools"><DockDragHandle paneID={pane.id} /><DockPanelToggle paneID={pane.id} open={false} onToggle={() => setFilesOpen(true)}>{t("connectFilesTitle")}</DockPanelToggle></div>}
                 </div>;
                 return <PaneTree
                   data={data}
@@ -976,22 +983,18 @@ function setHashCommentLanguageConfiguration(instance: Monaco, languageID: strin
   });
 }
 
-function SystemSnapshotPanel({
+function SystemSnapshotContent({
   targetID,
   snapshot,
   sampleSnapshot,
   isLoading,
-  isFetching,
   error,
-  onRefresh,
 }: {
   targetID: string;
   snapshot?: TargetSystemSnapshot;
   sampleSnapshot?: TargetSystemSnapshot;
   isLoading: boolean;
-  isFetching: boolean;
   error: Error | null;
-  onRefresh: () => void;
 }) {
   const { t } = useI18n();
   const [samples, setSamples] = useState<MetricSample[]>([]);
@@ -1009,14 +1012,7 @@ function SystemSnapshotPanel({
   }, [sampleSnapshot]);
 
   return (
-    <section className="connect-panel compact telemetry-panel">
-      <header className="telemetry-head">
-        <h3><Activity />{t("connectSystemInfo")}</h3>
-        <button type="button" className="icon-button" onClick={onRefresh} disabled={isFetching} title={t("commonRefresh")}>
-          <RefreshCw />
-        </button>
-      </header>
-
+    <div className="telemetry-panel host-system-content">
       {!snapshot && (
         <div className="telemetry-empty">
           <strong>{isLoading ? t("loading") : t("connectSystemUnavailable")}</strong>
@@ -1098,7 +1094,7 @@ function SystemSnapshotPanel({
           </section>
         </>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -1611,14 +1607,9 @@ function contextMenuPointInTabs(clientX: number, clientY: number, container: HTM
   };
 }
 
-function newConnectionTab(targetID: string, pendingCommand: string, restoreSession: boolean, storageKey: string, mobile: boolean, allowedTargets: ReadonlySet<string>): ConnectionTab {
-  const restored = restoreWorkspace(storageKey, targetID, restoreSession, mobile, allowedTargets);
-  let terminal = paneLeaves(restored.layout).find((pane) => pane.type === "terminal");
-  if (pendingCommand && !terminal) {
-    terminal = newTerminalPane(targetID);
-    restored.layout = splitPane(restored.layout, restored.activePaneID, terminal, "left");
-  }
-  return { id: newPaneID(targetID), targetID, ...restored, activePaneID: pendingCommand ? terminal!.id : restored.activePaneID, pendingCommand };
+function newConnectionTab(targetID: string, pendingCommand: string, restoreSession: boolean, storageKey: string, mobile: boolean): ConnectionTab {
+  const restored = restoreWorkspace(storageKey, targetID, restoreSession, mobile);
+  return { id: newPaneID(targetID), targetID, ...restored, pendingCommand };
 }
 
 function newTerminalPane(targetID: string, restoreSession = false): TerminalPaneNode {

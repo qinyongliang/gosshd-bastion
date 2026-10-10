@@ -4,6 +4,17 @@
 .dock-view > .pane-leaf, .dock-view > .connect-zone { width: 100%; height: 100%; }
 .dock-view .connect-host-panel { width: 100%; height: 100%; max-height: none; border: 0; animation: none; transition: none; }
 .dock-view .connect-host-panel.collapsed { padding: 0; }
+.dock-view .connect-host-panel:not(.collapsed) { display: grid; grid-template-rows: 38px minmax(0, 1fr); gap: 0; padding: 0; overflow: hidden; background: var(--surface); box-shadow: none; }
+.dock-view .host-zone-head { background: var(--surface-alt); border-color: var(--line); color: var(--muted); }
+.host-panel-actions { display: flex; flex: none; align-items: center; gap: 5px; }
+.host-panel-actions .icon-button { width: 30px; min-height: 30px; padding: 0; }
+.connect-host-body { min-width: 0; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.dock-view .connect-host-list { padding: 12px; overflow: visible; }
+.dock-view .connect-host-list dt { font-weight: 500; }
+.dock-view .connect-host-list dd { color: var(--text); font-weight: 500; }
+.dock-view .host-system-content { min-width: 0; margin: 0; padding: 12px; border-top: 1px solid var(--line); color: var(--text); }
+.host-system-content .telemetry-ip-card { background: var(--surface-alt); }
+.host-system-content .telemetry-block { border-color: var(--line); }
 .dock-view .files-zone { display: grid; background: var(--surface); box-shadow: none; }
 .dock-view .connect-zone-head { flex-shrink: 0; min-height: 38px; padding: 0 8px; }
 .dock-view .connect-panel-title { min-width: 0; }
@@ -18,9 +29,11 @@
 .dock-view .dock-drag-handle:hover, .dock-view .dock-drag-handle:focus-visible { background: color-mix(in srgb, var(--primary) 9%, transparent); color: var(--primary); }
 .dock-view .dock-drag-handle:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .dock-view .dock-drag-handle:active { cursor: grabbing; }
+.dock-view .dock-panel-toggle > svg { transform: none; }
 .dock-view .editor-pane-head > .dock-drag-handle { flex: 1; }
 .dock-view .editor-pane-actions { flex: none; }
-.dock-view-terminal .terminal-panel:not(.fullscreen) { grid-template-rows: 38px minmax(0, 1fr) auto; padding: 0; }
+.dock-view-terminal .terminal-panel { grid-template-rows: 38px minmax(0, 1fr) auto; padding: 0; }
+.dock-view .terminal-panel.fullscreen .terminal-pane-toolbar { padding: 3px 7px; }
 .dock-view .terminal-pane-toolbar { position: static; grid-row: 1; grid-column: 1; width: 100%; min-height: 38px; padding: 3px 7px; justify-content: flex-end; border-bottom: 1px solid #26364b; background: #111c2c; opacity: 1; transform: none; pointer-events: auto; }
 .dock-view-terminal .terminal-viewport { grid-row: 2; }
 .dock-view-terminal .mobile-terminal-keys { grid-row: 3; }
@@ -44,8 +57,10 @@ body.is-resizing-dock, body.is-resizing-dock * { cursor: var(--dock-resize-curso
 .dock-workspace.dragging .dock-view { pointer-events: none; }
 .dock-workspace.dock-fullscreen .dock-view { z-index: 4; }
 @container (min-width: 560px) {
-  .dock-view-host > .connect-host-panel:not(.collapsed) { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(0, 1fr); align-content: start; align-items: start; }
+  .dock-view-host .connect-host-body { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(0, 1fr); align-content: start; align-items: start; }
+  .dock-view-host .host-system-content { border-top: 0; border-left: 1px solid var(--line); }
 }
 @media (max-width: 760px) {
+  .dock-view-terminal .terminal-panel { grid-template-rows: 34px minmax(0, 1fr) auto; }
   .dock-view .terminal-pane-toolbar { min-height: 34px; }
 }
