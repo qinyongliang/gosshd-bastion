@@ -115,7 +115,7 @@ func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
 			t.Fatal(err)
 		}
 		attachTunnelAgent(t, app, "browser-upload-agent")
-		target := tunnelAgentTarget(t, app, user, org, "browser-upload-agent")
+		target := uploadAgentTarget(t, app, user, org, "browser-upload-agent")
 		cmd.Env = append(cmd.Env, "GOSSHD_UPLOAD_TARGET="+target.ID, "GOSSHD_UPLOAD_DIR="+t.TempDir())
 	}
 	out, err := cmd.CombinedOutput()
