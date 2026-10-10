@@ -15,7 +15,11 @@ try {
     const context = await browser.newContext({ locale: zh ? "zh-CN" : "en-US", viewport: { width: 1440, height: 1000 } });
     await context.addInitScript(({ mode, locale }) => {
       localStorage.setItem("gosshd_locale", locale);
-      window.uploadTest = { directBytes: 0, relayBytes: 0, interrupted: false };
+      window.uploadTest = { directBytes: 0, relayBytes: 0, interrupted: false, sockets: 0, offers: 0 };
+      const OriginalWS = WebSocket;
+      window.WebSocket = class extends OriginalWS { constructor(...args) { super(...args); if (this.url.includes("/files/upload/ws")) window.uploadTest.sockets++; } };
+      const offer = RTCPeerConnection.prototype.createOffer;
+      RTCPeerConnection.prototype.createOffer = function(...args) { window.uploadTest.offers++; return offer.apply(this, args); };
       const wsSend = WebSocket.prototype.send;
       WebSocket.prototype.send = function(data) {
         if (this.url.includes("/files/upload/ws") && data instanceof Uint8Array && data[0] === 1) window.uploadTest.relayBytes += data.byteLength;
@@ -69,7 +73,10 @@ try {
     for (let i = 0; i < content.length; i++) content[i] = (i * 31 + 255) % 256;
     const name = `${mode}.bin`;
     const auditResponse = page.waitForResponse((response) => response.url().includes("/files?") && response.request().method() === "GET");
-    await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "application/octet-stream", buffer: content });
+    const batch = ["direct", "interrupt", "relay"].includes(mode);
+    const files = [{ name, mimeType: "application/octet-stream", buffer: content }];
+    if (batch) files.push({ name: `${mode}-second.bin`, mimeType: "application/octet-stream", buffer: content.subarray(0, 10013) }, { name: `${mode}-empty.bin`, mimeType: "application/octet-stream", buffer: Buffer.alloc(0) });
+    await page.locator('input[type="file"]').setInputFiles(files);
     if (mode === "cancel") {
       await page.getByRole("button", { name: "Cancel upload", exact: true }).click();
       await page.locator(".file-upload-toast.cancelled").waitFor();
@@ -84,6 +91,11 @@ try {
     } else {
       await page.locator(".file-upload-toast.success").waitFor();
       const stats = await page.evaluate(() => window.uploadTest);
+      if (batch) {
+        assert.equal(stats.sockets, 1, "batch opened a WebSocket per file");
+        assert.equal(stats.offers, mode === "relay" ? 0 : 1, "batch renegotiated P2P per file");
+        for (const file of files) assert.deepEqual(await readFile(join(dir, file.name)), file.buffer);
+      }
       if (mode === "direct") {
         assert(stats.directBytes > 0, "browser did not send directly to Agent");
         assert.equal(stats.relayBytes, 0, "file content crossed the bastion despite direct connection");

@@ -25,42 +25,32 @@ type downloadReadCloser struct {
 
 func (s downloadReadCloser) Close() error { return s.close() }
 
-func openDownloadSource(ctx context.Context, req protocol.StreamRequest) (*downloadSource, error) {
+func openDownloadSource(ctx context.Context, req protocol.StreamRequest, shared ...*sftp.Client) (*downloadSource, error) {
 	if req.Download == nil || req.Download.Path == "" {
 		return nil, errors.New("invalid download request")
 	}
 	source := req.Download.Path
-	sshClient, err := openTunnelSSH(ctx, req.TunnelHops)
+	client, cleanup, err := openFileSFTP(ctx, req.TunnelHops, shared...)
 	if err != nil {
 		return nil, err
 	}
-	if sshClient != nil {
-		stop := context.AfterFunc(ctx, func() { _ = sshClient.Close() })
-		client, err := sftp.NewClient(sshClient)
-		cleanup := func() { stop(); _ = sshClient.Close() }
-		if err != nil {
-			cleanup()
-			return nil, err
-		}
+	if client != nil {
 		info, err := client.Stat(source)
 		if err == nil && !info.Mode().IsRegular() {
 			err = errors.New("download source is not a regular file")
 		}
 		if err != nil {
-			_ = client.Close()
 			cleanup()
 			return nil, err
 		}
 		file, err := client.Open(source)
 		if err != nil {
-			_ = client.Close()
 			cleanup()
 			return nil, err
 		}
 		info, err = file.Stat()
 		if err != nil || !info.Mode().IsRegular() {
 			_ = file.Close()
-			_ = client.Close()
 			cleanup()
 			if err == nil {
 				err = errors.New("download source is not a regular file")
@@ -69,7 +59,6 @@ func openDownloadSource(ctx context.Context, req protocol.StreamRequest) (*downl
 		}
 		return &downloadSource{ReadCloser: downloadReadCloser{Reader: file, close: func() error {
 			err := file.Close()
-			_ = client.Close()
 			cleanup()
 			return err
 		}}, size: info.Size()}, nil
@@ -116,11 +105,15 @@ func (c *Client) handleFileDownload(stream io.ReadWriteCloser, reader *bufio.Rea
 	}
 	stable, relay, cleanup := startFileTransfer(ctx, cancel, stream, reader, req)
 	defer cleanup()
+	_ = sendFileStatus(stable, relay, sendFileDownload(stable, src), true)
+}
+
+func sendFileDownload(stable io.ReadWriter, src *downloadSource) protocol.FileTransferStatus {
 	// Waiting for start lets the browser finish ICE and prepare its writable sink
 	// before even a small file is sent. Receipt follows checksum/length checks.
 	var control [1]byte
 	if _, err := io.ReadFull(stable, control[:]); err != nil || control[0] != 1 {
-		return
+		return protocol.FileTransferStatus{Type: "error", Error: "invalid download start"}
 	}
 	checksum, err := filetransfer.Send(stable, src, src.size)
 	if err == nil {
@@ -132,5 +125,5 @@ func (c *Client) handleFileDownload(stream io.ReadWriteCloser, reader *bufio.Rea
 	if err != nil {
 		status.Type, status.Error, status.SHA256 = "error", err.Error(), ""
 	}
-	_ = sendFileStatus(stable, relay, status, true)
+	return status
 }

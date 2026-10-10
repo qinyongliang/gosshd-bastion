@@ -22,24 +22,16 @@ type uploadDestination struct {
 	abort  func()
 }
 
-func openUploadDestination(ctx context.Context, req protocol.StreamRequest) (*uploadDestination, error) {
+func openUploadDestination(ctx context.Context, req protocol.StreamRequest, shared ...*sftp.Client) (*uploadDestination, error) {
 	if req.Upload == nil || req.Upload.Path == "" || req.Upload.Size < 0 || req.Upload.Size > filetransfer.MaxSize {
 		return nil, errors.New("invalid upload request")
 	}
 	dest := req.Upload.Path
-	sshClient, err := openTunnelSSH(ctx, req.TunnelHops)
+	client, cleanup, err := openFileSFTP(ctx, req.TunnelHops, shared...)
 	if err != nil {
 		return nil, err
 	}
-	if sshClient != nil {
-		stop := context.AfterFunc(ctx, func() { _ = sshClient.Close() })
-		client, err := sftp.NewClient(sshClient)
-		if err != nil {
-			stop()
-			_ = sshClient.Close()
-			return nil, err
-		}
-		cleanup := func() { stop(); _ = client.Close(); _ = sshClient.Close() }
+	if client != nil {
 		temp := path.Join(path.Dir(dest), ".gosshd-upload-"+uuid.NewString())
 		file, err := client.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 		if err != nil {
@@ -135,14 +127,18 @@ func (c *Client) handleFileUpload(stream io.ReadWriteCloser, reader *bufio.Reade
 	send := func(status protocol.FileTransferStatus) error {
 		return sendFileStatus(stable, relay, status, false)
 	}
+	_ = send(receiveFileUpload(stable, dst, req.Upload.Size, send))
+}
+
+func receiveFileUpload(src io.Reader, dst *uploadDestination, size int64, send func(protocol.FileTransferStatus) error) protocol.FileTransferStatus {
 	var loaded int64
 	lastProgress := time.Now()
-	checksum, err := filetransfer.Receive(stable, dst, req.Upload.Size, func(n int64) {
+	checksum, err := filetransfer.Receive(src, dst, size, func(n int64) {
 		loaded = n
-		if time.Since(lastProgress) >= 100*time.Millisecond || n == req.Upload.Size {
+		if time.Since(lastProgress) >= 100*time.Millisecond || n == size {
 			lastProgress = time.Now()
 			if send(protocol.FileTransferStatus{Type: "progress", Loaded: n}) != nil {
-				_ = stream.Close()
+				_ = dst.Close()
 			}
 		}
 	})
@@ -158,5 +154,5 @@ func (c *Client) handleFileUpload(stream io.ReadWriteCloser, reader *bufio.Reade
 		status.Error = err.Error()
 		status.SHA256 = ""
 	}
-	_ = send(status)
+	return status
 }

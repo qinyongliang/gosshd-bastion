@@ -1339,7 +1339,7 @@ const (
 	testSFTPModeExitSubsystem
 )
 
-func startTestSFTPServer(t *testing.T, mode testSFTPMode) (string, func()) {
+func startTestSFTPServer(t *testing.T, mode testSFTPMode, accepted ...func()) (string, func()) {
 	t.Helper()
 	hostSigner := testSSHSigner(t)
 	cfg := &gossh.ServerConfig{NoClientAuth: true}
@@ -1355,6 +1355,9 @@ func startTestSFTPServer(t *testing.T, mode testSFTPMode) (string, func()) {
 			raw, err := ln.Accept()
 			if err != nil {
 				return
+			}
+			if len(accepted) > 0 {
+				accepted[0]()
 			}
 			go handleTestSFTPConn(raw, cfg, mode)
 		}

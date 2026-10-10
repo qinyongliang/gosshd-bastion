@@ -10,10 +10,13 @@ import (
 	"github.com/qinyongliang/gosshd-bastion/internal/tunnel"
 )
 
-func startFileTransfer(ctx context.Context, cancel context.CancelFunc, stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest) (*tunnel.Conn, *tunnel.Relay, func()) {
+func startFileTransfer(ctx context.Context, cancel context.CancelFunc, stream io.ReadWriteCloser, reader *bufio.Reader, req protocol.StreamRequest, operation ...func([]byte)) (*tunnel.Conn, *tunnel.Relay, func()) {
 	relay := &tunnel.Relay{Reader: reader, Writer: stream, Closer: stream}
 	stable := tunnel.NewConn(relay)
 	negotiator := tunnel.NewNegotiator(stable, false, req.STUNServers)
+	if len(operation) > 0 {
+		stable.FileOperationHandler = operation[0]
+	}
 	go stable.Run()
 	go negotiator.Run()
 	go func() {
