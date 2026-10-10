@@ -84,6 +84,7 @@ try {
     await page.getByLabel("File path", { exact: true }).fill(dir);
     await page.getByLabel("File path", { exact: true }).press("Enter");
     await page.waitForFunction((dir) => document.querySelector(".file-manager-path")?.getAttribute("title") === dir, dir);
+    assert.equal(await page.locator(".file-breadcrumb-menu").count(), 0, "path editing left a menu over downloadable files");
     const downloadPromise = !mode.includes("cancel") && mode !== "corrupt" && !mode.startsWith("stream") ? page.waitForEvent("download") : null;
     await page.locator(".file-manager-body").getByRole("button", { name, exact: true }).dblclick();
     if (mode.includes("cancel")) {
