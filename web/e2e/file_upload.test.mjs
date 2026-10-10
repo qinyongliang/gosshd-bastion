@@ -61,7 +61,7 @@ try {
     await page.locator(".files-zone").waitFor();
     if (await page.locator(".files-zone .collapsed-zone-button").count()) await page.locator(".files-zone .collapsed-zone-button").click();
     await page.locator(".file-manager-path").dblclick();
-    const pathInput = page.getByLabel(zh ? "文件路径" : "File path", { exact: true });
+    const pathInput = page.getByLabel("File path", { exact: true });
     await pathInput.fill(dir);
     await pathInput.press("Enter");
     await page.waitForFunction((dir) => document.querySelector(".file-manager-path")?.getAttribute("title") === dir, dir);
