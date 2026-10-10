@@ -24,13 +24,14 @@ import (
 )
 
 func (a *App) handleTargetFileUploadWS(w http.ResponseWriter, r *http.Request, user store.User) {
-	target, decision, allowed, _, ok := a.authorizeTargetSFTP(w, r, user, "upload")
+	startedAt := time.Now().UTC()
+	target, decision, allowed, _, ok := a.authorizeTargetSFTP(w, r, user, "upload", startedAt)
 	if !ok {
 		return
 	}
 	dir := remotePathFromQuery(r)
 	if !allowed {
-		a.auditWebSFTP(r.Context(), user, target, decision, "sftp upload "+dir, store.DecisionDeny, "upload is not allowed", 126, sshSourceIPFromRequest(r))
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp upload "+dir, store.DecisionDeny, "upload is not allowed", 126, sshSourceIPFromRequest(r), startedAt)
 		writeError(w, http.StatusForbidden, "SFTP upload is not allowed by policy")
 		return
 	}
@@ -41,17 +42,18 @@ func (a *App) handleTargetFileUploadWS(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	dest := remoteJoin(dir, name)
-	a.handleTargetFileTransferWS(w, r, user, target, decision, protocol.StreamRequest{Type: protocol.StreamFileUpload, Upload: &protocol.FileUploadRequest{Path: dest, Size: size}}, "upload", dest, size)
+	a.handleTargetFileTransferWS(w, r, user, target, decision, protocol.StreamRequest{Type: protocol.StreamFileUpload, Upload: &protocol.FileUploadRequest{Path: dest, Size: size}}, "upload", dest, size, startedAt)
 }
 
 func (a *App) handleTargetFileDownloadWS(w http.ResponseWriter, r *http.Request, user store.User) {
-	target, decision, _, allowed, ok := a.authorizeTargetSFTP(w, r, user, "download")
+	startedAt := time.Now().UTC()
+	target, decision, _, allowed, ok := a.authorizeTargetSFTP(w, r, user, "download", startedAt)
 	if !ok {
 		return
 	}
 	source := remotePathFromQuery(r)
 	if !allowed {
-		a.auditWebSFTP(r.Context(), user, target, decision, "sftp download "+source, store.DecisionDeny, "download is not allowed", 126, sshSourceIPFromRequest(r))
+		a.auditWebSFTP(r.Context(), user, target, decision, "sftp download "+source, store.DecisionDeny, "download is not allowed", 126, sshSourceIPFromRequest(r), startedAt)
 		writeError(w, http.StatusForbidden, "SFTP download is not allowed by policy")
 		return
 	}
@@ -59,12 +61,12 @@ func (a *App) handleTargetFileDownloadWS(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, "invalid file path")
 		return
 	}
-	a.handleTargetFileTransferWS(w, r, user, target, decision, protocol.StreamRequest{Type: protocol.StreamFileDownload, Download: &protocol.FileDownloadRequest{Path: source}}, "download", source, 0)
+	a.handleTargetFileTransferWS(w, r, user, target, decision, protocol.StreamRequest{Type: protocol.StreamFileDownload, Download: &protocol.FileDownloadRequest{Path: source}}, "download", source, 0, startedAt)
 }
 
 // Both directions share authorization-before-upgrade, Agent setup, ICE signaling,
 // relay continuity and Agent-only status/audit handling.
-func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request, user store.User, target store.SSHTarget, decision bastion.Decision, req protocol.StreamRequest, action, filePath string, size int64) {
+func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request, user store.User, target store.SSHTarget, decision bastion.Decision, req protocol.StreamRequest, action, filePath string, size int64, startedAt time.Time) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -115,7 +117,7 @@ func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request,
 			if err == nil {
 				err = errors.New(response.Error)
 			}
-			a.auditWebSFTP(r.Context(), user, target, decision, "sftp "+action+" "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r))
+			a.auditWebSFTP(r.Context(), user, target, decision, "sftp "+action+" "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r), startedAt)
 			_ = writeMessage(map[string]string{"type": "error", "error": err.Error()})
 		}
 		return
@@ -133,12 +135,13 @@ func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request,
 	}
 	relay := &tunnel.Relay{Reader: reader, Writer: stream, Closer: stream}
 	type operation struct {
-		target   store.SSHTarget
-		decision bastion.Decision
-		path     string
-		size     int64
+		target    store.SSHTarget
+		decision  bastion.Decision
+		path      string
+		size      int64
+		startedAt time.Time
 	}
-	current := &operation{target, decision, filePath, size}
+	current := &operation{target, decision, filePath, size, startedAt}
 	var opMu sync.Mutex
 	rejected := make(chan string, 1)
 	go func() {
@@ -150,6 +153,7 @@ func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request,
 				return
 			}
 			if kind == websocket.TextMessage && reuse {
+				opStartedAt := time.Now().UTC()
 				var op struct {
 					Path string `json:"path"`
 					Name string `json:"name"`
@@ -170,7 +174,7 @@ func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request,
 				}
 				if err != nil || d.Action == store.DecisionDeny || !allowed {
 					if err == nil {
-						a.auditWebSFTP(r.Context(), user, t, d, "sftp "+action+" "+op.Path, store.DecisionDeny, "operation is not allowed", 126, sshSourceIPFromRequest(r))
+						a.auditWebSFTP(r.Context(), user, t, d, "sftp "+action+" "+op.Path, store.DecisionDeny, "operation is not allowed", 126, sshSourceIPFromRequest(r), opStartedAt)
 					}
 					select {
 					case rejected <- "SFTP operation denied by policy":
@@ -205,7 +209,7 @@ func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request,
 					opMu.Unlock()
 					return
 				}
-				current = &operation{t, d, p, op.Size}
+				current = &operation{t, d, p, op.Size, opStartedAt}
 				opMu.Unlock()
 				next.TunnelHops = endpoint.hops
 				encoded, _ := json.Marshal(next)
@@ -237,7 +241,7 @@ func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request,
 	audit := func(op *operation, result string, code int) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
 		defer cancel()
-		a.auditWebSFTP(ctx, user, op.target, op.decision, fmt.Sprintf("sftp %s %s (%d bytes)", action, op.path, op.size), op.decision.Action, result, code, sshSourceIPFromRequest(r))
+		a.auditWebSFTP(ctx, user, op.target, op.decision, fmt.Sprintf("sftp %s %s (%d bytes)", action, op.path, op.size), op.decision.Action, result, code, sshSourceIPFromRequest(r), op.startedAt)
 	}
 	defer func() {
 		opMu.Lock()

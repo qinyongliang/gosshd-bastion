@@ -42,6 +42,7 @@ func TestFileUploadDownloadSessionReuse(t *testing.T) {
 					target = tunnelSSHTarget(t, app, user, org, "session-ssh", address, target.ID)
 				}
 				dir := t.TempDir()
+				fileStarts := make(map[string]time.Time)
 				var ws *websocket.Conn
 				var sendSeq, receiveSeq uint64 = 1, 1
 				send := func(p tunnel.Packet) {
@@ -60,6 +61,11 @@ func TestFileUploadDownloadSessionReuse(t *testing.T) {
 							t.Fatal(err)
 						}
 					}
+					auditPath := full
+					if action == "upload" {
+						auditPath = remoteJoin(dir, name)
+					}
+					fileStarts[fmt.Sprintf("sftp %s %s (%d bytes)", action, auditPath, len(data))] = time.Now().UTC()
 					if index == 0 {
 						params := url.Values{"reuse": {"1"}, "path": {p}, "name": {name}, "size": {fmt.Sprint(len(data))}}
 						u, _ := url.Parse(srv.URL)
@@ -98,6 +104,7 @@ func TestFileUploadDownloadSessionReuse(t *testing.T) {
 					if index == 0 {
 						initialConnections = connections.Load()
 					}
+					time.Sleep(40 * time.Millisecond)
 					if action == "upload" {
 						for offset := 0; offset < len(data); offset += filetransfer.MaxChunkSize {
 							send(tunnel.Packet{Kind: tunnel.Data, Seq: sendSeq, Body: filetransfer.ChunkRecord(data[offset:min(len(data), offset+filetransfer.MaxChunkSize)])})
@@ -180,6 +187,15 @@ func TestFileUploadDownloadSessionReuse(t *testing.T) {
 				logs, err := app.audit.Repository().ListCommandAuditLogs(context.Background(), store.AuditLogFilter{TargetID: target.ID, RequestType: store.RequestSFTP, Limit: 20})
 				if err != nil || len(logs.Logs) != 4 {
 					t.Fatalf("per-file audit missing: %d %v", len(logs.Logs), err)
+				}
+				for _, log := range logs.Logs {
+					if log.ExitCode == nil || *log.ExitCode != 0 {
+						continue
+					}
+					start, ok := fileStarts[log.Command]
+					if !ok || log.StartedAt.Before(start) || log.EndedAt == nil || log.EndedAt.Sub(log.StartedAt) < 40*time.Millisecond {
+						t.Fatalf("file audit did not measure its own transfer: %+v", log)
+					}
 				}
 			})
 		}

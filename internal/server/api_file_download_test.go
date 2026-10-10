@@ -81,6 +81,7 @@ func TestFileDownloadLocalAndSSH(t *testing.T) {
 			if ready["type"] != "ready" || ready["size"] != float64(len(data)) {
 				t.Fatalf("not ready: %+v", ready)
 			}
+			time.Sleep(40 * time.Millisecond)
 			send := func(p tunnel.Packet) {
 				if err := ws.WriteMessage(websocket.BinaryMessage, p.Bytes()); err != nil {
 					t.Fatal(err)
@@ -143,6 +144,9 @@ func TestFileDownloadLocalAndSSH(t *testing.T) {
 				page, err := app.audit.Repository().ListCommandAuditLogs(context.Background(), store.AuditLogFilter{TargetID: target.ID, RequestType: store.RequestSFTP, Limit: 10})
 				if err == nil && len(page.Logs) > 0 {
 					log := page.Logs[0]
+					if log.EndedAt == nil || log.EndedAt.Sub(log.StartedAt) < 40*time.Millisecond {
+						t.Fatalf("download duration omitted transfer time: %+v", log)
+					}
 					success := mode != "cancel" && mode != "forged completion"
 					if log.ExitCode == nil || (*log.ExitCode == 0) != success {
 						t.Fatalf("incorrect audit: %+v", log)
