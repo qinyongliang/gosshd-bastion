@@ -50,6 +50,10 @@ func TestTunnelTrafficUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "tunnel_traffic.test.mjs")
 }
 
+func TestFileUploadUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "file_upload.test.mjs")
+}
+
 func TestPaginationUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "pagination.test.mjs")
 }
@@ -98,6 +102,22 @@ func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
 		"PLAYWRIGHT_CHROMIUM_EXECUTABLE="+browserPath,
 		"GOSSHD_UI_E2E_MOBILE_ONLY="+mobileOnlyValue,
 	)
+	if script == "file_upload.test.mjs" {
+		if err := app.ensureServices(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		user, err := app.store.Repository().GetUserByEmail(context.Background(), "admin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		org, err := app.store.Repository().GetPersonalOrganizationForUser(context.Background(), user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		attachTunnelAgent(t, app, "browser-upload-agent")
+		target := tunnelAgentTarget(t, app, user, org, "browser-upload-agent")
+		cmd.Env = append(cmd.Env, "GOSSHD_UPLOAD_TARGET="+target.ID, "GOSSHD_UPLOAD_DIR="+t.TempDir())
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("ui e2e failed: %v\n%s", err, out)

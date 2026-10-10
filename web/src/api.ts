@@ -1,3 +1,5 @@
+import { uploadFileP2P, UploadUnavailable } from "./fileUpload";
+import type { UploadProgress } from "./fileUpload";
 import type {
   TunnelTrafficStatistics,
   Tunnel,
@@ -43,7 +45,7 @@ export class ApiError extends Error {
   }
 }
 
-export type UploadProgress = { loaded: number; total: number };
+export type { UploadProgress } from "./fileUpload";
 
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin", ...options });
@@ -247,7 +249,18 @@ function terminalURL(path: string, cols: number, rows: number, sessionID = "") {
   return `${protocol}//${host}${path}?${params.toString()}`;
 }
 
-function uploadFile(targetID: string, path: string, file: File, onProgress?: (progress: UploadProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
+async function uploadFile(targetID: string, path: string, file: File, onProgress?: (progress: UploadProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
+  try {
+    return await uploadFileP2P(targetID, path, file, onProgress, signal);
+  } catch (error) {
+    if (!(error instanceof UploadUnavailable)) throw error;
+    if (signal?.aborted) throw new DOMException("The upload was aborted", "AbortError");
+    onProgress?.({ loaded: 0, total: file.size, transport: "relay" });
+    return uploadFileHTTP(targetID, path, file, onProgress, signal);
+  }
+}
+
+function uploadFileHTTP(targetID: string, path: string, file: File, onProgress?: (progress: UploadProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
   return new Promise((resolve, reject) => {
     const body = new FormData();
     body.append("file", file);
@@ -255,7 +268,7 @@ function uploadFile(targetID: string, path: string, file: File, onProgress?: (pr
     xhr.open("POST", `/api/targets/${targetID}/files/upload?${queryString({ path })}`);
     xhr.withCredentials = true;
     xhr.upload.onprogress = (event) => {
-      onProgress?.({ loaded: event.loaded, total: event.lengthComputable ? event.total : file.size });
+      onProgress?.({ loaded: event.loaded, total: event.lengthComputable ? event.total : file.size, transport: "relay" });
     };
     xhr.onload = () => {
       const text = xhr.responseText;

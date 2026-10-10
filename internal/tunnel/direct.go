@@ -60,7 +60,8 @@ func (n *Negotiator) Close() {
 }
 func (n *Negotiator) newPeer() (*webrtc.PeerConnection, error) {
 	settings := webrtc.SettingEngine{}
-	settings.SetICEMulticastDNSMode(ice.MulticastDNSModeDisabled)
+	// Browsers may advertise LAN candidates using mDNS hostnames.
+	settings.SetICEMulticastDNSMode(ice.MulticastDNSModeQueryOnly)
 	settings.SetICETimeouts(3*time.Second, 10*time.Second, time.Second)
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 	config := webrtc.Configuration{}
