@@ -58,6 +58,7 @@ export async function downloadFile(targetID: string, path: string, name: string,
       if (signal?.aborted) throw new DOMException("Download aborted", "AbortError");
       if (size > sink.maxSize || error.message === "Download requires native streaming") {
         await sink.abort();
+        progress?.({ loaded: 0, total: size, transport: "relay" });
         saveURL(httpURL, name);
         return "browser";
       }
