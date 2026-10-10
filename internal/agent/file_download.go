@@ -57,6 +57,16 @@ func openDownloadSource(ctx context.Context, req protocol.StreamRequest) (*downl
 			cleanup()
 			return nil, err
 		}
+		info, err = file.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			_ = file.Close()
+			_ = client.Close()
+			cleanup()
+			if err == nil {
+				err = errors.New("download source is not a regular file")
+			}
+			return nil, err
+		}
 		return &downloadSource{ReadCloser: downloadReadCloser{Reader: file, close: func() error {
 			err := file.Close()
 			_ = client.Close()

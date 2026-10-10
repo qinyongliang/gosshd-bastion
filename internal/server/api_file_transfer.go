@@ -108,6 +108,7 @@ func (a *App) handleTargetFileTransferWS(w http.ResponseWriter, r *http.Request,
 			if err == nil {
 				err = errors.New(response.Error)
 			}
+			a.auditWebSFTP(r.Context(), user, target, decision, "sftp "+action+" "+filePath, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r))
 			_ = writeMessage(map[string]string{"type": "error", "error": err.Error()})
 		}
 		return

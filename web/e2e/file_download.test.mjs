@@ -10,7 +10,7 @@ const target = process.env.GOSSHD_UPLOAD_TARGET;
 const dir = process.env.GOSSHD_UPLOAD_DIR;
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless: true });
 try {
-  for (const [mode, locale] of [["direct", "en"], ["interrupt", "zh-CN"], ["relay", "en"], ["empty", "zh-CN"], ["cancel", "en"], ["legacy", "en"], ["stream", "en"], ["stream-cancel", "zh-CN"], ["corrupt", "en"]]) {
+  for (const [mode, locale] of [["direct", "en"], ["interrupt", "zh-CN"], ["relay", "en"], ["empty", "zh-CN"], ["cancel", "en"], ["legacy", "en"], ["stream", "en"], ["stream-cancel", "zh-CN"], ["corrupt", "en"], ["native", "en"], ["stream-error", "en"]]) {
     const zh = locale === "zh-CN";
     const content = Buffer.alloc(mode === "empty" ? 0 : mode.includes("cancel") ? 32 * 1024 * 1024 : 2 * 1024 * 1024);
     for (let i = 0; i < content.length; i++) content[i] = (i * 31 + 255) % 256;
@@ -53,6 +53,7 @@ try {
       if (mode.startsWith("stream")) {
         window.showSaveFilePicker = async () => ({ createWritable: async () => ({
           write: async (bytes) => {
+            if (mode === "stream-error") throw new Error("Test disk write failed");
             // Slow writes exercise ACK backpressure and cancellation of the sink.
             await new Promise((resolve) => setTimeout(resolve, 2));
             window.downloadTest.chunks.push(Array.from(bytes));
@@ -69,6 +70,7 @@ try {
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.route("**/api/targets/*/system**", (route) => route.fulfill({ json: { os: "linux", hostname: "download-test", filesystems: [] } }));
+    if (mode === "native") await page.routeWebSocket("**/files/download/ws?**", (ws) => { ws.send(JSON.stringify({ type: "ready", path: name, size: 256 * 1024 * 1024 + 1, stun_servers: [] })); });
     if (mode === "legacy") await page.routeWebSocket("**/files/download/ws?**", (ws) => { ws.send(JSON.stringify({ type: "unavailable" })); });
     await page.goto(base);
     await page.getByLabel(zh ? "邮箱" : "Email", { exact: true }).fill("admin");
@@ -82,12 +84,16 @@ try {
     await page.getByLabel("File path", { exact: true }).fill(dir);
     await page.getByLabel("File path", { exact: true }).press("Enter");
     await page.waitForFunction((dir) => document.querySelector(".file-manager-path")?.getAttribute("title") === dir, dir);
-    const downloadPromise = !mode.includes("cancel") && mode !== "corrupt" && mode !== "stream" ? page.waitForEvent("download") : null;
+    const downloadPromise = !mode.includes("cancel") && mode !== "corrupt" && !mode.startsWith("stream") ? page.waitForEvent("download") : null;
     await page.locator(".file-manager-body").getByRole("button", { name, exact: true }).dblclick();
     if (mode.includes("cancel")) {
       await page.getByRole("button", { name: zh ? "取消下载" : "Cancel download", exact: true }).click();
       await page.locator(".file-download-toast.cancelled").waitFor();
       if (mode === "stream-cancel") await page.waitForFunction(() => window.downloadTest.aborted && !window.downloadTest.saved);
+    } else if (mode === "stream-error") {
+      await page.locator(".file-download-toast.error").waitFor();
+      await page.waitForFunction(() => window.downloadTest.aborted && !window.downloadTest.saved);
+      assert((await page.locator(".file-operation-error").textContent()).includes("disk write failed"));
     } else if (mode === "corrupt") {
       await page.locator(".file-download-toast.error").waitFor();
       assert((await page.locator(".file-operation-error").textContent()).includes("checksum"));
@@ -101,7 +107,7 @@ try {
         const chunks = await page.evaluate(() => window.downloadTest.chunks);
         assert.deepEqual(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), content, "streamed bytes differ");
       }
-      await page.locator(".file-download-toast.success").waitFor();
+      await page.locator(mode === "native" ? ".file-download-toast.browser" : ".file-download-toast.success").waitFor();
       const stats = await page.evaluate(() => ({ ...window.downloadTest, chunks: [] }));
       if (mode === "direct" || mode === "stream") {
         assert(stats.directBytes > 0, "Agent did not send directly to browser");
@@ -118,7 +124,7 @@ try {
         const response = await fetch(`/api/audit?target_id=${target}&request_type=sftp&limit=100`);
         const data = await response.json();
         return (data.logs || []).some((log) => log.command?.includes(name) && log.exit_code === 0 && (legacy || log.policy_reason?.includes(checksum)));
-      }, { target, name, checksum, legacy: mode === "legacy" });
+      }, { target, name, checksum, legacy: mode === "legacy" || mode === "native" });
     }
     assert.deepEqual(await readFile(join(dir, name)), content, "source was changed by download");
     assert.deepEqual(errors, []);
