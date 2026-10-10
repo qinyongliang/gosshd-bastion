@@ -144,7 +144,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const listing = useQuery({
     queryKey: ["target-files", target.id, path, sort.key, sort.order],
     queryFn: () => api.listFiles(target.id, path, sort.key, sort.order),
-    placeholderData: (previous) => previous,
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === target.id && previousQuery.queryKey[2] === path ? previous : undefined,
   });
 
   useEffect(() => {
