@@ -90,10 +90,10 @@ try {
           file("loose.txt", "loose"),
         ];
         const data = new DataTransfer();
-        for (const root of roots) {
-          const item = data.items.add(new File([], root.name));
-          Object.defineProperty(item, "webkitGetAsEntry", { value: () => root });
-        }
+        for (const root of roots) data.items.add(new File([], root.name));
+        // Native DataTransferItem access can return fresh wrappers. Supply stable
+        // directory entries on the event's data store rather than patching a wrapper.
+        Object.defineProperty(data, "items", { value: roots.map((root) => ({ kind: "file", webkitGetAsEntry: () => root })) });
         manager.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: data }));
         manager.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: data }));
       });
