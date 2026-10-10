@@ -67,7 +67,7 @@ try {
   await page.goto(`${process.env.GOSSHD_UI_E2E_BASE_URL}/targets/${target.id}/connect`);
   await page.locator(".terminal-panel").waitFor();
   await page.locator(".files-zone").waitFor();
-  if (await page.locator(".files-zone > .collapsed-zone-button").isVisible()) await page.locator(".files-zone > .collapsed-zone-button").click();
+  if (await page.locator(".files-zone .collapsed-zone-button").isVisible()) await page.locator(".files-zone .collapsed-zone-button").click();
   await page.locator(".file-name").first().waitFor();
   const fileBounds = await page.locator(".files-zone .file-manager-body").evaluate((el) => ({ width: el.clientWidth, scroll: el.scrollWidth, rowHeight: el.querySelector("tbody tr").getBoundingClientRect().height }));
   assert.ok(fileBounds.scroll <= fileBounds.width + 1, "Narrow file sidebar must not need horizontal scrolling");
