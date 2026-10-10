@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFile } from "node:fs/promises";
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_REQUIRE_PATH);
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless: true });
@@ -23,6 +24,8 @@ try {
     await route.fulfill({ json: { path: deleted.at(-1) } });
   });
   await page.route("**/api/targets/*/system**", (route) => route.fulfill({ json: { os: "linux", filesystems: [] } }));
+  await page.routeWebSocket("**/files/download/ws?**", (ws) => ws.send(JSON.stringify({ type: "unavailable" })));
+  await page.route("**/api/targets/*/files/download?**", (route) => route.fulfill({ body: new URL(route.request().url()).searchParams.get("path").split("/").at(-1), contentType: "application/octet-stream" }));
   const base = process.env.GOSSHD_UI_E2E_BASE_URL;
   await page.goto(base);
   await page.getByLabel("Email", { exact: true }).fill("admin");
@@ -53,6 +56,16 @@ try {
   await expectChosen(["02.txt", "04.txt", "05.txt", "08.txt"]);
   await row("04.txt").click({ button: "right" });
   await expectChosen(["02.txt", "04.txt", "05.txt", "08.txt"]);
+  const downloads = [];
+  page.on("download", (download) => downloads.push(download));
+  let downloadCount = 0;
+  const batchDownloaded = page.waitForEvent("download", { predicate: () => ++downloadCount === 4 });
+  await page.locator(".file-context-menu").getByRole("menuitem", { name: "Download", exact: true }).click();
+  await batchDownloaded;
+  assert.deepEqual(downloads.map((download) => download.suggestedFilename()).sort(), ["02.txt", "04.txt", "05.txt", "08.txt"]);
+  for (const download of downloads) assert.equal(await readFile(await download.path(), "utf8"), download.suggestedFilename());
+  await expectChosen(["02.txt", "04.txt", "05.txt", "08.txt"]);
+  await row("04.txt").click({ button: "right" });
   await page.locator(".file-context-menu").getByRole("menuitem", { name: "Delete", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('[data-file-path="/selection/08.txt"]'));
