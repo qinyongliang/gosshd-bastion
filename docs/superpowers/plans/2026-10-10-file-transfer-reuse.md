@@ -6,8 +6,10 @@
 
 **Verification:** GitHub Actions builds and runs race tests and real Chromium transfers. No local builds.
 
-- [ ] Add relay-only operation control and Agent session processing, reusing source/destination helpers and one SFTP client.
-- [ ] Add server session bridge with per-file authorization, route validation and audit.
-- [ ] Retain browser session state across operations and dispose on target change/unmount.
-- [ ] Verify multi-file upload/download content, connection/SDP counts, relay fallback and policy denial.
+- [x] Add relay-only operation control and Agent session processing, reusing source/destination helpers and one SFTP client.
+- [x] Add server session bridge with per-file authorization, route validation and audit.
+- [x] Retain browser session state across operations and dispose on target change/unmount.
+- [x] Verify multi-file upload/download content, connection/SDP counts, relay fallback and policy denial.
 - [ ] Push, pass CI, release and deploy both authorized environments, verify health/data/Agent downloads.
+
+**Verification:** GitHub Actions `38033526049` passed the frontend build, transfer race tests, per-file policy/audit tests, relay-only operation validation, tunnel regressions and real Chromium upload/download suites. Three-file uploads and repeated downloads (including empty files) use one WebSocket and one SDP offer in direct/interrupted modes, or no offer in forced relay mode. Delegated SSH tests compare connection counts before/after the batch.
