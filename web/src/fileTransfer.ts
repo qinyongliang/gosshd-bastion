@@ -289,14 +289,14 @@ function transferFileP2P(targetID: string, path: string, file?: File, sink?: Dow
           return;
         }
         const bytes = new Uint8Array(event.data);
-        // Only the authenticated relay can report disk progress and completion.
+        // Only the authenticated relay can report Agent status.
         if (bytes[0] === STATUS) {
           const status = JSON.parse(decoder.decode(bytes.subarray(9)));
           lastActivity = Date.now();
           if (status.type === "error") { finish(new Error(status.error || "File transfer failed")); return; }
           if (file) loaded = Math.max(loaded, Math.min(total, status.loaded));
-          // The Agent closes WebRTC after sending the receipt. Its disk-confirmed
-          // result is authoritative even if onclose arrives before the receipt.
+          // The Agent closes WebRTC after sending the receipt. Use its transport
+          // state even when onclose arrives before the receipt.
           if (status.type === "complete") transport = status.direct ? "direct" : "relay";
           notify();
           if (status.type === "complete") {
