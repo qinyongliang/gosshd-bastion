@@ -1,0 +1,88 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_REQUIRE_PATH);
+const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless: true });
+try {
+  const context = await browser.newContext({ locale: "en-US", viewport: { width: 1440, height: 1000 } });
+  await context.addInitScript(() => { localStorage.setItem("gosshd_locale", "en"); });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const deleted = [];
+  const entries = Array.from({ length: 12 }, (_, i) => ({ name: `${String(i + 1).padStart(2, "0")}.txt`, path: `/selection/${String(i + 1).padStart(2, "0")}.txt`, type: "file", size: i, mode: "-rw-------" }));
+  entries.unshift({ name: "folder", path: "/selection/folder", type: "dir", size: 0, mode: "drwx------" });
+  await page.route("**/api/targets/*/files?**", (route) => {
+    const url = new URL(route.request().url());
+    const path = url.searchParams.get("path") === "." ? "/selection" : url.searchParams.get("path");
+    const rows = path === "/selection/folder" ? [] : entries.filter((entry) => !deleted.includes(entry.path));
+    route.fulfill({ json: { path, entries: url.searchParams.get("order") === "desc" ? [...rows].reverse() : rows } });
+  });
+  await page.route("**/api/targets/*/files/delete", async (route) => {
+    deleted.push(route.request().postDataJSON().path);
+    await route.fulfill({ json: { path: deleted.at(-1) } });
+  });
+  await page.route("**/api/targets/*/system**", (route) => route.fulfill({ json: { os: "linux", filesystems: [] } }));
+  const base = process.env.GOSSHD_UI_E2E_BASE_URL;
+  await page.goto(base);
+  await page.getByLabel("Email", { exact: true }).fill("admin");
+  await page.getByLabel("Password", { exact: true }).fill("admin-pass");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("link", { name: "SSH services", exact: true }).waitFor();
+  const target = await page.evaluate(async () => {
+    const me = await fetch("/api/me").then((r) => r.json());
+    const response = await fetch("/api/targets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner_type: "organization", owner_id: me.organizations[0].id, name: "Selection test", alias: "selection", target_type: "direct", host: "127.0.0.1", port: 1, remote_username: "root", auth_type: "password", secret: "test" }) });
+    return (await response.json()).target;
+  });
+  await page.goto(`${base}/targets/${target.id}/connect`);
+  if (await page.locator(".files-zone .collapsed-zone-button").count()) await page.locator(".files-zone .collapsed-zone-button").click();
+  const body = page.locator(".file-list-selectable");
+  const row = (name) => body.locator("tr[data-file-path]").filter({ has: page.getByRole("button", { name, exact: true }) });
+  const chosen = () => body.locator('tr[aria-selected="true"]').evaluateAll((rows) => rows.map((row) => row.dataset.filePath.split("/").at(-1)));
+  const expectChosen = async (names) => {
+    await page.waitForFunction((expected) => JSON.stringify([...document.querySelectorAll('.file-list-selectable tr[aria-selected="true"]')].map((row) => row.dataset.filePath.split("/").at(-1)).sort()) === JSON.stringify(expected.sort()), names);
+    assert.deepEqual((await chosen()).sort(), [...names].sort());
+  };
+  await row("02.txt").click();
+  await row("05.txt").click({ modifiers: ["Shift"] });
+  await expectChosen(["02.txt", "03.txt", "04.txt", "05.txt"]);
+  await row("03.txt").click({ modifiers: ["Alt"] });
+  await row("08.txt").click({ modifiers: ["Alt"] });
+  await expectChosen(["02.txt", "04.txt", "05.txt", "08.txt"]);
+  await row("04.txt").click({ button: "right" });
+  await expectChosen(["02.txt", "04.txt", "05.txt", "08.txt"]);
+  await page.locator(".file-context-menu").getByRole("menuitem", { name: "Delete", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('[data-file-path="/selection/08.txt"]'));
+  assert.deepEqual(deleted.sort(), ["02.txt", "04.txt", "05.txt", "08.txt"].map((name) => `/selection/${name}`).sort());
+  await body.focus();
+  await body.press("Control+a");
+  assert.equal((await chosen()).length, 9);
+  await body.press("Escape");
+  await expectChosen([]);
+  const dragRows = async (first, last, modifiers = []) => {
+    const start = await row(first).boundingBox(), end = await row(last).boundingBox();
+    for (const key of modifiers) await page.keyboard.down(key);
+    await page.mouse.move(start.x + start.width - 4, start.y + 2);
+    await page.mouse.down();
+    await page.mouse.move(end.x + end.width - 18, end.y + end.height - 2, { steps: 8 });
+    await page.mouse.up();
+    for (const key of modifiers) await page.keyboard.up(key);
+  };
+  await dragRows("03.txt", "07.txt");
+  await expectChosen(["03.txt", "06.txt", "07.txt"]);
+  await dragRows("06.txt", "07.txt", ["Alt"]);
+  await expectChosen(["03.txt"]);
+  await row("09.txt").click();
+  await body.locator(".file-sort-button").first().click();
+  await page.waitForFunction(() => document.querySelector(".file-list-selectable [data-file-path]")?.dataset.filePath.endsWith("12.txt"));
+  await row("12.txt").click({ modifiers: ["Shift"] });
+  await expectChosen(["09.txt", "10.txt", "11.txt", "12.txt"]);
+  await row("folder").click();
+  assert.equal(await page.locator(".file-manager-path").getAttribute("title"), "/selection", "Single clicks must select folders without navigating");
+  await row("folder").dblclick();
+  await page.waitForFunction(() => document.querySelector(".file-manager-path").title === "/selection/folder");
+  await expectChosen([]);
+  assert.deepEqual(errors, []);
+  await context.close();
+} finally { await browser.close(); }

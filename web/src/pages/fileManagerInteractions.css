@@ -1,0 +1,10 @@
+.file-manager { position: relative; }
+.file-list-selectable { position: relative; user-select: none; outline: none; }
+.file-list-selectable:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.file-list-selectable .file-row.selected { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); }
+.file-list-selectable .file-row.selected:hover { background: color-mix(in srgb, var(--accent) 25%, var(--surface)); }
+.file-selection-count { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.file-selection-rectangle { position: absolute; pointer-events: none; z-index: 2; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.file-box-selecting { cursor: crosshair; }
+.file-drop-overlay { position: absolute; inset: 4px; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px; border: 2px dashed var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--surface) 94%, transparent); color: var(--text); text-align: center; pointer-events: none; }
+.file-drop-overlay svg { width: 32px; height: 32px; color: var(--accent); }

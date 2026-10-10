@@ -62,6 +62,10 @@ func TestFileUploadUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "file_upload.test.mjs")
 }
 
+func TestFileSelectionUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "file_selection_browser.test.mjs")
+}
+
 func TestPaginationUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "pagination.test.mjs")
 }
