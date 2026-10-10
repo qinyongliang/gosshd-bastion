@@ -23,3 +23,13 @@
 - Public Windows AMD64, Linux AMD64 and Linux ARM64 Agent checksums match v159 release assets on both sites. Main-site assets were fetched through the release proxy, checksum-verified and atomically cached.
 - Server binary SHA256: AMD64 `75be15f461af650147fabcb168920cfa4ebc83681d8dde7d441ef52165829c85`; ARM64 `3aa3c909ab0811036f3edfbf712b933c767f18c526275950f528fbbc9a1e87c3`.
 - After verification, stopped rollback containers were removed; program/database backups remain. ARM64 free space is approximately 412 MiB after caching v159 Agents. Server binaries are 28,590,242 bytes (AMD64) and 27,263,138 bytes (ARM64).
+
+## Latest deployed release: v160
+
+The audit-duration fix `a2730105` was pushed while v159 was being deployed. Both sites were subsequently updated to `v0.1.160-bastion`, built from `4f79c459`, so the deployment includes that newer functional commit as well as the workspace changes. Release checks now explicitly cover `TestAuditAPIPreservesSubsecondTimestamps` and `TestHTTPUploadAuditIncludesRequestBodyTransfer`.
+
+Release `38036427378` and ARM64 build `38036423926` passed. The duration-fix commit's P2P checks `38036319854`, Windows Client `38036319851` and ARM64 build `38036319943` also passed. Both containers run v160 with zero restarts; public health, persistent workspace assets, protected transfer routes and Windows AMD64/Linux AMD64/Linux ARM64 Agent checksums passed verification.
+
+Original configuration fields remain unchanged apart from normal `updated_at` writes (main: 5 users, 32 targets, 1 tunnel; ARM64: 1 user, 2 targets, 0 tunnels). All original audit rows remain (main: 26308 before, 26309 after; ARM64: 4047 before and after). SQLite integrity and source-IP statistics checks passed. Stopped rollback containers were removed after verification, retaining program/database backups.
+
+Server binary SHA256: AMD64 `9acc536a16cb4b6cac9c0befd619e7d549fd9f2c2a6552091d6dc938b96e1908`; ARM64 `211ab3101343eeee8a35dfe3d0b8776dd7e0a7f11e92d8cd961f47767effb5f2`. Binary sizes are 28,594,338 and 27,263,138 bytes respectively.
