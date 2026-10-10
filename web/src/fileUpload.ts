@@ -153,17 +153,23 @@ export function uploadFileP2P(targetID: string, path: string, file: File, progre
       });
       if (!direct) setTransport("relay");
       try {
-        for (let offset = 0; offset < file.size; offset += CHUNK_SIZE) {
+        // Read bounded batches so LAN throughput is not limited by a separate
+        // asynchronous File read for every small tunnel packet.
+        const batchSize = CHUNK_SIZE * 32;
+        for (let offset = 0; offset < file.size; offset += batchSize) {
           await waitForWindow();
           if (settled) return;
-          const data = new Uint8Array(await file.slice(offset, offset + CHUNK_SIZE).arrayBuffer());
-          const record = new Uint8Array(9 + data.length);
-          record[0] = 1;
-          const view = new DataView(record.buffer);
-          view.setUint32(1, 4 + data.length);
-          view.setUint32(5, crc32(data));
-          record.set(data, 9);
-          await queue(record);
+          const batch = new Uint8Array(await file.slice(offset, offset + batchSize).arrayBuffer());
+          for (let start = 0; start < batch.length; start += CHUNK_SIZE) {
+            const data = batch.subarray(start, start + CHUNK_SIZE);
+            const record = new Uint8Array(9 + data.length);
+            record[0] = 1;
+            const view = new DataView(record.buffer);
+            view.setUint32(1, 4 + data.length);
+            view.setUint32(5, crc32(data));
+            record.set(data, 9);
+            await queue(record);
+          }
         }
         await queue(new Uint8Array([2, 0, 0, 0, 0]));
       } catch (error) { if (!settled) finish(error instanceof Error ? error : new Error(String(error))); }
