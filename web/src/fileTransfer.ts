@@ -39,7 +39,7 @@ export function downloadFileP2P(targetID: string, path: string, sink: DownloadSi
 type Session = { next?: (path: string, file?: File, sink?: DownloadSink, progress?: (p: TransferProgress) => void, signal?: AbortSignal) => Promise<{ path: string }>; close?: () => void; closed: boolean; disposed?: boolean; generation?: symbol; tail: Promise<unknown> };
 const sessions = new Map<string, Session>();
 export function closeFileTransfers(targetID: string) {
-  for (const [key, session] of sessions) if (key.startsWith(`${targetID}:`)) { session.disposed = true; session.disposed = true; session.close?.(); sessions.delete(key); }
+  for (const [key, session] of sessions) if (key.startsWith(`${targetID}:`)) { session.disposed = true; session.close?.(); sessions.delete(key); }
 }
 function transferFileP2P(targetID: string, path: string, file?: File, sink?: DownloadSink, progress?: (p: TransferProgress) => void, signal?: AbortSignal): Promise<{ path: string }> {
   const key = `${targetID}:${file ? "upload" : "download"}`;
@@ -61,10 +61,7 @@ function openFileSession(session: Session, targetID: string, path: string, file?
   if (signal?.aborted) return Promise.reject(new DOMException("The file transfer was aborted", "AbortError"));
   const generation = Symbol();
   session.generation = generation;
-  const generation = Symbol();
-  session.generation = generation;
   session.closed = false;
-  let closed = false;
   let closed = false;
   return new Promise((initialResolve, initialReject) => {
     let resolve = initialResolve, reject = initialReject;
