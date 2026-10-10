@@ -1374,6 +1374,11 @@ func (a *App) handleTargetFileCopy(w http.ResponseWriter, r *http.Request, user 
 	a.handleTargetFileTransfer(w, r, user, "copy")
 }
 
+type targetFileTransfer struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+}
+
 func (a *App) handleTargetFileTransfer(w http.ResponseWriter, r *http.Request, user store.User, action string) {
 	startedAt := time.Now().UTC()
 	target, decision, allowUpload, allowDownload, ok := a.authorizeTargetSFTP(w, r, user, action, startedAt)
@@ -1381,25 +1386,49 @@ func (a *App) handleTargetFileTransfer(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	var body struct {
-		Source      string `json:"source"`
-		Destination string `json:"destination"`
+		Source      string   `json:"source"`
+		Sources     []string `json:"sources"`
+		Destination string   `json:"destination"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	source := cleanRemoteBodyPath(body.Source)
-	destination := cleanRemoteBodyPath(body.Destination)
-	if source == "" || source == "/" || source == "." || destination == "" || destination == "." {
+	batch := body.Sources != nil
+	sources := body.Sources
+	if !batch {
+		sources = []string{body.Source}
+	}
+	if body.Destination == "" || len(sources) == 0 || (batch && body.Source != "") {
 		writeError(w, http.StatusBadRequest, "invalid source or destination")
 		return
+	}
+	destination := pathpkg.Clean(body.Destination)
+	items := make([]targetFileTransfer, 0, len(sources))
+	seen := make(map[string]bool, len(sources))
+	for _, raw := range sources {
+		source := pathpkg.Clean(raw)
+		nextDestination := destination
+		if batch {
+			nextDestination = remoteJoin(destination, pathpkg.Base(source))
+		}
+		if raw == "" || source == "/" || source == "." || source == ".." ||
+			(len(source) == 2 && source[1] == ':') || strings.ContainsRune(source+nextDestination, 0) ||
+			nextDestination == "." || remotePathWithin(source, nextDestination) || seen[nextDestination] {
+			writeError(w, http.StatusBadRequest, "invalid, duplicate or self-containing source/destination: "+source)
+			return
+		}
+		seen[nextDestination] = true
+		items = append(items, targetFileTransfer{Source: source, Destination: nextDestination})
 	}
 	if !allowUpload || (action == "copy" && !allowDownload) {
 		reason := "upload/write is not allowed"
 		if action == "copy" && !allowDownload {
 			reason = "download/read is not allowed"
 		}
-		a.auditWebSFTP(r.Context(), user, target, decision, "sftp "+action+" "+source+" "+destination, store.DecisionDeny, reason, 126, sshSourceIPFromRequest(r), startedAt)
+		for _, item := range items {
+			a.auditWebSFTP(r.Context(), user, target, decision, "sftp "+action+" "+item.Source+" "+item.Destination, store.DecisionDeny, reason, 126, sshSourceIPFromRequest(r), startedAt)
+		}
 		writeError(w, http.StatusForbidden, "SFTP "+action+" is not allowed by policy")
 		return
 	}
@@ -1409,18 +1438,38 @@ func (a *App) handleTargetFileTransfer(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	defer closeClient()
-	if action == "move" {
-		err = sftpMovePath(client, source, destination)
-	} else {
-		err = sftpCopyPath(client, source, destination)
+	if batch {
+		info, err := client.Stat(destination)
+		if err != nil || !info.IsDir() {
+			writeError(w, http.StatusBadRequest, "destination must be an existing directory")
+			return
+		}
 	}
-	if err != nil {
-		a.auditWebSFTP(r.Context(), user, target, decision, "sftp "+action+" "+source+" "+destination, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r), startedAt)
-		writeError(w, http.StatusBadGateway, err.Error())
+	for i, item := range items {
+		if r.Context().Err() != nil {
+			return
+		}
+		if i > 0 {
+			startedAt = time.Now().UTC()
+		}
+		if action == "move" {
+			err = sftpMovePath(client, item.Source, item.Destination)
+		} else {
+			err = sftpCopyPath(client, item.Source, item.Destination)
+		}
+		command := "sftp " + action + " " + item.Source + " " + item.Destination
+		if err != nil {
+			a.auditWebSFTP(r.Context(), user, target, decision, command, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r), startedAt)
+			writeError(w, http.StatusBadGateway, item.Source+": "+err.Error())
+			return
+		}
+		a.auditWebSFTP(r.Context(), user, target, decision, command, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r), startedAt)
+	}
+	if !batch {
+		writeJSON(w, http.StatusOK, items[0])
 		return
 	}
-	a.auditWebSFTP(r.Context(), user, target, decision, "sftp "+action+" "+source+" "+destination, decision.Action, decision.Reason, 0, sshSourceIPFromRequest(r), startedAt)
-	writeJSON(w, http.StatusOK, map[string]any{"source": source, "destination": destination})
+	writeJSON(w, http.StatusOK, map[string]any{"transfers": items})
 }
 
 type fileInfoWithName struct {

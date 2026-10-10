@@ -31,7 +31,7 @@ jobs:
         run: |
           node --test web/e2e/file_drop.test.mjs web/e2e/file_selection.test.mjs
           go test -race ./internal/filetransfer ./internal/agent -run 'Test(Receive|Send|FileUpload|FileDownload)' -count=1
-          go test -race ./internal/server -run '^TestFile(Upload|Download)' -count=1 -timeout=3m
+          go test -race ./internal/server -run '^TestFile(Upload|Download|Transfer)' -count=1 -timeout=3m
           go test ./internal/tunnel -count=1
           go test ./internal/store -run '^TestMainStorePooledConnectionsWaitForWriters$' -count=1
       - name: Verify real browser-to-Agent transfers and fallback

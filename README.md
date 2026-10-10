@@ -137,7 +137,7 @@ LLM responses use JSON:
 
 ## Browser File Transfers
 
-Drop multiple folders or files into the remote file list to upload recursively, preserving nested paths and empty directories. Click to select, double-click to open, use Shift for ranges and Alt to toggle individual entries, or drag a selection rectangle (Alt toggles the rectangle's entries). Ctrl/Cmd+A selects all; Escape clears selection. Right-click selected files for batch download, deletion or path copying.
+Drop multiple folders or files into the remote file list to upload recursively, preserving nested paths and empty directories. Click to select, double-click to open, use Shift for ranges and Alt to toggle individual entries, or drag a selection rectangle (Alt toggles the rectangle's entries). Ctrl/Cmd+A selects all; Escape clears selection. Right-click for batch download, deletion, path copying, or copying/moving selected files and folders into a chosen directory. Single-item copy/move still allows renaming via the destination path.
 
 Uploads and downloads try a browser-to-Agent P2P connection and fall back to server relay when needed. Batches reuse connections while authorizing and auditing each file separately.
 
