@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/hashicorp/yamux"
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 	"github.com/qinyongliang/gosshd-bastion/internal/tunnel"
@@ -179,6 +181,24 @@ func TestFileUploadValidationAndPermissions(t *testing.T) {
 	org, _ := app.store.Repository().GetPersonalOrganizationForUser(context.Background(), user.ID)
 	attachTunnelAgent(t, app, "upload-agent")
 	target := uploadAgentTarget(t, app, user, org, "upload-agent")
+	u, _ := url.Parse(srv.URL)
+	headers := http.Header{"Origin": {"https://other-origin.example"}}
+	for _, cookie := range client.Jar.Cookies(u) {
+		headers.Add("Cookie", cookie.String())
+	}
+	_, rejected, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/api/targets/"+target.ID+"/files/upload/ws?size=0&name=file", headers)
+	if err == nil || rejected == nil || rejected.StatusCode != http.StatusForbidden {
+		t.Fatalf("cross-origin upload allowed: %v %+v", err, rejected)
+	}
+	rejected.Body.Close()
+	response, err := http.Get(srv.URL + "/api/targets/" + target.ID + "/files/upload/ws?size=0&name=file")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous upload allowed: %d", response.StatusCode)
+	}
 	for _, name := range []string{"../escape", `a\b`, ".", "..", ""} {
 		response, err := client.Get(srv.URL + "/api/targets/" + target.ID + "/files/upload/ws?size=1&name=" + url.QueryEscape(name))
 		if err != nil {
@@ -191,12 +211,59 @@ func TestFileUploadValidationAndPermissions(t *testing.T) {
 		}
 	}
 	attachAllowSFTPPolicyForTargetAccess(t, app, org.ID, target.ID, false, true)
-	response, err := client.Get(srv.URL + "/api/targets/" + target.ID + "/files/upload/ws?size=1&name=file")
+	response, err = client.Get(srv.URL + "/api/targets/" + target.ID + "/files/upload/ws?size=1&name=file")
 	if err != nil {
 		t.Fatal(err)
 	}
 	response.Body.Close()
 	if response.StatusCode != http.StatusForbidden {
 		t.Fatalf("download-only policy permitted upload: %d", response.StatusCode)
+	}
+}
+
+func TestFileUploadLegacyAgentFallback(t *testing.T) {
+	srv, client, app := newAPITestServer(t)
+	defer srv.Close()
+	postJSON(t, client, srv.URL+"/api/auth/login", map[string]string{"email": "admin", "password": "admin-pass"}, http.StatusOK, nil)
+	user, _ := app.store.Repository().GetUserByEmail(context.Background(), "admin")
+	org, _ := app.store.Repository().GetPersonalOrganizationForUser(context.Background(), user.ID)
+	a, b := net.Pipe()
+	server, err := yamux.Server(a, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := yamux.Client(b, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	defer legacy.Close()
+	app.registry.Register("legacy", server)
+	t.Cleanup(func() { app.registry.Unregister("legacy", server) })
+	go func() {
+		stream, err := legacy.Accept()
+		if err != nil {
+			return
+		}
+		defer stream.Close()
+		// Older Agents respond this way to an unknown stream type.
+		_, _ = io.CopyN(io.Discard, stream, 1)
+		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{Error: "unsupported stream type"})
+	}()
+	target := uploadAgentTarget(t, app, user, org, "legacy")
+	u, _ := url.Parse(srv.URL)
+	headers := http.Header{"Origin": {srv.URL}}
+	for _, c := range client.Jar.Cookies(u) {
+		headers.Add("Cookie", c.String())
+	}
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/api/targets/"+target.ID+"/files/upload/ws?size=0&name=empty", headers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var response map[string]string
+	if err := ws.ReadJSON(&response); err != nil || response["type"] != "unavailable" {
+		t.Fatalf("missing legacy fallback: %+v %v", response, err)
 	}
 }

@@ -146,7 +146,9 @@ export function uploadFileP2P(targetID: string, path: string, file: File, progre
       void negotiate(servers);
       await new Promise<void>((resolve) => {
         releaseNegotiation = resolve;
-        negotiationTimer = setTimeout(resolve, 3000);
+        // Both peers gather candidates before exchanging SDP. Allow the Agent's
+        // five-second STUN timeout before falling back, even on a small file.
+        negotiationTimer = setTimeout(resolve, 8000);
         if (direct || transport === "relay") resolve();
       });
       if (!direct) setTransport("relay");
