@@ -1,13 +1,13 @@
-import { GripVertical } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical, PanelTopClose, PanelTopOpen } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import { findPane, layoutPaneBounds, movePane, paneLeaves, resizeSplit } from "../workspaceLayout";
+import { findPane, findPaneParent, layoutPaneBounds, movePane, paneDockSide, paneLeaves, resizeSplit } from "../workspaceLayout";
 import type { PaneBounds, PaneLeaf, PaneNode, PaneSide, SplitBounds } from "../workspaceLayout";
 import "./dockWorkspace.css";
 
 type DropPlacement = { sourceID: string; destinationID: string | null; side: PaneSide; bounds: PaneBounds };
-type DockDragContext = { startDrag: (id: string, event: React.PointerEvent<HTMLElement>) => void };
+type DockDragContext = { startDrag: (id: string, event: React.PointerEvent<HTMLElement>) => void; collapseSide: (id: string) => PaneSide | null };
 const DragContext = createContext<DockDragContext | null>(null);
 
 export function DockDragHandle({ paneID, children }: { paneID: string; children?: ReactNode }) {
@@ -15,6 +15,19 @@ export function DockDragHandle({ paneID, children }: { paneID: string; children?
   const { t } = useI18n();
   return <button type="button" className={`dock-drag-handle ${children ? "with-title" : ""}`} title={t("connectDragView")} aria-label={t("connectDragView")} onPointerDown={(event) => context?.startDrag(paneID, event)}>
     <GripVertical />{children && <span>{children}</span>}
+  </button>;
+}
+
+export function DockPanelToggle({ paneID, open, onToggle, children }: { paneID: string; open: boolean; onToggle: () => void; children?: ReactNode }) {
+  const context = useContext(DragContext);
+  const { t } = useI18n();
+  const side = context?.collapseSide(paneID) || null;
+  const opposite: Record<PaneSide, PaneSide> = { left: "right", right: "left", up: "down", down: "up" };
+  const direction = side && (open ? side : opposite[side]);
+  const Icon = direction ? { left: ChevronLeft, right: ChevronRight, up: ChevronUp, down: ChevronDown }[direction] : open ? PanelTopClose : PanelTopOpen;
+  const label = t(open ? "connectCollapseSidebar" : "connectExpandSidebar");
+  return <button type="button" className={`dock-panel-toggle ${open ? "icon-button" : "collapsed-zone-button"}`} onClick={onToggle} title={label} aria-label={label} aria-expanded={open}>
+    <Icon />{!open && children && <span>{children}</span>}
   </button>;
 }
 
@@ -152,7 +165,11 @@ export function DockWorkspace({ layout, collapsed, fullscreenPaneID, active, onL
     const moved = movePane(layout, sourceID, destinationID, side);
     preview = layoutPaneBounds(moved, size.width, size.height, collapsed).panes.get(sourceID) || null;
   }
-  return <DragContext.Provider value={{ startDrag }}>
+  return <DragContext.Provider value={{ startDrag, collapseSide: (id) => {
+    const rect = bounds.panes.get(id);
+    const parent = findPaneParent(layout, id);
+    return rect && parent ? paneDockSide(rect, size.width, size.height, parent.direction) : null;
+  } }}>
     <div ref={rootRef} className={`dock-workspace ${drag ? "dragging" : ""} ${fullscreenPaneID ? "dock-fullscreen" : ""}`}>
       {/* Keep DOM order stable as docking changes tree order; Monaco's input context must stay attached. */}
       {paneLeaves(layout).sort((a, b) => a.id.localeCompare(b.id)).map((pane) => {

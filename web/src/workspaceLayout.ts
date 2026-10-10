@@ -8,7 +8,15 @@ export type PaneNode = PaneLeaf | SplitPaneNode;
 export type PaneBounds = { left: number; top: number; width: number; height: number };
 export type SplitBounds = PaneBounds & { node: SplitPaneNode };
 export type WorkspacePreferences = { hostOpen: boolean; filesOpen: boolean };
-type StoredWorkspace = WorkspacePreferences & { version: 1; layout: PaneNode; filePath: string; activePaneID: string };
+type StoredWorkspace = WorkspacePreferences & { version: 2; layout: PaneNode };
+
+export function paneDockSide(rect: PaneBounds, width: number, height: number, direction: SplitPaneNode["direction"]): PaneSide | null {
+  const left = rect.left <= 1, right = rect.left + rect.width >= width - 1;
+  const up = rect.top <= 1, down = rect.top + rect.height >= height - 1;
+  const horizontal: PaneSide | null = left !== right ? left ? "left" : "right" : null;
+  const vertical: PaneSide | null = up !== down ? up ? "up" : "down" : null;
+  return direction === "row" ? horizontal : vertical;
+}
 
 export function newPaneID(prefix: string) {
   return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
@@ -25,6 +33,12 @@ export function firstLeafID(node: PaneNode): string {
 export function findPane(node: PaneNode, paneID: string): PaneNode | null {
   if (node.id === paneID) return node;
   return node.type === "split" ? findPane(node.first, paneID) || findPane(node.second, paneID) : null;
+}
+
+export function findPaneParent(node: PaneNode, paneID: string): SplitPaneNode | null {
+  if (node.type !== "split") return null;
+  if (node.first.id === paneID || node.second.id === paneID) return node;
+  return findPaneParent(node.first, paneID) || findPaneParent(node.second, paneID);
 }
 
 export function splitPane(node: PaneNode, paneID: string, nextPane: PaneNode, side: PaneSide, fraction = 0.5): PaneNode {
@@ -135,12 +149,53 @@ export function validateWorkspaceLayout(value: unknown, allowedTargets?: Readonl
   return leaves.filter((item) => item.type === "host").length === 1 && leaves.filter((item) => item.type === "files").length === 1 && leaves.some((item) => item.type === "terminal" || item.type === "editor") ? node : null;
 }
 
-function readStoredWorkspace(key: string, allowedTargets?: ReadonlySet<string>): StoredWorkspace | null {
+function workspaceTemplate(layout: PaneNode, previous?: PaneNode): PaneNode | null {
+  const leaves = paneLeaves(layout);
+  const terminal = leaves.find(pane => pane.type === "terminal");
+  const keep = terminal || (!previous ? leaves.find(pane => pane.type === "editor") : undefined);
+  let template: PaneNode | null = layout;
+  for (const pane of leaves) {
+    if ((pane.type === "terminal" || pane.type === "editor") && pane.id !== keep?.id) {
+      template = template && removePane(template, pane.id).node;
+    }
+  }
+  if (!template) return null;
+  if (!keep) {
+    const remembered = previous && paneLeaves(previous).find(pane => pane.type === "terminal");
+    const parent = remembered && findPaneParent(previous!, remembered.id);
+    if (!remembered || !parent) return null;
+    const before = parent.first.id === remembered.id;
+    const sibling = before ? parent.second : parent.first;
+    let anchor = template;
+    if (sibling.type !== "split") {
+      const previousBounds = layoutPaneBounds(previous!, 1000, 1000).panes.get(remembered.id)!;
+      const centerX = previousBounds.left + previousBounds.width / 2;
+      const centerY = previousBounds.top + previousBounds.height / 2;
+      const currentBounds = layoutPaneBounds(template, 1000, 1000).panes;
+      anchor = paneLeaves(template).find(pane => {
+        const rect = currentBounds.get(pane.id)!;
+        return centerX >= rect.left && centerX <= rect.left + rect.width && centerY >= rect.top && centerY <= rect.top + rect.height;
+      }) || paneLeaves(template).find(pane => pane.type === sibling.type) || template;
+    }
+    const side = parent.direction === "row" ? before ? "left" : "right" : before ? "up" : "down";
+    template = splitPane(template, anchor.id, remembered, side, before ? parent.ratio : 1 - parent.ratio);
+  }
+  // Keep geometry and component roles, without target/session state or editor paths.
+  const sanitize = (node: PaneNode): PaneNode => node.type === "split"
+    ? { ...node, first: sanitize(node.first), second: sanitize(node.second) }
+    : node.type === "host" || node.type === "files"
+      ? { type: node.type, id: node.id, targetID: "layout" }
+      : { type: "terminal", id: node.id, targetID: "layout", restoreSession: false };
+  return sanitize(template);
+}
+
+function readStoredWorkspace(key: string): StoredWorkspace | null {
   try {
     const raw = JSON.parse(window.localStorage.getItem(key) || "null");
-    if (raw?.version !== 1) return null;
-    const layout = validateWorkspaceLayout(raw.layout, allowedTargets);
-    return layout ? { version: 1, layout, filePath: typeof raw.filePath === "string" ? raw.filePath : ".", activePaneID: typeof raw.activePaneID === "string" ? raw.activePaneID : "", hostOpen: Boolean(raw.hostOpen), filesOpen: Boolean(raw.filesOpen) } : null;
+    if (raw?.version !== 1 && raw?.version !== 2) return null;
+    const valid = validateWorkspaceLayout(raw.layout);
+    const layout = valid && workspaceTemplate(valid);
+    return layout ? { version: 2, layout, hostOpen: Boolean(raw.hostOpen), filesOpen: Boolean(raw.filesOpen) } : null;
   } catch { return null; }
 }
 
@@ -149,43 +204,27 @@ export function readWorkspacePreferences(key: string): WorkspacePreferences | nu
   return stored ? { hostOpen: stored.hostOpen, filesOpen: stored.filesOpen } : null;
 }
 
-export function restoreWorkspace(key: string, targetID: string, restoreSession: boolean, mobile: boolean, allowedTargets: ReadonlySet<string>) {
-  const stored = readStoredWorkspace(`${key}:target:${targetID}`, allowedTargets);
-  const template = stored || readStoredWorkspace(key);
+export function restoreWorkspace(key: string, targetID: string, restoreSession: boolean, mobile: boolean) {
+  const template = readStoredWorkspace(`${key}:target:${targetID}`) || readStoredWorkspace(key);
   const terminal: TerminalPaneNode = { type: "terminal", id: newPaneID("terminal"), targetID, restoreSession };
   if (!template) return { layout: defaultWorkspaceLayout(terminal, targetID, mobile), filePath: ".", activePaneID: terminal.id };
-  let firstTerminal = true;
-  let activePaneID = "";
   const clone = (node: PaneNode): PaneNode => {
-    const id = newPaneID(node.type);
-    if (node.id === template.activePaneID) activePaneID = id;
-    if (node.type === "split") return { ...node, id, first: clone(node.first), second: clone(node.second) };
-    if (node.type === "terminal") {
-      const shouldRestore = firstTerminal && restoreSession;
-      firstTerminal = false;
-      return { ...node, id, targetID: stored ? node.targetID : targetID, restoreSession: shouldRestore };
-    }
-    return { ...node, id, targetID: stored ? node.targetID : targetID };
+    if (node.type === "split") return { ...node, id: newPaneID("split"), first: clone(node.first), second: clone(node.second) };
+    if (node.type === "terminal") return terminal;
+    return { ...node, id: newPaneID(node.type), targetID };
   };
   const layout = clone(template.layout);
-  const active = findPane(layout, activePaneID);
-  return { layout, filePath: stored?.filePath || ".", activePaneID: active?.type === "terminal" || active?.type === "editor" ? activePaneID : firstLeafID(layout) };
+  return { layout, filePath: ".", activePaneID: terminal.id };
 }
 
-export function saveWorkspace(key: string, targetID: string, layout: PaneNode, filePath: string, activePaneID: string, preferences: WorkspacePreferences) {
+export function saveWorkspace(key: string, targetID: string, layout: PaneNode, preferences: WorkspacePreferences) {
   try {
-    const stored: StoredWorkspace = { version: 1, layout, filePath, activePaneID, ...preferences };
-    window.localStorage.setItem(`${key}:target:${targetID}`, JSON.stringify(stored));
-    // Other services inherit panel placement, without opening this service's files or extra shells.
-    let template = layout;
-    const content = paneLeaves(layout).filter((pane) => pane.type === "terminal" || pane.type === "editor");
-    const keep = content.find((pane) => pane.type === "terminal") || content[0];
-    if (!keep) return;
-    for (const pane of content) if (pane.id !== keep.id) template = removePane(template, pane.id).node!;
-    if (keep.type === "editor") {
-      const replace = (node: PaneNode): PaneNode => node.id === keep.id ? { type: "terminal", id: keep.id, targetID, restoreSession: false } : node.type === "split" ? { ...node, first: replace(node.first), second: replace(node.second) } : node;
-      template = replace(template);
-    }
-    window.localStorage.setItem(key, JSON.stringify({ ...stored, layout: template, filePath: ".", activePaneID: keep.id }));
+    const previous = readStoredWorkspace(`${key}:target:${targetID}`) || readStoredWorkspace(key);
+    const template = workspaceTemplate(layout, previous?.layout);
+    if (!template) return;
+    const stored: StoredWorkspace = { version: 2, layout: template, ...preferences };
+    const serialized = JSON.stringify(stored);
+    window.localStorage.setItem(`${key}:target:${targetID}`, serialized);
+    window.localStorage.setItem(key, serialized);
   } catch { /* The workspace remains usable when browser storage is unavailable or full. */ }
 }

@@ -4,7 +4,7 @@
 
 **Goal:** Let users drag host information, file management, terminals and editors to any side of a view or the entire connection workspace, resize their splits and restore their layout from browser storage.
 
-**Architecture:** Extend the existing pane tree with host and file views. Render its leaves in stable, keyed containers with computed bounds instead of mounting components under a changing split hierarchy. This preserves terminal runtimes, uploads and unsaved editor buffers while a view moves. Store validated, versioned layouts by browser user, organization, viewport mode and target; new connections inherit the last arrangement of tool panels. Save editor paths and geometry, not editor contents or credentials.
+**Architecture:** Extend the existing pane tree with host and file views. Render its leaves in stable, keyed containers with computed bounds instead of mounting components under a changing split hierarchy. This preserves terminal runtimes, uploads and unsaved editor buffers while a view moves. Store validated, versioned component layouts by browser user, organization, viewport mode and target; new connections inherit panel positions and always create one terminal. Save only geometry and collapse preferences, without editor paths, file directories or live sessions. Retain a terminal slot when the last terminal closes and migrate legacy session layouts without reopening temporary editors.
 
 **Tech stack:** React, TypeScript, pointer events, ResizeObserver, localStorage; existing Playwright browser checks and Node tests.
 
