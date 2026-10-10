@@ -35,9 +35,11 @@ try {
     return (await response.json()).target;
   });
   await page.goto(`${base}/targets/${target.id}/connect`);
+  await page.locator(".files-zone").waitFor();
   if (await page.locator(".files-zone .collapsed-zone-button").count()) await page.locator(".files-zone .collapsed-zone-button").click();
   const body = page.locator(".file-list-selectable");
   const row = (name) => body.locator("tr[data-file-path]").filter({ has: page.getByRole("button", { name, exact: true }) });
+  await body.locator("tr[data-file-path]").first().waitFor();
   const chosen = () => body.locator('tr[aria-selected="true"]').evaluateAll((rows) => rows.map((row) => row.dataset.filePath.split("/").at(-1)));
   const expectChosen = async (names) => {
     await page.waitForFunction((expected) => JSON.stringify([...document.querySelectorAll('.file-list-selectable tr[aria-selected="true"]')].map((row) => row.dataset.filePath.split("/").at(-1)).sort()) === JSON.stringify(expected.sort()), names);

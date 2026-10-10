@@ -1306,11 +1306,14 @@ func (a *App) handleTargetFileMkdir(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 	defer closeClient()
-	for _, dir := range paths {
+	for index, dir := range paths {
 		if r.Context().Err() != nil {
 			return
 		}
 		operationStarted := time.Now().UTC()
+		if index == 0 {
+			operationStarted = startedAt
+		}
 		if err := client.MkdirAll(dir); err != nil {
 			a.auditWebSFTP(r.Context(), user, target, decision, "sftp mkdir "+dir, decision.Action, err.Error(), 255, sshSourceIPFromRequest(r), operationStarted)
 			writeError(w, http.StatusBadGateway, err.Error())
