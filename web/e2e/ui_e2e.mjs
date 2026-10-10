@@ -78,10 +78,10 @@ try {
     await expectVisible(page.locator(".mobile-terminal-keys"));
     await terminalInput.blur();
     await expectHidden(page.locator(".mobile-terminal-keys"));
-    await expectCount(page.locator(".connect-host-panel > .collapsed-zone-button"), 1);
-    await expectCount(page.locator(".files-zone > .collapsed-zone-button"), 1);
-    await page.locator(".connect-host-panel > .collapsed-zone-button").click();
-    await page.locator(".files-zone > .collapsed-zone-button").click();
+    await expectCount(page.locator(".connect-host-panel .collapsed-zone-button"), 1);
+    await expectCount(page.locator(".files-zone .collapsed-zone-button"), 1);
+    await page.locator(".connect-host-panel .collapsed-zone-button").click();
+    await page.locator(".files-zone .collapsed-zone-button").click();
     const expandedLayout = await page.evaluate(() => {
       const selectors = {
         body: ".connect-body",
