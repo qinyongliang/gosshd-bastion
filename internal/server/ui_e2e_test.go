@@ -22,6 +22,10 @@ func TestTabFilePathUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "tab_file_path.test.mjs")
 }
 
+func TestDraggableWorkspaceUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "draggable_workspace.test.mjs")
+}
+
 func TestNewTerminalConnectionUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "new_terminal_connection.test.mjs")
 }
