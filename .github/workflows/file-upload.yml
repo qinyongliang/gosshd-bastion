@@ -1,0 +1,42 @@
+name: Web P2P upload checks
+
+on:
+  push:
+    branches: [codex/web-p2p-upload, main]
+    paths:
+      - internal/**
+      - web/**
+      - .github/workflows/file-upload.yml
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install frontend dependencies and build
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.0.7 --activate
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: Verify upload protocol, destinations and authorization
+        run: |
+          go test -race ./internal/upload ./internal/agent -run 'Test(Receive|FileUpload)' -count=1
+          go test -race ./internal/server -run '^TestFileUpload' -count=1 -timeout=3m
+          go test ./internal/tunnel -count=1
+      - name: Verify real browser-to-Agent transfers and fallback
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ui-e2e" --no-save playwright@1.56.1
+          node "$RUNNER_TEMP/ui-e2e/node_modules/playwright/cli.js" install --with-deps chromium
+          export GOSSHD_UI_E2E_NODE="$(command -v node)"
+          export GOSSHD_UI_E2E_PLAYWRIGHT="$RUNNER_TEMP/ui-e2e/node_modules/playwright"
+          export GOSSHD_UI_E2E_BROWSER="$(node -e 'console.log(require(process.argv[1]).chromium.executablePath())' "$GOSSHD_UI_E2E_PLAYWRIGHT")"
+          go test ./internal/server -run '^TestFileUploadUIE2EWithBrowser$' -count=1 -timeout=4m

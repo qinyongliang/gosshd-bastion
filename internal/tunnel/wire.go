@@ -18,6 +18,7 @@ const (
 	Probe
 	ProbeAck
 	PathInfo
+	UploadStatus
 )
 const MaxPayload = 8192
 const maxPacket = 64 * 1024

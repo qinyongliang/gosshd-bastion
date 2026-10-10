@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api";
+import type { UploadTransport } from "../fileUpload";
 import { ConfirmDialog, ErrorMessage, Modal, ModalActions } from "../components/ui";
 import { useI18n } from "../i18n";
 import type { FileEntry, FileProperties, Target, TargetSystemFilesystem, TargetSystemSnapshot } from "../types";
@@ -13,7 +14,7 @@ type FileSortKey = "name" | "size" | "mode" | "modified";
 type SortOrder = "asc" | "desc";
 type BreadcrumbItem = { key: string; label: string; kind: "drives" | "dirs"; menuPath: string };
 type BreadcrumbMenuState = { kind: "drives" | "dirs"; path: string; left: number; top: number; width: number };
-type UploadTask = { fileName: string; loaded: number; total: number; speed: number; queueIndex: number; queueTotal: number; completed: number; failed: number; status: "uploading" | "success" | "cancelled" | "error" };
+type UploadTask = { fileName: string; loaded: number; total: number; speed: number; queueIndex: number; queueTotal: number; completed: number; failed: number; transport?: UploadTransport; status: "uploading" | "success" | "cancelled" | "error" };
 
 export function FileManager({ target, path, onPathChange: setPath, system, nativeOpen = false, onEditFile }: { target: Target; path: string; onPathChange: (path: string) => void; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
   const { t } = useI18n();
@@ -204,6 +205,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     let currentFile = files[0];
     let currentLoaded = 0;
     let currentSpeed = 0;
+    let currentTransport: UploadTransport = "connecting";
 
     for (let index = 0; index < files.length; index += 1) {
       if (uploadCancelledRef.current) break;
@@ -211,19 +213,21 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
       currentFile = file;
       currentLoaded = 0;
       currentSpeed = 0;
+      currentTransport = "connecting";
       const controller = new AbortController();
       uploadControllerRef.current = controller;
       uploadSpeedRef.current = { loaded: 0, timestamp: performance.now() };
-      setUploadTask({ fileName: file.name, loaded: 0, total: file.size, speed: 0, queueIndex: index, queueTotal: files.length, completed, failed, status: "uploading" });
+      setUploadTask({ fileName: file.name, loaded: 0, total: file.size, speed: 0, queueIndex: index, queueTotal: files.length, completed, failed, transport: "connecting", status: "uploading" });
       try {
         await api.uploadFile(target.id, path, file, (progress) => {
           const now = performance.now();
           const previous = uploadSpeedRef.current;
           const elapsed = now - previous.timestamp;
           currentLoaded = progress.loaded;
+          currentTransport = progress.transport || currentTransport;
           currentSpeed = elapsed > 0 ? Math.max(0, progress.loaded - previous.loaded) / (elapsed / 1000) : 0;
           uploadSpeedRef.current = { loaded: progress.loaded, timestamp: now };
-          setUploadTask((current) => current ? { ...current, loaded: progress.loaded, total: progress.total || current.total, speed: currentSpeed } : current);
+          setUploadTask((current) => current ? { ...current, loaded: progress.loaded, total: progress.total || current.total, speed: currentSpeed, transport: currentTransport } : current);
         }, controller.signal);
         completed += 1;
       } catch (error) {
@@ -250,6 +254,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
       queueTotal: files.length,
       completed,
       failed,
+      transport: currentTransport,
       status: cancelled ? "cancelled" : failed ? "error" : "success",
     });
     dismissUploadTask(cancelled ? 1800 : failed ? 4200 : 2200);
@@ -586,6 +591,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
               <strong title={uploadTask.fileName}>{uploadTask.fileName}</strong>
               <span>
                 {uploadTask.status === "uploading" ? `${t("connectFileUploading")} ${uploadTask.queueIndex + 1}/${uploadTask.queueTotal}` : uploadTask.status === "success" ? t("connectFileUploadComplete") : uploadTask.status === "cancelled" ? t("connectFileUploadCancelled") : t("connectFileUploadFailed")}
+                {" · "}{t(uploadTask.transport === "direct" ? "connectFileUploadDirect" : uploadTask.transport === "connecting" ? "connectFileUploadConnecting" : "connectFileUploadRelay")}
               </span>
             </div>
             {uploadTask.status === "uploading" && <button type="button" className="icon-button" onClick={cancelUpload} title={t("connectFileUploadCancel")} aria-label={t("connectFileUploadCancel")}><X /></button>}
