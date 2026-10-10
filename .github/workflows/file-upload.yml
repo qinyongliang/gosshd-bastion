@@ -2,7 +2,7 @@ name: Web P2P file transfer checks
 
 on:
   push:
-    branches: [codex/web-p2p-upload, codex/web-p2p-download, codex/file-transfer-reuse, main]
+    branches: [main]
     paths:
       - internal/**
       - web/**

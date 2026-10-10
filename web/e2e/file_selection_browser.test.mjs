@@ -6,7 +6,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_REQUIRE_PATH);
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless: true });
 try {
   const context = await browser.newContext({ locale: "en-US", viewport: { width: 1440, height: 1000 } });
-  await context.addInitScript(() => { localStorage.setItem("gosshd_locale", "en"); });
+  await context.addInitScript(() => {
+    localStorage.setItem("gosshd_locale", "en");
+    // Exercise browser downloads without opening a native save dialog in headless CI.
+    window.showSaveFilePicker = undefined;
+  });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -61,7 +65,11 @@ try {
   let downloadCount = 0;
   const batchDownloaded = page.waitForEvent("download", { predicate: () => ++downloadCount === 4 });
   await page.locator(".file-context-menu").getByRole("menuitem", { name: "Download", exact: true }).click();
-  await batchDownloaded;
+  try { await batchDownloaded; }
+  catch (error) {
+    console.error({ downloaded: downloads.map((download) => download.suggestedFilename()), errors, operationError: await page.locator(".file-operation-error").allTextContents() });
+    throw error;
+  }
   assert.deepEqual(downloads.map((download) => download.suggestedFilename()).sort(), ["02.txt", "04.txt", "05.txt", "08.txt"]);
   for (const download of downloads) assert.equal(await readFile(await download.path(), "utf8"), download.suggestedFilename());
   await expectChosen(["02.txt", "04.txt", "05.txt", "08.txt"]);
