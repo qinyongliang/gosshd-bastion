@@ -1,5 +1,5 @@
 import type {
-  TunnelTraffic,
+  TunnelTrafficStatistics,
   Tunnel,
   TunnelConfig,
   AdminOrg,
@@ -56,7 +56,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
 }
 
 export const api = {
- tunnelTraffic: (id: string, from: number, to: number) => request<{interval_seconds: number; buckets: TunnelTraffic[]}>(`/api/tunnels/${id}/traffic?from=${from}&to=${to}`),
+ tunnelTraffic: (id: string, from: number, to: number, sourceIP = "") => request<TunnelTrafficStatistics>(`/api/tunnels/${id}/traffic?from=${from}&to=${to}&source_ip=${encodeURIComponent(sourceIP)}`),
  tunnels: (orgID: string) => request<{tunnels: Tunnel[]}>(`/api/tunnels?organization_id=${encodeURIComponent(orgID)}`),
  createTunnel: (body: TunnelConfig & {organization_id: string}) => request<{tunnel: Tunnel}>("/api/tunnels", post(body)),
  updateTunnel: (id: string, body: TunnelConfig) => request<{tunnel: Tunnel}>(`/api/tunnels/${id}`, put(body)),

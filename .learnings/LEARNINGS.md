@@ -32,3 +32,25 @@ Enforce member-only invites in HTTP and MCP, and keep the creation UI in Members
 - **Notes**: Moved the UI and added server-side role enforcement tests.
 
 ---
+
+## [LRN-20261009-NAM] correction
+
+**Logged**: 2026-10-09
+**Priority**: low
+**Status**: pending
+**Area**: docs
+
+### Summary
+Project naming should prioritize pleasant pronunciation and easy spelling over elaborate technical meanings.
+
+### Details
+The user rejected the first naming round (including Lingate / 令渡) as insufficiently pleasant and explicitly requested names that are easy to read and write.
+
+### Suggested Action
+Offer a short list of simple, short names; avoid obscure Chinese wording and long technical compounds. Do not rename project files until a name is chosen.
+
+### Metadata
+- Source: user_feedback
+- Tags: naming, readability, user-preference
+
+---

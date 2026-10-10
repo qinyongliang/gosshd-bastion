@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -260,52 +261,113 @@ func (a *App) handleTunnelTraffic(w http.ResponseWriter, r *http.Request, u stor
 		return
 	}
 	from -= from % 300
-	out, err := a.tunnelTrafficBuckets(r.Context(), t, from, to)
+	sourceIP, err := parseTunnelSourceFilter(r.URL.Query().Get("source_ip"))
+	if err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	out, err := a.tunnelTrafficStatistics(r.Context(), t, from, to, sourceIP)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"interval_seconds": 300, "buckets": out})
+	writeJSON(w, 200, out)
 }
 
-// tunnelTrafficBuckets merges audit storage and unflushed live counters under one lock.
-func (a *App) tunnelTrafficBuckets(ctx context.Context, t store.Tunnel, from, to int64) ([]store.TunnelTraffic, error) {
+type tunnelSourceTraffic struct {
+	store.TunnelTraffic
+	ActiveConnections int `json:"active_connections"`
+}
+type tunnelTrafficStatistics struct {
+	IntervalSeconds   int                   `json:"interval_seconds"`
+	Buckets           []store.TunnelTraffic `json:"buckets"`
+	Sources           []tunnelSourceTraffic `json:"sources"`
+	ActiveConnections int                   `json:"active_connections"`
+}
+
+func parseTunnelSourceFilter(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "unknown" {
+		return value, nil
+	}
+	if ip := net.ParseIP(value); ip != nil {
+		return ip.String(), nil
+	}
+	return "", errors.New("source_ip must be an IPv4 or IPv6 address, or unknown")
+}
+
+func mergeTunnelTraffic(dst *store.TunnelTraffic, src store.TunnelTraffic) {
+	dst.RelayUp += src.RelayUp
+	dst.RelayDown += src.RelayDown
+	dst.DirectUp += src.DirectUp
+	dst.DirectDown += src.DirectDown
+	dst.ConnectionsOpened += src.ConnectionsOpened
+	dst.PeakConnections = max(dst.PeakConnections, src.PeakConnections)
+}
+
+// Merge audit storage and unflushed live counters under one lock.
+func (a *App) tunnelTrafficStatistics(ctx context.Context, t store.Tunnel, from, to int64, sourceIP string) (tunnelTrafficStatistics, error) {
+	out := tunnelTrafficStatistics{IntervalSeconds: 300, Buckets: []store.TunnelTraffic{}, Sources: []tunnelSourceTraffic{}}
 	a.tunnels.mu.Lock()
 	metrics := a.tunnels.metrics[t.ID]
 	a.tunnels.mu.Unlock()
 	if metrics != nil {
 		metrics.mu.Lock()
 		defer metrics.mu.Unlock()
+		for ip := range metrics.sources {
+			metrics.change(ip, func(*store.TunnelTraffic) {})
+		}
+		out.ActiveConnections = metrics.active
+		if sourceIP != "" {
+			out.ActiveConnections = metrics.sources[sourceIP]
+		}
 	}
-	rows, err := a.audit.Repository().TunnelTraffic(ctx, t.ID, from, to)
+	rows, err := a.audit.Repository().TunnelTrafficForSource(ctx, t.ID, from, to, sourceIP)
 	if err != nil {
-		return nil, err
+		return out, err
+	}
+	sourceRows, err := a.audit.Repository().TunnelTrafficSources(ctx, t.ID, from, to, sourceIP)
+	if err != nil {
+		return out, err
+	}
+	sources := map[string]store.TunnelTraffic{}
+	for _, v := range sourceRows {
+		sources[v.SourceIP] = v
 	}
 	values := map[int64]store.TunnelTraffic{}
 	for _, v := range rows {
 		values[v.BucketStart] = v
 	}
 	if metrics != nil {
-		for bucket, v := range metrics.buckets {
-			if bucket < from || bucket >= to {
+		for key, v := range metrics.buckets {
+			if key.bucket < from || key.bucket >= to {
 				continue
 			}
-			old := values[bucket]
-			old.BucketStart = bucket
-			old.RelayUp += v.RelayUp
-			old.RelayDown += v.RelayDown
-			old.DirectUp += v.DirectUp
-			old.DirectDown += v.DirectDown
-			old.ConnectionsOpened += v.ConnectionsOpened
-			old.PeakConnections = max(old.PeakConnections, v.PeakConnections)
-			values[bucket] = old
+			if key.sourceIP == sourceIP {
+				old := values[key.bucket]
+				mergeTunnelTraffic(&old, v)
+				values[key.bucket] = old
+			}
+			if key.sourceIP != "" && (sourceIP == "" || key.sourceIP == sourceIP) {
+				old := sources[key.sourceIP]
+				old.SourceIP = key.sourceIP
+				mergeTunnelTraffic(&old, v)
+				sources[key.sourceIP] = old
+			}
 		}
 	}
-	out := []store.TunnelTraffic{}
 	for bucket := from; bucket < to; bucket += 300 {
 		v := values[bucket]
-		v.BucketStart = bucket
-		out = append(out, v)
+		v.BucketStart, v.SourceIP = bucket, sourceIP
+		out.Buckets = append(out.Buckets, v)
 	}
+	for ip, v := range sources {
+		row := tunnelSourceTraffic{TunnelTraffic: v}
+		if metrics != nil {
+			row.ActiveConnections = metrics.sources[ip]
+		}
+		out.Sources = append(out.Sources, row)
+	}
+	sort.Slice(out.Sources, func(i, j int) bool { return out.Sources[i].SourceIP < out.Sources[j].SourceIP })
 	return out, nil
 }

@@ -87,6 +87,8 @@ func TestMCPTunnelLifecycleAndScopedToken(t *testing.T) {
 	}
 	call("tunnel_get", map[string]any{"tunnel_id": id}, false)
 	call("tunnel_traffic", map[string]any{"tunnel_id": id}, false)
+	call("tunnel_traffic", map[string]any{"tunnel_id": id, "source_ip": "2001:db8::1"}, false)
+	call("tunnel_traffic", map[string]any{"tunnel_id": id, "source_ip": "invalid"}, true)
 	call("tunnel_traffic", map[string]any{"tunnel_id": id, "from": 0, "to": 9999999999999}, true)
 	call("tunnel_stop", map[string]any{"tunnel_id": id}, false)
 	after, _ = app.store.Repository().GetTunnel(context.Background(), id)

@@ -3375,7 +3375,23 @@ html[data-theme="dark"] .manual-review-actions button.danger {
 .tunnel-chart-legend i { width:10px; height:10px; border-radius:3px; }
 .tunnel-chart-readout { display:flex; align-items:center; flex-wrap:wrap; gap:18px; min-height:32px; padding:7px 15px 0; color:var(--muted); font-size:12px; }
 .tunnel-chart-footer { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:16px; color:var(--muted); font-size:12px; }
+.tunnel-traffic-dialog.ant-modal { top:24px; padding-bottom:0; }
+.tunnel-traffic-dialog .ant-modal-container { display:flex; flex-direction:column; max-height:calc(100dvh - 48px); overflow:hidden; }
+.tunnel-traffic-dialog .ant-modal-header { flex-shrink:0; }
+.tunnel-traffic-dialog .ant-modal-body { min-height:0; overflow-y:auto; }
+.tunnel-statistics-filter, .tunnel-statistics-range { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin:12px 0; }
+.tunnel-statistics-filter .ant-input-search { flex:1; min-width:180px; }
+.tunnel-statistics-range label { display:grid; gap:6px; flex:1; min-width:180px; font-size:12px; color:var(--muted); }
+.tunnel-statistics-range input { min-width:0; }
+.tunnel-statistics-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-top:20px; }
+.tunnel-statistics-heading h3 { font-size:14px; }
+.tunnel-statistics-heading .ant-select { min-width:190px; }
+.tunnel-statistics-table { min-width:0; }
+.tunnel-statistics-table .ant-table-cell { white-space:nowrap; font-variant-numeric:tabular-nums; }
+.tunnel-statistics-table .ant-btn-link { padding:0; }
+.tunnel-statistics-note { font-size:12px; color:var(--muted); line-height:1.6; }
 @media(max-width:700px) {
+ .tunnel-traffic-dialog.ant-modal { top:8px; }
  .tunnel-card-metrics { grid-template-columns:1fr 1fr; gap:16px; }
  .tunnel-card-metrics > .ant-btn { justify-self:stretch; }
  .tunnel-chart-summary { padding:12px; gap:8px; }

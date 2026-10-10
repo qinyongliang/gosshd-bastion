@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"strconv"
@@ -494,6 +493,7 @@ func dialTunnelAgent(ctx context.Context, session *yamux.Session, destination st
 	return &tunnelStreamConn{readWriteConn: readWriteConn{Reader: reader, Writer: stream, Closer: stream, remoteAddr: dummyAddr(destination)}, stream: stream}, nil
 }
 func (m *tunnelManager) forward(r *tunnelRun, source net.Conn) {
+	sourceIP := tunnelSourceIP(source.RemoteAddr().String())
 	defer source.Close()
 	if !r.track(source) {
 		return
@@ -513,14 +513,14 @@ func (m *tunnelManager) forward(r *tunnelRun, source net.Conn) {
 	defer destination.Close()
 	defer r.untrack(destination)
 	r.mu.Lock()
-	r.metrics.opened()
+	r.metrics.opened(sourceIP)
 	r.state.Connections++
 	r.state.Error = ""
 	r.state.ErrorDiagnostic = nil
 	r.mu.Unlock()
 	defer func() {
 		r.mu.Lock()
-		r.metrics.closed()
+		r.metrics.closed(sourceIP)
 		r.state.Connections--
 		r.mu.Unlock()
 	}()
@@ -528,7 +528,7 @@ func (m *tunnelManager) forward(r *tunnelRun, source net.Conn) {
 	wg.Add(2)
 	copySide := func(dst, src net.Conn) {
 		defer wg.Done()
-		_, _ = io.Copy(trafficWriter{Writer: dst, metrics: r.metrics, up: dst == destination}, src)
+		_, _ = io.Copy(trafficWriter{Writer: dst, metrics: r.metrics, up: dst == destination, sourceIP: sourceIP}, src)
 		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
 			_ = cw.CloseWrite()
 		} else {
@@ -580,7 +580,7 @@ func (a *App) acceptAgentTunnelConnection(agentID string, session *yamux.Session
 	}
 	defer run.workers.Done()
 	if request.Peer && run.peerEnabled {
-		m.forwardPeer(run, stream, reader)
+		m.forwardPeer(run, stream, reader, tunnelSourceIP(request.SourceAddress))
 		return
 	}
 	if run.peerEnabled {
@@ -591,7 +591,7 @@ func (a *App) acceptAgentTunnelConnection(agentID string, session *yamux.Session
 		return
 	}
 	_ = stream.SetDeadline(time.Time{})
-	m.forward(run, &tunnelStreamConn{readWriteConn: readWriteConn{Reader: reader, Writer: stream, Closer: stream, remoteAddr: dummyAddr(fmt.Sprintf("agent:%s", agentID))}, stream: stream})
+	m.forward(run, &tunnelStreamConn{readWriteConn: readWriteConn{Reader: reader, Writer: stream, Closer: stream, remoteAddr: dummyAddr(request.SourceAddress)}, stream: stream})
 }
 
 type tunnelStreamConn struct {

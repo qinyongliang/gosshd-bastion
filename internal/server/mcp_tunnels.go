@@ -45,14 +45,12 @@ type mcpTunnelsOutput struct {
 	Tunnels []apiTunnel `json:"tunnels"`
 }
 type mcpTunnelTrafficInput struct {
+	SourceIP string `json:"source_ip,omitempty" jsonschema:"Filter by IPv4 or IPv6 source address; unknown selects unavailable source addresses."`
 	TunnelID string `json:"tunnel_id"`
 	From     *int64 `json:"from,omitempty" jsonschema:"Inclusive Unix seconds; defaults to last 24 hours."`
 	To       *int64 `json:"to,omitempty" jsonschema:"Exclusive Unix seconds; maximum range 31 days."`
 }
-type mcpTunnelTrafficOutput struct {
-	IntervalSeconds int                   `json:"interval_seconds"`
-	Buckets         []store.TunnelTraffic `json:"buckets"`
-}
+type mcpTunnelTrafficOutput = tunnelTrafficStatistics
 
 // Refresh the actor for every operation, including long-lived in-process MCP sessions.
 func (a *App) tunnelActor(ctx context.Context, actor store.User) (store.User, error) {
@@ -198,7 +196,7 @@ func (a *App) addMCPTunnelTools(s *mcp.Server, initialActor store.User) {
 			a.tunnels.stop(t.ID)
 			return nil, mcpOK{OK: true}, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "tunnel_traffic", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}, Description: "Get five-minute traffic buckets including relay/direct upload/download bytes, opened connections and peak concurrency. Includes unflushed live counters; defaults to last 24 hours, maximum 31 days."},
+	mcp.AddTool(s, &mcp.Tool{Name: "tunnel_traffic", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}, Description: "Get five-minute traffic buckets and per-source-IP statistics including relay/direct upload/download bytes, opened connections, peak concurrency and current active connections. Optionally filter by source_ip. Includes unflushed live counters; defaults to last 24 hours, maximum 31 days."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpTunnelTrafficInput) (*mcp.CallToolResult, mcpTunnelTrafficOutput, error) {
 			actor, err := a.tunnelActor(ctx, initialActor)
 			if err != nil {
@@ -221,7 +219,11 @@ func (a *App) addMCPTunnelTools(s *mcp.Server, initialActor store.User) {
 				return nil, mcpTunnelTrafficOutput{}, errors.New("time range must be between 0 and 31 days")
 			}
 			from -= from % 300
-			buckets, err := a.tunnelTrafficBuckets(ctx, t, from, to)
-			return nil, mcpTunnelTrafficOutput{IntervalSeconds: 300, Buckets: buckets}, err
+			sourceIP, err := parseTunnelSourceFilter(in.SourceIP)
+			if err != nil {
+				return nil, mcpTunnelTrafficOutput{}, err
+			}
+			statistics, err := a.tunnelTrafficStatistics(ctx, t, from, to, sourceIP)
+			return nil, statistics, err
 		})
 }

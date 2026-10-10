@@ -66,6 +66,10 @@ func TestTemporarySSHForwardAttributionTrafficAndStop(t *testing.T) {
 	if err != nil || total.ConnectionsOpened != 1 || total.RelayUp != int64(len(payload)) || total.RelayDown != int64(len(payload)) {
 		t.Fatalf("audit statistics lost: %+v %v", total, err)
 	}
+	sources, err := app.audit.Repository().TunnelTrafficSources(context.Background(), temporary.config.ID, 0, time.Now().Unix()+300, "192.0.2.1")
+	if err != nil || len(sources) != 1 || sources[0].ConnectionsOpened != 1 || sources[0].RelayUp != int64(len(payload)) || sources[0].RelayDown != int64(len(payload)) {
+		t.Fatalf("SSH source attribution: %+v %v", sources, err)
+	}
 	configs, err := app.store.Repository().ListTunnels(context.Background(), org.ID)
 	if err != nil || len(configs) != 0 {
 		t.Fatal("temporary forward became persistent")
@@ -197,6 +201,10 @@ func TestTemporarySSHForwardsThroughBastion(t *testing.T) {
 	total, err := app.audit.Repository().TunnelTrafficTotal(ctx, remoteID)
 	if err != nil || total.RelayUp != 56000 || total.RelayDown != 56000 || total.ConnectionsOpened != 1 {
 		t.Fatalf("remote statistics lost: %+v %v", total, err)
+	}
+	sources, err := app.audit.Repository().TunnelTrafficSources(ctx, remoteID, 0, time.Now().Unix()+300, "127.0.0.1")
+	if err != nil || len(sources) != 1 || sources[0].RelayUp != 56000 || sources[0].RelayDown != 56000 || sources[0].ConnectionsOpened != 1 {
+		t.Fatalf("remote SSH source attribution: %+v %v", sources, err)
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

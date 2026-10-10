@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log"
+	"net"
 	"sort"
 	"strings"
 	"sync"
@@ -27,29 +28,58 @@ type tunnelMetrics struct {
 	paths   map[string]tunnelConnectionPath
 	mu      sync.Mutex
 	id, org string
-	buckets map[int64]store.TunnelTraffic
+	buckets map[tunnelTrafficKey]store.TunnelTraffic
+	sources map[string]int
 	active  int
 	direct  int
 }
 
+type tunnelTrafficKey struct {
+	bucket   int64
+	sourceIP string
+}
+
+func tunnelSourceIP(address string) string {
+	if host, _, err := net.SplitHostPort(address); err == nil {
+		address = host
+	}
+	// TCP IPv6 addresses may include an interface zone.
+	if host, _, ok := strings.Cut(address, "%"); ok {
+		address = host
+	}
+	if ip := net.ParseIP(address); ip != nil {
+		return ip.String()
+	}
+	return "unknown"
+}
+
 func newTunnelMetrics(id, org string) *tunnelMetrics {
-	return &tunnelMetrics{paths: map[string]tunnelConnectionPath{}, id: id, org: org, buckets: map[int64]store.TunnelTraffic{}}
+	return &tunnelMetrics{paths: map[string]tunnelConnectionPath{}, id: id, org: org, buckets: map[tunnelTrafficKey]store.TunnelTraffic{}, sources: map[string]int{}}
 }
-func (m *tunnelMetrics) change(update func(*store.TunnelTraffic)) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+
+// Caller holds mu. Keep a separate global peak: per-IP peaks cannot be summed.
+func (m *tunnelMetrics) change(sourceIP string, update func(*store.TunnelTraffic)) {
 	bucket := time.Now().UTC().Truncate(store.TunnelTrafficInterval).Unix()
-	v := m.buckets[bucket]
-	v.BucketStart = bucket
-	update(&v)
-	v.PeakConnections = max(v.PeakConnections, int64(m.active))
-	m.buckets[bucket] = v
+	for _, ip := range []string{"", sourceIP} {
+		key := tunnelTrafficKey{bucket, ip}
+		v := m.buckets[key]
+		v.BucketStart, v.SourceIP = bucket, ip
+		update(&v)
+		active := m.active
+		if ip != "" {
+			active = m.sources[ip]
+		}
+		v.PeakConnections = max(v.PeakConnections, int64(active))
+		m.buckets[key] = v
+	}
 }
-func (m *tunnelMetrics) bytes(up bool, direct bool, n int64) {
+func (m *tunnelMetrics) bytes(sourceIP string, up bool, direct bool, n int64) {
 	if n <= 0 {
 		return
 	}
-	m.change(func(v *store.TunnelTraffic) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.change(sourceIP, func(v *store.TunnelTraffic) {
 		if direct {
 			if up {
 				v.DirectUp += n
@@ -65,39 +95,32 @@ func (m *tunnelMetrics) bytes(up bool, direct bool, n int64) {
 		}
 	})
 }
-func (m *tunnelMetrics) opened() {
+func (m *tunnelMetrics) opened(sourceIP string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.active++
-	bucket := time.Now().UTC().Truncate(store.TunnelTrafficInterval).Unix()
-	v := m.buckets[bucket]
-	v.BucketStart = bucket
-	v.ConnectionsOpened++
-	v.PeakConnections = max(v.PeakConnections, int64(m.active))
-	m.buckets[bucket] = v
+	m.sources[sourceIP]++
+	m.change(sourceIP, func(v *store.TunnelTraffic) { v.ConnectionsOpened++ })
 }
-func (m *tunnelMetrics) closed() {
+func (m *tunnelMetrics) closed(sourceIP string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	bucket := time.Now().UTC().Truncate(store.TunnelTrafficInterval).Unix()
-	v := m.buckets[bucket]
-	v.BucketStart = bucket
-	v.PeakConnections = max(v.PeakConnections, int64(m.active))
-	m.buckets[bucket] = v
+	m.change(sourceIP, func(*store.TunnelTraffic) {})
 	m.active--
+	m.sources[sourceIP]--
+	if m.sources[sourceIP] == 0 {
+		delete(m.sources, sourceIP)
+	}
 }
 func (m *tunnelMetrics) flush(repo *store.AuditRepository, all bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now().UTC().Truncate(store.TunnelTrafficInterval).Unix()
-	if m.active > 0 {
-		v := m.buckets[now]
-		v.BucketStart = now
-		v.PeakConnections = max(v.PeakConnections, int64(m.active))
-		m.buckets[now] = v
+	for sourceIP := range m.sources {
+		m.change(sourceIP, func(*store.TunnelTraffic) {})
 	}
 	for bucket, v := range m.buckets {
-		if !all && bucket >= now {
+		if !all && bucket.bucket >= now {
 			continue
 		}
 		if v.Empty() {
@@ -117,13 +140,14 @@ func (m *tunnelMetrics) flush(repo *store.AuditRepository, all bool) {
 
 type trafficWriter struct {
 	io.Writer
-	metrics *tunnelMetrics
-	up      bool
+	metrics  *tunnelMetrics
+	up       bool
+	sourceIP string
 }
 
 func (w trafficWriter) Write(p []byte) (int, error) {
 	n, err := w.Writer.Write(p)
-	w.metrics.bytes(w.up, false, int64(n))
+	w.metrics.bytes(w.sourceIP, w.up, false, int64(n))
 	return n, err
 }
 func (m *tunnelManager) flushMetrics(all bool) {
@@ -163,6 +187,9 @@ func (m *tunnelManager) traffic(t store.Tunnel) (store.TunnelTraffic, int, int, 
 		return total, 0, 0, nil
 	}
 	for _, v := range metrics.buckets {
+		if v.SourceIP != "" {
+			continue
+		}
 		total.RelayUp += v.RelayUp
 		total.RelayDown += v.RelayDown
 		total.DirectUp += v.DirectUp

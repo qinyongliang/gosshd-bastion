@@ -97,7 +97,7 @@ func TestAuditSchemaMigrationsBaselineExistingData(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	assertMigrationVersions(t, st.DB(), 1, 2)
+	assertMigrationVersions(t, st.DB(), 1, 2, 3)
 	var command string
 	if err := st.DB().QueryRowContext(ctx, "SELECT command FROM command_audit_logs WHERE id = 'audit-1'").Scan(&command); err != nil || command != "pwd" {
 		t.Fatalf("legacy audit changed: command=%q err=%v", command, err)

@@ -182,6 +182,12 @@ func (l *trackedForwardListener) Accept() (net.Conn, error) {
 	return c, nil
 }
 func bridgeSSHForward(a io.ReadWriteCloser, b io.ReadWriteCloser, t *temporaryTunnel) {
+	sourceIP := tunnelSourceIP(t.source)
+	if t.direction == "remote" {
+		if conn, ok := a.(net.Conn); ok {
+			sourceIP = tunnelSourceIP(conn.RemoteAddr().String())
+		}
+	}
 	t.mu.Lock()
 	if t.stopped {
 		t.mu.Unlock()
@@ -202,20 +208,20 @@ func bridgeSSHForward(a io.ReadWriteCloser, b io.ReadWriteCloser, t *temporaryTu
 	}
 	defer t.untrack(a)
 	defer t.untrack(b)
-	t.metrics.opened()
-	defer t.metrics.closed()
+	t.metrics.opened(sourceIP)
+	defer t.metrics.closed(sourceIP)
 	var wg sync.WaitGroup
 	var once sync.Once
 	closeBoth := func() { once.Do(func() { _ = a.Close(); _ = b.Close() }) }
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(trafficWriter{Writer: b, metrics: t.metrics, up: true}, a)
+		_, _ = io.Copy(trafficWriter{Writer: b, metrics: t.metrics, up: true, sourceIP: sourceIP}, a)
 		closeBoth()
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(trafficWriter{Writer: a, metrics: t.metrics, up: false}, b)
+		_, _ = io.Copy(trafficWriter{Writer: a, metrics: t.metrics, up: false, sourceIP: sourceIP}, b)
 		closeBoth()
 	}()
 	wg.Wait()

@@ -56,9 +56,11 @@ gosshd-server --tunnel-stun-servers ''
 - Agent 每秒上报累计直连计数，用于实时显示；持久历史仍按 5 分钟聚合。
 - 当前时间桶为暂存数据。强制终止进程会丢失尚未落盘部分；突发 Agent 网络中断可能丢失尚未上报的直连计数。
 
-审核库的 `tunnel_traffic` 以 `(tunnel_id, bucket_start)` 为主键，支持时间范围查询；`tunnel_traffic_totals` 在同一事务中累积总量，使列表查询不扫描历史。删除隧道后审核历史保留。
+审核库的 `tunnel_traffic` 以 `(tunnel_id, source_ip, bucket_start)` 为主键，支持时间范围和来源 IP 查询；`tunnel_traffic_totals` 在同一事务中累积总量。空 `source_ip` 保存隧道整体统计，避免重复计数，并独立记录整体峰值并发。删除隧道后审核历史保留。
 
-页面可查询最近 24 小时、7 天、30 天，分别查看上传/下载趋势、直连/中转流量、新建连接和峰值并发。
+「统计」弹窗可查询最近 24 小时、7 天、30 天或自定义时间范围（最长 31 天），分别查看上传/下载趋势、直连/中转流量、新建连接和峰值并发。IP 来源列表展示每个 IP 的流量、所选时段新建连接、峰值并发与当前并发，支持按流量或新建连接数升降序排序。点击列表 IP 或输入 IP 筛选后，趋势图、汇总和列表均只显示该来源；「全部 IP」恢复整体统计。时间范围扩展至完整的五分钟统计区间。
+
+来源 IP 取入口 TCP 连接的远端地址；Agent 入口需同步升级以传递此地址，旧 Agent 或不可识别的地址显示为「未知来源」。SSH 临时本地转发按 SSH 客户端来源统计，远程转发按入口 TCP 来源统计。升级时审核库迁移 `0003_tunnel_source_traffic.sql` 会一次性重建两个统计表，直接丢弃旧统计，不转换旧数据；隧道配置和命令审计日志保留。
 
 ## API
 
@@ -70,7 +72,7 @@ gosshd-server --tunnel-stun-servers ''
 - `POST /api/tunnels/{id}/enable`：启用或重新计时。
 - `POST /api/tunnels/{id}/stop`
 - `DELETE /api/tunnels/{id}`
-- `GET /api/tunnels/{id}/traffic?from=...&to=...`：Unix 秒范围，上限 31 天，返回 `interval_seconds: 300` 和补齐空时间桶的序列。`to` 为排他边界。
+- `GET /api/tunnels/{id}/traffic?from=...&to=...&source_ip=...`：Unix 秒范围，上限 31 天，返回 `interval_seconds: 300`、补齐空时间桶的 `buckets`、来源列表 `sources` 和当前并发 `active_connections`。`to` 为排他边界；可选 `source_ip` 支持 IPv4、IPv6 或 `unknown`。
 
 配置字段为 `organization_id`（创建时）、`name`、`entry_target_id`、`listen_host`、`listen_port`、`exit_target_id`、`destination_host`、`destination_port`、`duration_seconds`。空端点 ID 表示堡垒机，时长 `0` 表示永久，最大 365 天。
 
@@ -91,7 +93,7 @@ gosshd-server --tunnel-stun-servers ''
 | `tunnel_enable` | 按配置时长启用或重新计时；再次启用会关闭现有连接 |
 | `tunnel_stop` | 停止并关闭现有连接；持久配置和审核统计保留 |
 | `tunnel_delete` | 删除持久配置；审核库历史统计保留 |
-| `tunnel_traffic` | 查询五分钟流量、打开连接数和峰值并发；包含尚未落库数据 |
+| `tunnel_traffic` | 查询五分钟流量、连接数、峰值并发和来源 IP 列表；可通过 `source_ip` 筛选，包含尚未落库数据 |
 
 创建示例（`entry_target_id` / `exit_target_id` 为现有机器 ID，支持 Agent、普通 SSH 与其跳板链）：
 

@@ -342,3 +342,23 @@ The workspace node_modules links use the repository virtual store while pnpm att
 Reinstall dependencies with the repository's configured pnpm store before adding new packages, or keep the shared menu primitive dependency-free.
 
 ---
+
+## [ERR-20261009-STYLE-QA] Existing verification failures
+
+**Logged**: 2026-10-09T17:57:00+08:00
+**Priority**: medium
+**Status**: pending
+**Area**: frontend
+
+### Summary
+The workspace has nine existing TS7006 diagnostics; the existing mobile console browser test cannot click the collapsed file sidebar after expanding the host sidebar.
+
+### Details
+TypeScript diagnostics were reproduced with HEAD versions of modified source files. The mobile test failed at web/e2e/ui_e2e.mjs:84 with both updated CSS and HEAD CSS injected through a Playwright stylesheet route. Neither failure is introduced by the control-style changes. New control-style, tunnel-traffic, and new-terminal-connection browser tests pass.
+
+Reconfirmed on 2026-10-10 while verifying search folder visibility: `pnpm check` reports the same nine TS7006 diagnostics in SystemAdminPage.tsx and TunnelsPage.tsx. TargetsPage.tsx has no diagnostics; focused folder-filter checks pass.
+
+### Suggested Action
+Address baseline implicit-any errors and the mobile sidebar expansion flow in a separate scoped change. For UI QA, wait for the terminal and sidebar to mount before deciding whether the file sidebar needs expansion; Ant Design virtualized options should be clicked through the visible dropdown rather than hidden accessibility nodes.
+
+---
