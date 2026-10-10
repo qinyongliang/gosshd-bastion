@@ -62,14 +62,39 @@ func openUploadDestination(ctx context.Context, req protocol.StreamRequest) (*up
 				return nil, err
 			}
 		}
+		committed := false
 		return &uploadDestination{WriteCloser: file, commit: func() error {
+			var err error
 			if _, supported := client.HasExtension("posix-rename@openssh.com"); supported {
-				return client.PosixRename(temp, dest)
+				err = client.PosixRename(temp, dest)
+			} else {
+				// Never delete the original before a successful commit.
+				err = client.Rename(temp, dest)
 			}
-			// A server without atomic replacement may reject an existing target.
-			// Never delete the original before a successful commit.
-			return client.Rename(temp, dest)
-		}, abort: func() { _ = file.Close(); _ = client.Remove(temp); cleanup() }}, nil
+			committed = err == nil
+			return err
+		}, abort: func() {
+			_ = file.Close()
+			if !committed {
+				err := client.Remove(temp)
+				if err != nil && ctx.Err() != nil {
+					// Cancellation closes SSH to unblock a stalled write. Reconnect
+					// briefly to remove the temporary file using the same pinned hops.
+					cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if ssh, err := openTunnelSSH(cleanupCtx, req.TunnelHops); err == nil && ssh != nil {
+						defer ssh.Close()
+						stopCleanup := context.AfterFunc(cleanupCtx, func() { _ = ssh.Close() })
+						defer stopCleanup()
+						if sftpClient, err := sftp.NewClient(ssh); err == nil {
+							_ = sftpClient.Remove(temp)
+							_ = sftpClient.Close()
+						}
+					}
+				}
+			}
+			cleanup()
+		}}, nil
 	}
 	// Use the same working directory as the existing Agent SFTP server.
 	temp := filepath.Join(filepath.Dir(dest), ".gosshd-upload-"+uuid.NewString())

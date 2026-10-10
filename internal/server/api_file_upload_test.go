@@ -42,8 +42,17 @@ func uploadWS(t *testing.T, base string, client *http.Client, target, dir, name 
 	return ws
 }
 
+func uploadAgentTarget(t *testing.T, app *App, user store.User, org store.Organization, id string) store.SSHTarget {
+	t.Helper()
+	_, err := app.store.Repository().UpsertAgent(context.Background(), store.UpsertAgentParams{ID: id, OwnerType: store.OwnerOrganization, OwnerID: org.ID, CurrentRuntimeID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tunnelAgentTarget(t, app, user, org, id)
+}
+
 func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {
-	for _, mode := range []string{"complete", "checksum", "cancel", "forged completion", "empty", "duplicate"} {
+	for _, mode := range []string{"complete", "checksum", "cancel", "forged completion", "empty", "duplicate", "ssh", "ssh cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			srv, client, app := newAPITestServer(t)
 			defer srv.Close()
@@ -51,7 +60,12 @@ func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {
 			user, _ := app.store.Repository().GetUserByEmail(context.Background(), "admin")
 			org, _ := app.store.Repository().GetPersonalOrganizationForUser(context.Background(), user.ID)
 			attachTunnelAgent(t, app, "upload-agent")
-			target := tunnelAgentTarget(t, app, user, org, "upload-agent")
+			target := uploadAgentTarget(t, app, user, org, "upload-agent")
+			if strings.HasPrefix(mode, "ssh") {
+				address, closeServer := startTestSFTPServer(t, testSFTPModeSubsystem)
+				defer closeServer()
+				target = tunnelSSHTarget(t, app, user, org, "ssh-upload", address, target.ID)
+			}
 			dir := t.TempDir()
 			dest := filepath.Join(dir, "file.bin")
 			if err := os.WriteFile(dest, []byte("original"), 0644); err != nil {
@@ -81,14 +95,14 @@ func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {
 					}
 				}
 			}
-			if mode == "cancel" {
+			if strings.HasSuffix(mode, "cancel") {
 				ws.Close()
 			} else if mode == "forged completion" {
 				_ = ws.WriteMessage(websocket.BinaryMessage, (tunnel.Packet{Kind: tunnel.UploadStatus, Body: []byte(`{"type":"complete","loaded":13}`)}).Bytes())
 			} else {
 				send(upload.FinishRecord())
 			}
-			if mode != "cancel" && mode != "forged completion" {
+			if !strings.HasSuffix(mode, "cancel") && mode != "forged completion" {
 				for {
 					_, body, err := ws.ReadMessage()
 					if err != nil {
@@ -124,7 +138,7 @@ func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {
 				page, err := app.audit.Repository().ListCommandAuditLogs(context.Background(), store.AuditLogFilter{TargetID: target.ID, RequestType: store.RequestSFTP, Limit: 10})
 				if err == nil && len(entries) == 1 && len(page.Logs) > 0 {
 					logs := page.Logs
-					success := mode == "complete" || mode == "empty" || mode == "duplicate"
+					success := mode == "complete" || mode == "empty" || mode == "duplicate" || mode == "ssh"
 					if logs[0].ExitCode == nil || (*logs[0].ExitCode == 0) != success {
 						t.Fatalf("incorrect trusted audit: %+v", logs[0])
 					}
@@ -154,7 +168,7 @@ func TestFileUploadValidationAndPermissions(t *testing.T) {
 	user, _ := app.store.Repository().GetUserByEmail(context.Background(), "admin")
 	org, _ := app.store.Repository().GetPersonalOrganizationForUser(context.Background(), user.ID)
 	attachTunnelAgent(t, app, "upload-agent")
-	target := tunnelAgentTarget(t, app, user, org, "upload-agent")
+	target := uploadAgentTarget(t, app, user, org, "upload-agent")
 	for _, name := range []string{"../escape", `a\b`, ".", "..", ""} {
 		response, err := client.Get(srv.URL + "/api/targets/" + target.ID + "/files/upload/ws?size=1&name=" + url.QueryEscape(name))
 		if err != nil {

@@ -23,8 +23,9 @@ func Open(ctx context.Context, path string, keyMaterial ...[]byte) (*Store, erro
 	if strings.Contains(path, "?") {
 		separator = "&"
 	}
-	// Foreign keys must be enabled on every pooled connection, not only during setup.
-	db, err := sql.Open("sqlite", path+separator+"_pragma=foreign_keys(1)")
+	// Pragmas must apply to every pooled connection, including connections opened
+	// while background Agent/tunnel updates run alongside API requests.
+	db, err := sql.Open("sqlite", path+separator+"_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
