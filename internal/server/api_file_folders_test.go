@@ -32,6 +32,9 @@ func TestFileUploadFolderDirectoriesBatch(t *testing.T) {
 			}
 			root := t.TempDir()
 			paths := []string{filepath.Join(root, "first", "nested"), filepath.Join(root, "first", "empty"), filepath.Join(root, "second")}
+			for i := range paths {
+				paths[i] = filepath.ToSlash(paths[i])
+			}
 			endpoint := srv.URL + "/api/targets/" + target.ID + "/files/mkdir"
 			postJSON(t, client, endpoint, map[string]any{"paths": paths}, http.StatusCreated, nil)
 			for _, path := range paths {
