@@ -165,9 +165,10 @@ function openFileSession(session: Session, targetID: string, path: string, file?
         })();
       } else if (bytes[0] === PROBE && channel?.readyState === "open") {
         try { channel.send(packet(PROBE_ACK)); } catch { direct = false; }
-      } else if (bytes[0] === PROBE_ACK && channel?.readyState === "open") {
+      } else if (bytes[0] === PROBE_ACK && fromDirect && channel?.readyState === "open") {
         direct = true;
         setTransport("direct");
+        releaseNegotiation?.();
       }
     };
     // ACK after the sink accepts each packet. This bounds queued disk writes to
@@ -242,12 +243,13 @@ function openFileSession(session: Session, targetID: string, path: string, file?
         channel.onmessage = (event: MessageEvent<ArrayBuffer>) => receive(event.data, true);
         channel.onopen = () => {
           if (closed) return;
-          direct = true;
-          setTransport("direct");
-          releaseNegotiation?.();
+          // Confirm that the remote peer installed its direct path before
+          // requesting file data, so the first download packet is also direct.
+          try { channel?.send(packet(PROBE)); }
+          catch { setTransport("relay"); releaseNegotiation?.(); }
         };
         channel.onclose = channel.onerror = () => {
-          if (!closed) { direct = false; setTransport("relay"); }
+          if (!closed) { direct = false; setTransport("relay"); releaseNegotiation?.(); }
         };
         await peer.setLocalDescription(await peer.createOffer());
         await new Promise<void>((resolve) => {
