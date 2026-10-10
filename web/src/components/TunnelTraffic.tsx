@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { Button, Select } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { Button, Input, Select, Table } from "antd";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { api } from "../api";
 import { useI18n } from "../i18n";
-import type { Tunnel, TunnelTraffic } from "../types";
+import type { Tunnel, TunnelSourceTraffic, TunnelTraffic } from "../types";
 import { ErrorMessage, Modal } from "./ui";
 
 export const tunnelTrafficCopy = {
@@ -26,6 +26,10 @@ export function formatBytes(n: number): string {
   const k = Math.min(Math.floor(Math.log(n) / Math.log(1024)), 4);
   return `${(n / 1024 ** k).toFixed(n / 1024 ** k < 10 ? 2 : 1)} ${["B", "KiB", "MiB", "GiB", "TiB"][k]}`;
 }
+function localDateTime(seconds: number): string {
+  const date = new Date(seconds * 1000);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
 export function TunnelTrafficDialog({
   tunnel,
   onClose,
@@ -37,6 +41,12 @@ export function TunnelTrafficDialog({
   const zh = locale === "zh-CN";
   const words = tunnelTrafficCopy[locale];
   const [days, setDays] = useState(1);
+  const [sourceIP, setSourceIP] = useState("");
+  const [ipInput, setIPInput] = useState("");
+  const [customStart, setCustomStart] = useState(() => localDateTime(Math.floor(Date.now() / 1000) - 86400));
+  const [customEnd, setCustomEnd] = useState(() => localDateTime(Math.floor(Date.now() / 1000)));
+  const [customRange, setCustomRange] = useState<{from: number; to: number} | null>(null);
+  const [sort, setSort] = useState("traffic_desc");
   const [metric, setMetric] = useState("traffic");
   const [path, setPath] = useState("all");
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -48,15 +58,15 @@ export function TunnelTrafficDialog({
     return () => clearInterval(timer);
   }, []);
   const range = useMemo(
-    () => ({
-      from: Math.floor(now / 300) * 300 + 300 - days * 86400,
+    () => days === 0 && customRange ? customRange : ({
+      from: Math.floor(now / 300) * 300 + 300 - (days || 1) * 86400,
       to: Math.floor(now / 300) * 300 + 300,
     }),
-    [days, now],
+    [days, now, customRange],
   );
   const query = useQuery({
-    queryKey: ["tunnel-traffic", tunnel.id, range],
-    queryFn: () => api.tunnelTraffic(tunnel.id, range.from, range.to),
+    queryKey: ["tunnel-traffic", tunnel.id, range, sourceIP],
+    queryFn: () => api.tunnelTraffic(tunnel.id, range.from, range.to, sourceIP),
     refetchInterval: 30000,
   });
   const buckets = query.data?.buckets || [];
@@ -104,9 +114,20 @@ export function TunnelTrafficDialog({
   );
   const opened = buckets.reduce((s, b) => s + b.connections_opened, 0);
   const peak = Math.max(0, ...buckets.map((b) => b.peak_connections));
+  const sources = [...(query.data?.sources || [])].sort((a, b) => {
+    const value = (row: TunnelSourceTraffic) => sort.startsWith("traffic")
+      ? selected(row, true) + selected(row, false) : row.connections_opened;
+    return (value(a) - value(b)) * (sort.endsWith("asc") ? 1 : -1) || a.source_ip.localeCompare(b.source_ip);
+  });
+  const filterSource = (ip: string) => { setSourceIP(ip.trim()); setIPInput(ip.trim()); };
+  const customFrom = Math.floor(new Date(customStart).getTime() / 300000) * 300;
+  const customTo = Math.ceil(new Date(customEnd).getTime() / 300000) * 300;
+  const validCustom = Number.isFinite(customFrom) && Number.isFinite(customTo)
+    && new Date(customEnd).getTime() > new Date(customStart).getTime()
+    && customFrom >= 0 && customTo - customFrom <= 31 * 86400;
   return (
     <Modal
-      title={`${tunnel.name} · ${zh ? "流量与连接" : "Traffic & connections"}`}
+      title={`${tunnel.name} · ${zh ? "统计" : "Statistics"}`}
       wide
       className="tunnel-traffic-dialog"
       onClose={onClose}
@@ -116,7 +137,7 @@ export function TunnelTrafficDialog({
           aria-label={zh ? "时间范围" : "Time range"}
           value={days}
           onChange={setDays}
-          options={[1, 7, 30].map((d) => ({
+          options={[...[1, 7, 30].map((d) => ({
             value: d,
             label: zh
               ? d === 1
@@ -125,7 +146,7 @@ export function TunnelTrafficDialog({
               : d === 1
                 ? "Last 24 hours"
                 : `Last ${d} days`,
-          }))}
+          })), {value: 0, label: zh ? "自定义时间" : "Custom range"}]}
         />
         <div className="tunnel-chart-tabs">
           <Button
@@ -154,7 +175,19 @@ export function TunnelTrafficDialog({
           />
         )}
       </div>
-
+      {days === 0 && <div className="tunnel-statistics-range">
+        <label>{zh ? "开始时间" : "Start time"}<Input type="datetime-local" value={customStart} onChange={(event: ChangeEvent<HTMLInputElement>) => setCustomStart(event.target.value)} /></label>
+        <label>{zh ? "结束时间" : "End time"}<Input type="datetime-local" value={customEnd} onChange={(event: ChangeEvent<HTMLInputElement>) => setCustomEnd(event.target.value)} /></label>
+        <Button disabled={!validCustom} onClick={() => setCustomRange({from: customFrom, to: customTo})}>{zh ? "应用时间范围" : "Apply range"}</Button>
+        {!validCustom && <span role="alert">{zh ? "请选择有效的时间范围，最长 31 天" : "Select a valid time range of up to 31 days"}</span>}
+      </div>}
+      <div className="tunnel-statistics-filter">
+        <Input.Search aria-label={zh ? "来源 IP" : "Source IP"} placeholder={zh ? "输入 IP 查看统计" : "Enter an IP to view statistics"}
+          value={ipInput} onChange={(event: ChangeEvent<HTMLInputElement>) => setIPInput(event.target.value)} onSearch={filterSource}
+          enterButton={<Button aria-label={zh ? "筛选" : "Filter"}>{zh ? "筛选" : "Filter"}</Button>} />
+        <Button onClick={() => filterSource("")}>{zh ? "全部 IP" : "All IPs"}</Button>
+      </div>
+      {sourceIP && <p className="tunnel-statistics-note">{zh ? "当前来源" : "Selected source"}: {sourceIP === "unknown" ? (zh ? "未知来源" : "Unknown source") : sourceIP}</p>}
       <div className="tunnel-chart-summary">
         <div>
           <small>
@@ -182,14 +215,36 @@ export function TunnelTrafficDialog({
           bytes={metric === "traffic"}
         />
       )}
+      <div className="tunnel-statistics-heading">
+        <h3>{zh ? "IP 来源统计" : "Source IP statistics"}</h3>
+        <Select aria-label={zh ? "排序" : "Sort by"} value={sort} onChange={setSort} options={[
+          {value: "traffic_desc", label: zh ? "流量从高到低" : "Traffic: high to low"},
+          {value: "traffic_asc", label: zh ? "流量从低到高" : "Traffic: low to high"},
+          {value: "connections_desc", label: zh ? "连接数从高到低" : "Connections: high to low"},
+          {value: "connections_asc", label: zh ? "连接数从低到高" : "Connections: low to high"},
+        ]} />
+      </div>
+      <Table<TunnelSourceTraffic> className="tunnel-statistics-table" size="small" rowKey="source_ip" dataSource={sources}
+        loading={query.isLoading} scroll={{x: 720}} pagination={{pageSize: 10, showSizeChanger: false, hideOnSinglePage: true}}
+        locale={{emptyText: zh ? "所选条件下暂无来源统计" : "No source statistics for this selection"}}
+        columns={[
+          {title: zh ? "来源 IP" : "Source IP", dataIndex: "source_ip", render: (ip: string) => <Button type="link" onClick={() => filterSource(ip)}>{ip === "unknown" ? (zh ? "未知来源" : "Unknown source") : ip}</Button>},
+          {title: words.up, key: "up", render: (_: unknown, row: TunnelSourceTraffic) => formatBytes(selected(row, true))},
+          {title: words.down, key: "down", render: (_: unknown, row: TunnelSourceTraffic) => formatBytes(selected(row, false))},
+          {title: zh ? "总流量" : "Total traffic", key: "total", render: (_: unknown, row: TunnelSourceTraffic) => formatBytes(selected(row, true) + selected(row, false))},
+          {title: zh ? "新建连接" : "Connections opened", dataIndex: "connections_opened"},
+          {title: zh ? "峰值并发" : "Peak concurrency", dataIndex: "peak_connections"},
+          {title: zh ? "当前并发" : "Active now", dataIndex: "active_connections"},
+        ]} />
+      <p className="tunnel-statistics-note">{zh ? "按 5 分钟汇总，时间范围会扩展至完整统计区间；新建连接为所选时段建立的连接数。点击 IP 可查看该来源的趋势和统计。" : "Aggregated in five-minute buckets; ranges expand to complete buckets. Opened connections counts connections established in the selected range. Click an IP to view its trend and statistics."}</p>
       <div className="tunnel-chart-footer">
         <span>
-          {zh ? "当前并发" : "Active now"}: {tunnel.connections}
+          {zh ? "当前并发" : "Active now"}: {query.data?.active_connections || 0}
         </span>
-        <span>
+        {!sourceIP && <span>
           {zh ? "累计连接" : "Lifetime connections"}:{" "}
           {tunnel.traffic?.connections_opened || 0}
-        </span>
+        </span>}
       </div>
     </Modal>
   );
@@ -226,6 +281,7 @@ function TrafficChart({
       hour: "2-digit",
       minute: "2-digit",
     });
+  const ticks = [...new Set([0, Math.floor(buckets.length / 2), Math.max(0, buckets.length - 1)])];
   return (
     <div className="tunnel-chart">
       <div className="tunnel-chart-legend">
@@ -278,7 +334,7 @@ function TrafficChart({
           </g>
         ))}
         {series.map((s) => (
-          <polyline
+          s.values.length === 1 ? <circle key={s.label} cx={x(0)} cy={y(s.values[0])} r={4} fill={s.color} /> : <polyline
             key={s.label}
             points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ")}
             fill="none"
@@ -287,16 +343,12 @@ function TrafficChart({
             vectorEffect="non-scaling-stroke"
           />
         ))}
-        {[
-          0,
-          Math.floor(buckets.length / 2),
-          Math.max(0, buckets.length - 1),
-        ].map((i, k) => (
+        {ticks.map((i, k) => (
           <text
             key={k}
             x={x(i)}
             y={height - 10}
-            textAnchor={k === 0 ? "start" : k === 2 ? "end" : "middle"}
+            textAnchor={k === 0 ? "start" : k === ticks.length - 1 ? "end" : "middle"}
           >
             {stamp(i)}
           </text>

@@ -136,6 +136,10 @@ func TestTunnelRelayStopAndAuditStatistics(t *testing.T) {
 	if total.RelayUp != 56000 || total.RelayDown != 56000 || total.ConnectionsOpened != 1 || total.PeakConnections != 1 {
 		t.Fatalf("unexpected persisted statistics: %+v", total)
 	}
+	sources, err := app.audit.Repository().TunnelTrafficSources(context.Background(), v.ID, 0, time.Now().Unix()+300, "")
+	if err != nil || len(sources) != 1 || sources[0].SourceIP != "127.0.0.1" || sources[0].RelayUp != 56000 || sources[0].RelayDown != 56000 || sources[0].ConnectionsOpened != 1 {
+		t.Fatalf("relay source attribution: %+v %v", sources, err)
+	}
 	var count int
 	err = app.store.DB().QueryRow(`SELECT count(*) FROM sqlite_master WHERE name='tunnel_traffic'`).Scan(&count)
 	if err != nil || count != 0 {
@@ -216,6 +220,10 @@ func TestTunnelAgentsP2PAndReconnect(t *testing.T) {
 	final := app.tunnelAPIStatus(v).Traffic
 	if final.RelayUp+final.DirectUp != 112000 || final.RelayDown+final.DirectDown != 112000 {
 		t.Fatalf("traffic was lost or duplicated across relay/P2P: %+v", final)
+	}
+	stats, err := app.tunnelTrafficStatistics(context.Background(), v, time.Now().Truncate(store.TunnelTrafficInterval).Unix()-300, time.Now().Unix()+300, "127.0.0.1")
+	if err != nil || len(stats.Sources) != 1 || stats.Sources[0].RelayUp+stats.Sources[0].DirectUp != 112000 || stats.Sources[0].RelayDown+stats.Sources[0].DirectDown != 112000 || stats.Sources[0].ConnectionsOpened != 1 {
+		t.Fatalf("Agent relay/P2P source attribution: %+v %v", stats, err)
 	}
 	stop()
 	attachTunnelAgent(t, app, "entry")

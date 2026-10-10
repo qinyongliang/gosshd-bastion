@@ -349,6 +349,8 @@ export type Tunnel = TunnelConfig & {
  transport: "relay" | "negotiating" | "direct" | "mixed"; direct_connections: number; traffic: TunnelTraffic; paths?: TunnelConnectionPath[];
 };
 export type TunnelTraffic = {bucket_start: number; relay_up: number; relay_down: number; direct_up: number; direct_down: number; connections_opened: number; peak_connections: number};
+export type TunnelSourceTraffic = TunnelTraffic & {source_ip: string; active_connections: number};
+export type TunnelTrafficStatistics = {interval_seconds: number; buckets: TunnelTraffic[]; sources: TunnelSourceTraffic[]; active_connections: number};
 export type TunnelCandidate = {address: string; port: number; protocol: string; type: string; network: string; interface?: string; local_address?: string; local_port?: number};
 export type TunnelPeerInfo = {active: boolean; state: string; local?: TunnelCandidate; remote?: TunnelCandidate; rtt_ms?: number; updated_at: string};
 export type TunnelConnectionPath = {id: string; entry_agent_id: string; exit_agent_id: string; entry?: TunnelPeerInfo; exit?: TunnelPeerInfo; updated_at: string};

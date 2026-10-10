@@ -55,7 +55,7 @@ func (c *Client) handleTunnelListen(control io.ReadWriteCloser, reader *bufio.Re
 			}
 			defer stream.Close()
 			_ = stream.SetDeadline(time.Now().Add(10 * time.Second))
-			if protocol.WriteJSONLine(stream, protocol.StreamRequest{Type: protocol.StreamTunnelConnection, TunnelID: req.TunnelID, Peer: req.Peer}) != nil {
+			if protocol.WriteJSONLine(stream, protocol.StreamRequest{Type: protocol.StreamTunnelConnection, TunnelID: req.TunnelID, Peer: req.Peer, SourceAddress: conn.RemoteAddr().String()}) != nil {
 				return
 			}
 			responseReader := bufio.NewReader(stream)

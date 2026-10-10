@@ -17,7 +17,7 @@ import (
 	"github.com/qinyongliang/gosshd-bastion/internal/tunnel"
 )
 
-func (m *tunnelManager) forwardPeer(r *tunnelRun, entry *yamux.Stream, reader *bufio.Reader) {
+func (m *tunnelManager) forwardPeer(r *tunnelRun, entry *yamux.Stream, reader *bufio.Reader, sourceIP string) {
 	if !r.track(entry) {
 		return
 	}
@@ -59,7 +59,7 @@ func (m *tunnelManager) forwardPeer(r *tunnelRun, entry *yamux.Stream, reader *b
 		return
 	}
 	_ = entry.SetDeadline(time.Time{})
-	r.metrics.opened()
+	r.metrics.opened(sourceIP)
 	pathID := uuid.NewString()
 	r.metrics.mu.Lock()
 	r.metrics.paths[pathID] = tunnelConnectionPath{ID: pathID, EntryAgentID: r.entryAgent, ExitAgentID: r.peerExit.id, UpdatedAt: time.Now().UTC()}
@@ -68,7 +68,7 @@ func (m *tunnelManager) forwardPeer(r *tunnelRun, entry *yamux.Stream, reader *b
 		r.metrics.mu.Lock()
 		delete(r.metrics.paths, pathID)
 		r.metrics.mu.Unlock()
-		r.metrics.closed()
+		r.metrics.closed(sourceIP)
 	}()
 	a := &tunnel.Relay{Reader: reader, Writer: entry, Closer: entry}
 	b := &tunnel.Relay{Reader: exitReader, Writer: exit, Closer: exit}
@@ -119,7 +119,7 @@ func (m *tunnelManager) forwardPeer(r *tunnelRun, entry *yamux.Stream, reader *b
 			case tunnel.Ack:
 				if n, ok := pending[1-direction][packet.Seq]; ok {
 					if len(packet.Body) == 1 && packet.Body[0] == 0 {
-						r.metrics.bytes(direction == 1, false, n)
+						r.metrics.bytes(sourceIP, direction == 1, false, n)
 					}
 					delete(pending[1-direction], packet.Seq)
 				}
@@ -141,8 +141,8 @@ func (m *tunnelManager) forwardPeer(r *tunnelRun, entry *yamux.Stream, reader *b
 				if direction == 0 && len(packet.Body) == 17 {
 					up, down := binary.BigEndian.Uint64(packet.Body), binary.BigEndian.Uint64(packet.Body[8:])
 					if up >= directUp && down >= directDown {
-						r.metrics.bytes(true, true, int64(up-directUp))
-						r.metrics.bytes(false, true, int64(down-directDown))
+						r.metrics.bytes(sourceIP, true, true, int64(up-directUp))
+						r.metrics.bytes(sourceIP, false, true, int64(down-directDown))
 						directUp, directDown = up, down
 					}
 					active := packet.Body[16] == 1

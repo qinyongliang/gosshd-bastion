@@ -54,15 +54,16 @@ type TunnelSSHHop struct {
 	HostKey  []byte `json:"host_key"`
 }
 type StreamRequest struct {
-	TunnelHops  []TunnelSSHHop `json:"tunnel_hops,omitempty"`
-	Peer        bool           `json:"peer,omitempty"`
-	STUNServers []string       `json:"stun_servers,omitempty"`
-	TunnelID    string         `json:"tunnel_id,omitempty"`
-	Type        string         `json:"type"`
-	Command     string         `json:"command,omitempty"`
-	Target      string         `json:"target,omitempty"`
-	Width       int            `json:"width,omitempty"`
-	Height      int            `json:"height,omitempty"`
+	SourceAddress string         `json:"source_address,omitempty"`
+	TunnelHops    []TunnelSSHHop `json:"tunnel_hops,omitempty"`
+	Peer          bool           `json:"peer,omitempty"`
+	STUNServers   []string       `json:"stun_servers,omitempty"`
+	TunnelID      string         `json:"tunnel_id,omitempty"`
+	Type          string         `json:"type"`
+	Command       string         `json:"command,omitempty"`
+	Target        string         `json:"target,omitempty"`
+	Width         int            `json:"width,omitempty"`
+	Height        int            `json:"height,omitempty"`
 }
 
 type StreamResponse struct {

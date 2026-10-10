@@ -39,6 +39,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
     const folderPath = targetFolderPath(target, data.targetFolders);
     return [folderPath, `${folderPath}/${target.alias}`, `${folderPath}/${target.name}`, target.name, target.alias, target.host, target.remote_username, ...(target.tags || [])].join(" ").toLowerCase().includes(query.toLowerCase());
   });
+  const visibleFolders = query ? targetFoldersWithResults(filtered, data.targetFolders) : data.targetFolders;
   const drawerTarget = data.targets.find((target) => target.id === drawerTargetID) || null;
   const selectedTargetIDs = selectedTargets(selected, data);
   const refreshTargets = () => void queryClient.invalidateQueries({ queryKey: ["targets"] });
@@ -172,10 +173,11 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
         <button type="button" onClick={() => setCommandModal(true)} disabled={!selectedTargetIDs.length}><Play />{t("serviceBatchCommand")}</button>
       </div>}
       <Panel title={t("serviceTableService")} subtitle="">
-        {filtered.length || data.targetFolders.length ? (
+        {filtered.length || visibleFolders.length ? (
           <TargetTree
             data={data}
             targets={filtered}
+            folders={visibleFolders}
             collapsed={collapsedFolders}
             onToggle={(id) => setCollapsedFolders((current) => {
               const next = new Set(current);
@@ -213,6 +215,7 @@ export function TargetsPage({ data }: { data: ConsoleData }) {
 function TargetTree({
   data,
   targets,
+  folders,
   collapsed,
   onToggle,
   onNewFolder,
@@ -228,6 +231,7 @@ function TargetTree({
 }: {
   data: ConsoleData;
   targets: Target[];
+  folders: TargetFolder[];
   collapsed: Set<string>;
   onToggle: (id: string) => void;
   onNewFolder: (parentID: string) => void;
@@ -241,10 +245,10 @@ function TargetTree({
   onSelect: (id: string) => void;
   onSelectMany: (ids: string[], checked: boolean) => void;
 }) {
-  const roots = data.targetFolders.filter((folder) => !folder.parent_id);
+  const roots = folders.filter((folder) => !folder.parent_id);
   const rootTargets = targets.filter((target) => !target.folder_id);
   return <div className="target-tree">
-    {roots.map((folder) => <FolderNode key={folder.id} data={data} folder={folder} targets={targets} collapsed={collapsed} onToggle={onToggle} onNewFolder={onNewFolder} onMove={onMove} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} selecting={selecting} selected={selected} onSelect={onSelect} onSelectMany={onSelectMany} />)}
+    {roots.map((folder) => <FolderNode key={folder.id} data={data} folder={folder} folders={folders} targets={targets} collapsed={collapsed} onToggle={onToggle} onNewFolder={onNewFolder} onMove={onMove} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} selecting={selecting} selected={selected} onSelect={onSelect} onSelectMany={onSelectMany} />)}
     {rootTargets.map((target) => <TargetTreeRow key={target.id} data={data} target={target} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} deleting={deleting} selecting={selecting} selected={selected.has(target.id)} onSelect={() => onSelect(target.id)} />)}
   </div>;
 }
@@ -252,6 +256,7 @@ function TargetTree({
 function FolderNode(props: {
   data: ConsoleData;
   folder: TargetFolder;
+  folders: TargetFolder[];
   targets: Target[];
   collapsed: Set<string>;
   onToggle: (id: string) => void;
@@ -273,7 +278,7 @@ function FolderNode(props: {
   const [name, setName] = useState(props.folder.name);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const rename = useMutation({ mutationFn: (value: string) => api.updateTargetFolder(props.folder.id, { name: value }), onSuccess: async () => { setEditingName(false); await queryClient.invalidateQueries(); }, onError: () => undefined });
-  const children = props.data.targetFolders.filter((folder) => folder.parent_id === props.folder.id);
+  const children = props.folders.filter((folder) => folder.parent_id === props.folder.id);
   const targets = props.targets.filter((target) => target.folder_id === props.folder.id);
   const collapsed = props.collapsed.has(props.folder.id);
   const folderTargetIDs = targetIDsInFolder(props.folder.id, props.data);
@@ -791,6 +796,19 @@ function InstallDrawer({ enrollment, onClose }: { enrollment: Enrollment; onClos
 
 function folderOptions(data: ConsoleData): Array<[string, string]> {
   return [["", "Root"], ...data.targetFolders.map((folder) => [folder.id, targetFolderName(folder, data.targetFolders)] as [string, string])];
+}
+
+function targetFoldersWithResults(targets: Target[], folders: TargetFolder[]) {
+  const byID = new Map(folders.map((folder) => [folder.id, folder]));
+  const visibleIDs = new Set<string>();
+  for (const target of targets) {
+    let folder = target.folder_id ? byID.get(target.folder_id) : undefined;
+    while (folder && !visibleIDs.has(folder.id)) {
+      visibleIDs.add(folder.id);
+      folder = folder.parent_id ? byID.get(folder.parent_id) : undefined;
+    }
+  }
+  return folders.filter((folder) => visibleIDs.has(folder.id));
 }
 
 function targetFolderPath(target: Target, folders: TargetFolder[]) {
