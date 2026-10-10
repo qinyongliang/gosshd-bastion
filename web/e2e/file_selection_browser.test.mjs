@@ -17,11 +17,9 @@ try {
   const deleted = [];
   const moved = [];
   const transfers = [];
-  let listingRequests = 0;
   const entries = Array.from({ length: 12 }, (_, i) => ({ name: `${String(i + 1).padStart(2, "0")}.txt`, path: `/selection/${String(i + 1).padStart(2, "0")}.txt`, type: "file", size: i, mode: "-rw-------" }));
   entries.unshift({ name: "folder", path: "/selection/folder", type: "dir", size: 0, mode: "drwx------" });
   await page.route("**/api/targets/*/files?**", (route) => {
-    listingRequests++;
     const url = new URL(route.request().url());
     const path = url.searchParams.get("path") === "." ? "/selection" : url.searchParams.get("path");
     const rows = path !== "/selection" ? [] : entries.filter((entry) => !deleted.includes(entry.path) && !moved.includes(entry.path));
@@ -35,7 +33,10 @@ try {
     const body = route.request().postDataJSON();
     transfers.push({ action, ...body });
     await new Promise((resolve) => setTimeout(resolve, 150));
-    if (body.destination === "/failure") return route.fulfill({ status: 502, json: { error: "/selection/04.txt: test transfer failed" } });
+    if (body.destination === "/failure") {
+      moved.push(body.sources[0]);
+      return route.fulfill({ status: 502, json: { error: "/selection/04.txt: test transfer failed" } });
+    }
     if (action === "move") moved.push(...(body.sources || [body.source]));
     await route.fulfill({ json: body });
   });
@@ -103,16 +104,16 @@ try {
   };
   await transferSelection("Copy", "/selection/folder", true);
   await expectChosen(["02.txt", "04.txt", "05.txt", "08.txt"]);
-  const beforeFailure = listingRequests;
   await transferSelection("Move", "/failure");
   await page.locator(".file-operation-error").getByText("/selection/04.txt: test transfer failed", { exact: true }).waitFor();
-  assert.ok(listingRequests > beforeFailure, "Failed operations must refresh the remote listing");
+  await page.waitForFunction(() => !document.querySelector('.file-list-selectable [data-file-path="/selection/02.txt"]'));
+  await expectChosen(["04.txt", "05.txt", "08.txt"]);
   await page.locator(".file-operation-error").getByRole("button", { name: "Close", exact: true }).click();
   await row("04.txt").click({ button: "right" });
   await page.locator(".file-context-menu").getByRole("menuitem", { name: "Delete", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('[data-file-path="/selection/08.txt"]'));
-  assert.deepEqual(deleted.sort(), ["02.txt", "04.txt", "05.txt", "08.txt"].map((name) => `/selection/${name}`).sort());
+  assert.deepEqual(deleted.sort(), ["04.txt", "05.txt", "08.txt"].map((name) => `/selection/${name}`).sort());
   await body.focus();
   await body.press("Control+a");
   assert.equal((await chosen()).length, 9);
