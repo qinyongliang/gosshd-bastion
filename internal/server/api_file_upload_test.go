@@ -44,11 +44,21 @@ func uploadWS(t *testing.T, base string, client *http.Client, target, dir, name 
 
 func uploadAgentTarget(t *testing.T, app *App, user store.User, org store.Organization, id string) store.SSHTarget {
 	t.Helper()
-	_, err := app.store.Repository().UpsertAgent(context.Background(), store.UpsertAgentParams{ID: id, OwnerType: store.OwnerOrganization, OwnerID: org.ID, CurrentRuntimeID: id})
+	enrollment, err := app.store.Repository().CreateAgentEnrollment(context.Background(), store.CreateAgentEnrollmentParams{OwnerType: store.OwnerOrganization, OwnerID: org.ID, TokenHash: codeHash(id), Label: id, CreatedBy: user.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tunnelAgentTarget(t, app, user, org, id)
+	assigned, err := app.store.Repository().UpsertAgent(context.Background(), store.UpsertAgentParams{OwnerType: store.OwnerOrganization, OwnerID: org.ID, EnrollmentID: enrollment.ID, CurrentRuntimeID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := app.registry.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.registry.Register(assigned.ID, session)
+	t.Cleanup(func() { app.registry.Unregister(assigned.ID, session) })
+	return tunnelAgentTarget(t, app, user, org, assigned.ID)
 }
 
 func TestFileUploadRelayAndFailurePreserveOriginal(t *testing.T) {

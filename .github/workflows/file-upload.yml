@@ -32,6 +32,7 @@ jobs:
           go test -race ./internal/upload ./internal/agent -run 'Test(Receive|FileUpload)' -count=1
           go test -race ./internal/server -run '^TestFileUpload' -count=1 -timeout=3m
           go test ./internal/tunnel -count=1
+          go test ./internal/store -run '^TestMainStorePooledConnectionsWaitForWriters$' -count=1
       - name: Verify real browser-to-Agent transfers and fallback
         run: |
           npm install --prefix "$RUNNER_TEMP/ui-e2e" --no-save playwright@1.56.1
