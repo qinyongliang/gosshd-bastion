@@ -105,6 +105,60 @@ func TestTunnelSourceMigrationDropsOnlyOldTraffic(t *testing.T) {
 	}
 }
 
+func TestTunnelTrafficPooledWriterWaitsForAuditLock(t *testing.T) {
+	ctx := context.Background()
+	st, err := OpenAudit(ctx, filepath.Join(t.TempDir(), "pooled.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	// Hold two connections simultaneously: PRAGMAs issued during setup alone
+	// configure only the first connection and leave the second with no timeout.
+	first, err := st.DB().Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := st.DB().Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var timeout int
+	err = second.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout)
+	second.Close()
+	if err != nil || timeout != 5000 {
+		t.Fatalf("pooled writer has no lock timeout: %d %v", timeout, err)
+	}
+	if _, err := first.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	defer first.ExecContext(ctx, "ROLLBACK")
+	written := make(chan error, 1)
+	go func() {
+		written <- st.Repository().AddTunnelTraffic(ctx, "t", "o", TunnelTraffic{SourceIP: "192.0.2.1", BucketStart: 300, RelayUp: 10})
+	}()
+	select {
+	case err := <-written:
+		t.Fatalf("writer should wait for the lock, got %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := first.ExecContext(ctx, "COMMIT"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-written:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("writer did not resume after the audit lock was released")
+	}
+	rows, err := st.Repository().TunnelTrafficSources(ctx, "t", 300, 600, "")
+	if err != nil || len(rows) != 1 || rows[0].RelayUp != 10 {
+		t.Fatalf("locked writer lost traffic: %+v %v", rows, err)
+	}
+}
+
 func TestTunnelTrafficAuditBucketsTotalsAndReopen(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "audit.db")
