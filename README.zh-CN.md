@@ -135,6 +135,12 @@ LLM 响应使用 JSON：
 {"allow": false, "reason": "Command modifies production data without an approved maintenance window."}
 ```
 
+## 网页文件传输
+
+将多个文件夹或文件拖入远程文件列表即可递归上传，保留目录结构和空目录。文件列表支持单击选中、双击打开、Shift 连选、Alt 切换单项、拖动框选、Alt 框选切换、Ctrl/Cmd+A 全选和 Escape 清空；右键可对选中的多个文件下载、删除或复制路径。
+
+上传和下载都会尝试浏览器与 Agent 之间的 P2P 直连，不可直连时自动使用服务器中转。批量传输复用连接，每个文件仍独立检查权限并记录审计。
+
 ## 官网和文档
 
 GitHub Pages 源码位于 [`site/`](site/)。里面包含中英文宣传首页，以及官网里的动态终端和回放演示。
@@ -159,3 +165,5 @@ go test ./internal/server -run TestUIE2EWithBrowser -v
 ## 发布形态
 
 Releases 会发布跨平台 server 压缩包、独立私有节点二进制和 checksums。本版本不发布 `full` 包。
+
+发布打包仅由 `v*` 标签或手动运行 Release 工作流触发；ARM64 单独构建仅手动触发。普通代码推送运行回归测试，不生成发布包。GitHub Actions 不再打包 Windows 桌面客户端，Windows server 和 Agent 仍随版本发布。
