@@ -198,8 +198,7 @@ export const api = {
   mkdirFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/mkdir`, post({ path })),
   mkdirFiles: (targetID: string, paths: string[], signal?: AbortSignal) => request<{ paths: string[] }>(`/api/targets/${targetID}/files/mkdir`, { ...post({ paths }), signal }),
   deleteFile: (targetID: string, path: string) => request<{ path: string }>(`/api/targets/${targetID}/files/delete`, post({ path })),
-  moveFile: (targetID: string, source: string, destination: string) => request<{ source: string; destination: string }>(`/api/targets/${targetID}/files/move`, post({ source, destination })),
-  copyFile: (targetID: string, source: string, destination: string) => request<{ source: string; destination: string }>(`/api/targets/${targetID}/files/copy`, post({ source, destination })),
+  transferFiles: (targetID: string, action: "move" | "copy", sources: string[], destination: string) => request<void>(`/api/targets/${targetID}/files/${action}`, post(sources.length === 1 ? { source: sources[0], destination } : { sources, destination })),
   uploadFile: (targetID: string, path: string, file: File, onProgress?: (progress: TransferProgress) => void, signal?: AbortSignal) => uploadFile(targetID, path, file, onProgress, signal),
 };
 

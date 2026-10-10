@@ -17,6 +17,7 @@ import "./fileManagerInteractions.css";
 
 type FileSortKey = "name" | "size" | "mode" | "modified";
 type SortOrder = "asc" | "desc";
+type FileTransferSelection = { action: "move" | "copy"; entries: FileEntry[] };
 type BreadcrumbItem = { key: string; label: string; kind: "drives" | "dirs"; menuPath: string };
 type BreadcrumbMenuState = { key: string; kind: "drives" | "dirs"; path: string; left: number; top: number; width: number; maxHeight: number; above: boolean };
 type DownloadTask = { fileName: string; loaded: number; total: number; speed: number; transport?: TransferTransport; status: "downloading" | "success" | "cancelled" | "error" | "browser" };
@@ -40,7 +41,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
   const [touchModal, setTouchModal] = useState(false);
   const [pathEditing, setPathEditing] = useState(false);
   const [sort, setSort] = useState<{ key: FileSortKey; order: SortOrder }>({ key: "name", order: "asc" });
-  const [transfer, setTransfer] = useState<{ action: "move" | "copy"; entry: FileEntry } | null>(null);
+  const [transfer, setTransfer] = useState<FileTransferSelection | null>(null);
   const [properties, setProperties] = useState<FileProperties | null>(null);
   const [operationError, setOperationError] = useState<unknown>(null);
   const [deleteEntries, setDeleteEntries] = useState<FileEntry[] | null>(null);
@@ -183,15 +184,10 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     onError: (error) => setOperationError(error),
     onSettled: refreshFiles,
   });
-  const move = useMutation({
-    mutationFn: ({ entry, destination }: { entry: FileEntry; destination: string }) => api.moveFile(target.id, entry.path, destination),
-    onSuccess: refreshFiles,
+  const fileTransfer = useMutation({
+    mutationFn: ({ action, entries, destination }: FileTransferSelection & { destination: string }) => api.transferFiles(target.id, action, entries.map((entry) => entry.path), destination),
     onError: (error) => setOperationError(error),
-  });
-  const copy = useMutation({
-    mutationFn: ({ entry, destination }: { entry: FileEntry; destination: string }) => api.copyFile(target.id, entry.path, destination),
-    onSuccess: refreshFiles,
-    onError: (error) => setOperationError(error),
+    onSettled: () => { setTransfer(null); return refreshFiles(); },
   });
   const stat = useMutation({
     mutationFn: (entry: FileEntry) => api.fileProperties(target.id, entry.path),
@@ -401,7 +397,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     } else if (action === "properties" && entry) {
       stat.mutate(entry);
     } else if ((action === "move" || action === "copy") && entry) {
-      setTransfer({ action, entry });
+      setTransfer({ action, entries: menuEntries.length ? menuEntries : [entry] });
     }
   };
 
@@ -488,10 +484,10 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
         </button>
         {entry && (
           <>
-            <button type="button" role="menuitem" className="file-context-menu-item" disabled={menuEntries.length !== 1} onClick={() => runMenuAction("move", entry)}>
+            <button type="button" role="menuitem" className="file-context-menu-item" disabled={!menuEntries.length || fileTransfer.isPending} onClick={() => runMenuAction("move", entry)}>
               <Move />{t("connectFileMove")}
             </button>
-            <button type="button" role="menuitem" className="file-context-menu-item" disabled={menuEntries.length !== 1} onClick={() => runMenuAction("copy", entry)}>
+            <button type="button" role="menuitem" className="file-context-menu-item" disabled={!menuEntries.length || fileTransfer.isPending} onClick={() => runMenuAction("copy", entry)}>
               <Copy />{t("connectFileCopy")}
             </button>
             <button type="button" role="menuitem" className="file-context-menu-item" disabled={menuEntries.length !== 1} onClick={() => runMenuAction("properties", entry)}>
@@ -743,11 +739,9 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
           transfer={transfer}
           initialDir={path}
           initialSort={sort}
-          onClose={() => setTransfer(null)}
-          onSubmit={(entry, destination) => {
-            const mutation = transfer.action === "move" ? move : copy;
-            mutation.mutate({ entry, destination }, { onSuccess: () => setTransfer(null) });
-          }}
+          pending={fileTransfer.isPending}
+          onClose={() => { if (!fileTransfer.isPending) setTransfer(null); }}
+          onSubmit={(destination) => { if (!fileTransfer.isPending) fileTransfer.mutate({ ...transfer, destination }); }}
         />
       )}
       {properties && (
@@ -865,20 +859,23 @@ function TransferModal({
   transfer,
   initialDir,
   initialSort,
+  pending,
   onClose,
   onSubmit,
 }: {
   target: Target;
-  transfer: { action: "move" | "copy"; entry: FileEntry };
+  transfer: FileTransferSelection;
   initialDir: string;
   initialSort: { key: FileSortKey; order: SortOrder };
   onClose: () => void;
-  onSubmit: (entry: FileEntry, destination: string) => void;
+  pending: boolean;
+  onSubmit: (destination: string) => void;
 }) {
   const { t } = useI18n();
+  const singleEntry = transfer.entries.length === 1 ? transfer.entries[0] : null;
   const [browsePath, setBrowsePath] = useState(initialDir || ".");
   const [browseDraft, setBrowseDraft] = useState(initialDir || ".");
-  const [destination, setDestination] = useState(remoteJoin(initialDir || ".", transfer.entry.name));
+  const [destination, setDestination] = useState(singleEntry ? remoteJoin(initialDir || ".", singleEntry.name) : initialDir || ".");
   const [sort, setSort] = useState<{ key: FileSortKey; order: SortOrder }>(initialSort);
   const listing = useQuery({
     queryKey: ["target-files", target.id, browsePath, sort.key, sort.order, "transfer"],
@@ -890,16 +887,16 @@ function TransferModal({
   useEffect(() => {
     setBrowsePath(initialDir || ".");
     setBrowseDraft(initialDir || ".");
-    setDestination(remoteJoin(initialDir || ".", transfer.entry.name));
-  }, [initialDir, transfer.entry.name, transfer.entry.path]);
+    setDestination(singleEntry ? remoteJoin(initialDir || ".", singleEntry.name) : initialDir || ".");
+  }, [initialDir, singleEntry?.name, transfer.entries]);
 
   useEffect(() => {
     setBrowseDraft(browsePath);
-    setDestination(remoteJoin(browsePath, transfer.entry.name));
-  }, [browsePath, transfer.entry.name]);
+    setDestination(singleEntry ? remoteJoin(browsePath, singleEntry.name) : browsePath);
+  }, [browsePath, singleEntry?.name]);
 
   const submitBrowsePath = () => {
-    const nextPath = browseDraft.trim();
+    const nextPath = browseDraft;
     if (!nextPath || nextPath === browsePath) {
       setBrowseDraft(browsePath);
       return;
@@ -909,9 +906,8 @@ function TransferModal({
 
   const submitTransfer = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const nextDestination = destination.trim();
-    if (!nextDestination) return;
-    onSubmit(transfer.entry, nextDestination);
+    if (!destination || pending) return;
+    onSubmit(destination);
   };
 
   const changeSort = (key: FileSortKey) => {
@@ -919,82 +915,85 @@ function TransferModal({
   };
 
   return (
-    <Modal title={transfer.action === "move" ? t("connectFileMove") : t("connectFileCopy")} onClose={onClose} wide>
+    <Modal title={transfer.action === "move" ? t("connectFileMove") : t("connectFileCopy")} onClose={onClose} closeOnEscape={!pending} wide>
       <form className="stack transfer-modal" onSubmit={submitTransfer}>
-        <p className="muted">{transfer.entry.path}</p>
-        <label className="field">
-          <span>{t("connectFileDestination")}</span>
-          <input value={destination} onChange={(event) => setDestination(event.target.value)} autoFocus required />
-        </label>
-        <div className="transfer-browser">
-          <div className="file-manager-head">
-            <div className="file-manager-path" title={browsePath}>
-              <HardDrive />
-              <input
-                value={browseDraft}
-                onChange={(event) => setBrowseDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    submitBrowsePath();
-                  } else if (event.key === "Escape") {
-                    setBrowseDraft(browsePath);
-                  }
-                }}
-                onBlur={() => setBrowseDraft(browsePath)}
-                aria-label="Transfer browser path"
-              />
+        <fieldset className="stack" disabled={pending} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+          <p className="muted">{t("connectFileSelected")}: {transfer.entries.length}</p>
+          <ul>{transfer.entries.map((entry) => <li key={entry.path}>{entry.path}</li>)}</ul>
+          <label className="field">
+            <span>{t(singleEntry ? "connectFileDestination" : "connectFileDestinationDirectory")}</span>
+            <input value={destination} onChange={(event) => setDestination(event.target.value)} autoFocus required />
+          </label>
+          <div className="transfer-browser">
+            <div className="file-manager-head">
+              <div className="file-manager-path" title={browsePath}>
+                <HardDrive />
+                <input
+                  value={browseDraft}
+                  onChange={(event) => setBrowseDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      submitBrowsePath();
+                    } else if (event.key === "Escape") {
+                      setBrowseDraft(browsePath);
+                    }
+                  }}
+                  onBlur={() => setBrowseDraft(browsePath)}
+                  aria-label="Transfer browser path"
+                />
+              </div>
+              <div className="file-manager-actions">
+                <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")}>
+                  <RefreshCw />
+                </button>
+              </div>
             </div>
-            <div className="file-manager-actions">
-              <button type="button" className="icon-button" onClick={() => listing.refetch()} disabled={listing.isFetching} title={t("commonRefresh")}>
-                <RefreshCw />
-              </button>
-            </div>
-          </div>
-          <div className="file-manager-body transfer-browser-body">
-            <table>
-              <thead>
-                <tr>
-                  <th><SortButton active={sort.key === "name"} order={sort.order} onClick={() => changeSort("name")}>{t("connectFileName")}</SortButton></th>
-                  <th><SortButton active={sort.key === "size"} order={sort.order} onClick={() => changeSort("size")}>{t("connectFileSize")}</SortButton></th>
-                  <th><SortButton active={sort.key === "mode"} order={sort.order} onClick={() => changeSort("mode")}>{t("connectFileMode")}</SortButton></th>
-                  <th><SortButton active={sort.key === "modified"} order={sort.order} onClick={() => changeSort("modified")}>{t("connectFileModified")}</SortButton></th>
-                </tr>
-              </thead>
-              <tbody>
-                {canOpenParent && (
-                  <tr className="file-row directory">
-                    <td>
-                      <button type="button" className="file-name" onClick={() => setBrowsePath(remoteParent(browsePath))}>
-                        <FolderOpen />{t("connectFileParentDir")}
-                      </button>
-                    </td>
-                    <td>-</td><td>-</td><td>-</td>
-                  </tr>
-                )}
-                {directories.map((entry) => (
-                  <tr key={entry.path} className="file-row directory">
-                    <td>
-                      <button type="button" className="file-name" onClick={() => setBrowsePath(entry.path)} title={entry.name}>
-                        <FolderOpen />
-                        <span>{entry.name}</span>
-                      </button>
-                    </td>
-                    <td>-</td>
-                    <td><code>{entry.mode}</code></td>
-                    <td>{formatDate(entry.modified_at)}</td>
-                  </tr>
-                ))}
-                {!directories.length && (
+            <div className="file-manager-body transfer-browser-body">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={4} className="file-empty">{listing.isLoading ? t("loading") : t("connectFileEmpty")}</td>
+                    <th><SortButton active={sort.key === "name"} order={sort.order} onClick={() => changeSort("name")}>{t("connectFileName")}</SortButton></th>
+                    <th><SortButton active={sort.key === "size"} order={sort.order} onClick={() => changeSort("size")}>{t("connectFileSize")}</SortButton></th>
+                    <th><SortButton active={sort.key === "mode"} order={sort.order} onClick={() => changeSort("mode")}>{t("connectFileMode")}</SortButton></th>
+                    <th><SortButton active={sort.key === "modified"} order={sort.order} onClick={() => changeSort("modified")}>{t("connectFileModified")}</SortButton></th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {canOpenParent && (
+                    <tr className="file-row directory">
+                      <td>
+                        <button type="button" className="file-name" onClick={() => setBrowsePath(remoteParent(browsePath))}>
+                          <FolderOpen />{t("connectFileParentDir")}
+                        </button>
+                      </td>
+                      <td>-</td><td>-</td><td>-</td>
+                    </tr>
+                  )}
+                  {directories.map((entry) => (
+                    <tr key={entry.path} className="file-row directory">
+                      <td>
+                        <button type="button" className="file-name" onClick={() => setBrowsePath(entry.path)} title={entry.name}>
+                          <FolderOpen />
+                          <span>{entry.name}</span>
+                        </button>
+                      </td>
+                      <td>-</td>
+                      <td><code>{entry.mode}</code></td>
+                      <td>{formatDate(entry.modified_at)}</td>
+                    </tr>
+                  ))}
+                  {!directories.length && (
+                    <tr>
+                      <td colSpan={4} className="file-empty">{listing.isLoading ? t("loading") : t("connectFileEmpty")}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-        <ModalActions onCancel={onClose} submit={transfer.action === "move" ? t("connectFileMove") : t("connectFileCopy")} />
+          <ModalActions onCancel={onClose} submit={transfer.action === "move" ? t("connectFileMove") : t("connectFileCopy")} pending={pending} />
+        </fieldset>
       </form>
     </Modal>
   );
@@ -1065,12 +1064,11 @@ function clampNumber(value: number, min: number, max: number) {
 }
 
 function remoteJoin(dir: string, name: string) {
-  const trimmedName = name.trim();
-  if (!trimmedName) return dir;
-  if (/^[A-Za-z]:[/\\]?/.test(trimmedName)) return normalizeRemotePath(trimmedName.replace(/\\/g, "/"));
-  if (trimmedName.startsWith("/")) return normalizeRemotePath(trimmedName);
-  if (!dir || dir === ".") return normalizeRemotePath(trimmedName);
-  return normalizeRemotePath(`${dir.replace(/\/+$/, "")}/${trimmedName}`);
+  if (!name) return dir;
+  if (/^[A-Za-z]:[/\\]?/.test(name)) return normalizeRemotePath(name.replace(/\\/g, "/"));
+  if (name.startsWith("/")) return normalizeRemotePath(name);
+  if (!dir || dir === ".") return normalizeRemotePath(name);
+  return normalizeRemotePath(`${dir.replace(/\/+$/, "")}/${name}`);
 }
 
 function remoteParent(path: string) {

@@ -164,9 +164,9 @@ export function Toggle({ name, label, defaultChecked }: { name: string; label: s
   return <label className="toggle-row"><input type="checkbox" name={name} defaultChecked={defaultChecked} /><span>{label}</span></label>;
 }
 
-export function ModalActions({ onCancel, submit }: { onCancel?: () => void; submit: string }) {
+export function ModalActions({ onCancel, submit, pending = false }: { onCancel?: () => void; submit: string; pending?: boolean }) {
   const { t } = useI18n();
-  return <div className="form-actions span-two">{onCancel && <AntButton onClick={onCancel}>{t("cancel")}</AntButton>}<AntButton htmlType="submit" type="primary">{submit}</AntButton></div>;
+  return <div className="form-actions span-two">{onCancel && <AntButton onClick={onCancel} disabled={pending}>{t("cancel")}</AntButton>}<AntButton htmlType="submit" type="primary" loading={pending}>{submit}</AntButton></div>;
 }
 
 export function Segmented({ value, items, onChange }: { value: string; items: (readonly [string, string])[]; onChange: (value: string) => void }) {
