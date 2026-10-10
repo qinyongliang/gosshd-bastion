@@ -25,7 +25,12 @@ func OpenAudit(ctx context.Context, path string) (*AuditStore, error) {
 	if strings.TrimSpace(path) == "" {
 		path = filepath.Join(".", "gosshd-audit.db")
 	}
-	db, err := sql.Open("sqlite", path)
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	// Apply lock waiting to every pooled connection, including traffic flush writers.
+	db, err := sql.Open("sqlite", path+separator+"_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, fmt.Errorf("open audit sqlite: %w", err)
 	}
