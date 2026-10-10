@@ -8,10 +8,12 @@
 
 **Tech Stack:** Go, Pion WebRTC, tunnel.Conn, pkg/sftp, TypeScript/React, Playwright, GitHub Actions.
 
-- [ ] Generalize shared records, status and server bridge; retain upload interoperability. Add sender/source tests for exact length, empty, directory and missing sources.
-- [ ] Add download Agent handler and authenticated route. Verify local and delegated SSH bytes, cancellation, denied policy, origin and legacy fallback.
-- [ ] Generalize browser transport, ordered receiver and sink; show download progress, speed, direct/relay mode and cancellation using existing toast styles. Keep upload behavior unchanged.
-- [ ] Verify real browser direct download with zero relayed payload, interruption continuity, forced relay, empty files, cancellation, legacy fallback and streaming sink. Run existing upload regressions in CI.
+- [x] Generalize shared records, status and server bridge; retain upload interoperability. Add sender/source tests for exact length, empty, directory and missing sources.
+- [x] Add download Agent handler and authenticated route. Verify local and delegated SSH bytes, cancellation, denied policy, origin and legacy fallback.
+- [x] Generalize browser transport, ordered receiver and sink; show download progress, speed, direct/relay mode and cancellation using existing toast styles. Keep upload behavior unchanged.
+- [x] Verify real browser direct download with zero relayed payload, interruption continuity, forced relay, empty files, cancellation, legacy fallback and streaming sink. Run existing upload regressions in CI.
 - [ ] Review, commit, push, release, deploy both existing environments from checksum-verified packages and verify health, frontend and Agent assets.
 
 **Integrity:** CRC32 per record, exact advertised file length and encrypted transports. SHA256 is computed by the Agent and retained in audit. The browser accepts status only from its authenticated relay. Aborting a streaming save aborts its writable file; Blob downloads are offered only after successful completion.
+
+**Verification:** GitHub Actions run `38031042993` passed the frontend build, race-checked transfer/source/destination/authorization tests, existing tunnel tests, and both Chromium upload/download suites. Downloads cover direct delivery with zero relayed content, forced relay, direct interruption, empty files, cancellation, legacy HTTP fallback, slow streaming saves, streaming cancellation, corrupted chunks, native large-file fallback and disk-write failure. Editing the path now closes its breadcrumb menu so it cannot block file activation.
