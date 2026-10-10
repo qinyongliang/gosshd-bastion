@@ -135,6 +135,12 @@ LLM responses use JSON:
 {"allow": false, "reason": "Command modifies production data without an approved maintenance window."}
 ```
 
+## Browser File Transfers
+
+Drop multiple folders or files into the remote file list to upload recursively, preserving nested paths and empty directories. Click to select, double-click to open, use Shift for ranges and Alt to toggle individual entries, or drag a selection rectangle (Alt toggles the rectangle's entries). Ctrl/Cmd+A selects all; Escape clears selection. Right-click selected files for batch download, deletion or path copying.
+
+Uploads and downloads try a browser-to-Agent P2P connection and fall back to server relay when needed. Batches reuse connections while authorizing and auditing each file separately.
+
 ## Documentation And Website
 
 The GitHub Pages source lives in [`site/`](site/). It includes the bilingual promotional homepage and animated terminal/replay demos used on the public website.
@@ -159,3 +165,5 @@ go test ./internal/server -run TestUIE2EWithBrowser -v
 ## Release Shape
 
 Releases publish cross-platform server archives, standalone private-node binaries, and checksums. This version does not publish a `full` package.
+
+Release packaging runs only for `v*` tags or manual Release dispatches; the standalone ARM64 build is manual only. Ordinary pushes run regression checks without packaging releases. GitHub Actions no longer packages the Windows desktop client; Windows server and Agent binaries remain in releases.

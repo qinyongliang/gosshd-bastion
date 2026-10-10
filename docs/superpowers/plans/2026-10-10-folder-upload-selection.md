@@ -6,8 +6,8 @@
 
 **Implementation and verification:** Execute in this session; retain other in-progress workspace-layout edits. Builds and browser checks run in GitHub Actions.
 
-- [ ] Add `web/src/fileDrop.ts` for recursive browser-entry traversal, plain-file fallback, empty directories, paginated reads, cancellation and safe relative paths; verify with `web/e2e/file_drop.test.mjs`.
-- [ ] Add `web/src/fileSelection.ts` and `web/src/pages/useFileSelection.ts` for path-based range/toggle/rectangle selection, scroll-aware hit testing, cancellation and keyboard selection; verify pure selection cases and real browser mouse/modifier interactions.
-- [ ] Update `web/src/pages/FileManager.tsx` to reuse one batch uploader for inputs and drops, create remote directory structure, preserve connection reuse and cancellation, and expose selected-item operations. Add localized drop/selection labels and scoped styles.
-- [ ] Extend real browser upload tests with two folder roots, nested files, empty files/directories, a paginated reader, contents and one WebSocket/SDP across the batch; add selection regression tests for sorted ranges, Alt exclusion, rectangle selection and right-click preservation.
+- [x] Add `web/src/fileDrop.ts` for recursive browser-entry traversal, plain-file fallback, empty directories, paginated reads, cancellation and safe relative paths; verify with `web/e2e/file_drop.test.mjs`.
+- [x] Add `web/src/fileSelection.ts` and `web/src/pages/useFileSelection.ts` for path-based range/toggle/rectangle selection, scroll-aware hit testing, cancellation and keyboard selection; verify pure selection cases and real browser mouse/modifier interactions.
+- [x] Update `web/src/pages/FileManager.tsx` to reuse one batch uploader for inputs and drops, create remote directory structure, preserve connection reuse and cancellation, and expose selected-item operations. Add localized drop/selection labels and scoped styles.
+- [x] Extend real browser upload tests with two folder roots, nested files, empty files/directories, a paginated reader, contents and one WebSocket/SDP across the batch; add selection regression tests for sorted ranges, Alt exclusion, rectangle selection and right-click preservation.
 - [ ] Add tests to CI/release checks, run CI, and finish the authorized commit/push/deployment workflow.
