@@ -1,35 +1,49 @@
 # GOSSHD Bastion
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md)
 
-**GOSSHD Bastion is an AI-native SSH access control plane:** a command-level SSH safety gateway for AI agents, MCP tools, and automation jobs. It lets agents enter servers for inspection, troubleshooting, and automation while your team keeps control of permissions, risky commands, and replayable evidence.
+## One way in. Clear boundaries throughout.
 
-## Why It Exists
+**GOSSHD Bastion is a self-hosted remote operations workspace for people and AI.** Bring SSH terminals, remote files, private nodes and TCP tunnels into one entry point. Teams work in the browser; AI tools use standard SSH or MCP for inspection and assisted troubleshooting. You manage target credentials, access policies and audit records.
 
-AI tools can inspect machines, read logs, diagnose services, and chain commands faster than a human can watch a terminal. Giving those tools a raw SSH key is too much trust; putting every command behind a human approval queue is too slow.
+[Website](https://qinyongliang.github.io/gosshd-bastion/) · [Download Server](https://github.com/qinyongliang/gosshd-bastion/releases/latest) · [Product brief and announcement copy](site/brief.en.md)
 
-GOSSHD Bastion solves a simple product problem: AI needs SSH to get real work done, but production access needs command-level boundaries, evidence, and replay.
+## Why use it
 
-- **For operations:** agents can inspect and troubleshoot without owning server keys directly.
-- **For security:** risky commands can be blocked, reviewed, or judged by a model before execution.
-- **For leaders:** every remote action can be searched, explained, and replayed when evidence matters.
-- **For delivery teams:** private machines, customer-side boxes, and GPU nodes can join one governed entry point.
+- **Keep work together:** Use terminals, edit files, upload folders and copy or move selections in one workspace.
+- **Work with people and agents:** Browser access for everyday tasks, standard SSH for existing workflows, MCP for AI tools.
+- **Define explicit boundaries:** Organizations, user groups, targets, tags, source IPs and capability controls govern access instead of distributing target credentials broadly.
+- **Keep a trail:** Command decisions and exit codes are audited; recorded interactive sessions can be replayed; transfers and tunnels retain their respective audits or statistics.
+- **Adopt gradually:** Start with a test machine, verify policies, then expand to private networks, customer sites and team automation.
+
+## Workspace capabilities
+
+| Workflow | Capabilities |
+| --- | --- |
+| Troubleshooting and configuration | Web terminal, file editor, draggable workspace layout, desktop and mobile access |
+| File management | Recursive folder upload, multi-selection and batch copy / move / download / delete |
+| File transfer | Try encrypted browser-to-Agent P2P; relay when unavailable; per-file authorization and auditing |
+| Private service access | Persistent TCP tunnels, expiry, connections, traffic and source IP statistics |
+| Team and AI access | Organizations and user groups, command rules, optional LLM review, temporary SSH grants, MCP tool groups |
+| Investigation | Command decisions, exit codes, file audits and replay of enabled interactive recordings |
+
+> Command policies are not a complete shell sandbox. P2P is not guaranteed on every network, and temporary grant identifiers are sensitive credentials. Validate policies, restrict capabilities and protect data before production use.
 
 ## SSH Access Model
 
 GOSSHD uses the SSH username field as the target alias:
 
 ```sh
-ssh provider-region-service@gosshd.site "command"
+ssh -p 22022 prod-api@bastion.example.com "uptime"
 ```
 
-Your public key identifies the operator. The target alias resolves to a personal or organization SSH service. Allowed commands are forwarded to the real host; denied commands return a standard SSH failure such as `exit status 126` and are written to audit.
+The caller still needs an SSH identity. Your public key identifies the operator; the gateway manages the real target’s login credentials. The target alias resolves to a personal or organization SSH service. Allowed commands are forwarded to the real host; denied commands return a standard SSH failure such as `exit status 126` and are written to audit.
 
 For temporary access, open **SSH services -> the service's menu -> Temporary authorizations**. Create a UUID with a configurable lifetime (24 hours by default) and copy the generated `ssh -p PORT UUID@HOST` command. Holding that UUID permits access to its service without a client key, using the creator's command policies and audit identity. Renewal retains the UUID and extends its expiry; expiry or deletion closes its connections. Members manage their own grants, while organization administrators and system administrators can manage all grants for services they can access.
 
 ## Core Capabilities
 
-- **AI-native SSH control plane:** users and agents reach private servers through one governed entry point.
+- **Shared access control plane:** teams and agents use web, SSH or MCP to reach managed servers.
 - **SQLite control plane:** users, orgs, sessions, groups, keys, targets, tags, policies, prompts, and LLM configs are persisted locally.
 - **Separate audit database:** command audit data is isolated from the main control database.
 - **Private nodes:** Linux/macOS and Windows install commands include enrollment tokens; startup mode uses systemd on Linux and `sc.exe` on Windows.
@@ -143,7 +157,9 @@ Uploads and downloads try a browser-to-Agent P2P connection and fall back to ser
 
 ## Documentation And Website
 
-The GitHub Pages source lives in [`site/`](site/). It includes the bilingual promotional homepage and animated terminal/replay demos used on the public website.
+[Website](https://qinyongliang.github.io/gosshd-bastion/) · [Product brief](site/brief.en.md) · [Tunnel guide](docs/tunnels.md).
+
+GitHub Pages sources live in [`site/`](site/). The bilingual pages include illustrative workspace and policy demos plus downloadable briefs, not live product sessions.
 
 ## Development
 

@@ -2,378 +2,62 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GOSSHD Bastion — 为 AI Agent 打造的命令级 SSH 安全网关</title>
-  <meta name="description" content="GOSSHD Bastion 是面向 AI Agent / MCP 工具 / 自动化任务的命令级 SSH 安全网关。用目标服务别名访问 SSH，命令在转发前被判定，拒绝时直接返回退出码。" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GOSSHD Bastion — 人和 AI 共用的远程运维工作台</title>
+  <meta name="description" content="把 SSH 终端、文件管理、私有节点和 TCP 隧道放进同一个工作台。GOSSHD Bastion 为团队与 AI Agent 提供权限控制、命令审查和审计回放，支持自托管。" />
+  <meta name="theme-color" content="#f8faf7" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="GOSSHD Bastion — 人和 AI 共用的远程运维工作台" />
+  <meta property="og:description" content="把 SSH 终端、文件管理、私有节点和 TCP 隧道放进同一个工作台。GOSSHD Bastion 为团队与 AI Agent 提供权限控制、命令审查和审计回放，支持自托管。" />
+  <meta property="og:url" content="https://qinyongliang.github.io/gosshd-bastion/index.zh-CN.html" />
+  <meta property="og:locale" content="zh_CN" />
+  <link rel="canonical" href="https://qinyongliang.github.io/gosshd-bastion/index.zh-CN.html" />
+  <link rel="alternate" hreflang="en" href="https://qinyongliang.github.io/gosshd-bastion/index.html" />
+  <link rel="alternate" hreflang="zh-CN" href="https://qinyongliang.github.io/gosshd-bastion/index.zh-CN.html" />
+  <link rel="alternate" hreflang="x-default" href="https://qinyongliang.github.io/gosshd-bastion/" />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;750;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <noscript><style>.workspace-panel[hidden]{display:grid!important}.workspace-tabs,.scenario-controls,.copy-button,.mobile-menu-btn{display:none!important}</style></noscript>
+  <script src="main.js" defer></script>
 </head>
 <body>
-  <div class="ambient-grid" aria-hidden="true"></div>
+  <a class="skip-link" href="#main">跳到主要内容</a>
   <header class="nav">
     <div class="container nav-inner">
-      <a class="brand" href="#top" aria-label="GOSSHD Bastion 首页">
-        <span class="brand-mark">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
-        </span>
-        GOSSHD Bastion
-      </a>
-      <nav class="nav-links" aria-label="主导航">
-        <a href="#workflow">工作流</a>
-        <a href="#review">AI 审查</a>
-        <a href="#replay">审计回放</a>
-        <a href="#features">能力</a>
-        <a href="#audience">适用人群</a>
-        <a class="lang-switch" href="index.html">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-          English
-        </a>
-        <a class="btn btn-primary nav-cta" href="#start">快速开始</a>
-      </nav>
-      <button class="mobile-menu-btn" type="button" aria-label="切换菜单" aria-expanded="false" aria-controls="mobile-links">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-      </button>
+      <a class="brand" href="index.zh-CN.html"><span class="brand-mark" aria-hidden="true">&gt;_</span><span>GOSSHD<span class="brand-sub"> BASTION</span></span></a>
+      <nav class="nav-desktop" aria-label="主导航"><a href="#workspace">工作台</a><a href="#control">访问治理</a><a href="#start">如何开始</a></nav>
+      <div class="nav-actions"><a class="lang-switch" href="index.html" lang="en">EN</a><a class="btn btn-small btn-dark" href="https://github.com/qinyongliang/gosshd-bastion/releases/latest">下载部署<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 7 7-7 7"/></svg></a><button class="mobile-menu-btn" type="button" aria-label="打开导航菜单" aria-expanded="false" aria-controls="mobile-links"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>
     </div>
-    <nav class="mobile-links" id="mobile-links" aria-label="移动端导航">
-      <a href="#workflow">工作流</a>
-      <a href="#review">AI 审查</a>
-      <a href="#replay">审计回放</a>
-      <a href="#features">能力</a>
-      <a href="#audience">适用人群</a>
-      <a class="lang-switch" href="index.html">English</a>
-      <a class="btn btn-primary" href="#start">快速开始</a>
-    </nav>
+    <nav class="mobile-links" id="mobile-links" aria-label="移动导航"><a href="#workspace">工作台</a><a href="#control">访问治理</a><a href="#start">如何开始</a><a href="https://github.com/qinyongliang/gosshd-bastion">查看源码</a></nav>
   </header>
-
-  <main id="top">
-    <!-- Hero -->
+  <main id="main">
     <section class="hero">
       <div class="container hero-grid">
-        <div class="hero-content reveal">
-          <div class="hero-badge">
-            <span class="pulse"></span>
-            AI 原生 SSH 访问控制平面
-          </div>
-          <h1 class="hero-title">
-            让 AI 安全地操作服务器。<br />
-            <span class="highlight">不必把密钥交给它。</span>
-          </h1>
-          <p class="hero-desc">
-            GOSSHD Bastion 使用 SSH 的用户名位置承载目标服务别名：<code>ssh 服务商-地区-业务@gosshd.site "命令"</code>。公钥识别操作者，别名解析目标，命令在转发到真实主机前完成判定。
-          </p>
-          <div class="hero-actions">
-            <a class="btn btn-primary" href="#start">几分钟内开始</a>
-            <a class="btn btn-secondary" href="#review">查看 AI 审查</a>
-          </div>
-          <div class="hero-meta">
-            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>标签与用户组策略</span>
-            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>私有节点注册</span>
-            <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>完整回放审计</span>
-          </div>
-        </div>
-
-        <div class="hero-visual reveal">
-          <div class="hero-glow"></div>
-          <div class="hero-card">
-            <div class="terminal" id="hero-terminal">
-              <div class="terminal-header">
-                <span class="terminal-dot r"></span>
-                <span class="terminal-dot y"></span>
-                <span class="terminal-dot g"></span>
-                <span class="terminal-title">gosshd-bastion — 别名执行</span>
-              </div>
-              <div class="terminal-body"></div>
-            </div>
-            <div class="route-stack" id="hero-route" aria-label="SSH 执行链路">
-              <div class="route-step active">
-                <span>公钥识别</span>
-                <strong>操作者 qyl@example.com</strong>
-              </div>
-              <div class="route-step">
-                <span>别名解析</span>
-                <strong>aws-ap-sg-billing-db</strong>
-              </div>
-              <div class="route-step">
-                <span>转发执行</span>
-                <strong>billing-db.internal:22</strong>
-              </div>
-              <div class="route-step route-deny">
-                <span>拒绝返回</span>
-                <strong>exit status 126</strong>
-              </div>
-            </div>
-          </div>
+        <div class="hero-copy"><p class="eyebrow"><span class="status-dot"></span>SELF-HOSTED · SSH · MCP</p><h1>远程运维，一个入口。<br><span>每一步，都有边界。</span></h1><p class="hero-desc">从打开终端、传输文件，到连接内网服务。让团队和 AI 在同一个工作台完成工作，把权限、命令审查与审计留在你手里。</p><div class="hero-actions"><a class="btn btn-primary" href="#start">开始自托管<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 7 7-7 7"/></svg></a><a class="text-link" href="#workspace">看看工作台<span aria-hidden="true">↗</span></a></div><ul class="hero-notes"><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>浏览器即可操作</li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>兼容标准 SSH</li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>AI 通过 MCP 接入</li></ul></div>
+        <div class="hero-visual">
+          <div class="workspace-window"><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>GOSSHD / prod-api</span><span class="window-tag">SSH</span></div><div class="mini-workspace"><aside class="mini-sidebar" aria-hidden="true"><span class="mini-logo">&gt;_</span><span class="mini-icon active">⌘</span><span class="mini-icon">▤</span><span class="mini-icon">⇄</span></aside><div class="mini-content"><div class="mini-tabs"><span class="active">终端</span><span>文件</span><span>隧道</span></div><div class="terminal-output"><p class="terminal-comment"># 工作台示意 · 非实时连接</p><p><span class="prompt">$</span> ssh -p 22022 prod-api@bastion.example.com "uptime"</p><p class="terminal-muted">14:32:08 up 12 days, load average: 0.18</p><p class="decision allow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>允许 · 白名单规则<span>exit 0</span></p><p class="terminal-spacer"><span class="prompt">$</span> ssh -p 22022 prod-api@bastion.example.com "rm -rf /data"</p><p class="decision deny"><span aria-hidden="true">×</span>拒绝 · 黑名单规则<span>exit 126</span></p><p class="terminal-muted">command denied: blocked by policy</p></div><div class="mini-status"><span><i class="status-dot"></i>已记录命令审计</span><span>SSH exec</span></div></div></div></div>
+          <div class="credential-note"><span class="credential-icon" aria-hidden="true">⌁</span><span>目标凭证由网关管理</span><span class="note-check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></span></div>
         </div>
       </div>
+      <div class="container hero-bottom"><span><b>01</b>操作入口统一</span><span><b>02</b>目标凭证集中管理</span><span><b>03</b>权限与审计可追溯</span></div>
     </section>
-
-    <!-- Workflow -->
-    <section class="section section-alt" id="workflow">
-      <div class="container">
-        <div class="section-header reveal">
-          <div class="section-eyebrow">工作原理</div>
-          <h2 class="section-title">理解意图的 SSH，不只是验证身份</h2>
-          <p class="section-desc">用控制平面取代原始密钥访问。AI 只知道要访问的目标服务别名，GOSSHD 再把它解析到用户或组织下的真实 SSH 服务。</p>
-        </div>
-        <div class="workflow-grid">
-          <article class="workflow-card reveal">
-            <span class="workflow-step">01</span>
-            <div class="workflow-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            </div>
-            <h3 class="workflow-title">注册私有节点</h3>
-            <p class="workflow-text">连接本地机房、VPC 与边缘设备，无需暴露端口。私有节点注册后会成为普通 SSH 服务，也可以重命名成业务别名。</p>
-          </article>
-          <article class="workflow-card reveal">
-            <span class="workflow-step">02</span>
-            <div class="workflow-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            </div>
-            <h3 class="workflow-title">绑定标签与用户组</h3>
-            <p class="workflow-text">将用户、服务账号和 Agent 映射到标签。按环境、角色或任务授予最小权限访问。</p>
-          </article>
-          <article class="workflow-card reveal">
-            <span class="workflow-step">03</span>
-            <div class="workflow-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            </div>
-            <h3 class="workflow-title">逐条审查命令</h3>
-            <p class="workflow-text">规则和 LLM 在命令转发前完成判定。允许的命令继续执行；高危命令直接拒绝，并向 SSH 客户端返回退出码 126。</p>
-          </article>
-          <article class="workflow-card reveal">
-            <span class="workflow-step">04</span>
-            <div class="workflow-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <h3 class="workflow-title">回放与审计</h3>
-            <p class="workflow-text">录制的会话包含时间戳、按键与决策结果。为合规与事件复盘提供完整证据。</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <!-- AI Review Scenario -->
-    <section class="section" id="review">
-      <div class="container">
-        <div class="section-header reveal">
-          <div class="section-eyebrow">AI 命令审查</div>
-          <h2 class="section-title">同一个业务别名，不同命令，不同结果</h2>
-          <p class="section-desc">实际调用就是标准 SSH exec。安全命令被转发到目标主机；高危命令不会进入目标 Shell，只会在客户端得到拒绝信息和退出码。</p>
-        </div>
-        <div class="review-scenario">
-          <div class="review-terminal-wrap reveal">
-            <div class="terminal" id="review-terminal">
-              <div class="terminal-header">
-                <span class="terminal-dot r"></span>
-                <span class="terminal-dot y"></span>
-                <span class="terminal-dot g"></span>
-                <span class="terminal-title">aws-ap-sg-billing-db@gosshd.site</span>
-              </div>
-              <div class="terminal-body"></div>
-            </div>
-          </div>
-          <div class="review-judgment reveal">
-            <article class="judgment-card active">
-              <div class="judgment-header">
-                <span class="judgment-status allow">允许</span>
-                <span class="judgment-time">09:14:02.104</span>
-              </div>
-              <div class="judgment-cmd">aws-ap-sg-billing-db</div>
-              <p class="judgment-reason">公钥识别操作者，别名解析到账务数据库服务。REINDEX 被识别为维护命令，审计记录 exit_code=0。</p>
-            </article>
-            <article class="judgment-card">
-              <div class="judgment-header">
-                <span class="judgment-status deny">拦截</span>
-                <span class="judgment-time">09:14:08.831</span>
-              </div>
-              <div class="judgment-cmd">DROP TABLE customers;</div>
-              <p class="judgment-reason">检测到破坏性 schema 变更。命令未转发到真实主机，SSH exec 直接返回 exit_code=126。</p>
-            </article>
-            <article class="judgment-card">
-              <div class="judgment-header">
-                <span class="judgment-status review">已审计</span>
-                <span class="judgment-time">09:14:08.833</span>
-              </div>
-              <div class="judgment-cmd">审计记录 #A-2938</div>
-              <p class="judgment-reason">审计库保存操作者、公钥、目标别名、实际目标、命令、判定、原因和退出码，供人工复核。</p>
-            </article>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Replay / Audit -->
-    <section class="section section-alt" id="replay">
-      <div class="container">
-        <div class="section-header reveal">
-          <div class="section-eyebrow">会话回放</div>
-          <h2 class="section-title">从业务别名回放到真实目标</h2>
-          <p class="section-desc">回放展示用户实际发起的 <code>ssh 目标别名@gosshd.site "命令"</code>、解析后的目标服务、命令输出、判定结果与退出码。</p>
-        </div>
-        <div class="replay-stage reveal">
-          <div class="terminal" id="replay-terminal">
-            <div class="terminal-header">
-              <span class="terminal-dot r"></span>
-              <span class="terminal-dot y"></span>
-              <span class="terminal-dot g"></span>
-              <span class="terminal-title">session-replay — aliyun-hz-order-api@gosshd.site</span>
-            </div>
-            <div class="terminal-body"></div>
-          </div>
-          <div class="replay-panel">
-            <div class="replay-controls">
-              <button class="replay-btn replay-play" aria-label="播放回放">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
-              </button>
-              <button class="replay-btn replay-pause" aria-label="暂停回放" style="display:none">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-              </button>
-              <div class="replay-progress"><div class="replay-progress-bar"></div></div>
-              <div class="replay-time">00:00 / 00:10</div>
-            </div>
-            <div class="route-mini">
-              <span>SSH 用户字段</span>
-              <strong>aliyun-hz-order-api</strong>
-              <em>作为目标别名解析，而不是平台账号</em>
-            </div>
-            <div class="replay-meta-row"><strong>会话 ID</strong><span>sess_8f2a9c4e</span></div>
-            <div class="replay-meta-row"><strong>目标别名</strong><span>aliyun-hz-order-api</span></div>
-            <div class="replay-meta-row"><strong>实际目标</strong><span>order-api.internal:22</span></div>
-            <div class="replay-meta-row"><strong>操作者</strong><span>qyl@example.com</span></div>
-            <div class="replay-meta-row"><strong>策略标签</strong><span>k8s-readonly</span></div>
-            <div class="replay-meta-row"><strong>审查方式</strong><span>LLM + 规则引擎</span></div>
-            <div class="replay-meta-row"><strong>保留期限</strong><span>180 天</span></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Features -->
-    <section class="section" id="features">
-      <div class="container">
-        <div class="section-header reveal">
-          <div class="section-eyebrow">核心能力</div>
-          <h2 class="section-title">为需要触碰基础设施的 AI 而设计</h2>
-          <p class="section-desc">GOSSHD Bastion 将 Agent 到服务器的访问转化为可治理、可观测的工作流。没有开放端口，没有共享密钥，没有盲目信任。</p>
-        </div>
-        <div class="features-grid">
-          <article class="feature-card reveal">
-            <div class="feature-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-            </div>
-            <h3 class="feature-title">私有节点注册</h3>
-            <p class="feature-text">节点主动向安全网关发起出站连接。服务器可对公网隐身，而 Agent 能按需访问。</p>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-            </div>
-            <h3 class="feature-title">SSH 访问控制</h3>
-            <p class="feature-text">精确控制谁、什么可以访问哪个节点。用标签、用户组与服务身份替代零散的 authorized_keys。</p>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            </div>
-            <h3 class="feature-title">标签与用户组策略</h3>
-            <p class="feature-text">用简单标签组合策略。允许备份 Agent 访问存储节点，部署 Agent 访问计算节点，其他一概不行。</p>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-            </div>
-            <h3 class="feature-title">LLM 实时命令审查</h3>
-            <p class="feature-text">模型在命令转发前读懂意图并标记风险。与确定性规则结合，允许就执行，拒绝就返回 126。</p>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <h3 class="feature-title">终端录制与回放</h3>
-            <p class="feature-text">以精确时间轴记录目标别名、真实目标、命令输出和退出码。复盘事件、训练模型、应对审计都能回到现场。</p>
-          </article>
-          <article class="feature-card reveal">
-            <div class="feature-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4"/></svg>
-            </div>
-            <h3 class="feature-title">人工审计证据</h3>
-            <p class="feature-text">导出决策日志、回放文件与策略追踪。让安全审查成为有凭有据的对话，而不是寻宝游戏。</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <!-- Audience -->
-    <section class="section section-alt" id="audience">
-      <div class="container">
-        <div class="section-header reveal">
-          <div class="section-eyebrow">适用人群</div>
-          <h2 class="section-title">面向规模化落地 AI 自动化的团队</h2>
-          <p class="section-desc">无论你是运行 Agent 舰队还是审查它们，GOSSHD Bastion 都能让你在不失控的前提下保持速度。</p>
-        </div>
-        <div class="audience-grid">
-          <article class="audience-card reveal">
-            <h3>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-              平台工程师
-            </h3>
-            <p>别再为每个新 Agent 临时拼凑 SSH 访问方案。一个网关、一套策略模型、一条审计轨迹覆盖整个 Agent 舰队。</p>
-          </article>
-          <article class="audience-card reveal">
-            <h3>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-              AI 自动化团队
-            </h3>
-            <p>在赋予 Agent 基础设施访问能力的同时设置不可绕过的护栏。快速推进，同时守住安全叙事。</p>
-          </article>
-          <article class="audience-card reveal">
-            <h3>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              SRE / DevOps
-            </h3>
-            <p>精确回放事件现场。知道哪个业务别名被访问、解析到哪台真实主机、哪条命令运行过、哪条策略生效。</p>
-          </article>
-          <article class="audience-card reveal">
-            <h3>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>
-              安全审查人员
-            </h3>
-            <p>审查的是决策而非日志。LLM 推理、策略命中与会话回放被打包成一份完整的证据。</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <!-- CTA -->
-    <section class="section" id="start">
-      <div class="container reveal">
-        <div class="cta-wrap">
-          <h2 class="cta-title">停止把 SSH 密钥交给软件。</h2>
-          <p class="cta-desc">几分钟内部署 GOSSHD Bastion，在 Agent 与基础设施之间建立命令级安全边界。</p>
-          <div class="cta-actions">
-            <a class="btn btn-primary" href="#">下载 Linux 版</a>
-            <a class="btn btn-secondary" href="#">阅读快速开始</a>
-          </div>
-        </div>
-      </div>
-    </section>
+    <section class="platform-strip" aria-label="平台概览"><div class="container strip-grid"><div><strong>SSH + Agent</strong><span>已有主机与私有节点</span></div><div><strong>Web + CLI + MCP</strong><span>人和 AI 的共同入口</span></div><div><strong>直连 / 中转</strong><span>按网络条件选择链路</span></div><div><strong>自托管</strong><span>控制面与审计自行部署</span></div></div></section>
+    <section class="section" id="workspace"><div class="container"><div class="section-heading"><p class="eyebrow">ONE WORKSPACE</p><h2>少切几个窗口，多完成一些工作。</h2><p class="section-desc">终端、远程文件与服务连接集中在网页工作台。下面是交互示意，实际功能以部署后的控制台为准。</p></div>
+      <div class="workspace-tabs" aria-label="工作台示意"><button class="workspace-tab selected" type="button" id="tab-0" aria-controls="panel-0" data-tab="0"><span>01</span>终端与文件编辑</button><button class="workspace-tab" type="button" id="tab-1" aria-controls="panel-1" data-tab="1"><span>02</span>批量文件管理</button><button class="workspace-tab" type="button" id="tab-2" aria-controls="panel-2" data-tab="2"><span>03</span>持久 TCP 隧道</button></div>
+      <div class="workspace-panel" id="panel-0" aria-labelledby="tab-0"><div class="panel-copy"><h3>从排障到修改，不离开工作台。</h3><p>打开远程终端查看日志，在网页编辑器中修改文件。工作区支持拖动调整布局，桌面与手机都能访问。</p><ul class="check-list"><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>网页终端与文件编辑器</li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>可调整的工作区布局</li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>交互式会话录制与回放</li></ul></div><div class="panel-preview"><div class="preview-toolbar"><span class="status-dot"></span>prod-api <span>/etc/app/config.yaml</span></div><div class="editor-preview"><div class="editor-gutter" aria-hidden="true">1<br>2<br>3<br>4<br>5<br>6</div><pre><code><span class="code-comment"># config.yaml · 工作台示意</span>
+<span class="code-key">server:</span>
+  <span class="code-key">port:</span> <span class="code-value">8080</span>
+  <span class="code-key">environment:</span> production
+<span class="code-key">logging:</span>
+  <span class="code-key">level:</span> info</code></pre></div><div class="editor-terminal"><span class="terminal-comment">终端</span><code>$ systemctl status app<br><span class="terminal-green">● app.service — active (running)</span></code></div></div></div><div class="workspace-panel" id="panel-1" aria-labelledby="tab-1" hidden><div class="panel-copy"><h3>文件操作，也应该顺手。</h3><p>拖入文件或文件夹，保留目录结构；多选后批量复制、移动、下载或删除。传输进度和直连 / 中转状态清晰可见。</p><ul class="check-list"><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>文件与文件夹递归上传</li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>多选、框选与批量操作</li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>P2P 优先，不可直连时中转</li></ul></div><div class="panel-preview"><div class="preview-toolbar"><span>/opt/app/</span><span class="preview-badge">上传文件夹</span></div><table class="file-table"><thead><tr><th scope="col">名称</th><th scope="col">类型</th><th scope="col">状态</th></tr></thead><tbody><tr class="row-selected"><td><span class="file-glyph" aria-hidden="true">▣</span>config/</td><td>文件夹</td><td>已选中</td></tr><tr class="row-selected"><td><span class="file-glyph" aria-hidden="true">▣</span>release/</td><td>文件夹</td><td>已选中</td></tr><tr><td><span class="file-glyph" aria-hidden="true">▤</span>app.log</td><td>日志</td><td>可下载</td></tr></tbody></table><div class="file-actions"><span>2 项已选择</span><span class="preview-badge">复制</span><span class="preview-badge">移动</span></div><div class="transfer-note"><span class="status-dot"></span><span>传输链路<strong>直连优先 · 自动回退中转</strong></span></div></div></div><div class="workspace-panel" id="panel-2" aria-labelledby="tab-2" hidden><div class="panel-copy"><h3>让内网服务，有一条可管理的路。</h3><p>配置入口、出口和目标服务，按需开启或定时到期。查看连接数、流量和来源 IP，权限撤销时停止现有连接。</p><ul class="check-list"><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>支持 Agent、SSH 与跳板链</li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>永久启用或定时到期</li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>流量、连接与来源 IP 统计</li></ul></div><div class="panel-preview"><div class="preview-toolbar"><span>database-access</span><span class="preview-badge">TCP</span></div><div class="tunnel-flow"><div><span>入口节点</span><strong>local-entry</strong><code>:15432</code></div><span class="flow-arrow" aria-hidden="true">→</span><div><span>出口节点</span><strong>private-agent</strong><code>Agent</code></div><span class="flow-arrow" aria-hidden="true">→</span><div><span>目标服务</span><strong>127.0.0.1</strong><code> :5432</code></div></div><p class="tunnel-status"><span class="status-dot"></span>示意状态 · 定时启用</p><div class="tunnel-metrics"><div><span>连接数</span><strong>—</strong></div><div><span>累计流量</span><strong>—</strong></div><div><span>来源 IP</span><strong>—</strong></div></div><p class="preview-footnote">端口开放仍需符合 SSH 服务配置和防火墙规则。</p></div></div>
+    </div></section>
+    <section class="section section-muted" id="capabilities"><div class="container"><div class="section-heading"><p class="eyebrow">BUILT FOR REAL OPERATIONS</p><h2>不只是连上，更要管得住。</h2><p class="section-desc">把日常运维与访问治理放在一起，而不是事后再补一层管理。</p></div><div class="capability-grid"><article class="capability-card"><span class="card-number">01</span><h3>组织与用户组</h3><p>按组织、目标、标签和用户组绑定访问策略，结合来源 IP 与能力开关控制访问范围。</p></article><article class="capability-card"><span class="card-number">02</span><h3>命令规则与 AI 审查</h3><p>SSH exec 命令先走黑白名单；未命中时可交由配置的 LLM 审查。模型审核异常默认拒绝。</p></article><article class="capability-card"><span class="card-number">03</span><h3>临时 SSH 授权</h3><p>为指定服务生成限时授权，到期或删除即断开相关连接。授权标识本身是敏感访问凭证。</p></article><article class="capability-card"><span class="card-number">04</span><h3>命令审计与终端回放</h3><p>查询命令、判定和退出码；对已启用录制的交互式会话，沿时间轴回放操作过程。</p></article><article class="capability-card"><span class="card-number">05</span><h3>AI 的 MCP 入口</h3><p>通过 /mcp 接入工具。终端与隧道工具按令牌分组授权，操作继续受账号和组织权限约束。</p></article><article class="capability-card"><span class="card-number">06</span><h3>私有节点与已有 SSH</h3><p>已有 SSH 服务可以直接添加；私有节点通过 Agent 主动连接网关，接入内网与现场机器。</p></article></div></div></section>
+    <section class="section control-section" id="control"><div class="container control-grid"><div class="control-copy"><p class="eyebrow">CONTROL BEFORE EXECUTION</p><h2>把工作交给 AI，<br>把规则留给团队。</h2><p>目标别名决定访问哪台机器，操作者身份决定使用哪些策略。对 SSH exec 命令，先做规则判定，再按配置交给模型审查。</p><ol class="control-route"><li><span>01</span>身份与目标</li><li><span>02</span>命令策略</li><li><span>03</span>允许 / 拒绝</li><li><span>04</span>写入审计</li></ol><p class="control-boundary">交互式 Shell、文件传输和端口转发有各自的能力控制；不能把 exec 审查理解为完整 Shell 沙箱。</p></div><div class="review-card"><div class="review-header"><span>策略演示</span><span class="review-label">SSH EXEC</span></div><div class="scenario-controls" role="group" aria-label="选择命令示例"><button type="button" data-scenario="0" aria-pressed="true">只读巡检</button><button type="button" data-scenario="1" aria-pressed="false">破坏性操作</button></div><div class="review-command"><span>$</span><code id="review-command">uptime</code></div><div class="review-result" role="status" aria-live="polite" data-state="allow"><span class="result-icon" aria-hidden="true">✓</span><div><strong id="review-decision">允许 · 白名单规则</strong><p id="review-reason">命中只读命令白名单，转发到目标。</p></div><code id="review-exit">exit 0</code></div><p class="review-audit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>已记录命令审计</p><p class="review-disclaimer">这是预设策略的演示，不是实时 LLM 判定，也不是对任意命令的安全保证。</p></div></div></section>
+    <section class="section" id="workflow"><div class="container"><div class="section-heading"><p class="eyebrow">START SMALL, STAY IN CONTROL</p><h2>从一台机器开始，接进整个团队。</h2></div><ol class="onboarding-grid"><li><span class="step-number">01</span><h3>部署网关</h3><p>下载适合平台的 server 包，配置访问地址和初始管理员。生产环境启用 HTTPS 并妥善保存密钥与数据库。</p></li><li><span class="step-number">02</span><h3>接入目标</h3><p>添加已有 SSH 服务，或用控制台生成的安装命令注册私有节点。把机器命名为业务可读的别名。</p></li><li><span class="step-number">03</span><h3>配置访问</h3><p>绑定用户组与安全策略，再通过网页、SSH 或 MCP 使用。先从测试环境验证规则和审计行为。</p></li></ol></div></section>
+    <section class="section audience-section"><div class="container"><div class="section-heading"><p class="eyebrow">FOR PEOPLE. FOR AGENTS.</p><h2>同一套基础设施，不同的工作方式。</h2></div><div class="audience-grid"><article><h3>运维与开发团队</h3><p>浏览器里排障、编辑配置、传输发布文件；用隧道连接需要访问的服务。</p></article><article><h3>AI 自动化团队</h3><p>让 Agent 通过 SSH 或 MCP 完成巡检与辅助排障，减少目标服务器凭证的直接分发。</p></article><article><h3>内网与现场交付</h3><p>通过私有节点把机房、VPC 与客户现场机器接进统一入口，按组织管理访问。</p></article></div></div></section>
+    <section class="section start-section" id="start"><div class="container start-grid"><div><p class="eyebrow">YOUR INFRASTRUCTURE, YOUR RULES</p><h2>下一次远程操作，<br>从一个受控入口开始。</h2><p class="section-desc">下载、部署，接入第一台测试机器。无需更换你熟悉的 SSH 客户端。</p><div class="hero-actions"><a class="btn btn-primary" href="https://github.com/qinyongliang/gosshd-bastion/releases/latest">下载 Server<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 7 7-7 7"/></svg></a><a class="text-link" href="https://github.com/qinyongliang/gosshd-bastion/blob/main/README.zh-CN.md">阅读部署指南<span aria-hidden="true">↗</span></a></div><a class="brief-link" href="brief.zh-CN.md" download>下载产品介绍 · Markdown<span aria-hidden="true">↓</span></a></div><div class="example-card"><p>SSH exec 示例 · 请替换域名、端口与目标别名</p><pre><code id="ssh-example">ssh -p 22022 prod-api@bastion.example.com &quot;uptime&quot;</code></pre><div class="copy-row"><button class="copy-button" type="button" data-copy="ssh-example">复制命令</button><span id="copy-status" role="status" aria-live="polite"></span></div><p class="example-note">公钥识别操作者；真实目标的登录凭证由网关管理。示例不是公共测试服务器。</p></div></div></section>
+    <section class="section faq-section"><div class="container faq-grid"><h2>在开始之前，你可能想知道</h2><div><details><summary>需要把目标服务器的私钥交给 AI 吗？<span aria-hidden="true">+</span></summary><p>不需要把目标服务器凭证直接交给 Agent；这些凭证由网关管理。调用方仍需配置自己的 SSH 身份或 MCP 令牌，也可以使用受控的临时授权。</p></details><details><summary>P2P 是否保证能直连？<span aria-hidden="true">+</span></summary><p>不保证。直连取决于 Agent 版本、浏览器、STUN 配置、网络与防火墙；不可直连时使用中转。网页上传仍有 1 GiB 上限，下载方式也受浏览器能力影响。</p></details><details><summary>临时授权可以随意分享吗？<span aria-hidden="true">+</span></summary><p>不可以。持有授权 UUID 就能在有效期内访问对应服务，策略和审计身份沿用创建者。只向可信接收方提供，使用后及时删除。</p></details><details><summary>命令审查能保证所有操作都安全吗？<span aria-hidden="true">+</span></summary><p>不能。规则质量、策略配置和模型输出都影响结果。SSH exec 审查不等于对所有交互式 Shell 输入进行完整隔离；应结合最小权限、能力开关与独立备份。</p></details><details><summary>这是托管服务，还是自己部署的软件？<span aria-hidden="true">+</span></summary><p>这里介绍的是自托管软件。服务端、目标接入、数据库、审计存储和可选 LLM 接口由你部署与配置；页面中的工作台和数据均为功能示意。</p></details></div></div></section>
   </main>
-
-  <footer class="footer">
-    <div class="container footer-grid">
-      <p class="footer-copy">© 2026 GOSSHD Bastion. 为 AI 原生基础设施访问而生。</p>
-      <nav class="footer-links" aria-label="页脚">
-        <a href="#workflow">工作流</a>
-        <a href="#review">AI 审查</a>
-        <a href="#replay">回放</a>
-        <a href="#features">能力</a>
-      </nav>
-    </div>
-  </footer>
-
-  <script src="main.js"></script>
+  <footer><div class="container footer-main"><div><a class="brand" href="index.zh-CN.html"><span class="brand-mark" aria-hidden="true">&gt;_</span><span>GOSSHD<span class="brand-sub"> BASTION</span></span></a><p>为人和 AI 提供受控的远程操作入口。</p></div><nav aria-label="页脚导航"><a href="https://github.com/qinyongliang/gosshd-bastion">GitHub</a><a href="https://github.com/qinyongliang/gosshd-bastion/blob/main/README.zh-CN.md">部署文档</a><a href="brief.zh-CN.md" download>产品介绍</a><a href="index.html">EN</a></nav></div><div class="container footer-bottom"><span>© 2026 GOSSHD Bastion · 自托管远程运维工作台</span><span>SSH / WEB / MCP</span></div></footer>
 </body>
 </html>

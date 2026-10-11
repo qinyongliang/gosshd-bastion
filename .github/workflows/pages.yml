@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - site/**
+      - scripts/marketing-site.test.mjs
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -27,6 +28,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate marketing site
+        run: |
+          node --check site/main.js
+          node --test scripts/marketing-site.test.mjs
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
