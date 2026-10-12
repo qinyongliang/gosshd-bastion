@@ -2,7 +2,7 @@
 
 ## 依赖方向
 
-- \internal/protocol/types\：仅 Go 标准库 DTO；HTTP 配置、日志事件、统计与网络诊断的序列化结构。不依赖 server、agent、store、SQLite、WebRTC 或 yamux。
+- `internal/protocol/types`：仅 Go 标准库 DTO；HTTP 配置、日志事件、统计与网络诊断的序列化结构。不依赖 server、agent、store、SQLite、WebRTC 或 yamux。
 - protocol 与 store 只引用上述 DTO，不再为字段定义导入整个转发引擎。
 - forward：匹配、HTTP/TCP 数据面、统计/日志后端；Runtime 只依赖 EventRecorder.Record(Event) 和 DialFunc，不持有 App、Repository 或 AgentRegistry。
 - tunnel：已有可靠通道与 WebRTC；网络诊断使用同一 DTO。断服续行是明确 opt-in，不改变旧文件传输/临时隧道生命周期。

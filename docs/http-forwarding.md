@@ -97,12 +97,13 @@
 单元/集成用例覆盖 Host/路径优先级、非法规则、代理改写/可信转发头、独立数据库、明细保留与统计分离、去重/确认/长断服统计补报、队列非阻塞和过载计数、加密缓存恢复、自主到期、Web/MCP 权限、服务器与 Agent 入口、委派 SSH、已建立直连断服后的新 HTTP/TCP 连接。浏览器用例覆盖中英文、桌面/手机、多块添加与排序、真实请求和日志界面。
 
 
-### 本次工作区验收（2026-10-12）
+### 最终验收与发布（2026-10-12）
 
-- 新功能针对性 Go 测试通过，包含 TCP/HTTP/委派 SSH 的已建立直连断服后新连接，以及 WebSocket 升级与日志。
-- 浏览器：中文/英文、1440 桌面/390 手机、多块排序、真实 Host 代理与日志查询通过。
-- pnpm check / pnpm build 通过；构建保留原有 Monaco 大 chunk 提示。
-- Go 全套的原始运行仍有两个既有失败：Windows ConPTY 测试期望英文 ping 回复、批量文件复制/移动测试返回 502；明确跳过这两项后，其余全套通过。没有修改这些无关用例的业务代码。
-- 针对性 go vet 及 Windows/Linux server/Agent 编译通过（使用实际 SDK 目录绕开 vfox Junction 的文件访问问题）。未跑 race：当前 Windows CGO=0，PATH 无 GCC。
-- 100 server / 1000 location 匹配微基准，AMD Ryzen 7 8845H：约 62–75 ns/op、0 B/op、0 allocs/op；不能据此推断完整 HTTP 代理吞吐上限。
-- 尚未部署或替换当前正在运行的服务器/Agent 程序。
+- TCP/HTTP/委派 SSH 的已建立直连断服后新连接、WebSocket 升级、日志与统计用例通过；Linux `go test ./internal/...` 全套通过。
+- 浏览器：中文/英文、1440 桌面/390 手机、多块排序、真实 Host 代理与日志查询通过；`pnpm check` / `pnpm build` 通过，保留原有 Monaco 大 chunk 提示。
+- 初始 Windows 全套运行存在两个已记录的基线失败：ConPTY 测试期望英文 ping 回复、批量复制/移动测试返回 502；不将跳过用例的运行描述为无条件全套通过。
+- Windows 本机 CGO=0/无 GCC 的限制已通过 WSL2/Linux GCC 验证补足：forward / tunnel / agent / server 的针对性 race 测试通过，Release 流水线的 race 与浏览器验收也通过。
+- 真实 server/entry Agent/exit Agent 进程在隔离 Linux 网络命名空间中完成 4096/4096 请求（最高 128 并发），验证直连→UDP 故障/中转→直连恢复→服务器中断→恢复补报，流量与访问明细逐项核对，dropped/write_failures 均为 0。该结果不是公网/NAT 长期生产容量承诺；详见 [补充验收](http-forward-load-results.md)。
+- `v0.1.167-bastion` 已发布并部署到 amd64 主站与 ARM64 站点；健康、版本、原配置/审计数据、SQLite integrity、前端资源与三个常用平台的 Agent 下载 SHA256 均已核验。
+- 本次仅升级服务器和预热 Agent 下载缓存，未创建生产 HTTP 转发规则，也未逐台验收现有 Agent 升级状态；使用新边缘协议的 Agent 仍须运行支持该协议的版本。
+- 完整发布、备份与收尾记录见 [v167 发布部署记录](superpowers/plans/2026-10-12-v167-release-deployment.md)，架构边界见 [架构审查](http-forward-architecture.md)。
