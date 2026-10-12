@@ -12,3 +12,13 @@ __pycache__/
 scripts/forward-load/**/__pycache__/
 /design/qa/forward-load-run-*/
 
+
+# Local operational records and screenshots must never be published.
+/.learnings/
+/docs/superpowers/
+/design/qa/
+/docs/*-deployment*.md
+/docs/*-deploy*.md
+/docs/http-forward-load-results.md
+/local-only/
+/.github/workflows/deploy-arm64.yml

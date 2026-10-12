@@ -103,7 +103,7 @@
 - 浏览器：中文/英文、1440 桌面/390 手机、多块排序、真实 Host 代理与日志查询通过；`pnpm check` / `pnpm build` 通过，保留原有 Monaco 大 chunk 提示。
 - 初始 Windows 全套运行存在两个已记录的基线失败：ConPTY 测试期望英文 ping 回复、批量复制/移动测试返回 502；不将跳过用例的运行描述为无条件全套通过。
 - Windows 本机 CGO=0/无 GCC 的限制已通过 WSL2/Linux GCC 验证补足：forward / tunnel / agent / server 的针对性 race 测试通过，Release 流水线的 race 与浏览器验收也通过。
-- 真实 server/entry Agent/exit Agent 进程在隔离 Linux 网络命名空间中完成 4096/4096 请求（最高 128 并发），验证直连→UDP 故障/中转→直连恢复→服务器中断→恢复补报，流量与访问明细逐项核对，dropped/write_failures 均为 0。该结果不是公网/NAT 长期生产容量承诺；详见 [补充验收](http-forward-load-results.md)。
+- 真实 server/entry Agent/exit Agent 进程在隔离 Linux 网络命名空间中完成 4096/4096 请求（最高 128 并发），验证直连→UDP 故障/中转→直连恢复→服务器中断→恢复补报，流量与访问明细逐项核对，dropped/write_failures 均为 0。该结果不是公网/NAT 长期生产容量承诺；详见 补充验收（内部验证记录仅保留在本地）。
 - `v0.1.167-bastion` 已发布并部署到 amd64 主站与 ARM64 站点；健康、版本、原配置/审计数据、SQLite integrity、前端资源与三个常用平台的 Agent 下载 SHA256 均已核验。
 - 本次仅升级服务器和预热 Agent 下载缓存，未创建生产 HTTP 转发规则，也未逐台验收现有 Agent 升级状态；使用新边缘协议的 Agent 仍须运行支持该协议的版本。
 - 完整发布、备份与收尾记录见 [v167 发布部署记录](superpowers/plans/2026-10-12-v167-release-deployment.md)，架构边界见 [架构审查](http-forward-architecture.md)。
