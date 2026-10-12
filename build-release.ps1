@@ -76,6 +76,8 @@ foreach ($p in $agentPlatforms) {
   Copy-Item $agentOut (Join-Path 'dist' ("gosshd-agent-$Version-$($p.GOOS)-$($p.AgentArch)$($p.Ext)"))
 }
 
+& (Join-Path $PSScriptRoot "scripts/build-agent-android.ps1") -Version $Version
+
 foreach ($p in $serverPlatforms) {
   $pkgRoot = Join-Path 'package' ("gosshd-$($p.Platform)")
   New-Item -ItemType Directory -Force -Path $pkgRoot | Out-Null

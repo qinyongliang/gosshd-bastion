@@ -129,6 +129,70 @@ powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Ins
 
 私有节点注册成功后就是普通 SSH 服务：可以重命名、改标签、绑定策略，也会像手动添加的目标一样进入审计。
 
+
+### Android Agent（ARMv7 / ARM64）
+
+提供 **Android 7.0 / API 24 及以上** 的原生可执行文件：
+
+| Android ABI | 下载平台 | Release 文件 |
+| --- | --- | --- |
+| `armeabi-v7a`（32 位 ARMv7） | `android/armv7` | `gosshd-agent-<version>-android-armv7` |
+| `arm64-v8a`（64 位 ARMv8） | `android/arm64` | `gosshd-agent-<version>-android-arm64` |
+
+这是 Android/Bionic 二进制，不是 Linux ARM 包，也不是 APK。安装脚本优先按 Termux 的**用户空间架构**选择（包括 64 位内核上的 32 位 Termux）；原生 root Shell 则按 Android ABI 选择。Android `arm` 的自动更新请求会映射到 ARMv7 发布文件。
+
+#### 编译
+
+安装 Android NDK r27c（`27.2.12479018`）或更新版本，配置 `ANDROID_NDK_HOME`（也支持 `ANDROID_NDK_ROOT`）。两个架构均使用 NDK/CGO、API 24、PIE 和 16 KiB ELF 页对齐；当前 Go 工具链下 ARMv7 不能使用 `CGO_ENABLED=0` 编译。固定版本的 `anet` 依赖需要 `-checklinkname=0`，脚本仅在 Android 构建中使用这个参数。
+
+```powershell
+.\scripts\build-agent-android.ps1 -Version dev -NDKPath 'C:\Android\Sdk\ndk\27.2.12479018'
+```
+
+```sh
+ANDROID_NDK_HOME="$HOME/Android/Sdk/ndk/27.2.12479018" bash scripts/build-agent-android.sh dev
+```
+
+输出到 `build/agent/<version>/android/{armv7,arm64}/gosshd-agent`，以及 `dist/` 中带版本号的文件。完整发布脚本也会构建两个 Android 包并纳入 `checksums.txt`。
+
+本地测试无需先发布 Release：启动相同版本的服务器，并设置 `--agent-path ./build/agent`；目录按版本隔离，避免返回旧构建。
+
+#### 无 root 的 Termux
+
+在私有节点安装抽屉选择 Android 命令，先安装依赖：
+
+```sh
+pkg install curl coreutils
+# 仅后台服务需要；安装后重新打开 Termux Shell：
+pkg install termux-services
+```
+
+前台运行，或追加 `install` 安装 runit 后台服务（**不要使用 sudo**）：
+
+```sh
+curl -fsSL https://bastion.example.com/install/<token>.sh -o "$TMPDIR/gosshd-agent-install.sh"
+sh "$TMPDIR/gosshd-agent-install.sh"          # 前台运行
+sh "$TMPDIR/gosshd-agent-install.sh" install  # 后台服务
+```
+
+程序、启动脚本、稳定身份和日志保存在 `$HOME/.gosshd/`。使用 `sv up "$PREFIX/var/service/gosshd-agent"`、`sv down ...`、`sv status ...` 控制服务。重启手机后自动运行还需从与 Termux 相同来源安装 **Termux:Boot** 并打开一次；安装器会写入 `$HOME/.termux/boot/gosshd-agent`。请关闭 Termux 电池优化；Android 仍可能结束后台进程，脚本无法保证所有厂商 ROM 下永久保活。
+
+#### 原生已 root Android
+
+先进入 root Shell（`su`），在其中执行 Android 注册命令。需有 `curl` 或 `wget`、SHA256 校验工具及常见 toybox/BusyBox 命令，后台安装还需 `nohup` 和 `readlink`。同一个 `.sh` 安装器会自动识别环境：
+
+```sh
+# 在原生 root Shell 内执行，而不是无权限的 adb Shell。
+curl -fsSL https://bastion.example.com/install/<token>.sh -o /data/local/tmp/gosshd-agent-install.sh
+sh /data/local/tmp/gosshd-agent-install.sh          # 前台运行
+sh /data/local/tmp/gosshd-agent-install.sh install  # 后台安装
+/data/local/gosshd/control.sh status
+/data/local/gosshd/control.sh stop
+/data/local/gosshd/control.sh start
+```
+
+文件私有保存到 `/data/local/gosshd/`，包括 `agent.json` 和 `agent.log`。重复安装保留身份，SHA256 校验成功后原子替换程序，只重启 **PID 与程序路径均匹配** 的本 Agent 进程。如果已有 `/data/adb/service.d`，会写入可执行的 `gosshd-agent.sh`，供兼容的 Magisk / KernelSU / APatch 开机机制调用；如果没有此目录，则只立即启动后台进程，并提示手动将 `/data/local/gosshd/control.sh start` 接入自己的开机机制。安装器不修改系统分区，也不会关闭 SELinux；具体 ROM 的安全策略可能存在额外限制。
+
 ## 命令审核模型
 
 策略判断保持可解释：

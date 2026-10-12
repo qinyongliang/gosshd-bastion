@@ -121,3 +121,24 @@ func testShellProbe(env map[string]string, available map[string]bool) shellProbe
 		},
 	}
 }
+
+func TestDefaultShellAndroid(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		env       map[string]string
+		available map[string]bool
+		want      string
+	}{
+		{"inherited", map[string]string{"SHELL": "/custom/bash"}, nil, "/custom/bash"},
+		{"termux bash", map[string]string{"PREFIX": "/data/data/com.termux/files/usr"}, map[string]bool{"/data/data/com.termux/files/usr/bin/bash": true}, "/data/data/com.termux/files/usr/bin/bash"},
+		{"termux sh", map[string]string{"PREFIX": "/data/data/com.termux/files/usr"}, map[string]bool{"/data/data/com.termux/files/usr/bin/sh": true}, "/data/data/com.termux/files/usr/bin/sh"},
+		{"native", nil, map[string]bool{"/system/bin/sh": true}, "/system/bin/sh"},
+		{"native fallback", nil, nil, "/system/bin/sh"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := defaultShell("android", testShellProbe(tc.env, tc.available)); got != tc.want {
+				t.Fatalf("shell = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

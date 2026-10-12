@@ -1299,7 +1299,7 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 		"default_host": "127.0.0.1",
 		"default_port": 22,
 	}, http.StatusCreated, &enrollment)
-	if enrollment.Token == "" || enrollment.InstallSH == "" || enrollment.InstallPS1 == "" || enrollment.InstallPwsh == "" || enrollment.InstallCMD == "" || enrollment.ServiceSH == "" || enrollment.ServicePS1 == "" || enrollment.ServicePwsh == "" || enrollment.ServiceCMD == "" {
+	if enrollment.Token == "" || enrollment.InstallSH == "" || enrollment.InstallAndroid == "" || enrollment.ServiceAndroid == "" || enrollment.InstallPS1 == "" || enrollment.InstallPwsh == "" || enrollment.InstallCMD == "" || enrollment.ServiceSH == "" || enrollment.ServicePS1 == "" || enrollment.ServicePwsh == "" || enrollment.ServiceCMD == "" {
 		t.Fatalf("enrollment response missing install data: %+v", enrollment)
 	}
 	if !strings.Contains(enrollment.ServiceSH, "sudo sh") || !strings.Contains(enrollment.ServiceSH, " install") {

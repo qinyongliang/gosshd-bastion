@@ -1,6 +1,7 @@
 package server
 
 import (
+	_ "embed"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,16 +12,18 @@ import (
 )
 
 type apiAgentEnrollmentResponse struct {
-	ID          string `json:"id"`
-	Token       string `json:"token"`
-	InstallSH   string `json:"install_sh"`
-	InstallPS1  string `json:"install_ps1"`
-	InstallPwsh string `json:"install_pwsh"`
-	InstallCMD  string `json:"install_cmd"`
-	ServiceSH   string `json:"service_sh"`
-	ServicePS1  string `json:"service_ps1"`
-	ServicePwsh string `json:"service_pwsh"`
-	ServiceCMD  string `json:"service_cmd"`
+	ID             string `json:"id"`
+	Token          string `json:"token"`
+	InstallSH      string `json:"install_sh"`
+	InstallAndroid string `json:"install_android"`
+	ServiceAndroid string `json:"service_android"`
+	InstallPS1     string `json:"install_ps1"`
+	InstallPwsh    string `json:"install_pwsh"`
+	InstallCMD     string `json:"install_cmd"`
+	ServiceSH      string `json:"service_sh"`
+	ServicePS1     string `json:"service_ps1"`
+	ServicePwsh    string `json:"service_pwsh"`
+	ServiceCMD     string `json:"service_cmd"`
 }
 
 const (
@@ -82,17 +85,22 @@ func agentEnrollmentDefaults(host string, port int) (string, int) {
 
 func agentEnrollmentResponse(id, token, base string) apiAgentEnrollmentResponse {
 	scriptURL := fmt.Sprintf("%s/install/%s.ps1", base, token)
+	androidURL := shellQuote(fmt.Sprintf("%s/install/%s.sh", base, token))
+	androidCommand := `(umask 077; tmp="$(mktemp "${TMPDIR:-${PREFIX:-/data/local}/tmp}/gosshd-agent-install.XXXXXX")" || exit 1; trap 'rm -f "$tmp"' EXIT; if command -v curl >/dev/null 2>&1; then curl -fsSL ` + androidURL + ` -o "$tmp"; elif command -v wget >/dev/null 2>&1; then wget -q ` + androidURL + ` -O "$tmp"; else echo 'Install curl or wget first.' >&2; exit 1; fi && sh "$tmp"`
+
 	return apiAgentEnrollmentResponse{
-		ID:          id,
-		Token:       token,
-		InstallSH:   fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sh \"$tmp\"", base, token),
-		InstallPS1:  fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri $s -OutFile $tmp; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp", scriptURL),
-		InstallPwsh: fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -Uri $s -OutFile $tmp; pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $tmp", scriptURL),
-		InstallCMD:  fmt.Sprintf("powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"$p=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri '%s' -OutFile $p; & $p\"", scriptURL),
-		ServiceSH:   fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sudo sh \"$tmp\" install", base, token),
-		ServicePS1:  fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri $s -OutFile $tmp; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp -Install", scriptURL),
-		ServicePwsh: fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -Uri $s -OutFile $tmp; pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $tmp -Install", scriptURL),
-		ServiceCMD:  fmt.Sprintf("powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"$p=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri '%s' -OutFile $p; & $p -Install\"", scriptURL),
+		ID:             id,
+		Token:          token,
+		InstallAndroid: androidCommand + ")",
+		ServiceAndroid: androidCommand + " install)",
+		InstallSH:      fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sh \"$tmp\"", base, token),
+		InstallPS1:     fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri $s -OutFile $tmp; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp", scriptURL),
+		InstallPwsh:    fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -Uri $s -OutFile $tmp; pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $tmp", scriptURL),
+		InstallCMD:     fmt.Sprintf("powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"$p=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri '%s' -OutFile $p; & $p\"", scriptURL),
+		ServiceSH:      fmt.Sprintf("tmp=\"${TMPDIR:-/tmp}/gosshd-agent-install.sh\"; curl -fsSL %s/install/%s.sh -o \"$tmp\" && sudo sh \"$tmp\" install", base, token),
+		ServicePS1:     fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri $s -OutFile $tmp; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp -Install", scriptURL),
+		ServicePwsh:    fmt.Sprintf("$s='%s'; $tmp=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -Uri $s -OutFile $tmp; pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $tmp -Install", scriptURL),
+		ServiceCMD:     fmt.Sprintf("powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"$p=Join-Path $env:TEMP 'gosshd-agent-install.ps1'; Invoke-WebRequest -UseBasicParsing -Uri '%s' -OutFile $p; & $p -Install\"", scriptURL),
 	}
 }
 
@@ -108,6 +116,13 @@ func (a *App) handleInstall(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+//go:embed install_android.sh
+var androidInstallScript string
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
 func (a *App) handleInstallSH(w http.ResponseWriter, r *http.Request, token string) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	base := publicBaseURL(r, a.cfg.publicHost())
@@ -117,6 +132,10 @@ set -eu
 mode="${1:-run}"
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
+server=%s
+enrollment_token=%s
+ssh_port=%s
+%s
 case "$arch" in
   i386|i686|386) arch="386" ;;
   x86_64|amd64) arch="amd64" ;;
@@ -169,7 +188,7 @@ SERVICE
   exit 0
 fi
 exec "$tmp" --server "%s" --enrollment-token %q --ssh-port %q
-`, base, base, token, sshPort, base, token, sshPort)
+`, shellQuote(base), shellQuote(token), shellQuote(sshPort), androidInstallScript, base, base, token, sshPort, base, token, sshPort)
 }
 
 func (a *App) handleInstallPS1(w http.ResponseWriter, r *http.Request, token string) {

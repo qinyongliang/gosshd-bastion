@@ -68,6 +68,10 @@ jobs:
           export GOSSHD_UI_E2E_BROWSER="$(node -e 'console.log(require(process.argv[1]).chromium.executablePath())' "$GOSSHD_UI_E2E_PLAYWRIGHT")"
           go test ./internal/server -run '^Test(ControlStyles|TunnelTraffic|HTTPForwarding|PortForwarding|FileUpload(ViaAgentSSH)?|FileDownload(ViaAgentSSH)?|FileSelection|DraggableWorkspace)UIE2EWithBrowser$' -count=1 -timeout=8m
 
+      - name: Test Android installers, ABI selection and update downloads
+        shell: bash
+        run: go test ./internal/protocol ./internal/server -run 'Test(DefaultShellAndroid|Android|DownloadAgentAndroid|AgentWSAndroid|AgentReleaseURLAndroid)' -count=1 -timeout=3m
+
       - name: Build binaries and packages
         shell: bash
         run: |
@@ -182,6 +186,9 @@ jobs:
             rm -rf "$package_dir"
           done
 
+          # ARMv7 requires NDK/cgo; keep Android-only flags out of build_go.
+          sdkmanager "ndk;27.2.12479018"
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" bash scripts/build-agent-android.sh "$version"
           (cd dist && sha256sum * > checksums.txt)
 
       - name: Upload workflow artifacts
