@@ -781,6 +781,13 @@ function InstallDrawer({ enrollment, onClose }: { enrollment: Enrollment; onClos
         <CommandBox label={t("serviceLinuxService")} value={enrollment.service_sh || ""} />
       </section>
       <section className="section-block embedded">
+        <h3>Android (ARMv7 / ARM64)</h3>
+        <p className="muted">{t("serviceAndroidSupport")}</p>
+        <CommandBox label={t("serviceRunOnce")} value={enrollment.install_android || enrollment.install_sh || ""} />
+        <CommandBox label={t("serviceAndroidService")} value={enrollment.service_android || ""} />
+        <p className="muted">{t("serviceAndroidBoot")}</p>
+      </section>
+      <section className="section-block embedded">
         <h3>Windows</h3>
         <p className="muted">{t("serviceWindowsSupport")}</p>
         <CommandBox label={t("serviceWindowsCMDRunOnce")} value={enrollment.install_cmd || ""} />

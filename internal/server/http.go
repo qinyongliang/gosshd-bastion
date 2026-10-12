@@ -99,6 +99,7 @@ func (a *App) downloadAgent(w http.ResponseWriter, r *http.Request) {
 		checksumOnly = true
 		goarch = strings.TrimSuffix(goarch, ".sha256")
 	}
+	goarch = agentDownloadArch(goos, goarch)
 	if !isSafePlatformPart(goos) || !isSafePlatformPart(goarch) {
 		http.Error(w, "invalid platform", http.StatusBadRequest)
 		return
@@ -255,7 +256,21 @@ func (a *App) agentReleaseURL(goos, goarch, name string) string {
 	return fmt.Sprintf("%s/%s/%s", base, url.PathEscape(a.cfg.version()), url.PathEscape(assetName))
 }
 
+// Android's runtime GOARCH is "arm", while the published v7 asset is "armv7".
+func agentDownloadArch(goos, goarch string) string {
+	if goos == "android" {
+		switch goarch {
+		case "arm", "armeabi-v7a", "armv7":
+			return "armv7"
+		case "aarch64", "arm64-v8a", "arm64":
+			return "arm64"
+		}
+	}
+	return goarch
+}
+
 func (a *App) agentAssetName(goos, goarch string) string {
+	goarch = agentDownloadArch(goos, goarch)
 	version := a.cfg.version()
 	assetName := fmt.Sprintf("gosshd-agent-%s-%s-%s", version, goos, goarch)
 	if goos == "windows" {
@@ -481,6 +496,7 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 	if goarch == "" {
 		goarch = runtime.GOARCH
 	}
+	goarch = agentDownloadArch(goos, goarch)
 	downloadURL := publicBaseURL(r, a.cfg.publicHost()) + "/download/agent/" + goos + "/" + goarch
 	downloadSHA256, err := a.agentDownloadSHA256(goos, goarch)
 	if err != nil {

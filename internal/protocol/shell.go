@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -52,6 +53,16 @@ func defaultShell(goos string, probe shellProbe) string {
 	}
 	if shell := strings.TrimSpace(probe.getenv("SHELL")); shell != "" {
 		return shell
+	}
+	if goos == "android" {
+		if prefix := strings.TrimSpace(probe.getenv("PREFIX")); prefix != "" {
+			if shell := firstAvailableShell(probe.lookPath,
+				path.Join(prefix, "bin", "bash"), path.Join(prefix, "bin", "sh"),
+			); shell != "" {
+				return shell
+			}
+		}
+		return "/system/bin/sh"
 	}
 	if shell := passwdLoginShell(probe); shell != "" {
 		return shell

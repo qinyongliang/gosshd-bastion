@@ -206,6 +206,8 @@ export type Enrollment = {
   id: string;
   token?: string;
   install_sh?: string;
+  install_android?: string;
+  service_android?: string;
   install_ps1?: string;
   install_pwsh?: string;
   install_cmd?: string;

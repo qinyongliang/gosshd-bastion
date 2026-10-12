@@ -129,6 +129,70 @@ powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Ins
 
 Once registered, a private node is just another SSH service: rename it, tag it, bind policies to it, and audit it like a manually added target.
 
+
+### Android Agent (ARMv7 / ARM64)
+
+Supports native Android executables for **Android 7.0 / API 24 and newer**:
+
+| Android ABI | Download platform | Release asset |
+| --- | --- | --- |
+| `armeabi-v7a` (32-bit ARMv7) | `android/armv7` | `gosshd-agent-<version>-android-armv7` |
+| `arm64-v8a` (64-bit ARMv8) | `android/arm64` | `gosshd-agent-<version>-android-arm64` |
+
+These are Android/Bionic binaries, not the Linux ARM binaries or an APK. The installer chooses the Termux **userspace** architecture (including 32-bit Termux on a 64-bit kernel), or the native Android ABI for a root shell. Android `arm` update requests resolve to the published ARMv7 asset.
+
+#### Build
+
+Install Android NDK r27c (`27.2.12479018`) or newer and set `ANDROID_NDK_HOME` (`ANDROID_NDK_ROOT` also works). Both targets use NDK/CGO, API 24, PIE and 16 KiB ELF page alignment. ARMv7 cannot be built with `CGO_ENABLED=0` using the current Go toolchain. The pinned `anet` dependency requires `-checklinkname=0`; the build scripts apply it only to Android.
+
+```powershell
+.\scripts\build-agent-android.ps1 -Version dev -NDKPath 'C:\Android\Sdk\ndk\27.2.12479018'
+```
+
+```sh
+ANDROID_NDK_HOME="$HOME/Android/Sdk/ndk/27.2.12479018" bash scripts/build-agent-android.sh dev
+```
+
+Outputs are `build/agent/<version>/android/{armv7,arm64}/gosshd-agent` and the versioned assets in `dist/`. Full release scripts also build both Android agents and include them in `checksums.txt`.
+
+For local testing without publishing a release, start a server with the same version and `--agent-path ./build/agent`; binaries are version-scoped to avoid serving stale builds.
+
+#### Unrooted Termux
+
+Use the Android commands from the private-node enrollment drawer. Install prerequisites first:
+
+```sh
+pkg install curl coreutils
+# Background service only; reopen the Termux shell after installing:
+pkg install termux-services
+```
+
+Run in the foreground, or add `install` for a runit-managed background service (**do not use sudo**):
+
+```sh
+curl -fsSL https://bastion.example.com/install/<token>.sh -o "$TMPDIR/gosshd-agent-install.sh"
+sh "$TMPDIR/gosshd-agent-install.sh"          # foreground
+sh "$TMPDIR/gosshd-agent-install.sh" install  # background
+```
+
+The executable, launcher, stable identity and log live in `$HOME/.gosshd/`. Control the service with `sv up "$PREFIX/var/service/gosshd-agent"`, `sv down ...` or `sv status ...`. Reboot startup additionally requires **Termux:Boot** from the same installation source, opened once; the installer writes `$HOME/.termux/boot/gosshd-agent`. Exclude Termux from battery optimization. Android may still terminate background processes; no script can guarantee survival on every vendor ROM.
+
+#### Native rooted Android
+
+Enter a root shell (`su`) and run the Android enrollment command there. `curl` or `wget`, a SHA256 checker, and standard toybox/BusyBox commands must be available; background installation also needs `nohup` and `readlink`. The same `.sh` installer detects this environment automatically:
+
+```sh
+# Run these inside the native root shell, not an unrooted adb shell.
+curl -fsSL https://bastion.example.com/install/<token>.sh -o /data/local/tmp/gosshd-agent-install.sh
+sh /data/local/tmp/gosshd-agent-install.sh          # foreground
+sh /data/local/tmp/gosshd-agent-install.sh install  # background
+/data/local/gosshd/control.sh status
+/data/local/gosshd/control.sh stop
+/data/local/gosshd/control.sh start
+```
+
+Files are stored privately in `/data/local/gosshd/`, including `agent.json` and `agent.log`. Reinstallation preserves identity, verifies SHA256 before atomically replacing the executable, and restarts only the process whose PID **and executable path** match this agent. If `/data/adb/service.d` already exists, an executable `gosshd-agent.sh` boot hook is installed for compatible root managers (Magisk / KernelSU / APatch). Otherwise the agent starts now, but reboot startup must be added manually using `/data/local/gosshd/control.sh start`. The installer does not modify system partitions or disable SELinux; device policies may impose additional restrictions.
+
 ## Command Review Model
 
 Policy evaluation is intentionally predictable:
