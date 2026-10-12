@@ -29,7 +29,7 @@ func (a *App) forwardLogs(ctx context.Context, actor store.User, id string, f fo
 		return out, err
 	}
 	if !edgeManaged(t) {
-		return out, tunnelConfigError{errors.New("access logs require TCP/HTTP forwarding; save the legacy tunnel with protocol tcp to opt in")}
+		return out, tunnelConfigError{errors.New("access logs require port or HTTP forwarding")}
 	}
 	if f.Limit < 0 || f.Limit > 500 || f.Before < 0 || f.From < 0 || f.To < 0 || (f.From > 0 && f.To > 0 && f.To <= f.From) || f.Status < 0 || f.Status > 599 || (f.Status > 0 && f.Status < 100) || len(f.Path) > 8192 || len(f.SourceIP) > 64 || len(f.RouteID) > 128 {
 		return out, tunnelConfigError{errors.New("invalid log filter; times use Unix milliseconds; limit is at most 500")}

@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## One way in. Clear boundaries throughout.
 
-**GOSSHD Bastion is a self-hosted remote operations workspace for people and AI.** Bring SSH terminals, remote files, private nodes and TCP tunnels into one entry point. Teams work in the browser; AI tools use standard SSH or MCP for inspection and assisted troubleshooting. You manage target credentials, access policies and audit records.
+**GOSSHD Bastion is a self-hosted remote operations workspace for people and AI.** Bring SSH terminals, remote files, private nodes and TCP/UDP port tunnels into one entry point. Teams work in the browser; AI tools use standard SSH or MCP for inspection and assisted troubleshooting. You manage target credentials, access policies and audit records.
 
 [Website](https://qinyongliang.github.io/gosshd-bastion/) · [Download Server](https://github.com/qinyongliang/gosshd-bastion/releases/latest) · [Product brief and announcement copy](site/brief.en.md)
 
@@ -23,7 +23,7 @@ English | [简体中文](README.zh-CN.md)
 | Troubleshooting and configuration | Web terminal, file editor, draggable workspace layout, desktop and mobile access |
 | File management | Recursive folder upload, multi-selection and batch copy / move / download / delete |
 | File transfer | Try encrypted browser-to-Agent P2P; relay when unavailable; per-file authorization and auditing |
-| Private service access | Persistent TCP tunnels, expiry, connections, traffic and source IP statistics |
+| Private service access | Persistent TCP/UDP port tunnels, expiry, connections, traffic and source IP statistics |
 | Team and AI access | Organizations and user groups, command rules, optional LLM review, temporary SSH grants, MCP tool groups |
 | Investigation | Command decisions, exit codes, file audits and replay of enabled interactive recordings |
 

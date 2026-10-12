@@ -160,17 +160,31 @@ func (m *edgeForwarder) apply(d protocol.ForwardDeployment) {
 		r.err = err.Error()
 		return
 	}
-	var listener net.Listener
+	listenTCP := func() (net.Listener, error) {
+		if listenSSH != nil {
+			return listenSSH.Listen("tcp", d.ListenAddress)
+		}
+		return net.Listen("tcp", d.ListenAddress)
+	}
 	if listenSSH != nil {
 		r.closers = append(r.closers, listenSSH)
-		listener, err = listenSSH.Listen("tcp", d.ListenAddress)
-	} else {
-		listener, err = net.Listen("tcp", d.ListenAddress)
 	}
-	if err != nil {
-		r.err = err.Error()
+	if d.Protocol != "port" && d.Protocol != "http" {
+		r.err = "unsupported forwarding protocol"
 		r.close()
 		return
+	}
+	if d.Protocol == "port" && d.Destination == nil {
+		r.err = "port destination required"
+		r.close()
+		return
+	}
+	for _, network := range d.Transports {
+		if network == "udp" && listenSSH != nil {
+			r.err = "SSH endpoints do not support UDP forwarding"
+			r.close()
+			return
+		}
 	}
 	local := map[string]forward.DialFunc{}
 	links := map[string]string{}
@@ -182,9 +196,14 @@ func (m *edgeForwarder) apply(d protocol.ForwardDeployment) {
 		}
 		if len(route.Hops) == 0 {
 			local[route.ID] = func(c context.Context, _ string) (net.Conn, error) {
-				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(c, "tcp", route.Address)
+				return forward.DialNetwork(c, route.Network, route.Address)
 			}
 			continue
+		}
+		if route.Network != "tcp" {
+			r.err = "SSH endpoints do not support UDP forwarding"
+			r.close()
+			return
 		}
 		keyBytes, _ := json.Marshal(route.Hops)
 		key := string(keyBytes)
@@ -192,7 +211,6 @@ func (m *edgeForwarder) apply(d protocol.ForwardDeployment) {
 		if base == nil {
 			client, e := openTunnelSSH(ctx, route.Hops)
 			if e != nil {
-				listener.Close()
 				r.err = e.Error()
 				r.close()
 				return
@@ -219,9 +237,19 @@ func (m *edgeForwarder) apply(d protocol.ForwardDeployment) {
 		p := m.peer(links[id])
 		return links[id] == "" || (p != nil && p.Stable.Direct())
 	}
-	r.runtime, err = forward.Start(ctx, listener, d.HTTP, d.TCP, dial, l, direct)
+	if d.Protocol == "port" {
+		r.runtime, err = forward.StartPort(ctx, d.ListenAddress, d.Transports, *d.Destination, dial, l, direct, listenTCP)
+	} else {
+		var listener net.Listener
+		listener, err = listenTCP()
+		if err == nil {
+			r.runtime, err = forward.Start(ctx, listener, d.HTTP, nil, dial, l, direct)
+			if err != nil {
+				listener.Close()
+			}
+		}
+	}
 	if err != nil {
-		listener.Close()
 		r.err = err.Error()
 		r.close()
 	} else {
@@ -467,9 +495,13 @@ func (c *Client) handleForwardPeer(stream io.ReadWriteCloser, reader *bufio.Read
 		}
 		if len(route.Hops) == 0 {
 			dials[route.ID] = func(ctx context.Context, _ string) (net.Conn, error) {
-				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", route.Address)
+				return forward.DialNetwork(ctx, route.Network, route.Address)
 			}
 		} else {
+			if route.Network != "tcp" {
+				protocol.WriteJSONLine(stream, protocol.StreamResponse{Error: "SSH endpoints do not support UDP forwarding"})
+				return
+			}
 			keyBytes, _ := json.Marshal(route.Hops)
 			base := shared[string(keyBytes)]
 			if base == nil {

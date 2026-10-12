@@ -2,6 +2,8 @@ package agent
 
 import (
 	"bufio"
+	"context"
+	"github.com/qinyongliang/gosshd-bastion/internal/forward"
 	"io"
 	"log"
 	"net"
@@ -46,8 +48,8 @@ func (c *Client) handleStreamWithSession(stream io.ReadWriteCloser, session *yam
 		c.handleCommand(stream, reader, req)
 	case protocol.StreamSFTP:
 		c.handleSFTP(stream, reader)
-	case protocol.StreamTCP:
-		c.handleTCP(stream, reader, req.Target)
+	case protocol.StreamTCP, protocol.StreamUDP:
+		c.handlePort(stream, reader, req.Target, req.Type)
 	default:
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: "unsupported stream type"})
 	}
@@ -74,12 +76,18 @@ type readWriteCloser struct {
 	io.Closer
 }
 
-func (c *Client) handleTCP(stream io.ReadWriteCloser, reader *bufio.Reader, target string) {
+func (c *Client) handlePort(stream io.ReadWriteCloser, reader *bufio.Reader, target, network string) {
 	if target == "" {
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: "missing target"})
 		return
 	}
-	conn, err := net.DialTimeout("tcp", target, 10*time.Second)
+	var conn net.Conn
+	var err error
+	if network == "udp" {
+		conn, err = forward.DialUDP(context.Background(), target)
+	} else {
+		conn, err = net.DialTimeout("tcp", target, 10*time.Second)
+	}
 	if err != nil {
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: false, Error: err.Error()})
 		return

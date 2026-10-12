@@ -55,7 +55,7 @@ func (m *edgeForwardManager) build(t store.Tunnel) (forwardPlan, error) {
 	if err != nil {
 		return forwardPlan{}, err
 	}
-	d := protocol.ForwardDeployment{ID: t.ID, Revision: t.Revision, Protocol: t.Protocol, ListenAddress: net.JoinHostPort(t.ListenHost, strconv.Itoa(t.ListenPort)), HTTP: t.HTTP}
+	d := protocol.ForwardDeployment{ID: t.ID, Revision: t.Revision, Protocol: t.Protocol, Transports: t.Transports, ListenAddress: net.JoinHostPort(t.ListenHost, strconv.Itoa(t.ListenPort)), HTTP: t.HTTP}
 	if t.ExpiresAt != nil {
 		d.ExpiresAt = t.ExpiresAt.UnixMilli()
 	}
@@ -66,8 +66,8 @@ func (m *edgeForwardManager) build(t store.Tunnel) (forwardPlan, error) {
 			locations = append(locations, s.Locations...)
 		}
 	} else {
-		l := forward.Location{ID: "tcp", ExitTargetID: t.ExitTargetID, Host: t.DestinationHost, Port: t.DestinationPort}
-		p.deployment.TCP = &l
+		l := forward.Location{ID: "port", ExitTargetID: t.ExitTargetID, Host: t.DestinationHost, Port: t.DestinationPort}
+		p.deployment.Destination = &l
 		locations = []forward.Location{l}
 	}
 	if entry != "" {
@@ -76,37 +76,47 @@ func (m *edgeForwardManager) build(t store.Tunnel) (forwardPlan, error) {
 			return p, err
 		}
 	}
-	for _, l := range locations {
-		route := protocol.ForwardRoute{ID: l.ID, Address: l.Address()}
-		exit, err := m.app.forwardAgentID(m.ctx, l.ExitTargetID)
-		if err != nil {
-			return p, err
+	for _, location := range locations {
+		networks := []string{"tcp"}
+		if t.Protocol == "port" {
+			networks = t.Transports
 		}
-		if entry != "" && entry == exit {
-			route.Hops, err = m.app.forwardHops(m.ctx, l.ExitTargetID)
+		for _, network := range networks {
+			l := location
+			if t.Protocol == "port" {
+				l.ID = network
+			}
+			route := protocol.ForwardRoute{ID: l.ID, Network: network, Address: l.Address()}
+			exit, err := m.app.forwardAgentID(m.ctx, l.ExitTargetID)
 			if err != nil {
 				return p, err
 			}
-		} else if entry != "" {
-			route.LinkID = fmt.Sprintf("%s:%d:%s", t.ID, t.Revision, l.ExitTargetID)
-			spec := p.links[route.LinkID]
-			spec.exitAgent = exit
-			spec.targetID = l.ExitTargetID
-			spec.peer.LinkID = route.LinkID
-			spec.peer.ConfigID = t.ID
-			spec.peer.Revision = t.Revision
-			spec.peer.ExpiresAt = p.deployment.ExpiresAt
-			exitRoute := protocol.ForwardRoute{ID: l.ID, Address: l.Address()}
-			if exit != "" {
-				exitRoute.Hops, err = m.app.forwardHops(m.ctx, l.ExitTargetID)
+			if entry != "" && entry == exit {
+				route.Hops, err = m.app.forwardHops(m.ctx, l.ExitTargetID)
 				if err != nil {
 					return p, err
 				}
+			} else if entry != "" {
+				route.LinkID = fmt.Sprintf("%s:%d:%s", t.ID, t.Revision, l.ExitTargetID)
+				spec := p.links[route.LinkID]
+				spec.exitAgent = exit
+				spec.targetID = l.ExitTargetID
+				spec.peer.LinkID = route.LinkID
+				spec.peer.ConfigID = t.ID
+				spec.peer.Revision = t.Revision
+				spec.peer.ExpiresAt = p.deployment.ExpiresAt
+				exitRoute := protocol.ForwardRoute{ID: l.ID, Network: network, Address: l.Address()}
+				if exit != "" {
+					exitRoute.Hops, err = m.app.forwardHops(m.ctx, l.ExitTargetID)
+					if err != nil {
+						return p, err
+					}
+				}
+				spec.peer.Routes = append(spec.peer.Routes, exitRoute)
+				p.links[route.LinkID] = spec
 			}
-			spec.peer.Routes = append(spec.peer.Routes, exitRoute)
-			p.links[route.LinkID] = spec
+			p.deployment.Routes = append(p.deployment.Routes, route)
 		}
-		p.deployment.Routes = append(p.deployment.Routes, route)
 	}
 	return p, nil
 }

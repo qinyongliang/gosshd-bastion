@@ -20,16 +20,23 @@ import (
 type EventRecorder interface{ Record(Event) }
 type DialFunc func(context.Context, string) (net.Conn, error)
 type Runtime struct {
-	listener           net.Listener
-	server             *http.Server
-	logs               EventRecorder
-	ctx                context.Context
-	cancel             context.CancelFunc
-	done               chan struct{}
-	wg                 sync.WaitGroup
-	mu                 sync.Mutex
-	conns              map[net.Conn]bool
-	transports         []*http.Transport
+	*runtimeCounters
+	children   []*Runtime
+	packet     net.PacketConn
+	listener   net.Listener
+	server     *http.Server
+	logs       EventRecorder
+	ctx        context.Context
+	cancel     context.CancelFunc
+	done       chan struct{}
+	wg         sync.WaitGroup
+	mu         sync.Mutex
+	conns      map[net.Conn]bool
+	transports []*http.Transport
+	closing    bool
+}
+
+type runtimeCounters struct {
 	inflightUp         atomic.Int64
 	inflightDown       atomic.Int64
 	inflightDirectUp   atomic.Int64
@@ -39,8 +46,9 @@ type Runtime struct {
 	active             atomic.Int64
 	peak               atomic.Int64
 	requests           atomic.Int64
-	closing            bool
 }
+
+func newRuntimeCounters() *runtimeCounters { return &runtimeCounters{sources: map[string]int64{}} }
 
 var buffers = sync.Pool{New: func() any { return make([]byte, 32*1024) }}
 
@@ -53,8 +61,11 @@ func (bufferPool) Put(b []byte) {
 	}
 }
 func Start(parent context.Context, listener net.Listener, httpConfig *HTTPConfig, tcpRoute *Location, dial DialFunc, logs EventRecorder, direct func(string) bool) (*Runtime, error) {
+	return start(parent, listener, httpConfig, tcpRoute, dial, logs, direct, newRuntimeCounters())
+}
+func start(parent context.Context, listener net.Listener, httpConfig *HTTPConfig, tcpRoute *Location, dial DialFunc, logs EventRecorder, direct func(string) bool, counters *runtimeCounters) (*Runtime, error) {
 	ctx, cancel := context.WithCancel(parent)
-	r := &Runtime{listener: listener, logs: logs, ctx: ctx, cancel: cancel, done: make(chan struct{}), conns: map[net.Conn]bool{}, sources: map[string]int64{}}
+	r := &Runtime{listener: listener, logs: logs, ctx: ctx, cancel: cancel, done: make(chan struct{}), conns: map[net.Conn]bool{}, runtimeCounters: counters}
 	if direct == nil {
 		direct = func(string) bool { return false }
 	}
@@ -200,6 +211,14 @@ func (r *Runtime) open() int64 {
 	return n
 }
 func (r *Runtime) Alive() bool {
+	if len(r.children) > 0 {
+		for _, c := range r.children {
+			if !c.Alive() {
+				return false
+			}
+		}
+		return true
+	}
 	if r.ctx.Err() != nil {
 		return false
 	}
@@ -211,13 +230,23 @@ func (r *Runtime) Alive() bool {
 	}
 }
 func (r *Runtime) State() RuntimeState {
+	if len(r.children) > 0 {
+		return r.children[0].State()
+	}
+	address := ""
+	if r.listener != nil {
+		address = r.listener.Addr().String()
+	} else {
+		address = r.packet.LocalAddr().String()
+	}
+
 	r.sourceMu.Lock()
 	sources := map[string]int64{}
 	for ip, n := range r.sources {
 		sources[ip] = n
 	}
 	r.sourceMu.Unlock()
-	return RuntimeState{Sources: sources, InflightUp: r.inflightUp.Load(), InflightDown: r.inflightDown.Load(), InflightDirectUp: r.inflightDirectUp.Load(), InflightDirectDown: r.inflightDirectDown.Load(), Active: r.active.Load(), Peak: r.peak.Load(), Requests: r.requests.Load(), ListenAddress: r.listener.Addr().String()}
+	return RuntimeState{Sources: sources, InflightUp: r.inflightUp.Load(), InflightDown: r.inflightDown.Load(), InflightDirectUp: r.inflightDirectUp.Load(), InflightDirectDown: r.inflightDirectDown.Load(), Active: r.active.Load(), Peak: r.peak.Load(), Requests: r.requests.Load(), ListenAddress: address}
 }
 func (r *Runtime) openSource(ip string) int64 {
 	r.sourceMu.Lock()
@@ -256,7 +285,12 @@ func (r *Runtime) closeSockets() {
 		conns = append(conns, c)
 	}
 	r.mu.Unlock()
-	_ = r.listener.Close()
+	if r.listener != nil {
+		_ = r.listener.Close()
+	}
+	if r.packet != nil {
+		_ = r.packet.Close()
+	}
 	if r.server != nil {
 		_ = r.server.Close()
 	}
@@ -268,6 +302,12 @@ func (r *Runtime) closeSockets() {
 	}
 }
 func (r *Runtime) Close() error {
+	if len(r.children) > 0 {
+		for _, c := range r.children {
+			_ = c.Close()
+		}
+		return nil
+	}
 	r.cancel()
 	r.closeSockets()
 	<-r.done

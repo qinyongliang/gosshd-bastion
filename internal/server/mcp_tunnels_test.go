@@ -54,7 +54,7 @@ func TestMCPTunnelLifecycleAndScopedToken(t *testing.T) {
 		}
 		return r
 	}
-	body := map[string]any{"organization_id": org.ID, "name": "MCP tunnel", "listen_host": "127.0.0.1", "listen_port": freeTunnelPort(t), "destination_host": "127.0.0.1", "destination_port": 80, "duration_seconds": 3600}
+	body := map[string]any{"protocol": "port", "organization_id": org.ID, "name": "MCP tunnel", "listen_host": "127.0.0.1", "listen_port": freeTunnelPort(t), "destination_host": "127.0.0.1", "destination_port": 80, "duration_seconds": 3600}
 	created := call("tunnel_create", body, false)
 	id := stringField(t, created.StructuredContent, "tunnel", "id")
 	config, err := app.store.Repository().GetTunnel(context.Background(), id)

@@ -9,48 +9,53 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"time"
 )
 
 func (m *edgeForwardManager) serverDial(ctx context.Context, targetID string, routes []protocol.ForwardRoute) (forward.DialFunc, []io.Closer, error) {
-	allowed := map[string]string{}
+	allowed := map[string]protocol.ForwardRoute{}
 	for _, r := range routes {
-		allowed[r.ID] = r.Address
-	}
-	var base func(context.Context, string) (net.Conn, error)
-	var closers []io.Closer
-	if targetID == "" {
-		base = func(ctx context.Context, address string) (net.Conn, error) {
-			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", address)
+		if r.Network != "tcp" && r.Network != "udp" {
+			return nil, nil, errors.New("invalid route network")
 		}
-	} else {
+		allowed[r.ID] = r
+	}
+	base := forward.DialNetwork
+	var closers []io.Closer
+	if targetID != "" {
 		target, err := m.app.store.Repository().GetSSHTarget(ctx, targetID)
 		if err != nil {
 			return nil, nil, err
 		}
 		if target.TargetType == store.TargetAgent {
-			base = func(ctx context.Context, a string) (net.Conn, error) {
-				s, err := m.app.registry.Get(target.AgentID)
+			base = func(ctx context.Context, network, address string) (net.Conn, error) {
+				session, err := m.app.registry.Get(target.AgentID)
 				if err != nil {
 					return nil, err
 				}
-				return dialTunnelAgent(ctx, s, a)
+				return dialTunnelAgentNetwork(ctx, session, address, network)
 			}
 		} else {
+			for _, r := range routes {
+				if r.Network == "udp" {
+					return nil, nil, errors.New("SSH endpoints do not support UDP forwarding")
+				}
+			}
 			client, err := m.app.openTargetSSHClient(ctx, target)
 			if err != nil {
 				return nil, nil, err
 			}
 			closers = append(closers, client)
-			base = func(ctx context.Context, a string) (net.Conn, error) { return client.DialContext(ctx, "tcp", a) }
+			base = func(ctx context.Context, network, address string) (net.Conn, error) {
+				return client.DialContext(ctx, network, address)
+			}
 		}
 	}
 	return func(ctx context.Context, id string) (net.Conn, error) {
-		a, ok := allowed[id]
+		route, ok := allowed[id]
 		if !ok {
 			return nil, errors.New("unauthorized route")
 		}
-		return base(ctx, a)
+		return base(ctx, route.Network, route.Address)
 	}, closers, nil
 }
 func (m *edgeForwardManager) ensureServerRun(t store.Tunnel) {
@@ -77,10 +82,9 @@ func (m *edgeForwardManager) ensureServerRun(t store.Tunnel) {
 		if err != nil {
 			return err
 		}
-		var listener net.Listener
-		if t.EntryTargetID == "" {
-			listener, err = net.Listen("tcp", net.JoinHostPort(t.ListenHost, strconv.Itoa(t.ListenPort)))
-		} else {
+		address := net.JoinHostPort(t.ListenHost, strconv.Itoa(t.ListenPort))
+		listenTCP := func() (net.Listener, error) { return net.Listen("tcp", address) }
+		if t.EntryTargetID != "" {
 			target, e := m.app.store.Repository().GetSSHTarget(ctx, t.EntryTargetID)
 			if e != nil {
 				return e
@@ -90,28 +94,25 @@ func (m *edgeForwardManager) ensureServerRun(t store.Tunnel) {
 				return e
 			}
 			r.closers = append(r.closers, client)
-			listener, err = client.Listen("tcp", net.JoinHostPort(t.ListenHost, strconv.Itoa(t.ListenPort)))
-		}
-		if err != nil {
-			return err
+			listenTCP = func() (net.Listener, error) { return client.Listen("tcp", address) }
 		}
 		dials := map[string]forward.DialFunc{}
 		groups := map[string][]protocol.ForwardRoute{}
-		var tcp *forward.Location
+		destination := forward.Location{ID: "port", ExitTargetID: t.ExitTargetID, Host: t.DestinationHost, Port: t.DestinationPort}
 		if t.Protocol == "http" {
 			for _, s := range t.HTTP.Servers {
 				for _, l := range s.Locations {
-					groups[l.ExitTargetID] = append(groups[l.ExitTargetID], protocol.ForwardRoute{ID: l.ID, Address: l.Address()})
+					groups[l.ExitTargetID] = append(groups[l.ExitTargetID], protocol.ForwardRoute{ID: l.ID, Network: "tcp", Address: l.Address()})
 				}
 			}
 		} else {
-			tcp = &forward.Location{ID: "tcp", ExitTargetID: t.ExitTargetID, Host: t.DestinationHost, Port: t.DestinationPort}
-			groups[t.ExitTargetID] = []protocol.ForwardRoute{{ID: "tcp", Address: tcp.Address()}}
+			for _, network := range t.Transports {
+				groups[t.ExitTargetID] = append(groups[t.ExitTargetID], protocol.ForwardRoute{ID: network, Network: network, Address: destination.Address()})
+			}
 		}
 		for target, routes := range groups {
 			dial, closers, e := m.serverDial(ctx, target, routes)
 			if e != nil {
-				listener.Close()
 				return e
 			}
 			r.closers = append(r.closers, closers...)
@@ -119,15 +120,24 @@ func (m *edgeForwardManager) ensureServerRun(t store.Tunnel) {
 				dials[route.ID] = dial
 			}
 		}
-		r.runtime, err = forward.Start(ctx, listener, t.HTTP, tcp, func(ctx context.Context, id string) (net.Conn, error) {
+		dial := func(ctx context.Context, id string) (net.Conn, error) {
 			fn := dials[id]
 			if fn == nil {
 				return nil, errors.New("route unavailable")
 			}
 			return fn(ctx, id)
-		}, logs, nil)
-		if err != nil {
-			listener.Close()
+		}
+		if t.Protocol == "port" {
+			r.runtime, err = forward.StartPort(ctx, address, t.Transports, destination, dial, logs, nil, listenTCP)
+		} else {
+			listener, e := listenTCP()
+			if e != nil {
+				return e
+			}
+			r.runtime, err = forward.Start(ctx, listener, t.HTTP, nil, dial, logs, nil)
+			if err != nil {
+				listener.Close()
+			}
 		}
 		return err
 	}

@@ -475,6 +475,9 @@ func (m *tunnelManager) start(r *tunnelRun) {
 }
 
 func dialTunnelAgent(ctx context.Context, session *yamux.Session, destination string) (net.Conn, error) {
+	return dialTunnelAgentNetwork(ctx, session, destination, "tcp")
+}
+func dialTunnelAgentNetwork(ctx context.Context, session *yamux.Session, destination, network string) (net.Conn, error) {
 	stream, err := session.OpenStream()
 	if err != nil {
 		return nil, err
@@ -482,7 +485,7 @@ func dialTunnelAgent(ctx context.Context, session *yamux.Session, destination st
 	stop := context.AfterFunc(ctx, func() { _ = stream.Close() })
 	defer stop()
 	_ = stream.SetDeadline(time.Now().Add(10 * time.Second))
-	err = protocol.WriteJSONLine(stream, protocol.StreamRequest{Type: protocol.StreamTCP, Target: destination})
+	err = protocol.WriteJSONLine(stream, protocol.StreamRequest{Type: network, Target: destination})
 	reader := bufio.NewReader(stream)
 	if err == nil {
 		response, e := protocol.ReadJSONLine[protocol.StreamResponse](reader)

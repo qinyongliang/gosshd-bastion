@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func edgeManaged(t store.Tunnel) bool { return t.Protocol == "http" || t.Protocol == "tcp" }
+func edgeManaged(t store.Tunnel) bool { return t.Protocol == "http" || t.Protocol == "port" }
 
 type forwardLinkSpec struct {
 	peer      protocol.ForwardPeer

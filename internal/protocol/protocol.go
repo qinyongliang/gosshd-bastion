@@ -26,6 +26,7 @@ const (
 	StreamFileDownload     = "file-download"
 	StreamFileSession      = "file-session"
 	StreamTCP              = "tcp"
+	StreamUDP              = "udp"
 	StreamCancelForward    = "cancel-forward"
 	StreamTunnelPeer       = "tunnel-peer"
 	StreamTunnelListen     = "tunnel-listen"

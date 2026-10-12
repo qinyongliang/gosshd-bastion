@@ -22,14 +22,14 @@ export function ForwardLogsDialog({tunnel,onClose}:{tunnel:Tunnel;onClose:()=>vo
  const params=new URLSearchParams({source_ip:source,path,route_id:route,limit:"100",before:String(before)});if(status)params.set("status",String(status));
  const query=useQuery({queryKey:["forward-logs",tunnel.id,params.toString()],queryFn:()=>request<ForwardLogsResponse>("/api/tunnels/"+tunnel.id+"/logs?"+params.toString()),refetchInterval:before?false:5000});
  const data=query.data;const locations=tunnel.http?.servers.flatMap(s=>s.locations)||[];
- const routeName=(id:string)=>locations.find(l=>l.id===id)?.name||locations.find(l=>l.id===id)?.path||id||"—";
+ const routeName=(id:string)=>tunnel.protocol === "port" ? id.toUpperCase() : locations.find(l=>l.id===id)?.name||locations.find(l=>l.id===id)?.path||id||"—";
  const update=(fn:()=>void)=>{setBefore(0);fn();};
  const columns=[
   {title:tx("时间","Time"),dataIndex:"time",width:170,render:(v:number)=>new Date(v).toLocaleString(locale)},
   {title:tx("来源 IP","Source IP"),dataIndex:"source_ip",width:130},
   {title:"Method / Host / Path",key:"request",width:350,render:(_:unknown,e:ForwardEvent)=><div className="forward-log-path"><Tag>{e.method}</Tag>{e.host}<div>{e.path||"—"}</div></div>},
   {title:tx("匹配路由 / 出口","Matched route / upstream"),key:"route",width:250,render:(_:unknown,e:ForwardEvent)=><div className="forward-log-path"><strong>{routeName(e.route_id)}</strong><div>{e.upstream}</div><Tag>{(e.direct_up+e.direct_down)>0 ? ((e.direct_up+e.direct_down)===(e.up+e.down)?tx("直连","Direct"):tx("混合路径","Mixed")) : (e.direct?tx("直连","Direct"):tx("中转 / 本地","Relay / local"))}</Tag></div>},
-  {title:"Code",dataIndex:"status",width:80,render:(v:number)=><Tag color={v>=500?"red":v>=400?"orange":"green"}>{v||"TCP"}</Tag>},
+  {title:"Code",dataIndex:"status",width:80,render:(v:number,e:ForwardEvent)=><Tag color={v>=500?"red":v>=400?"orange":"green"}>{v||e.method}</Tag>},
   {title:tx("上传 / 下载","Upload / download"),key:"traffic",width:150,render:(_:unknown,e:ForwardEvent)=>formatBytes(e.up)+" / "+formatBytes(e.down)},
   {title:tx("并发 / 耗时","Concurrent / duration"),key:"duration",width:150,render:(_:unknown,e:ForwardEvent)=>e.concurrent+" (IP: "+e.source_concurrent+") / "+e.duration_ms+" ms"},
   {title:tx("错误","Error"),dataIndex:"error",width:180},
@@ -43,7 +43,7 @@ export function ForwardLogsDialog({tunnel,onClose}:{tunnel:Tunnel;onClose:()=>vo
   <div className="forward-log-filters">
    <Input aria-label={tx("来源 IP 筛选","Filter source IP")} placeholder={tx("来源 IP","Source IP")} value={source} onChange={e=>update(()=>setSource(e.target.value))}/>
    <Input aria-label={tx("请求 Path 筛选","Filter request path")} placeholder={tx("请求 Path","Request path")} value={path} onChange={e=>update(()=>setPath(e.target.value))}/>
-   <Select aria-label={tx("路由筛选","Filter route")} value={route} onChange={v=>update(()=>setRoute(v))} options={[{value:"",label:tx("全部路由","All routes")},...locations.map(l=>({value:l.id,label:l.name||l.path}))]}/>
+   <Select aria-label={tx("路由筛选","Filter route")} value={route} onChange={v=>update(()=>setRoute(v))} options={[{value:"",label:tx("全部路由","All routes")},...(tunnel.protocol === "port" ? (tunnel.transports||[]).map(p=>({value:p,label:p.toUpperCase()})) : locations.map(l=>({value:l.id,label:l.name||l.path})))]}/>
    <InputNumber aria-label="Response code" placeholder="Code" min={100} max={599} value={status} onChange={v=>update(()=>setStatus(v))}/>
    <Button icon={<RefreshCw size={15}/>} onClick={()=>void query.refetch()}>{tx("刷新","Refresh")}</Button>
   </div>

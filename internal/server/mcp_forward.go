@@ -14,7 +14,7 @@ type mcpForwardLogsInput struct {
 }
 
 func (a *App) addMCPForwardTools(s *mcp.Server, initial store.User) {
-	mcp.AddTool(s, &mcp.Tool{Name: "forward_logs", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}, Description: "Query independent per-configuration TCP/HTTP access logs and lifetime totals. Includes source IP, request host/path/query, matched server/location, upstream, response status, actual payload bytes, duration and concurrency; filter by source_ip/path/route_id/status and Unix-millisecond from/to. before is an exclusive sequence cursor; limit defaults to 100, maximum 500. Agent data is periodically reported; last_report and edge_stats expose staleness/dropped writes. Same organization-admin permissions as tunnel tools."}, func(ctx context.Context, _ *mcp.CallToolRequest, in mcpForwardLogsInput) (*mcp.CallToolResult, forwardLogsResponse, error) {
+	mcp.AddTool(s, &mcp.Tool{Name: "forward_logs", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}, Description: "Query independent per-configuration port (TCP/UDP) and HTTP access logs and lifetime totals. Includes source IP, request host/path/query, matched server/location, upstream, response status, actual payload bytes, duration and concurrency; filter by source_ip/path/route_id/status and Unix-millisecond from/to. before is an exclusive sequence cursor; limit defaults to 100, maximum 500. Agent data is periodically reported; last_report and edge_stats expose staleness/dropped writes. Same organization-admin permissions as tunnel tools."}, func(ctx context.Context, _ *mcp.CallToolRequest, in mcpForwardLogsInput) (*mcp.CallToolResult, forwardLogsResponse, error) {
 		actor, err := a.tunnelActor(ctx, initial)
 		if err != nil {
 			return nil, forwardLogsResponse{}, err

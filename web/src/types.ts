@@ -341,7 +341,7 @@ export type HTTPForwardLocation = {id: string; name: string; match: "prefix" | "
 export type HTTPForwardServer = {id: string; name: string; hosts: string[]; locations: HTTPForwardLocation[]};
 export type HTTPForwardConfig = {servers: HTTPForwardServer[]};
 export type TunnelConfig = {
- protocol?: "tcp" | "http"; http?: HTTPForwardConfig;
+ protocol?: "port" | "http"; transports?: ("tcp" | "udp")[]; http?: HTTPForwardConfig;
  name: string; entry_target_id: string; listen_host: string; listen_port: number;
  exit_target_id: string; destination_host: string; destination_port: number; duration_seconds: number;
 };

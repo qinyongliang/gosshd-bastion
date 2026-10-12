@@ -240,7 +240,7 @@ func TestTCPForwardEdgeMultiplexerSurvivesServerLoss(t *testing.T) {
 	exitAgent := attachForwardTestAgent(t, app, "tcp-edge-exit")
 	entry := tunnelAgentTarget(t, app, u, o, entryAgent.id)
 	exit := tunnelAgentTarget(t, app, u, o, exitAgent.id)
-	view, err := app.saveManagedTunnel(context.Background(), u, store.Tunnel{OrganizationID: o.ID, CreatedBy: u.ID, TunnelConfig: store.TunnelConfig{Protocol: "tcp", Name: "Edge TCP", EntryTargetID: entry.ID, ExitTargetID: exit.ID, ListenHost: "127.0.0.1", ListenPort: freeTunnelPort(t), DestinationHost: "127.0.0.1", DestinationPort: echo.Addr().(*net.TCPAddr).Port}})
+	view, err := app.saveManagedTunnel(context.Background(), u, store.Tunnel{OrganizationID: o.ID, CreatedBy: u.ID, TunnelConfig: store.TunnelConfig{Protocol: "port", Transports: []string{"tcp"}, Name: "Edge TCP", EntryTargetID: entry.ID, ExitTargetID: exit.ID, ListenHost: "127.0.0.1", ListenPort: freeTunnelPort(t), DestinationHost: "127.0.0.1", DestinationPort: echo.Addr().(*net.TCPAddr).Port}})
 	if err != nil {
 		t.Fatal(err)
 	}

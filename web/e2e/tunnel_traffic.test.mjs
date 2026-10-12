@@ -11,7 +11,6 @@ const sources = [
   { ...traffic, source_ip: "2001:db8::1", relay_up: 0, relay_down: 0, connections_opened: 3, active_connections: 1 },
 ];
 const fixtures = [
-  { id: "managed", name: "Traffic test" },
   { id: "local", name: "SSH local", temporary: true, forward_type: "local" },
   { id: "remote", name: "SSH remote", temporary: true, forward_type: "remote" },
 ].map((t) => ({ entry_target_id: "", exit_target_id: "", listen_host: "127.0.0.1", listen_port: 8080, listen_address: "127.0.0.1:8080", destination_host: "127.0.0.1", destination_port: 80, duration_seconds: 0, enabled: true, status: "running", transport: "mixed", connections: 2, direct_connections: 1, traffic, ...t }));
@@ -43,7 +42,7 @@ try {
     const down = zh ? "目标返回 (目标服务 → 入口)" : "From destination (Destination service → Entry)";
     const cards = page.locator(".tunnel-card");
     await cards.first().waitFor();
-    assert.equal(await cards.count(), 3);
+    assert.equal(await cards.count(), 2);
     for (const card of await cards.all()) {
       await card.getByText(up + ": 5.00 KiB", { exact: true }).waitFor();
       await card.getByText(down + ": 10.0 KiB", { exact: true }).waitFor();

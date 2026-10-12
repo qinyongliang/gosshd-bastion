@@ -18,7 +18,8 @@ type mcpTunnelListInput struct {
 	OrganizationID string `json:"organization_id"`
 }
 type mcpTunnelSaveInput struct {
-	Protocol        string              `json:"protocol,omitempty" jsonschema:"tcp or http; omitted retains legacy TCP behavior."`
+	Transports      []string            `json:"transports,omitempty" jsonschema:"Port transports: tcp, udp, or both. Defaults to tcp. UDP requires bastion or Agent endpoints."`
+	Protocol        string              `json:"protocol" jsonschema:"port or http."`
 	HTTP            *forward.HTTPConfig `json:"http,omitempty" jsonschema:"HTTP server and location blocks. Match modifiers: prefix, =, ^~, ~, ~*. Regex uses Go RE2."`
 	OrganizationID  string              `json:"organization_id"`
 	Name            string              `json:"name"`
@@ -31,6 +32,7 @@ type mcpTunnelSaveInput struct {
 	DurationSeconds int64               `json:"duration_seconds,omitempty" jsonschema:"Duration per enable; 0 is permanent; maximum 365 days. Reconnecting does not reset expiration."`
 }
 type mcpTunnelUpdateInput struct {
+	Transports      *[]string           `json:"transports,omitempty"`
 	Protocol        *string             `json:"protocol,omitempty"`
 	HTTP            *forward.HTTPConfig `json:"http,omitempty"`
 	TunnelID        string              `json:"tunnel_id"`
@@ -103,13 +105,13 @@ func (a *App) addMCPTunnelTools(s *mcp.Server, initialActor store.User) {
 			}
 			return nil, mcpTunnelOutput{a.tunnelView(t)}, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "tunnel_create", Description: "Create a persistent TCP or HTTP forward, initially stopped. HTTP uses named server/host and location blocks with per-location exits, schemes and headers; TCP uses destination_host/port. Explicit protocol tcp/http enables edge deployment and independent access databases. Flow: client -> entry machine listening address -> exit machine -> destination. Entry/exit accept Agent or ordinary SSH machine IDs and SSH jump chains. Call tunnel_enable separately to start. Creator is always the authenticated user."},
+	mcp.AddTool(s, &mcp.Tool{Name: "tunnel_create", Description: "Create a persistent port or HTTP forward, initially stopped. HTTP uses named server/host and location blocks with per-location exits, schemes and headers; Port uses destination_host/port and transports tcp/udp/both (default tcp). Protocol must be port or http. UDP requires bastion or Agent endpoints; SSH is TCP-only. Flow: client -> entry machine listening address -> exit machine -> destination. Entry/exit accept Agent or ordinary SSH machine IDs and SSH jump chains. Call tunnel_enable separately to start. Creator is always the authenticated user."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpTunnelSaveInput) (*mcp.CallToolResult, mcpTunnelOutput, error) {
 			actor, err := a.tunnelActor(ctx, initialActor)
 			if err != nil {
 				return nil, mcpTunnelOutput{}, err
 			}
-			t := store.Tunnel{OrganizationID: in.OrganizationID, CreatedBy: actor.ID, TunnelConfig: store.TunnelConfig{Protocol: in.Protocol, HTTP: in.HTTP, Name: in.Name, EntryTargetID: in.EntryTargetID, ListenHost: in.ListenHost, ListenPort: in.ListenPort, ExitTargetID: in.ExitTargetID, DestinationHost: in.DestinationHost, DestinationPort: in.DestinationPort, DurationSeconds: in.DurationSeconds}}
+			t := store.Tunnel{OrganizationID: in.OrganizationID, CreatedBy: actor.ID, TunnelConfig: store.TunnelConfig{Protocol: in.Protocol, Transports: in.Transports, HTTP: in.HTTP, Name: in.Name, EntryTargetID: in.EntryTargetID, ListenHost: in.ListenHost, ListenPort: in.ListenPort, ExitTargetID: in.ExitTargetID, DestinationHost: in.DestinationHost, DestinationPort: in.DestinationPort, DurationSeconds: in.DurationSeconds}}
 			saved, err := a.saveManagedTunnel(ctx, actor, t)
 			return nil, mcpTunnelOutput{saved}, err
 		})
@@ -125,9 +127,15 @@ func (a *App) addMCPTunnelTools(s *mcp.Server, initialActor store.User) {
 			}
 			if in.Protocol != nil {
 				t.Protocol = *in.Protocol
+				if t.Protocol == "http" {
+					t.Transports = nil
+				}
 				if t.Protocol != "http" {
 					t.HTTP = nil
 				}
+			}
+			if in.Transports != nil {
+				t.Transports = *in.Transports
 			}
 			if in.HTTP != nil {
 				t.HTTP = in.HTTP

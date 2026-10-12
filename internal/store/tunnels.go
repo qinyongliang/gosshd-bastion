@@ -12,6 +12,7 @@ import (
 
 // Empty target IDs select the bastion server itself.
 type TunnelConfig struct {
+	Transports      []string                  `json:"transports,omitempty"`
 	Protocol        string                    `json:"protocol,omitempty"`
 	HTTP            *protocoltypes.HTTPConfig `json:"http,omitempty"`
 	Name            string                    `json:"name"`

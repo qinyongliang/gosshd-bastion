@@ -22,6 +22,9 @@ func (a *App) managedTunnel(ctx context.Context, actor store.User, id string) (s
 	return t, nil
 }
 func (a *App) saveManagedTunnel(ctx context.Context, actor store.User, t store.Tunnel) (apiTunnel, error) {
+	if t.Protocol == "port" && t.Transports == nil {
+		t.Transports = []string{"tcp"}
+	}
 	t.Name = strings.TrimSpace(t.Name)
 	t.ListenHost = strings.TrimSpace(t.ListenHost)
 	t.DestinationHost = strings.TrimSpace(t.DestinationHost)

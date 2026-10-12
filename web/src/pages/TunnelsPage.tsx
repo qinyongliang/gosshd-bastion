@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Button,
+  Checkbox,
   ConfigProvider,
   Input,
   InputNumber,
@@ -80,6 +81,10 @@ const copy = {
     listenHint: "在入口机器监听。127.0.0.1 仅本机可访问。",
     destinationHint: "从出口机器访问；127.0.0.1 表示出口机器自身。",
     port: "监听端口",
+    portForward: "端口转发",
+    protocols: "传输协议",
+    selectProtocol: "请至少选择 TCP 或 UDP。",
+    udpSSH: "UDP 仅支持堡垒机和 Agent 端点；SSH 机器只支持 TCP。",
     targetHost: "目标地址",
     targetPort: "目标端口",
     entryMachine: "入口机器",
@@ -158,6 +163,10 @@ const copy = {
     destinationHint:
       "Reached from the exit machine; 127.0.0.1 means that machine itself.",
     port: "Listen port",
+    portForward: "Port forwarding",
+    protocols: "Transport protocols",
+    selectProtocol: "Select TCP or UDP (or both).",
+    udpSSH: "UDP requires bastion or Agent endpoints; SSH machines support TCP only.",
     targetHost: "Destination address",
     targetPort: "Destination port",
     entryMachine: "Entry machine",
@@ -308,6 +317,11 @@ function Flow({
                   />
                 </label>
               </div>
+              <div className="field tunnel-protocols">
+                <span>{w.protocols}</span>
+                <Checkbox.Group aria-label={w.protocols} options={["tcp", "udp"].map(value => ({ label: value.toUpperCase(), value }))}
+                  value={config.transports || []} onChange={values => editor.onChange({ transports: values as ("tcp" | "udp")[] })} />
+              </div>
               <div className="tunnel-bind-presets">
                 <Segmented
                   value={config.listen_host}
@@ -323,6 +337,7 @@ function Flow({
             <>
               <strong>{machine(config.entry_target_id)}</strong>
               <code>{endpoint(config.listen_host, config.listen_port)}</code>
+              <span>{(config.transports || ("temporary" in config ? ["tcp"] : [])).map(p => p.toUpperCase()).join(" + ")}</span>
             </>
           )}
         </div>
@@ -414,7 +429,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
     action: "stop" | "delete" | "enable";
   } | null>(null);
   const [traffic, setTraffic] = useState<Tunnel | null>(null);
- const [protocolTab, setProtocolTab] = useState<"tcp" | "http">("tcp");
+ const [protocolTab, setProtocolTab] = useState<"port" | "http">("port");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const key = ["tunnels", data.activeOrg.id];
@@ -440,7 +455,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
       await qc.invalidateQueries({ queryKey: key });
     },
   });
-  const all = (tunnels.data?.tunnels || []).filter(t => (t.protocol || "tcp") === protocolTab);
+  const all = (tunnels.data?.tunnels || []).filter(t => (t.temporary ? "port" : t.protocol) === protocolTab);
   const items = all.filter(
     (t) =>
       (filter === "all" || t.status === filter) &&
@@ -480,7 +495,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
             {w.create}
           </Button>
         </section>
-<Tabs activeKey={protocolTab} onChange={v=>{setProtocolTab(v as "tcp"|"http");setQuery("");}} items={[{key:"tcp",label:"TCP "+(locale==="zh-CN"?"隧道":"tunnels")},{key:"http",label:"HTTP "+(locale==="zh-CN"?"转发":"forwarding")}]}/>
+<Tabs activeKey={protocolTab} onChange={v=>{setProtocolTab(v as "port"|"http");setQuery("");}} items={[{key:"port",label:w.portForward},{key:"http",label:"HTTP "+(locale==="zh-CN"?"转发":"forwarding")}]}/>
         {!allowed ? (
           <p>{w.restricted}</p>
         ) : (
@@ -776,7 +791,7 @@ function TunnelEditor({
 }: {
   data: ConsoleData;
   tunnel: Tunnel | null;
-  initialProtocol: "tcp" | "http";
+  initialProtocol: "port" | "http";
   words: Words;
   onClose: () => void;
   onSaved: () => Promise<unknown>;
@@ -787,7 +802,8 @@ function TunnelEditor({
   const [config, setConfig] = useState<TunnelConfig>(
     tunnel
       ? {
-          protocol: tunnel.protocol || "tcp",
+          protocol: tunnel.protocol,
+          transports: tunnel.transports,
           http: tunnel.http,
           name: tunnel.name,
           entry_target_id: tunnel.entry_target_id,
@@ -801,6 +817,7 @@ function TunnelEditor({
       : {
           ...blank,
           protocol: initialProtocol,
+          transports: ["tcp"],
           http: initialProtocol === "http" ? {servers:[newHTTPServer(firstMachine)]} : undefined,
           entry_target_id: firstMachine,
           exit_target_id: firstMachine,
@@ -811,9 +828,13 @@ function TunnelEditor({
   const [timed, setTimed] = useState(config.duration_seconds > 0);
   const set = <K extends keyof TunnelConfig>(key: K, value: TunnelConfig[K]) =>
     setConfig((c) => ({ ...c, [key]: value }));
+  const invalidProtocols = config.protocol === "port" && !config.transports?.length;
+  const udpSSH = config.protocol === "port" && config.transports?.includes("udp") &&
+    [config.entry_target_id, config.exit_target_id].some(id => id && data.targets.find(t => t.id === id)?.target_type === "direct");
   const mutation = useMutation({
     mutationFn: async () => {
-      const body = {...config, http: config.protocol === "http" ? config.http : undefined};
+      if (invalidProtocols || udpSSH) throw new Error(udpSSH ? w.udpSSH : w.selectProtocol);
+      const body = {...config, transports: config.protocol === "port" ? config.transports : undefined, http: config.protocol === "http" ? config.http : undefined};
       const result =
         tunnel || savedID
           ? await api.updateTunnel(tunnel?.id || savedID!, body)
@@ -855,7 +876,7 @@ function TunnelEditor({
             placeholder={w.namePlaceholder}
           />
         </label>
-<div className="forward-editor-type"><Segmented value={config.protocol || "tcp"} items={[["tcp","TCP"],["http","HTTP"]]} onChange={v=>{setConfig(c=>({...c,protocol:v as "tcp"|"http",http:c.http||{servers:[newHTTPServer(firstMachine)]}}));}}/></div>
+<div className="forward-editor-type"><Segmented value={config.protocol || "port"} items={[["port",w.portForward],["http","HTTP"]]} onChange={v=>{setConfig(c=>({...c,protocol:v as "port"|"http",transports:v === "port" ? c.transports ?? ["tcp"] : c.transports,http:c.http||{servers:[newHTTPServer(firstMachine)]}}));}}/></div>
         <div className="tunnel-preview-heading">
           <Network size={17} />
           <strong>{w.flow}</strong>
@@ -914,6 +935,7 @@ function TunnelEditor({
             <span>{w.enableOnSave}</span>
           </label>
         )}
+        {(invalidProtocols || udpSSH) && <p role="alert" className="tunnel-edit-warning">{udpSSH ? w.udpSSH : w.selectProtocol}</p>}
         <ErrorMessage error={mutation.error} />
         <div className="form-actions">
           <Button onClick={onClose} disabled={mutation.isPending}>
@@ -924,7 +946,7 @@ function TunnelEditor({
             htmlType="submit"
             loading={mutation.isPending}
             disabled={
-              config.entry_target_id === "__select__" ||
+              invalidProtocols || udpSSH || config.entry_target_id === "__select__" ||
               (config.protocol === "http" ? config.http?.servers.some(s=>s.locations.some(l=>l.exit_target_id === "__select__")) : config.exit_target_id === "__select__")
             }
           >

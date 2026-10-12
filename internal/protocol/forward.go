@@ -9,6 +9,7 @@ const (
 )
 
 type ForwardRoute struct {
+	Network string         `json:"network"`
 	ID      string         `json:"id"`
 	Address string         `json:"address"`
 	Hops    []TunnelSSHHop `json:"hops,omitempty"`
@@ -21,7 +22,8 @@ type ForwardDeployment struct {
 	ListenAddress string                    `json:"listen_address"`
 	ListenHops    []TunnelSSHHop            `json:"listen_hops,omitempty"`
 	HTTP          *protocoltypes.HTTPConfig `json:"http,omitempty"`
-	TCP           *protocoltypes.Location   `json:"tcp,omitempty"`
+	Transports    []string                  `json:"transports,omitempty"`
+	Destination   *protocoltypes.Location   `json:"destination,omitempty"`
 	Routes        []ForwardRoute            `json:"routes"`
 	ExpiresAt     int64                     `json:"expires_at,omitempty"`
 }

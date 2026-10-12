@@ -47,8 +47,24 @@ func (a *App) validateTunnel(ctx context.Context, user store.User, orgID string,
 	if c.DurationSeconds < 0 || c.DurationSeconds > 365*24*3600 {
 		return errors.New("duration must be 0 (permanent) or at most 365 days")
 	}
-	if c.Protocol != "" && c.Protocol != "tcp" && c.Protocol != "http" {
-		return errors.New("protocol must be tcp or http")
+	if c.Protocol != "port" && c.Protocol != "http" {
+		return errors.New("protocol must be port or http")
+	}
+	udp := false
+	if c.Protocol == "port" {
+		if len(c.Transports) == 0 {
+			return errors.New("select at least one transport: tcp or udp")
+		}
+		seen := map[string]bool{}
+		for _, network := range c.Transports {
+			if (network != "tcp" && network != "udp") || seen[network] {
+				return errors.New("transports must contain unique tcp and/or udp values")
+			}
+			seen[network] = true
+			udp = udp || network == "udp"
+		}
+	} else if len(c.Transports) != 0 {
+		return errors.New("transports require port protocol")
 	}
 	endpoints := []string{c.EntryTargetID}
 	if c.Protocol == "http" {
@@ -87,6 +103,9 @@ func (a *App) validateTunnel(ctx context.Context, user store.User, orgID string,
 		}
 		if target.TargetType != store.TargetAgent && target.TargetType != store.TargetDirect {
 			return errors.New("unsupported endpoint machine type")
+		}
+		if udp && target.TargetType != store.TargetAgent {
+			return errors.New("UDP requires bastion or Agent endpoints; SSH endpoints do not support UDP forwarding")
 		}
 		// Validate every jump host as well: a saved chain must not cross organizations.
 		seen := map[string]bool{id: true}

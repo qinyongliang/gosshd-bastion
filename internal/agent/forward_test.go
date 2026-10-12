@@ -47,7 +47,7 @@ func TestForwardEncryptedSnapshotRestoresLocalTCPWithoutServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	route := forward.Location{ID: "tcp", Host: "127.0.0.1", Port: echo.Addr().(*net.TCPAddr).Port}
-	d := protocol.ForwardDeployment{ID: uuid.NewString(), Revision: 1, Protocol: "tcp", ListenAddress: address, TCP: &route, Routes: []protocol.ForwardRoute{{ID: "tcp", Address: echo.Addr().String()}}}
+	d := protocol.ForwardDeployment{ID: uuid.NewString(), Revision: 1, Protocol: "port", Transports: []string{"tcp"}, ListenAddress: address, Destination: &route, Routes: []protocol.ForwardRoute{{ID: "tcp", Network: "tcp", Address: echo.Addr().String()}}}
 	m.mu.Lock()
 	m.apply(d)
 	if err := m.persist([]protocol.ForwardDeployment{d}); err != nil {
@@ -114,7 +114,7 @@ func TestForwardAgentAbsoluteExpirationWithoutServer(t *testing.T) {
 	address := listener.Addr().String()
 	listener.Close()
 	route := forward.Location{ID: "tcp", Host: "127.0.0.1", Port: 9}
-	d := protocol.ForwardDeployment{ID: uuid.NewString(), Revision: 1, Protocol: "tcp", ListenAddress: address, TCP: &route, Routes: []protocol.ForwardRoute{{ID: "tcp", Address: "127.0.0.1:9"}}, ExpiresAt: time.Now().Add(200 * time.Millisecond).UnixMilli()}
+	d := protocol.ForwardDeployment{ID: uuid.NewString(), Revision: 1, Protocol: "port", Transports: []string{"tcp"}, ListenAddress: address, Destination: &route, Routes: []protocol.ForwardRoute{{ID: "tcp", Network: "tcp", Address: "127.0.0.1:9"}}, ExpiresAt: time.Now().Add(200 * time.Millisecond).UnixMilli()}
 	m.mu.Lock()
 	m.apply(d)
 	m.mu.Unlock()
@@ -124,4 +124,77 @@ func TestForwardAgentAbsoluteExpirationWithoutServer(t *testing.T) {
 		conn.Close()
 		t.Fatal("expired Agent rule still listens without server")
 	}
+}
+
+func TestForwardEncryptedSnapshotRestoresUDPWithoutServer(t *testing.T) {
+	echo, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer echo.Close()
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			n, a, e := echo.ReadFrom(buf)
+			if e != nil {
+				return
+			}
+			echo.WriteTo(buf[:n], a)
+		}
+	}()
+	available, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := available.LocalAddr().String()
+	available.Close()
+	dir := t.TempDir()
+	cfg := Config{Root: dir, IDFile: filepath.Join(dir, "agent.json")}
+	client, err := NewEmbedded(cfg, "udp-cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	m, err := client.forwarder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := forward.Location{ID: "port", Host: "127.0.0.1", Port: echo.LocalAddr().(*net.UDPAddr).Port}
+	d := protocol.ForwardDeployment{ID: uuid.NewString(), Revision: 1, Protocol: "port", Transports: []string{"udp"}, ListenAddress: address, Destination: &route, Routes: []protocol.ForwardRoute{{ID: "udp", Network: "udp", Address: echo.LocalAddr().String()}}}
+	m.mu.Lock()
+	m.apply(d)
+	err = m.persist([]protocol.ForwardDeployment{d})
+	m.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func() {
+		c, e := net.Dial("udp", address)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer c.Close()
+		c.SetDeadline(time.Now().Add(time.Second))
+		c.Write([]byte("cached UDP"))
+		buf := make([]byte, 32)
+		n, e := c.Read(buf)
+		if e != nil || string(buf[:n]) != "cached UDP" {
+			t.Fatalf("restored UDP %q %v", buf[:n], e)
+		}
+	}
+	check()
+	client.Close()
+	restarted, err := NewEmbedded(cfg, "udp-cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	restored, err := restarted.forwarder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.runs[d.ID] == nil || restored.runs[d.ID].err != "" {
+		t.Fatal("UDP snapshot not restored")
+	}
+	check()
 }

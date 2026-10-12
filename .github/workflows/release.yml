@@ -53,7 +53,7 @@ jobs:
           go test -race ./internal/filetransfer ./internal/agent -run 'Test(Receive|Send|FileUpload|FileDownload)' -count=1
           go test -race ./internal/server -run '^Test(File(Upload|Download|Transfer)|HTTPUploadAuditIncludesRequestBodyTransfer|AuditAPIPreservesSubsecondTimestamps)' -count=1
           go test -race ./internal/forward ./internal/protocol/types ./internal/tunnel -count=1 -timeout=5m
-          go test -race ./internal/agent ./internal/server -run 'HTTP|Forward|Edge|Telemetry' -count=1 -timeout=5m
+          go test -race ./internal/agent ./internal/server -run 'HTTP|Forward|Edge|Telemetry|Port|UDP|Datagram' -count=1 -timeout=5m
           go test ./internal/tunnel -count=1
           go test ./internal/store -run '^TestMainStorePooledConnectionsWaitForWriters$' -count=1
           go test ./internal/server -run '^Test(Tunnel|TemporarySSHForward|TemporarySSHRemote|MCPTunnel)' -count=1
@@ -66,7 +66,7 @@ jobs:
           export GOSSHD_UI_E2E_NODE="$(command -v node)"
           export GOSSHD_UI_E2E_PLAYWRIGHT="$RUNNER_TEMP/ui-e2e/node_modules/playwright"
           export GOSSHD_UI_E2E_BROWSER="$(node -e 'console.log(require(process.argv[1]).chromium.executablePath())' "$GOSSHD_UI_E2E_PLAYWRIGHT")"
-          go test ./internal/server -run '^Test(ControlStyles|TunnelTraffic|HTTPForwarding|FileUpload(ViaAgentSSH)?|FileDownload(ViaAgentSSH)?|FileSelection|DraggableWorkspace)UIE2EWithBrowser$' -count=1 -timeout=8m
+          go test ./internal/server -run '^Test(ControlStyles|TunnelTraffic|HTTPForwarding|PortForwarding|FileUpload(ViaAgentSSH)?|FileDownload(ViaAgentSSH)?|FileSelection|DraggableWorkspace)UIE2EWithBrowser$' -count=1 -timeout=8m
 
       - name: Build binaries and packages
         shell: bash

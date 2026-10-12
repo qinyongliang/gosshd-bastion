@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -63,19 +64,19 @@ func waitTunnel(t *testing.T, app *App, id string, status string) store.Tunnel {
 		if err != nil {
 			t.Fatal(err)
 		}
-		s := app.tunnels.status(v)
+		s := app.tunnelAPIStatus(v)
 		if s.Status == status {
 			return v
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 	v, _ := app.store.Repository().GetTunnel(context.Background(), id)
-	t.Fatalf("tunnel did not become %s: %+v", status, app.tunnels.status(v))
+	t.Fatalf("tunnel did not become %s: %+v", status, app.tunnelAPIStatus(v))
 	return v
 }
 func createTestTunnel(t *testing.T, app *App, user store.User, org store.Organization, entry, exit string, dest int) store.Tunnel {
 	t.Helper()
-	c := store.TunnelConfig{Name: "test", EntryTargetID: entry, ExitTargetID: exit, ListenHost: "127.0.0.1", ListenPort: freeTunnelPort(t), DestinationHost: "127.0.0.1", DestinationPort: dest}
+	c := store.TunnelConfig{Protocol: "port", Transports: []string{"tcp"}, Name: "test", EntryTargetID: entry, ExitTargetID: exit, ListenHost: "127.0.0.1", ListenPort: freeTunnelPort(t), DestinationHost: "127.0.0.1", DestinationPort: dest}
 	v, err := app.store.Repository().SaveTunnel(context.Background(), store.Tunnel{TunnelConfig: c, OrganizationID: org.ID, CreatedBy: user.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +86,7 @@ func createTestTunnel(t *testing.T, app *App, user store.User, org store.Organiz
 		t.Fatal(err)
 	}
 	app.tunnels.notify()
+	app.forwards.notify()
 	return waitTunnel(t, app, v.ID, "running")
 }
 func roundtripTunnel(t *testing.T, c net.Conn) {
@@ -101,7 +103,7 @@ func roundtripTunnel(t *testing.T, c net.Conn) {
 	}
 	c.SetDeadline(time.Time{})
 }
-func TestTunnelRelayStopAndAuditStatistics(t *testing.T) {
+func TestTunnelRelayStopAndStatistics(t *testing.T) {
 	app, user, org := tunnelFixture(t)
 	echo := tunnelEcho(t)
 	v := createTestTunnel(t, app, user, org, "", "", echo.Addr().(*net.TCPAddr).Port)
@@ -129,16 +131,29 @@ func TestTunnelRelayStopAndAuditStatistics(t *testing.T) {
 	if _, err = c.Read(b[:]); err == nil {
 		t.Fatal("stop did not close established TCP")
 	}
-	total, err := app.audit.Repository().TunnelTrafficTotal(context.Background(), v.ID)
+	logs, err := app.forwards.logStore(v.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	var total store.TunnelTraffic
+	for time.Now().Before(deadline) {
+		stats, e := logs.Stats(context.Background())
+		if e != nil {
+			t.Fatal(e)
+		}
+		total = forwardTraffic(stats)
+		if total.RelayUp == 56000 && total.RelayDown == 56000 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if total.RelayUp != 56000 || total.RelayDown != 56000 || total.ConnectionsOpened != 1 || total.PeakConnections != 1 {
 		t.Fatalf("unexpected persisted statistics: %+v", total)
 	}
-	sources, err := app.audit.Repository().TunnelTrafficSources(context.Background(), v.ID, 0, time.Now().Unix()+300, "")
-	if err != nil || len(sources) != 1 || sources[0].SourceIP != "127.0.0.1" || sources[0].RelayUp != 56000 || sources[0].RelayDown != 56000 || sources[0].ConnectionsOpened != 1 {
-		t.Fatalf("relay source attribution: %+v %v", sources, err)
+	stats, err := app.tunnelTrafficStatistics(context.Background(), v, time.Now().Truncate(store.TunnelTrafficInterval).Unix()-300, time.Now().Unix()+300, "")
+	if err != nil || len(stats.Sources) != 1 || stats.Sources[0].SourceIP != "127.0.0.1" || stats.Sources[0].RelayUp != 56000 || stats.Sources[0].RelayDown != 56000 || stats.Sources[0].ConnectionsOpened != 1 {
+		t.Fatalf("relay source attribution: %+v %v", stats, err)
 	}
 	var count int
 	err = app.store.DB().QueryRow(`SELECT count(*) FROM sqlite_master WHERE name='tunnel_traffic'`).Scan(&count)
@@ -164,9 +179,21 @@ func attachTunnelAgent(t *testing.T, app *App, id string) func() {
 	ctx, cancel := context.WithCancel(context.Background())
 	app.registry.Register(id, server)
 	go app.serveAgentTunnelConnections(id, server)
-	go embedded.ServeSession(ctx, client)
+	done := make(chan struct{})
+	go func() { defer close(done); _ = embedded.ServeSession(ctx, client) }()
 	app.tunnels.notify()
-	stop := func() { cancel(); server.Close(); client.Close(); app.registry.Unregister(id, server) }
+	app.forwards.notify()
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			server.Close()
+			client.Close()
+			app.registry.Unregister(id, server)
+			<-done
+			_ = embedded.Close()
+		})
+	}
 	t.Cleanup(stop)
 	return stop
 }
@@ -194,7 +221,7 @@ func TestTunnelAgentsP2PAndReconnect(t *testing.T) {
 	until := time.Now().Add(15 * time.Second)
 	for time.Now().Before(until) {
 		state := app.tunnelAPIStatus(v)
-		if state.Transport == "direct" && len(state.Paths) > 0 && state.Paths[0].Entry != nil && state.Paths[0].Exit != nil && state.Paths[0].Entry.Local != nil && state.Paths[0].Exit.Local != nil {
+		if state.Transport == "direct" && len(state.Paths) > 0 && state.Paths[0].Entry != nil && state.Paths[0].Entry.Local != nil && state.Paths[0].Entry.Remote != nil {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -203,18 +230,18 @@ func TestTunnelAgentsP2PAndReconnect(t *testing.T) {
 		t.Fatal("Agent tunnel did not switch to P2P")
 	}
 	route := app.tunnelAPIStatus(v).Paths
-	if len(route) == 0 || route[0].Entry == nil || route[0].Exit == nil || route[0].Entry.Local == nil || route[0].Exit.Local == nil || route[0].Entry.Local.Interface == "" || route[0].Exit.Local.Interface == "" {
+	if len(route) == 0 || route[0].Entry == nil || route[0].Entry.Local == nil || route[0].Entry.Remote == nil || route[0].Entry.Local.Interface == "" || route[0].Entry.Remote.Address == "" {
 		t.Fatalf("both Agents must report the selected interfaces: %+v", route)
 	}
 	roundtripTunnel(t, c)
-	time.Sleep(1200 * time.Millisecond)
+	waitForward(t, app, v, func(s tunnelStatus) bool { return s.Traffic.DirectUp > 0 && s.Traffic.DirectDown > 0 })
 	s := app.tunnelAPIStatus(v)
 	if s.Traffic.DirectUp == 0 || s.Traffic.DirectDown == 0 {
 		t.Fatalf("Agent did not report direct traffic: %+v", s)
 	}
 	c.Close()
 	deadline := time.Now().Add(5 * time.Second)
-	for app.tunnelAPIStatus(v).Connections != 0 && time.Now().Before(deadline) {
+	for (app.tunnelAPIStatus(v).Connections != 0 || app.tunnelAPIStatus(v).Traffic.RelayUp+app.tunnelAPIStatus(v).Traffic.DirectUp != 112000) && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	final := app.tunnelAPIStatus(v).Traffic
@@ -283,6 +310,7 @@ func TestTunnelExpiryAndCreatorRevocationCloseConnections(t *testing.T) {
 					t.Fatal(err)
 				}
 				app.tunnels.notify()
+				app.forwards.notify()
 			}
 			c.SetReadDeadline(time.Now().Add(4 * time.Second))
 			var b [1]byte
