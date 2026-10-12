@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/qinyongliang/gosshd-bastion/internal/forward"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
@@ -37,16 +38,40 @@ func (a *App) validateTunnel(ctx context.Context, user store.User, orgID string,
 	if net.ParseIP(c.ListenHost) == nil {
 		return errors.New("listen host must be an IP address")
 	}
-	if c.ListenPort < 1 || c.ListenPort > 65535 || c.DestinationPort < 1 || c.DestinationPort > 65535 {
+	if c.ListenPort < 1 || c.ListenPort > 65535 || (c.Protocol != "http" && (c.DestinationPort < 1 || c.DestinationPort > 65535)) {
 		return errors.New("ports must be between 1 and 65535")
 	}
-	if strings.TrimSpace(c.DestinationHost) == "" || len(c.DestinationHost) > 253 || strings.ContainsAny(c.DestinationHost, " /\\\t\r\n") {
+	if c.Protocol != "http" && (strings.TrimSpace(c.DestinationHost) == "" || len(c.DestinationHost) > 253 || strings.ContainsAny(c.DestinationHost, " /\\\t\r\n")) {
 		return errors.New("invalid destination host")
 	}
 	if c.DurationSeconds < 0 || c.DurationSeconds > 365*24*3600 {
 		return errors.New("duration must be 0 (permanent) or at most 365 days")
 	}
-	for _, id := range []string{c.EntryTargetID, c.ExitTargetID} {
+	if c.Protocol != "" && c.Protocol != "tcp" && c.Protocol != "http" {
+		return errors.New("protocol must be tcp or http")
+	}
+	endpoints := []string{c.EntryTargetID}
+	if c.Protocol == "http" {
+		if _, err := forward.Compile(c.HTTP); err != nil {
+			return err
+		}
+		for _, s := range c.HTTP.Servers {
+			for _, l := range s.Locations {
+				endpoints = append(endpoints, l.ExitTargetID)
+			}
+		}
+	} else {
+		if c.HTTP != nil {
+			return errors.New("HTTP blocks require HTTP protocol")
+		}
+		endpoints = append(endpoints, c.ExitTargetID)
+	}
+	checked := map[string]bool{}
+	for _, id := range endpoints {
+		if checked[id] {
+			continue
+		}
+		checked[id] = true
 		if id == "" {
 			if !user.IsSystemAdmin {
 				return errors.New("bastion endpoints require system admin access")
@@ -189,6 +214,9 @@ func (a *App) handleTunnelAction(w http.ResponseWriter, r *http.Request, u store
 }
 
 func (a *App) tunnelAPIStatus(t store.Tunnel) tunnelStatus {
+	if edgeManaged(t) && a.forwards != nil {
+		return a.forwards.status(t)
+	}
 	state := a.tunnels.status(t)
 	total, active, direct, err := a.tunnels.traffic(t)
 	if err != nil {
@@ -307,6 +335,9 @@ func mergeTunnelTraffic(dst *store.TunnelTraffic, src store.TunnelTraffic) {
 
 // Merge audit storage and unflushed live counters under one lock.
 func (a *App) tunnelTrafficStatistics(ctx context.Context, t store.Tunnel, from, to int64, sourceIP string) (tunnelTrafficStatistics, error) {
+	if edgeManaged(t) && a.forwards != nil {
+		return a.forwardTrafficStatistics(ctx, t, from, to, sourceIP)
+	}
 	out := tunnelTrafficStatistics{IntervalSeconds: 300, Buckets: []store.TunnelTraffic{}, Sources: []tunnelSourceTraffic{}}
 	a.tunnels.mu.Lock()
 	metrics := a.tunnels.metrics[t.ID]

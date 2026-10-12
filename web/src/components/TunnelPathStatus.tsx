@@ -150,7 +150,7 @@ export function TunnelPathStatus({
         tabIndex={0}
         aria-label={`${tunnel.name} · ${w.details}`}
       >
-        <Tag color={colors[tunnel.status]}>{w[tunnel.status]}</Tag>
+        <Tag color={colors[tunnel.status]}>{tunnel.status === "unknown" ? (locale === "zh-CN" ? "离线 · 状态待确认" : "Offline · unconfirmed") : w[tunnel.status]}</Tag>
         {tunnel.enabled && (
           <Tag color={tunnel.transport === "direct" ? "cyan" : undefined}>
             {w[tunnel.transport]}

@@ -8,4 +8,7 @@ node_modules/
 *.log
 *.tmp
 .superpowers/
+__pycache__/
+scripts/forward-load/**/__pycache__/
+/design/qa/forward-load-run-*/
 

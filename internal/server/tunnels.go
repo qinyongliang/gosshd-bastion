@@ -170,6 +170,9 @@ func (m *tunnelManager) reconcile() {
 	wanted := map[string]store.Tunnel{}
 	blocked := map[string]string{}
 	for _, t := range configs {
+		if edgeManaged(t) {
+			continue
+		}
 		if t.Enabled {
 			user, e := repo.GetUser(m.ctx, t.OperatorID())
 			if e == nil && user.DisabledAt == nil {
@@ -249,6 +252,9 @@ func (m *tunnelManager) status(t store.Tunnel) tunnelStatus {
 	return r.snapshot()
 }
 func (m *tunnelManager) stop(id string) {
+	if m.app.forwards != nil {
+		m.app.forwards.notify()
+	}
 	m.mu.Lock()
 	r := m.runs[id]
 	if r != nil {

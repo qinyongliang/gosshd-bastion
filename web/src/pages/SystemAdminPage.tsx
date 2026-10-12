@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ArrowUpRight, Building2, Fingerprint, KeyRound, Palette, Search, Settings2, ShieldCheck, Users } from "lucide-react";
 import { Select, Switch } from "antd";
 import { api } from "../api";
+import { ForwardRetentionSettings } from "../components/ForwardLogs";
 import { ActionMenu, BrandMark, ConfirmDialog, Drawer, Empty, ErrorMessage, Field, Modal, ModalActions, SimpleTable, Toggle, UserCell } from "../components/ui";
 import { useI18n } from "../i18n";
 import { appDescription, appIcon, appName } from "../lib/branding";
@@ -19,6 +20,7 @@ export function SystemAdminPage({ data }: { data: ConsoleData }) {
       <section className="resource-head system-admin-head">
         <div><small>{appDescription(data.runtime)}</small><h2>{t("systemAdminTitle")}</h2><p>{t("systemAdminBody")}</p></div>
       </section>
+      {data.user.is_system_admin && <ForwardRetentionSettings/>}
       <div className="identity-grid system-admin-grid">
         <button type="button" className="admin-card" onClick={() => setModal("users")}><span className="admin-card-icon"><Users /></span><span className="admin-card-copy"><strong>{t("adminAccountsTitle")}</strong><span>{t("adminAccountsBody")}</span></span><ArrowUpRight className="admin-card-arrow" /></button>
         <button type="button" className="admin-card" onClick={() => setModal("orgs")}><span className="admin-card-icon"><Building2 /></span><span className="admin-card-copy"><strong>{t("adminOrgsTitle")}</strong><span>{t("adminOrgsBody")}</span></span><ArrowUpRight className="admin-card-arrow" /></button>

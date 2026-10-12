@@ -22,22 +22,33 @@ func (p *rtcPath) Send(packet Packet) error {
 }
 func (p *rtcPath) Close() error { return p.channel.Close() }
 
+type signalMessage struct {
+	Type       string                   `json:"type"`
+	SDP        string                   `json:"sdp,omitempty"`
+	Candidate  *webrtc.ICECandidateInit `json:"candidate,omitempty"`
+	Generation uint64                   `json:"generation,omitempty"`
+}
+
+const maxPendingCandidates = 64
+
 type Negotiator struct {
-	infoMu    sync.Mutex
-	infoKey   string
-	infoLocal CandidateInfo
-	conn      *Conn
-	initiator bool
-	servers   []string
-	messages  chan []byte
-	stop      chan struct{}
-	once      sync.Once
-	mu        sync.Mutex
-	peer      *webrtc.PeerConnection
+	infoMu     sync.Mutex
+	infoKey    string
+	infoLocal  CandidateInfo
+	conn       *Conn
+	initiator  bool
+	servers    []string
+	messages   chan []byte
+	stop       chan struct{}
+	once       sync.Once
+	mu         sync.Mutex
+	peer       *webrtc.PeerConnection
+	generation uint64
+	pending    map[uint64][]webrtc.ICECandidateInit
 }
 
 func NewNegotiator(conn *Conn, initiator bool, servers []string) *Negotiator {
-	n := &Negotiator{conn: conn, initiator: initiator, servers: servers, messages: make(chan []byte, 8), stop: make(chan struct{})}
+	n := &Negotiator{conn: conn, initiator: initiator, servers: servers, messages: make(chan []byte, 8), stop: make(chan struct{}), pending: map[uint64][]webrtc.ICECandidateInit{}}
 	conn.SignalHandler = func(b []byte) {
 		select {
 		case n.messages <- append([]byte(nil), b...):
@@ -54,11 +65,12 @@ func (n *Negotiator) Close() {
 		n.peer = nil
 		n.mu.Unlock()
 		if pc != nil {
+			n.conn.DisableDirect()
 			_ = pc.Close()
 		}
 	})
 }
-func (n *Negotiator) newPeer() (*webrtc.PeerConnection, error) {
+func (n *Negotiator) newPeer(generations ...uint64) (*webrtc.PeerConnection, error) {
 	settings := webrtc.SettingEngine{}
 	// Browsers may advertise LAN candidates using mDNS hostnames.
 	settings.SetICEMulticastDNSMode(ice.MulticastDNSModeQueryOnly)
@@ -74,16 +86,49 @@ func (n *Negotiator) newPeer() (*webrtc.PeerConnection, error) {
 	}
 	n.mu.Lock()
 	old := n.peer
-	n.peer = pc
+	generation := n.generation
+	if len(generations) > 0 {
+		generation = generations[0]
+	}
+	n.peer, n.generation = pc, generation
 	n.mu.Unlock()
+	queued := n.pending[generation]
+	n.pending = map[uint64][]webrtc.ICECandidateInit{generation: queued}
 	if old != nil {
+		n.conn.DisableDirect()
 		_ = old.Close()
 	}
+	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
+			return
+		}
+		n.mu.Lock()
+		alive := n.peer == pc && n.generation == generation
+		n.mu.Unlock()
+		if !alive {
+			return
+		}
+		select {
+		case <-n.stop:
+			return
+		case <-n.conn.done:
+			return
+		default:
+		}
+		value := candidate.ToJSON()
+		_ = n.signal(signalMessage{Type: "candidate", Candidate: &value, Generation: generation})
+	})
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) { n.attach(pc, dc) })
 	return pc, nil
 }
 func (n *Negotiator) attach(pc *webrtc.PeerConnection, dc *webrtc.DataChannel) {
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		n.mu.Lock()
+		alive := n.peer == pc
+		n.mu.Unlock()
+		if !alive {
+			return
+		}
 		packet, err := Parse(msg.Data)
 		if err == nil {
 			n.conn.receive(packet, true)
@@ -97,32 +142,89 @@ func (n *Negotiator) attach(pc *webrtc.PeerConnection, dc *webrtc.DataChannel) {
 			n.conn.SetDirect(&rtcPath{dc})
 		}
 	})
-	dc.OnClose(n.conn.DisableDirect)
-	dc.OnError(func(error) { n.conn.DisableDirect() })
+	disable := func() {
+		n.mu.Lock()
+		alive := n.peer == pc
+		n.mu.Unlock()
+		if alive {
+			n.conn.DisableDirect()
+		}
+	}
+	dc.OnClose(disable)
+	dc.OnError(func(error) { disable() })
 }
-func (n *Negotiator) description(pc *webrtc.PeerConnection, description webrtc.SessionDescription) error {
-	gathering := webrtc.GatheringCompletePromise(pc)
-	if err := pc.SetLocalDescription(description); err != nil {
-		return err
-	}
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-	select {
-	case <-gathering:
-	case <-timer.C:
-	case <-n.stop:
-		return errors.New("direct negotiation closed")
-	case <-n.conn.done:
-		return errors.New("tunnel closed")
-	}
-	b, err := json.Marshal(pc.LocalDescription())
+func (n *Negotiator) signal(message signalMessage) error {
+	b, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
 	return n.conn.relay.Send(Packet{Kind: Signal, Body: b})
 }
+
+func (n *Negotiator) description(pc *webrtc.PeerConnection, description webrtc.SessionDescription) error {
+	select {
+	case <-n.stop:
+		return errors.New("direct negotiation closed")
+	case <-n.conn.done:
+		return errors.New("tunnel closed")
+	default:
+	}
+	if err := pc.SetLocalDescription(description); err != nil {
+		return err
+	}
+	n.mu.Lock()
+	generation, alive := n.generation, n.peer == pc
+	n.mu.Unlock()
+	if !alive {
+		return errors.New("direct negotiation replaced")
+	}
+	// Send SDP immediately. Candidate discovery is incremental, never a startup gate.
+	return n.signal(signalMessage{Type: description.Type.String(), SDP: description.SDP, Generation: generation})
+}
+
+func (n *Negotiator) candidate(message signalMessage) {
+	if message.Candidate == nil {
+		return
+	}
+	n.mu.Lock()
+	pc, generation := n.peer, n.generation
+	n.mu.Unlock()
+	if message.Generation < generation {
+		return
+	}
+	if message.Generation == generation && pc != nil && pc.RemoteDescription() != nil {
+		_ = pc.AddICECandidate(*message.Candidate)
+		return
+	}
+	// Candidates may overtake SDP; retain only a bounded set until its description arrives.
+	count := 0
+	for _, candidates := range n.pending {
+		count += len(candidates)
+	}
+	if count < maxPendingCandidates {
+		n.pending[message.Generation] = append(n.pending[message.Generation], *message.Candidate)
+	}
+}
+
+func (n *Negotiator) remote(pc *webrtc.PeerConnection, description webrtc.SessionDescription) error {
+	if err := pc.SetRemoteDescription(description); err != nil {
+		return err
+	}
+	n.mu.Lock()
+	generation := n.generation
+	n.mu.Unlock()
+	for _, candidate := range n.pending[generation] {
+		_ = pc.AddICECandidate(candidate)
+	}
+	delete(n.pending, generation)
+	return nil
+}
+
 func (n *Negotiator) offer() {
-	pc, err := n.newPeer()
+	n.mu.Lock()
+	generation := n.generation + 1
+	n.mu.Unlock()
+	pc, err := n.newPeer(generation)
 	if err != nil {
 		return
 	}
@@ -154,28 +256,33 @@ func (n *Negotiator) Run() {
 				n.offer()
 			}
 		case b := <-n.messages:
-			var description webrtc.SessionDescription
-			if json.Unmarshal(b, &description) != nil {
+			var message signalMessage
+			if json.Unmarshal(b, &message) != nil {
 				continue
 			}
-			if description.Type == webrtc.SDPTypeOffer && !n.initiator {
-				pc, err := n.newPeer()
+			if message.Type == "candidate" {
+				n.candidate(message)
+				continue
+			}
+			if message.Type == "offer" && !n.initiator {
+				pc, err := n.newPeer(message.Generation)
 				if err != nil {
 					continue
 				}
-				if pc.SetRemoteDescription(description) != nil {
+				if n.remote(pc, webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: message.SDP}) != nil {
 					continue
 				}
 				answer, err := pc.CreateAnswer(nil)
 				if err == nil {
 					_ = n.description(pc, answer)
 				}
-			} else if description.Type == webrtc.SDPTypeAnswer && n.initiator {
+			} else if message.Type == "answer" && n.initiator {
 				n.mu.Lock()
-				pc := n.peer
+				pc, generation := n.peer, n.generation
 				n.mu.Unlock()
-				if pc != nil {
-					_ = pc.SetRemoteDescription(description)
+				// Legacy full-SDP peers do not include a generation field.
+				if pc != nil && (message.Generation == 0 || message.Generation == generation) {
+					_ = n.remote(pc, webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: message.SDP})
 				}
 			}
 		}

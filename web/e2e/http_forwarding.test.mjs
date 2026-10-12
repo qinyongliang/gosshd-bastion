@@ -1,0 +1,35 @@
+import assert from "node:assert/strict";
+import {createRequire} from "node:module";
+import {createServer} from "node:net";
+import {request as httpRequest} from "node:http";
+import {mkdir} from "node:fs/promises";
+import {join} from "node:path";
+const require=createRequire(import.meta.url);const {chromium}=require(process.env.PLAYWRIGHT_REQUIRE_PATH);
+const browser=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,headless:true});
+const freePort=async()=>{const server=createServer();await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;};
+const proxyRequest=(port)=>new Promise((resolve,reject)=>{const req=httpRequest({hostname:"127.0.0.1",port,path:"/api/api/auth/providers",headers:{Host:"alias.test"}},response=>{let body="";response.on("data",chunk=>body+=chunk);response.on("end",()=>resolve({status:response.statusCode,body}));});req.on("error",reject);req.end();});
+const base=process.env.GOSSHD_UI_E2E_BASE_URL;const upstreamPort=Number(new URL(base).port);
+const screenshots=process.env.GOSSHD_FORWARD_SCREENSHOTS; if(screenshots)await mkdir(screenshots,{recursive:true});
+try{
+ for(const [locale,width] of [["zh-CN",1440],["en",1440],["zh-CN",390]]){
+  const zh=locale==="zh-CN";const context=await browser.newContext({locale:zh?"zh-CN":"en-US",viewport:{width,height:1000},reducedMotion:"reduce"});await context.addInitScript(locale=>localStorage.setItem("gosshd_locale",locale),locale);const page=await context.newPage();page.setDefaultTimeout(15000);const errors=[];page.on("pageerror",e=>errors.push(e.message));
+  await page.goto(base);await page.getByLabel(zh?"邮箱":"Email",{exact:true}).fill("admin");await page.getByLabel(zh?"密码":"Password",{exact:true}).fill("admin-pass");await page.getByRole("button",{name:zh?"登录":"Sign in",exact:true}).click();
+  if(width<600){await page.locator(".mobile-menu-button").click();}
+  await page.getByRole("link",{name:zh?"隧道管理":"Tunnels",exact:true}).click();await page.getByRole("tab",{name:zh?"HTTP 转发":"HTTP forwarding",exact:true}).click();await page.getByRole("button",{name:zh?"新建隧道":"New tunnel",exact:true}).first().click();
+  const editor=page.locator(".tunnel-editor");await editor.waitFor();assert.equal(await editor.locator(".forward-server-block").count(),1);
+  const name="HTTP UI "+locale+" "+width;await editor.getByLabel(zh?"隧道名称":"Tunnel name",{exact:true}).fill(name);const port=await freePort();await editor.getByLabel("HTTP listen port",{exact:true}).fill(String(port));await editor.getByLabel("server_name",{exact:true}).first().fill("app.test, alias.test");
+  const location=editor.locator(".forward-location-block").first();await location.getByLabel(zh?"路径 / 正则":"Path / regex",{exact:true}).fill("/api/");await location.getByLabel(zh?"服务端口":"Service port",{exact:true}).fill(String(upstreamPort));await location.locator(".forward-switches").getByRole("switch").first().click();
+  await editor.getByRole("button",{name:zh?"添加 location 规则":"Add location rule",exact:true}).click();assert.equal(await editor.locator(".forward-location-block").count(),2);
+  const second=editor.locator(".forward-location-block").nth(1);await second.getByLabel(zh?"路径 / 正则":"Path / regex",{exact:true}).fill("/other/");await second.getByLabel(zh?"服务端口":"Service port",{exact:true}).fill(String(upstreamPort));await second.getByRole("button",{name:zh?"上移 location 规则":"Move location up",exact:true}).click();assert.equal(await editor.locator(".forward-location-block").first().getByLabel(zh?"路径 / 正则":"Path / regex",{exact:true}).inputValue(),"/other/");
+  await editor.getByRole("button",{name:zh?"添加 server 块":"Add server block",exact:true}).click();assert.equal(await editor.locator(".forward-server-block").count(),2);const site2=editor.locator(".forward-server-block").nth(1);await site2.getByLabel("server_name",{exact:true}).fill("*.example.test");await site2.getByLabel(zh?"服务端口":"Service port",{exact:true}).fill(String(upstreamPort));
+  if(screenshots)await page.screenshot({path:join(screenshots,"http-editor-"+locale+"-"+width+".png"),fullPage:true});
+  await editor.getByLabel(zh?"保存后立即启用":"Enable after saving",{exact:true}).click();await editor.getByRole("button",{name:zh?"保存配置":"Save configuration",exact:true}).click();await editor.waitFor({state:"detached"});
+  const card=page.locator(".tunnel-card").filter({has:page.getByRole("heading",{name,exact:true})});await card.waitFor();
+  let configured;for(let tries=0;tries<50;tries++){const response=await context.request.get(base+"/api/me");const me=await response.json();const listed=await context.request.get(base+"/api/tunnels?organization_id="+(me.active_organization_id||me.organizations?.[0]?.id));const result=await listed.json();configured=result.tunnels?.find(t=>t.name===name);if(configured?.status==="running")break;await new Promise(r=>setTimeout(r,100));}
+  assert.equal(configured?.protocol,"http");assert.equal(configured.http.servers.length,2);assert.equal(configured.http.servers[0].locations.length,2);
+  const proxied=await proxyRequest(port);if(proxied.status!==200){await new Promise(r=>setTimeout(r,350));console.error("proxy diagnostic",JSON.stringify(configured),await(await context.request.get(base+"/api/tunnels/"+configured.id+"/logs")).text());}assert.equal(proxied.status,200);const payload=JSON.parse(proxied.body);assert.ok("branding" in payload);
+  await card.getByRole("button",{name:zh?"统计":"Statistics",exact:true}).click();const dialog=page.getByRole("dialog").filter({hasText:zh?"转发访问日志":"Forward access logs"}).last();await dialog.waitFor();await page.getByText("/api/api/auth/providers",{exact:true}).waitFor();await page.getByRole("tab",{name:zh?"来源统计（保留期内）":"Sources (retained window)",exact:true}).click();await page.getByText("127.0.0.1",{exact:true}).last().waitFor();
+  if(screenshots)await page.screenshot({path:join(screenshots,"http-logs-"+locale+"-"+width+".png"),fullPage:true});assert.deepEqual(errors,[]);await context.request.delete(base+"/api/tunnels/"+configured.id);await context.close();
+ }
+ console.log("HTTP forwarding UI: Chinese/English, desktop/mobile, multiple blocks, ordering, real proxy and access logs passed");
+}finally{await browser.close();}

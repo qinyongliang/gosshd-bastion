@@ -511,6 +511,9 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 	})
 	log.Printf("agent online: %s", registryID)
 	go a.serveAgentTunnelConnections(registryID, session)
+	if a.forwards != nil {
+		a.forwards.notify()
+	}
 	if a.tunnels != nil {
 		a.tunnels.notify()
 	}

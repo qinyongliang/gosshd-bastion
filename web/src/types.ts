@@ -337,14 +337,18 @@ export type FileReadResult = {
   modified_at?: string;
 };
 
+export type HTTPForwardLocation = {id: string; name: string; match: "prefix" | "=" | "^~" | "~" | "~*"; path: string; exit_target_id: string; scheme: "http" | "https"; host: string; port: number; strip_prefix: boolean; preserve_host: boolean; headers?: Record<string,string>};
+export type HTTPForwardServer = {id: string; name: string; hosts: string[]; locations: HTTPForwardLocation[]};
+export type HTTPForwardConfig = {servers: HTTPForwardServer[]};
 export type TunnelConfig = {
+ protocol?: "tcp" | "http"; http?: HTTPForwardConfig;
  name: string; entry_target_id: string; listen_host: string; listen_port: number;
  exit_target_id: string; destination_host: string; destination_port: number; duration_seconds: number;
 };
 export type Tunnel = TunnelConfig & {
  id: string; organization_id: string; enabled: boolean; expires_at?: string;
  created_by?: string; creator_name?: string; source?: string; temporary?: boolean; forward_type?: "local" | "remote"; remote_address?: string; public_key_fingerprint?: string;
- status: "running" | "starting" | "error" | "stopped" | "expired";
+ status: "running" | "starting" | "error" | "stopped" | "expired" | "unknown";
  error?: string; error_diagnostic?: {code: string; stage: string; machine: string; address: string}; listen_address?: string; connections: number;
  transport: "relay" | "negotiating" | "direct" | "mixed"; direct_connections: number; traffic: TunnelTraffic; paths?: TunnelConnectionPath[];
 };

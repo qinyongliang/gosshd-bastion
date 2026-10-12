@@ -62,6 +62,14 @@ func TestFileUploadUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "file_upload.test.mjs")
 }
 
+func TestFileDownloadViaAgentSSHUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "file_download.test.mjs", true)
+}
+
+func TestFileUploadViaAgentSSHUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "file_upload.test.mjs", true)
+}
+
 func TestFileSelectionUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "file_selection_browser.test.mjs")
 }
@@ -78,7 +86,7 @@ func TestRunningOutputUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "running_output.test.mjs")
 }
 
-func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
+func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string, viaAgentSSH ...bool) {
 	nodePath := os.Getenv("GOSSHD_UI_E2E_NODE")
 	playwrightPath := os.Getenv("GOSSHD_UI_E2E_PLAYWRIGHT")
 	browserPath := os.Getenv("GOSSHD_UI_E2E_BROWSER")
@@ -128,11 +136,19 @@ func testUIE2EWithBrowser(t *testing.T, mobileOnly bool, script string) {
 		}
 		attachTunnelAgent(t, app, "browser-upload-agent")
 		target := uploadAgentTarget(t, app, user, org, "browser-upload-agent")
+		if len(viaAgentSSH) > 0 && viaAgentSSH[0] {
+			address, closeServer := startTestSFTPServer(t, testSFTPModeSubsystem)
+			defer closeServer()
+			target = tunnelSSHTarget(t, app, user, org, "browser-delegated-ssh", address, target.ID)
+		}
 		cmd.Env = append(cmd.Env, "GOSSHD_UPLOAD_TARGET="+target.ID, "GOSSHD_UPLOAD_DIR="+t.TempDir())
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("ui e2e failed: %v\n%s", err, out)
+	}
+	if testing.Verbose() {
+		t.Logf("%s", out)
 	}
 }
 

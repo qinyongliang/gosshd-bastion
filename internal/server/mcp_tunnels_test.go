@@ -40,7 +40,7 @@ func TestMCPTunnelLifecycleAndScopedToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 8 || mcpHasTool(tools, "auth_register") || mcpHasTool(tools, "session_send_command") {
+	if len(tools.Tools) != 11 || mcpHasTool(tools, "auth_register") || mcpHasTool(tools, "session_send_command") {
 		t.Fatalf("unexpected tunnel-only tools: %+v", tools.Tools)
 	}
 	call := func(name string, args map[string]any, wantError bool) *mcp.CallToolResult {

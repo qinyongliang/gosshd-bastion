@@ -288,6 +288,7 @@ func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 	}
 	if mcpToolGroupAllowed(actorCtx.ToolGroups, "tunnel") {
 		a.addMCPTunnelTools(s, actor)
+		a.addMCPForwardTools(s, actor)
 	}
 	if !mcpAnyManagementToolGroupAllowed(actorCtx.ToolGroups) {
 		return s

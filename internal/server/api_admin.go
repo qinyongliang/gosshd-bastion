@@ -32,6 +32,12 @@ func (a *App) handleAdminSettings(w http.ResponseWriter, r *http.Request, user s
 		return
 	}
 	out[settingAuth] = authConfig
+	forwarding, err := a.loadForwardSettings(r.Context())
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	out[settingForward] = forwarding
 	brandingConfig, err := a.loadBrandingSettings(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

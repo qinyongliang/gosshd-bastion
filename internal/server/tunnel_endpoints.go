@@ -17,8 +17,9 @@ type tunnelAgentEndpoint struct {
 	hops    []protocol.TunnelSSHHop
 }
 
-// SSH machines behind an Agent are executed from that Agent, allowing the Agent-to-Agent
-// segment to migrate to P2P while the remote SSH and destination TCP sockets stay intact.
+// SSH machines behind an Agent are executed from that Agent. Both browser file
+// transfers and TCP tunnels use this endpoint: only the caller-to-Agent segment
+// migrates to P2P; the delegated SSH/SFTP and destination sockets stay intact.
 func (a *App) tunnelAgentEndpoint(ctx context.Context, id string, reuse ...*tunnelAgentEndpoint) (*tunnelAgentEndpoint, error) {
 	if id == "" {
 		return nil, nil

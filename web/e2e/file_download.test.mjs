@@ -3,16 +3,18 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { normalizeSFTPFixturePaths, readStreamedDownload } from "./file_fixture.mjs";
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_REQUIRE_PATH);
 const base = process.env.GOSSHD_UI_E2E_BASE_URL;
 const target = process.env.GOSSHD_UPLOAD_TARGET;
-const dir = process.env.GOSSHD_UPLOAD_DIR;
+const dir = process.env.GOSSHD_UPLOAD_DIR.replaceAll("\\", "/");
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless: true });
 try {
   for (const [mode, locale] of [["direct", "en"], ["interrupt", "zh-CN"], ["relay", "en"], ["empty", "zh-CN"], ["cancel", "en"], ["legacy", "en"], ["stream", "en"], ["stream-cancel", "zh-CN"], ["corrupt", "en"], ["native", "en"], ["stream-error", "en"]]) {
     const zh = locale === "zh-CN";
-    const content = Buffer.alloc(mode === "empty" ? 0 : mode.includes("cancel") ? 32 * 1024 * 1024 : 2 * 1024 * 1024);
+    const streaming = mode.startsWith("stream") || ["direct", "interrupt"].includes(mode);
+    const content = Buffer.alloc(mode === "empty" ? 0 : mode.includes("cancel") ? 32 * 1024 * 1024 : ["direct", "stream"].includes(mode) ? 8 * 1024 * 1024 : 2 * 1024 * 1024);
     for (let i = 0; i < content.length; i++) content[i] = (i * 31 + 255) % 256;
     const name = `download-${mode}.bin`;
     await writeFile(join(dir, name), content);
@@ -20,6 +22,10 @@ try {
     await context.addInitScript(({ mode, locale }) => {
       localStorage.setItem("gosshd_locale", locale);
       window.downloadTest = { directBytes: 0, relayBytes: 0, interrupted: false, chunks: [], saved: false, aborted: false, sockets: 0, offers: 0 };
+      let markRelay, markDirect, cancelWrite;
+      const firstRelay = new Promise((resolve) => { markRelay = resolve; });
+      const directReady = new Promise((resolve) => { markDirect = resolve; });
+      const cancelled = new Promise((resolve) => { cancelWrite = resolve; });
       const OriginalWS = WebSocket;
       window.WebSocket = class extends OriginalWS {
         constructor(...args) {
@@ -28,13 +34,19 @@ try {
           if (this.url.includes("/files/download/ws")) this.addEventListener("message", (event) => {
             if (event.data instanceof ArrayBuffer && new Uint8Array(event.data)[0] === 1) {
               window.downloadTest.relayBytes += event.data.byteLength;
+              markRelay();
               if (mode === "corrupt" && event.data.byteLength > 18) new Uint8Array(event.data)[18] ^= 1;
             }
           });
         }
       };
       const offer = RTCPeerConnection.prototype.createOffer;
-      RTCPeerConnection.prototype.createOffer = function(...args) { window.downloadTest.offers++; return offer.apply(this, args); };
+      RTCPeerConnection.prototype.createOffer = async function(...args) {
+        window.downloadTest.offers++;
+        // Event-gated fixture forces relay startup, not an elapsed-time delay.
+        if (["direct", "interrupt", "stream"].includes(mode)) await firstRelay;
+        return offer.apply(this, args);
+      };
       if (["relay", "cancel", "corrupt", "stream-cancel"].includes(mode)) {
         window.RTCPeerConnection = undefined;
       } else {
@@ -42,6 +54,7 @@ try {
         RTCPeerConnection.prototype.createDataChannel = function(...args) {
           const channel = original.apply(this, args);
           channel.addEventListener("message", (event) => {
+            if (event.data instanceof ArrayBuffer && new Uint8Array(event.data)[0] === 7) markDirect();
             if (event.data instanceof ArrayBuffer && new Uint8Array(event.data)[0] === 1) {
               window.downloadTest.directBytes += event.data.byteLength;
               if (mode === "interrupt" && window.downloadTest.directBytes > 128 * 1024 && !window.downloadTest.interrupted) {
@@ -53,22 +66,24 @@ try {
           return channel;
         };
       }
-      if (mode.startsWith("stream")) {
+      if (mode.startsWith("stream") || ["direct", "interrupt"].includes(mode)) {
         window.showSaveFilePicker = async () => ({ createWritable: async () => ({
           write: async (bytes) => {
             if (mode === "stream-error") throw new Error("Test disk write failed");
-            // Slow writes exercise ACK backpressure and cancellation of the sink.
-            await new Promise((resolve) => setTimeout(resolve, 2));
-            window.downloadTest.chunks.push(Array.from(bytes));
+            // Wait for observed transport/cancellation events only in the fixture.
+            if (mode === "stream-cancel") await cancelled;
+            else if (["direct", "interrupt", "stream"].includes(mode)) await directReady;
+            window.downloadTest.chunks.push(bytes.slice());
           },
           close: async () => { window.downloadTest.saved = true; },
-          abort: async () => { window.downloadTest.aborted = true; window.downloadTest.chunks = []; },
+          abort: async () => { window.downloadTest.aborted = true; window.downloadTest.chunks = []; cancelWrite(); },
         }) });
       } else {
         window.showSaveFilePicker = undefined;
       }
     }, { mode, locale });
     const page = await context.newPage();
+    await normalizeSFTPFixturePaths(page);
     page.setDefaultTimeout(25_000);
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -88,9 +103,12 @@ try {
     const pathInput = page.locator('.file-manager-path input[aria-label="File path"]');
     await pathInput.fill(dir);
     await pathInput.press("Enter");
-    await page.waitForFunction((dir) => document.querySelector(".file-manager-path")?.getAttribute("title") === dir, dir);
+    await page.waitForFunction((dir) => document.querySelector(".file-manager-path")?.getAttribute("title")?.replaceAll("\\", "/") === dir, dir).catch(async (error) => {
+      const state = await page.evaluate(() => ({ path: document.querySelector(".file-manager-path")?.getAttribute("title"), error: document.querySelector(".file-operation-error")?.textContent }));
+      throw new Error(`Directory fixture mismatch: ${JSON.stringify({ expected: dir, ...state })}`, { cause: error });
+    });
     assert.equal(await page.locator(".file-breadcrumb-menu").count(), 0, "path editing left a menu over downloadable files");
-    const downloadPromise = !mode.includes("cancel") && mode !== "corrupt" && !mode.startsWith("stream") ? page.waitForEvent("download") : null;
+    const downloadPromise = !mode.includes("cancel") && mode !== "corrupt" && !streaming ? page.waitForEvent("download") : null;
     await page.locator(".file-manager-body").getByRole("button", { name, exact: true }).dblclick();
     if (mode.includes("cancel")) {
       await page.getByRole("button", { name: zh ? "取消下载" : "Cancel download", exact: true }).click();
@@ -105,7 +123,10 @@ try {
       assert((await page.locator(".file-operation-error").textContent()).includes("checksum"));
     } else {
       const toast = page.locator(mode === "native" ? ".file-download-toast.browser" : ".file-download-toast.success");
-      await toast.waitFor();
+      await toast.waitFor().catch(async (error) => {
+        const state = await page.evaluate(() => ({ transport: { ...window.downloadTest, chunks: undefined }, writtenChunks: window.downloadTest.chunks.length, toast: document.querySelector(".file-download-toast")?.textContent, error: document.querySelector(".file-operation-error")?.textContent }));
+        throw new Error(`Download failed in ${mode}: ${JSON.stringify(state)}`, { cause: error });
+      });
       const toastText = await toast.textContent();
       if (downloadPromise) {
         const download = await downloadPromise;
@@ -113,14 +134,14 @@ try {
         assert.deepEqual(await readFile(await download.path()), content, "downloaded bytes differ");
       } else {
         await page.waitForFunction(() => window.downloadTest.saved);
-        const chunks = await page.evaluate(() => window.downloadTest.chunks);
-        assert.deepEqual(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), content, "streamed bytes differ");
+        assert.deepEqual(await readStreamedDownload(page), content, "streamed bytes differ");
       }
       const stats = await page.evaluate(() => ({ ...window.downloadTest, chunks: [] }));
       if (mode === "direct" || mode === "stream") {
-        assert(stats.directBytes > 0, "Agent did not send directly to browser");
-        assert.equal(stats.relayBytes, 0, "download content crossed the bastion on direct path");
+        assert(stats.directBytes > stats.relayBytes, "most large-file download data must bypass the bastion");
+        assert(stats.relayBytes > 0, "download must start over relay before upgrading to direct");
         assert(toastText.includes("Direct"));
+        console.log(`download first-file data frames: relay=${stats.relayBytes}B direct=${stats.directBytes}B`);
       }
       if (mode === "interrupt") {
         assert(stats.interrupted && stats.directBytes > 0 && stats.relayBytes > 0, "interruption did not continue on relay");
@@ -138,11 +159,11 @@ try {
       for (const expected of [content, Buffer.alloc(0)]) {
         await writeFile(join(dir, name), expected);
         await page.evaluate(() => { window.downloadTest.chunks = []; window.downloadTest.saved = false; });
-        const saved = mode === "stream" ? null : page.waitForEvent("download");
+        const saved = streaming ? null : page.waitForEvent("download");
         await page.locator(".file-manager-body").getByRole("button", { name, exact: true }).dblclick();
         await page.locator(".file-download-toast.success").waitFor();
         if (saved) { const file = await saved; assert.deepEqual(await readFile(await file.path()), expected); }
-        else { await page.waitForFunction(() => window.downloadTest.saved); const chunks = await page.evaluate(() => window.downloadTest.chunks); assert.deepEqual(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))), expected); }
+        else { await page.waitForFunction(() => window.downloadTest.saved); assert.deepEqual(await readStreamedDownload(page), expected); }
       }
       const stats = await page.evaluate(() => ({ sockets: window.downloadTest.sockets, offers: window.downloadTest.offers }));
       assert.equal(stats.sockets, 1, "downloads reopened WebSocket");
@@ -151,7 +172,11 @@ try {
     }
     assert.deepEqual(await readFile(join(dir, name)), content, "source was changed by download");
     assert.deepEqual(errors, []);
+    await page.unrouteAll({ behavior: "wait" });
     await context.close();
     console.log(`file download ${mode} (${locale}): passed`);
   }
-} finally { await browser.close(); }
+} finally {
+  for (const context of browser.contexts()) for (const page of context.pages()) await page.unrouteAll({ behavior: "ignoreErrors" });
+  await browser.close();
+}

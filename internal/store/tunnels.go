@@ -7,18 +7,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	protocoltypes "github.com/qinyongliang/gosshd-bastion/internal/protocol/types"
 )
 
 // Empty target IDs select the bastion server itself.
 type TunnelConfig struct {
-	Name            string `json:"name"`
-	EntryTargetID   string `json:"entry_target_id"`
-	ListenHost      string `json:"listen_host"`
-	ListenPort      int    `json:"listen_port"`
-	ExitTargetID    string `json:"exit_target_id"`
-	DestinationHost string `json:"destination_host"`
-	DestinationPort int    `json:"destination_port"`
-	DurationSeconds int64  `json:"duration_seconds"`
+	Protocol        string                    `json:"protocol,omitempty"`
+	HTTP            *protocoltypes.HTTPConfig `json:"http,omitempty"`
+	Name            string                    `json:"name"`
+	EntryTargetID   string                    `json:"entry_target_id"`
+	ListenHost      string                    `json:"listen_host"`
+	ListenPort      int                       `json:"listen_port"`
+	ExitTargetID    string                    `json:"exit_target_id"`
+	DestinationHost string                    `json:"destination_host"`
+	DestinationPort int                       `json:"destination_port"`
+	DurationSeconds int64                     `json:"duration_seconds"`
 }
 type Tunnel struct {
 	TunnelConfig

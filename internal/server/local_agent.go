@@ -64,6 +64,7 @@ func (a *App) ensureClientLocalAgent(ctx context.Context, user store.User) error
 	a.backgroundWG.Add(1)
 	go func() {
 		defer a.backgroundWG.Done()
+		defer client.Close()
 		defer a.registry.Unregister(localAgentID, serverSession)
 		defer serverSession.Close()
 		defer agentSession.Close()

@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/pion/webrtc/v4"
 )
 
 type testPath struct {
@@ -67,6 +69,13 @@ func TestStableConnPathMigrationLossAndHalfClose(t *testing.T) {
 	ab, ba := &testPath{peer: b}, &testPath{peer: a}
 	a.SetDirect(ab)
 	b.SetDirect(ba)
+	deadline := time.Now().Add(3 * time.Second)
+	for !a.Direct() || !b.Direct() {
+		if time.Now().After(deadline) {
+			t.Fatal("installed paths did not confirm direct connectivity")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	transfer(t, a, b, payload)
 	transfer(t, b, a, payload)
 	ab.drop.Store(true)
@@ -111,6 +120,9 @@ func TestWebRTCUpgradeAndFallbackPreserveStream(t *testing.T) {
 	transfer(t, b, a, payload)
 	left.Close()
 	right.Close()
+	if a.Direct() || b.Direct() {
+		t.Fatal("closed negotiators must fall back to relay immediately")
+	}
 	transfer(t, a, b, payload)
 	transfer(t, b, a, payload)
 }
@@ -118,5 +130,128 @@ func TestMalformedRelayPacketRejected(t *testing.T) {
 	relay := &Relay{Reader: bytes.NewReader([]byte{255, 255, 255, 255})}
 	if _, err := relay.Read(); err == nil {
 		t.Fatal("unbounded packet accepted")
+	}
+}
+
+type probeOnlyPath struct {
+	packets []Packet
+}
+
+func (p *probeOnlyPath) Send(packet Packet) error {
+	p.packets = append(p.packets, packet)
+	return nil
+}
+func (p *probeOnlyPath) Close() error { return nil }
+
+func TestDirectPathRequiresDirectProbeConfirmation(t *testing.T) {
+	c := NewConn(nil)
+	path := &probeOnlyPath{}
+	c.SetDirect(path)
+	if c.Direct() {
+		t.Fatal("installing a local path must not activate it before peer confirmation")
+	}
+	if len(path.packets) != 1 || path.packets[0].Kind != Probe {
+		t.Fatal("new paths must immediately probe the peer")
+	}
+	c.receive(Packet{Kind: ProbeAck}, false)
+	if c.Direct() {
+		t.Fatal("a relayed ACK cannot confirm direct connectivity")
+	}
+	c.receive(Packet{Kind: Probe}, true)
+	if len(path.packets) != 3 || path.packets[1].Kind != ProbeAck || path.packets[2].Kind != Probe {
+		t.Fatal("remote readiness must trigger immediate re-probing, not a timer wait")
+	}
+	c.receive(Packet{Kind: ProbeAck}, true)
+	if !c.Direct() {
+		t.Fatal("direct peer confirmation must activate the installed path")
+	}
+}
+
+// Captures relay writes without waiting for an ICE/STUN response.
+type signalCaptureWriter struct{ frames chan []byte }
+
+func (w signalCaptureWriter) Write(b []byte) (int, error) {
+	w.frames <- append([]byte(nil), b...)
+	return len(b), nil
+}
+
+func TestSDPDoesNotWaitForICEGathering(t *testing.T) {
+	frames := make(chan []byte, 64)
+	c := NewConn(&Relay{Writer: signalCaptureWriter{frames}})
+	n := NewNegotiator(c, true, []string{"stun:127.0.0.1:9"})
+	defer n.Close()
+	pc, err := n.newPeer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pc.CreateDataChannel("tcp-tunnel", nil); err != nil {
+		t.Fatal(err)
+	}
+	sdp, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- n.description(pc, sdp) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SDP startup waited for ICE gathering instead of sending immediately")
+	}
+}
+
+func TestTrickleCandidatesBufferUntilRemoteDescriptionAndRejectOldGeneration(t *testing.T) {
+	c := NewConn(&Relay{Writer: signalCaptureWriter{make(chan []byte, 64)}})
+	n := NewNegotiator(c, false, nil)
+	defer n.Close()
+	mid, index := "0", uint16(0)
+	candidate := webrtc.ICECandidateInit{Candidate: "candidate:1 1 udp 2130706431 127.0.0.1 5000 typ host", SDPMid: &mid, SDPMLineIndex: &index}
+	n.candidate(signalMessage{Type: "candidate", Candidate: &candidate, Generation: 1})
+	if len(n.pending[1]) != 1 {
+		t.Fatal("candidate arriving before SDP was not buffered")
+	}
+	pc, err := n.newPeer(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remote.Close()
+	if _, err := remote.CreateDataChannel("tcp-tunnel", nil); err != nil {
+		t.Fatal(err)
+	}
+	offer, err := remote.CreateOffer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := n.remote(pc, offer); err != nil {
+		t.Fatal(err)
+	}
+	if len(n.pending[1]) != 0 {
+		t.Fatal("remote SDP did not drain its queued candidates")
+	}
+	n.candidate(signalMessage{Type: "candidate", Candidate: &candidate, Generation: 0})
+	if len(n.pending[0]) != 0 {
+		t.Fatal("retired negotiation candidates were retained")
+	}
+}
+
+func TestPendingTrickleCandidatesAreBounded(t *testing.T) {
+	n := NewNegotiator(NewConn(nil), false, nil)
+	candidate := webrtc.ICECandidateInit{Candidate: "candidate:1 1 udp 1 127.0.0.1 5000 typ host"}
+	for i := 0; i < maxPendingCandidates*2; i++ {
+		n.candidate(signalMessage{Type: "candidate", Candidate: &candidate, Generation: uint64(i%3 + 1)})
+	}
+	count := 0
+	for _, candidates := range n.pending {
+		count += len(candidates)
+	}
+	if count != maxPendingCandidates {
+		t.Fatalf("candidate buffer is not bounded: got %d", count)
 	}
 }

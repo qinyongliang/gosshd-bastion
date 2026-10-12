@@ -33,6 +33,9 @@ func (a *App) saveManagedTunnel(ctx context.Context, actor store.User, t store.T
 		return apiTunnel{}, err
 	}
 	a.tunnels.notify()
+	if a.forwards != nil {
+		a.forwards.notify()
+	}
 	return a.tunnelView(saved), nil
 }
 func (a *App) setManagedTunnelEnabled(ctx context.Context, actor store.User, t store.Tunnel, enabled bool) (apiTunnel, error) {

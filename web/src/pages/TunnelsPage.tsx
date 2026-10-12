@@ -7,6 +7,7 @@ import {
   Select,
   Switch,
   Tag,
+  Tabs,
   Tooltip,
   theme as antdTheme,
 } from "antd";
@@ -27,6 +28,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
+import { HTTPForwardEditor, HTTPForwardSummary, newHTTPServer } from "../components/HTTPForwardEditor";
+import { ForwardLogsDialog } from "../components/ForwardLogs";
 import { MachinePicker } from "../components/MachinePicker";
 import { TunnelErrorNotice } from "../components/TunnelErrorNotice";
 import {
@@ -48,6 +51,7 @@ import type { ConsoleData, Target, Tunnel, TunnelConfig } from "../types";
 const copy = {
   "zh-CN": {
     title: "隧道管理",
+    unknown: "离线 · 状态待确认",
     creator: "创建者",
     temporary: "临时隧道",
     managed: "持久配置",
@@ -131,6 +135,7 @@ const copy = {
     sshClient: "Client",
     temporaryHelp: "Ends when the client disconnects. Stop here when needed.",
     title: "Tunnels",
+    unknown: "Offline · unconfirmed",
     create: "New tunnel",
     edit: "Edit tunnel",
     search: "Search tunnels or destinations",
@@ -409,6 +414,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
     action: "stop" | "delete" | "enable";
   } | null>(null);
   const [traffic, setTraffic] = useState<Tunnel | null>(null);
+ const [protocolTab, setProtocolTab] = useState<"tcp" | "http">("tcp");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const key = ["tunnels", data.activeOrg.id];
@@ -434,11 +440,11 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
       await qc.invalidateQueries({ queryKey: key });
     },
   });
-  const all = tunnels.data?.tunnels || [];
+  const all = (tunnels.data?.tunnels || []).filter(t => (t.protocol || "tcp") === protocolTab);
   const items = all.filter(
     (t) =>
       (filter === "all" || t.status === filter) &&
-      `${t.name} ${t.destination_host} ${t.listen_host}`
+      `${t.name} ${t.destination_host} ${t.listen_host} ${t.http?.servers.flatMap(s=>s.hosts).join(" ")||""}`
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
@@ -474,6 +480,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
             {w.create}
           </Button>
         </section>
+<Tabs activeKey={protocolTab} onChange={v=>{setProtocolTab(v as "tcp"|"http");setQuery("");}} items={[{key:"tcp",label:"TCP "+(locale==="zh-CN"?"隧道":"tunnels")},{key:"http",label:"HTTP "+(locale==="zh-CN"?"转发":"forwarding")}]}/>
         {!allowed ? (
           <p>{w.restricted}</p>
         ) : (
@@ -497,6 +504,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
                   "error",
                   "stopped",
                   "expired",
+                  "unknown",
                 ].map((value) => ({ value, label: w[value as keyof Words] }))}
               />
               <span>
@@ -578,7 +586,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
                     </span>
                   )}
                 </div>
-                {t.temporary ? (
+                {t.protocol === "http" ? <HTTPForwardSummary config={t}/> : t.temporary ? (
                   <div className="tunnel-flow" aria-label={w.flow}>
                     <div className="tunnel-flow-nodes">
                       <div className="tunnel-node entry-node">
@@ -714,7 +722,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
             ))}
           </>
         )}
-        {traffic && (
+        {traffic && (traffic.protocol ? <ForwardLogsDialog tunnel={all.find(t=>t.id===traffic.id)||traffic} onClose={()=>setTraffic(null)}/> :
           <TunnelTrafficDialog
             tunnel={all.find((t) => t.id === traffic.id) || traffic}
             onClose={() => setTraffic(null)}
@@ -726,6 +734,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
             data={data}
             tunnel={editing === "new" ? null : editing}
             words={w}
+            initialProtocol={protocolTab}
             onClose={() => setEditing(null)}
             onSaved={() => qc.invalidateQueries({ queryKey: key })}
           />
@@ -758,6 +767,7 @@ export function TunnelsPage({ data }: { data: ConsoleData }) {
 }
 
 function TunnelEditor({
+  initialProtocol,
   data,
   tunnel,
   words: w,
@@ -766,6 +776,7 @@ function TunnelEditor({
 }: {
   data: ConsoleData;
   tunnel: Tunnel | null;
+  initialProtocol: "tcp" | "http";
   words: Words;
   onClose: () => void;
   onSaved: () => Promise<unknown>;
@@ -776,6 +787,8 @@ function TunnelEditor({
   const [config, setConfig] = useState<TunnelConfig>(
     tunnel
       ? {
+          protocol: tunnel.protocol || "tcp",
+          http: tunnel.http,
           name: tunnel.name,
           entry_target_id: tunnel.entry_target_id,
           listen_host: tunnel.listen_host,
@@ -787,6 +800,8 @@ function TunnelEditor({
         }
       : {
           ...blank,
+          protocol: initialProtocol,
+          http: initialProtocol === "http" ? {servers:[newHTTPServer(firstMachine)]} : undefined,
           entry_target_id: firstMachine,
           exit_target_id: firstMachine,
         },
@@ -798,11 +813,12 @@ function TunnelEditor({
     setConfig((c) => ({ ...c, [key]: value }));
   const mutation = useMutation({
     mutationFn: async () => {
+      const body = {...config, http: config.protocol === "http" ? config.http : undefined};
       const result =
         tunnel || savedID
-          ? await api.updateTunnel(tunnel?.id || savedID!, config)
+          ? await api.updateTunnel(tunnel?.id || savedID!, body)
           : await api.createTunnel({
-              ...config,
+              ...body,
               organization_id: data.activeOrg.id,
             });
       setSavedID(result.tunnel.id);
@@ -839,11 +855,12 @@ function TunnelEditor({
             placeholder={w.namePlaceholder}
           />
         </label>
+<div className="forward-editor-type"><Segmented value={config.protocol || "tcp"} items={[["tcp","TCP"],["http","HTTP"]]} onChange={v=>{setConfig(c=>({...c,protocol:v as "tcp"|"http",http:c.http||{servers:[newHTTPServer(firstMachine)]}}));}}/></div>
         <div className="tunnel-preview-heading">
           <Network size={17} />
           <strong>{w.flow}</strong>
         </div>
-        <Flow
+        {config.protocol === "http" ? <HTTPForwardEditor data={data} config={config} onChange={patch=>setConfig(c=>({...c,...patch}))}/> : <Flow
           config={config}
           targets={data.targets}
           words={w}
@@ -851,7 +868,7 @@ function TunnelEditor({
             data,
             onChange: (patch) => setConfig((c) => ({ ...c, ...patch })),
           }}
-        />
+        />}
         <div className="tunnel-duration">
           <div className="field">
             <span>
@@ -908,7 +925,7 @@ function TunnelEditor({
             loading={mutation.isPending}
             disabled={
               config.entry_target_id === "__select__" ||
-              config.exit_target_id === "__select__"
+              (config.protocol === "http" ? config.http?.servers.some(s=>s.locations.some(l=>l.exit_target_id === "__select__")) : config.exit_target_id === "__select__")
             }
           >
             {w.save}

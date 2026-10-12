@@ -24,6 +24,10 @@ type Counters struct {
 }
 
 type Conn struct {
+	// Edge multiplexers opt in; ordinary tunnels and file transfers keep their lifecycle.
+	keepDirectOnRelayLoss      bool
+	relayLost                  bool
+	lastDirectReceive          time.Time
 	finReadSeq                 uint64
 	relay                      *Relay
 	done                       chan struct{}
@@ -57,13 +61,23 @@ func NewConn(relay *Relay) *Conn {
 	c := &Conn{relay: relay, done: make(chan struct{}), changed: make(chan struct{}), next: 1, receiveNext: 1, pending: map[uint64]pendingPacket{}, buffered: map[uint64]Packet{}, incoming: make(chan Packet, window)}
 	return c
 }
-func (c *Conn) Done() <-chan struct{} { return c.done }
+func (c *Conn) Done() <-chan struct{}  { return c.done }
+func (c *Conn) KeepDirectOnRelayLoss() { c.mu.Lock(); c.keepDirectOnRelayLoss = true; c.mu.Unlock() }
 func (c *Conn) Run() {
 	go c.retransmit()
 	for {
 		p, err := c.relay.Read()
 		if err != nil {
-			c.shutdown()
+			c.mu.Lock()
+			survive := c.keepDirectOnRelayLoss && c.useDirect && c.direct != nil
+			c.relayLost = true
+			if survive {
+				c.lastDirectReceive = time.Now()
+			}
+			c.mu.Unlock()
+			if !survive {
+				c.shutdown()
+			}
 			return
 		}
 		c.receive(p, false)
@@ -151,7 +165,7 @@ func (c *Conn) Read(b []byte) (int, error) {
 				if slot.seq == p.Seq {
 					path = slot.path
 				}
-				_ = c.relay.Send(Packet{Kind: Ack, Seq: p.Seq, Body: []byte{path}})
+				c.acknowledge(p.Seq, path, path == 1)
 				return 0, io.EOF
 			}
 			c.readBuffer = p.Body
@@ -173,6 +187,11 @@ func (c *Conn) CloseWrite() error {
 	return c.queue(Fin, nil)
 }
 func (c *Conn) receive(p Packet, direct bool) {
+	if direct {
+		c.mu.Lock()
+		c.lastDirectReceive = time.Now()
+		c.mu.Unlock()
+	}
 	switch p.Kind {
 	case Data, Fin:
 		if len(p.Body) > MaxPayload {
@@ -242,11 +261,19 @@ func (c *Conn) receive(p Packet, direct bool) {
 	case Probe:
 		c.mu.Lock()
 		path := c.direct
+		active := c.useDirect
 		c.mu.Unlock()
 		if path != nil {
 			_ = path.Send(Packet{Kind: ProbeAck})
+			// Retry immediately if our first probe preceded the remote path setup.
+			if direct && !active {
+				_ = path.Send(Packet{Kind: Probe})
+			}
 		}
 	case ProbeAck:
+		if !direct {
+			return
+		}
 		c.mu.Lock()
 		if c.direct != nil {
 			c.useDirect = true
@@ -259,7 +286,10 @@ func (c *Conn) receive(p Packet, direct bool) {
 // ACKs for relayed packets and their duplicates still cross the server for exact accounting.
 func (c *Conn) acknowledge(seq uint64, path byte, preferDirect bool) {
 	packet := Packet{Kind: Ack, Seq: seq, Body: []byte{path}}
-	if preferDirect {
+	c.mu.Lock()
+	offline := c.relayLost
+	c.mu.Unlock()
+	if preferDirect || offline {
 		c.mu.Lock()
 		direct := c.direct
 		c.mu.Unlock()
@@ -285,13 +315,27 @@ func (c *Conn) retransmit() {
 					retry = append(retry, p.packet)
 					p.last = now
 					c.pending[seq] = p
-					c.useDirect = false
+					if !c.relayLost {
+						c.useDirect = false
+					}
 				}
 			}
 			path := c.direct
+			offline := c.relayLost
+			expired := offline && (!c.useDirect || now.Sub(c.lastDirectReceive) > 15*time.Second)
 			c.mu.Unlock()
+			if expired {
+				c.shutdown()
+				return
+			}
 			for _, p := range retry {
-				if c.relay.Send(p) != nil {
+				var err error
+				if offline {
+					err = c.send(p)
+				} else {
+					err = c.relay.Send(p)
+				}
+				if err != nil {
 					c.shutdown()
 					return
 				}
@@ -307,13 +351,25 @@ func (c *Conn) SetDirect(path directPath) {
 	c.mu.Lock()
 	old := c.direct
 	c.direct = path
-	c.useDirect = true
+	c.useDirect = false
 	c.mu.Unlock()
 	if old != nil && old != path {
 		_ = old.Close()
 	}
+	// Relay remains usable while the remote peer confirms the installed path.
+	if path != nil {
+		_ = path.Send(Packet{Kind: Probe})
+	}
 }
-func (c *Conn) DisableDirect()     { c.mu.Lock(); c.useDirect = false; c.mu.Unlock() }
+func (c *Conn) DisableDirect() {
+	c.mu.Lock()
+	c.useDirect = false
+	offline := c.relayLost
+	c.mu.Unlock()
+	if offline {
+		c.shutdown()
+	}
+}
 func (c *Conn) Direct() bool       { c.mu.Lock(); defer c.mu.Unlock(); return c.useDirect && c.direct != nil }
 func (c *Conn) Counters() Counters { return Counters{c.sentDirect.Load(), c.receivedDirect.Load()} }
 func (c *Conn) ReportStats() error {

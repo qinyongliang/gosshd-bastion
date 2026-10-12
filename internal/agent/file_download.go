@@ -109,8 +109,8 @@ func (c *Client) handleFileDownload(stream io.ReadWriteCloser, reader *bufio.Rea
 }
 
 func sendFileDownload(stable io.ReadWriter, src *downloadSource) protocol.FileTransferStatus {
-	// Waiting for start lets the browser finish ICE and prepare its writable sink
-	// before even a small file is sent. Receipt follows checksum/length checks.
+	// Waiting for start lets the browser prepare its writable sink, not finish ICE.
+	// The same stream can upgrade during download. Receipt follows integrity checks.
 	var control [1]byte
 	if _, err := io.ReadFull(stable, control[:]); err != nil || control[0] != 1 {
 		return protocol.FileTransferStatus{Type: "error", Error: "invalid download start"}

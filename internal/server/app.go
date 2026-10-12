@@ -33,6 +33,7 @@ type App struct {
 	runningAudits       *runningAuditStore
 	terminalSessions    *terminalSessionManager
 	tunnels             *tunnelManager
+	forwards            *edgeForwardManager
 	auditRecordingsPath string
 	brandingCache       brandingSettings
 	brandingCacheValid  bool
@@ -62,6 +63,9 @@ func (a *App) Registry() *AgentRegistry {
 }
 
 func (a *App) Close() error {
+	if a.forwards != nil {
+		a.forwards.close()
+	}
 	if a.tunnels != nil {
 		a.tunnels.close()
 	}
@@ -118,6 +122,7 @@ func (a *App) ensureServices(ctx context.Context) error {
 	a.auth = auth.NewService(st.Repository())
 	a.bastion = bastion.NewService(st.Repository())
 	a.tunnels = newTunnelManager(a)
+	a.forwards = newEdgeForwardManager(a)
 	if a.cfg.ClientMode {
 		user, err := st.Repository().EnsureClientUser(ctx)
 		if err != nil {
@@ -317,7 +322,9 @@ func (a *App) sessionCookieName() string {
 }
 
 func (a *App) Run(ctx context.Context) error {
- if err:=a.ensureServices(ctx);err!=nil{return err}
+	if err := a.ensureServices(ctx); err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
 	a.routes(mux)
 	a.httpSrv = newHTTPServer(a.cfg.HTTPListen, mux)

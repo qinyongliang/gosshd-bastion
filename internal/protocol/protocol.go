@@ -57,6 +57,8 @@ type TunnelSSHHop struct {
 	HostKey  []byte `json:"host_key"`
 }
 type StreamRequest struct {
+	ForwardSync   *ForwardSync         `json:"forward_sync,omitempty"`
+	ForwardPeer   *ForwardPeer         `json:"forward_peer,omitempty"`
 	FileAction    string               `json:"file_action,omitempty"`
 	Download      *FileDownloadRequest `json:"download,omitempty"`
 	Upload        *FileUploadRequest   `json:"upload,omitempty"`

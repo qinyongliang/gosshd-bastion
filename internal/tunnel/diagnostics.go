@@ -8,27 +8,12 @@ import (
 	"time"
 
 	"github.com/pion/webrtc/v4"
+	protocoltypes "github.com/qinyongliang/gosshd-bastion/internal/protocol/types"
 )
 
-// PeerInfo describes the selected ICE route, not all advertised interfaces.
-type CandidateInfo struct {
-	Address      string `json:"address"`
-	Port         uint16 `json:"port"`
-	Protocol     string `json:"protocol"`
-	Type         string `json:"type"`
-	Network      string `json:"network"`
-	Interface    string `json:"interface,omitempty"`
-	LocalAddress string `json:"local_address,omitempty"`
-	LocalPort    uint16 `json:"local_port,omitempty"`
-}
-type PeerInfo struct {
-	Active          bool           `json:"active"`
-	State           string         `json:"state"`
-	Local           *CandidateInfo `json:"local,omitempty"`
-	Remote          *CandidateInfo `json:"remote,omitempty"`
-	RTTMilliseconds float64        `json:"rtt_ms,omitempty"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-}
+// PeerInfo/CandidateInfo are wire DTOs; runtime diagnostics only populate them.
+type CandidateInfo = protocoltypes.CandidateInfo
+type PeerInfo = protocoltypes.PeerInfo
 
 func interfaceForAddress(address string) string {
 	ip := net.ParseIP(strings.Split(address, "%")[0])

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/qinyongliang/gosshd-bastion/internal/forward"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
@@ -17,26 +18,30 @@ type mcpTunnelListInput struct {
 	OrganizationID string `json:"organization_id"`
 }
 type mcpTunnelSaveInput struct {
-	OrganizationID  string `json:"organization_id"`
-	Name            string `json:"name"`
-	EntryTargetID   string `json:"entry_target_id,omitempty" jsonschema:"Entry machine ID; empty selects the bastion (system administrators only)."`
-	ListenHost      string `json:"listen_host" jsonschema:"IP address to bind on the entry machine; use 127.0.0.1 for local access."`
-	ListenPort      int    `json:"listen_port"`
-	ExitTargetID    string `json:"exit_target_id,omitempty" jsonschema:"Exit machine ID; empty selects the bastion (system administrators only). SSH jump chains are supported."`
-	DestinationHost string `json:"destination_host" jsonschema:"Destination resolved and accessed from the exit machine."`
-	DestinationPort int    `json:"destination_port"`
-	DurationSeconds int64  `json:"duration_seconds,omitempty" jsonschema:"Duration per enable; 0 is permanent; maximum 365 days. Reconnecting does not reset expiration."`
+	Protocol        string              `json:"protocol,omitempty" jsonschema:"tcp or http; omitted retains legacy TCP behavior."`
+	HTTP            *forward.HTTPConfig `json:"http,omitempty" jsonschema:"HTTP server and location blocks. Match modifiers: prefix, =, ^~, ~, ~*. Regex uses Go RE2."`
+	OrganizationID  string              `json:"organization_id"`
+	Name            string              `json:"name"`
+	EntryTargetID   string              `json:"entry_target_id,omitempty" jsonschema:"Entry machine ID; empty selects the bastion (system administrators only)."`
+	ListenHost      string              `json:"listen_host" jsonschema:"IP address to bind on the entry machine; use 127.0.0.1 for local access."`
+	ListenPort      int                 `json:"listen_port"`
+	ExitTargetID    string              `json:"exit_target_id,omitempty" jsonschema:"Exit machine ID; empty selects the bastion (system administrators only). SSH jump chains are supported."`
+	DestinationHost string              `json:"destination_host,omitempty" jsonschema:"Destination resolved and accessed from the exit machine."`
+	DestinationPort int                 `json:"destination_port,omitempty"`
+	DurationSeconds int64               `json:"duration_seconds,omitempty" jsonschema:"Duration per enable; 0 is permanent; maximum 365 days. Reconnecting does not reset expiration."`
 }
 type mcpTunnelUpdateInput struct {
-	TunnelID        string  `json:"tunnel_id"`
-	Name            *string `json:"name,omitempty"`
-	EntryTargetID   *string `json:"entry_target_id,omitempty"`
-	ListenHost      *string `json:"listen_host,omitempty"`
-	ListenPort      *int    `json:"listen_port,omitempty"`
-	ExitTargetID    *string `json:"exit_target_id,omitempty"`
-	DestinationHost *string `json:"destination_host,omitempty"`
-	DestinationPort *int    `json:"destination_port,omitempty"`
-	DurationSeconds *int64  `json:"duration_seconds,omitempty"`
+	Protocol        *string             `json:"protocol,omitempty"`
+	HTTP            *forward.HTTPConfig `json:"http,omitempty"`
+	TunnelID        string              `json:"tunnel_id"`
+	Name            *string             `json:"name,omitempty"`
+	EntryTargetID   *string             `json:"entry_target_id,omitempty"`
+	ListenHost      *string             `json:"listen_host,omitempty"`
+	ListenPort      *int                `json:"listen_port,omitempty"`
+	ExitTargetID    *string             `json:"exit_target_id,omitempty"`
+	DestinationHost *string             `json:"destination_host,omitempty"`
+	DestinationPort *int                `json:"destination_port,omitempty"`
+	DurationSeconds *int64              `json:"duration_seconds,omitempty"`
 }
 type mcpTunnelOutput struct {
 	Tunnel apiTunnel `json:"tunnel"`
@@ -98,13 +103,13 @@ func (a *App) addMCPTunnelTools(s *mcp.Server, initialActor store.User) {
 			}
 			return nil, mcpTunnelOutput{a.tunnelView(t)}, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "tunnel_create", Description: "Create a persistent TCP tunnel, initially stopped. Flow: client -> entry machine listening address -> exit machine -> destination. Entry/exit accept Agent or ordinary SSH machine IDs and SSH jump chains. Call tunnel_enable separately to start. Creator is always the authenticated user."},
+	mcp.AddTool(s, &mcp.Tool{Name: "tunnel_create", Description: "Create a persistent TCP or HTTP forward, initially stopped. HTTP uses named server/host and location blocks with per-location exits, schemes and headers; TCP uses destination_host/port. Explicit protocol tcp/http enables edge deployment and independent access databases. Flow: client -> entry machine listening address -> exit machine -> destination. Entry/exit accept Agent or ordinary SSH machine IDs and SSH jump chains. Call tunnel_enable separately to start. Creator is always the authenticated user."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpTunnelSaveInput) (*mcp.CallToolResult, mcpTunnelOutput, error) {
 			actor, err := a.tunnelActor(ctx, initialActor)
 			if err != nil {
 				return nil, mcpTunnelOutput{}, err
 			}
-			t := store.Tunnel{OrganizationID: in.OrganizationID, CreatedBy: actor.ID, TunnelConfig: store.TunnelConfig{Name: in.Name, EntryTargetID: in.EntryTargetID, ListenHost: in.ListenHost, ListenPort: in.ListenPort, ExitTargetID: in.ExitTargetID, DestinationHost: in.DestinationHost, DestinationPort: in.DestinationPort, DurationSeconds: in.DurationSeconds}}
+			t := store.Tunnel{OrganizationID: in.OrganizationID, CreatedBy: actor.ID, TunnelConfig: store.TunnelConfig{Protocol: in.Protocol, HTTP: in.HTTP, Name: in.Name, EntryTargetID: in.EntryTargetID, ListenHost: in.ListenHost, ListenPort: in.ListenPort, ExitTargetID: in.ExitTargetID, DestinationHost: in.DestinationHost, DestinationPort: in.DestinationPort, DurationSeconds: in.DurationSeconds}}
 			saved, err := a.saveManagedTunnel(ctx, actor, t)
 			return nil, mcpTunnelOutput{saved}, err
 		})
@@ -117,6 +122,15 @@ func (a *App) addMCPTunnelTools(s *mcp.Server, initialActor store.User) {
 			t, err := a.managedTunnel(ctx, actor, in.TunnelID)
 			if err != nil {
 				return nil, mcpTunnelOutput{}, err
+			}
+			if in.Protocol != nil {
+				t.Protocol = *in.Protocol
+				if t.Protocol != "http" {
+					t.HTTP = nil
+				}
+			}
+			if in.HTTP != nil {
+				t.HTTP = in.HTTP
 			}
 			if in.Name != nil {
 				t.Name = *in.Name
@@ -150,7 +164,7 @@ func (a *App) addMCPTunnelTools(s *mcp.Server, initialActor store.User) {
 		enabled           bool
 	}{
 		{"tunnel_enable", "Enable or renew a tunnel using its configured duration. Renews expiration and closes existing connections when already enabled. Records the authenticated enabling user.", true},
-		{"tunnel_stop", "Stop a tunnel immediately and close existing connections. Retains its persistent configuration and traffic history.", false},
+		{"tunnel_stop", "Stop desired forwarding and retain configuration/history. Connected Agents reconcile; disconnected Agents continue cached local/direct rules until reconnect or absolute expiration. Legacy/server listeners close immediately.", false},
 	} {
 		mcp.AddTool(s, &mcp.Tool{Name: operation.name, Description: operation.description},
 			func(ctx context.Context, _ *mcp.CallToolRequest, in mcpTunnelIDInput) (*mcp.CallToolResult, mcpTunnelOutput, error) {

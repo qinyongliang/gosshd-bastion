@@ -26,6 +26,12 @@ func (c *Client) handleStreamWithSession(stream io.ReadWriteCloser, session *yam
 		return
 	}
 	switch req.Type {
+	case protocol.StreamForwardSync:
+		c.handleForwardSync(stream, req)
+	case protocol.StreamForwardLink:
+		c.handleForwardLink(stream, reader, req)
+	case protocol.StreamForwardPeer:
+		c.handleForwardPeer(stream, reader, req)
 	case protocol.StreamFileSession:
 		c.handleFileSession(stream, reader, req)
 	case protocol.StreamFileUpload:

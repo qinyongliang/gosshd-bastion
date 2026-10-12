@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
@@ -21,6 +22,8 @@ import (
 )
 
 type Client struct {
+	forwardMu       sync.Mutex
+	edge            *edgeForwarder
 	cfg             Config
 	id              string
 	assignedAgentID string
@@ -55,6 +58,9 @@ func New(cfg Config) (*Client, error) {
 	return &Client{cfg: cfg, id: idFile.ID, assignedAgentID: idFile.AssignedAgentID}, nil
 }
 
+// Close releases Agent-owned forwarding workers; session reconnects do not.
+func (c *Client) Close() error { c.closeForwarder(); return nil }
+
 func (c *Client) ID() string {
 	return c.id
 }
@@ -77,6 +83,15 @@ func (c *Client) SSHAddress() string {
 }
 
 func (c *Client) Run(ctx context.Context) error {
+	defer c.closeForwarder()
+	if restarting, err := finalizeLegacyUpdate(); err != nil {
+		return err
+	} else if restarting {
+		return nil
+	}
+	if _, err := c.forwarder(); err != nil {
+		log.Printf("agent forward cache restore failed; awaiting authoritative sync: %v", err)
+	}
 	backoff := time.Second
 	for {
 		if err := c.runOnce(ctx); err != nil {
@@ -181,7 +196,12 @@ func (c *Client) runOnce(ctx context.Context) error {
 		}
 	}
 	if err := c.maybeUpdateAndRestart(ctx, resp); err != nil {
-		return err
+		if errors.Is(err, errAgentRestarting) {
+			return err
+		}
+		// A bad/oversized update must not take the agent offline or trigger a
+		// reconnect-and-download loop. Keep serving with the current version.
+		log.Printf("agent auto-update skipped: %v", err)
 	}
 
 	session, err := yamux.Client(conn, nil)

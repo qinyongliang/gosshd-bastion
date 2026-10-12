@@ -77,6 +77,9 @@ type apiPublicKeysResponse struct {
 }
 
 func (a *App) apiRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/tunnels/{id}/logs", a.requireUser(a.handleForwardLogs))
+	mux.HandleFunc("GET /api/admin/settings/forward", a.requireSystemAdmin(a.handleForwardSettings))
+	mux.HandleFunc("PUT /api/admin/settings/forward", a.requireSystemAdmin(a.handleForwardSettings))
 	mux.HandleFunc("GET /api/tunnels/{id}/traffic", a.requireUser(a.handleTunnelTraffic))
 	mux.HandleFunc("GET /api/tunnels", a.requireUser(a.handleListTunnels))
 	mux.HandleFunc("POST /api/tunnels", a.requireUser(a.handleSaveTunnel))
