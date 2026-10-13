@@ -30,13 +30,14 @@ function localDateTime(seconds: number): string {
   const date = new Date(seconds * 1000);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
-export function TunnelTrafficDialog({
-  tunnel,
-  onClose,
-}: {
-  tunnel: Tunnel;
-  onClose: () => void;
-}) {
+export function TunnelTrafficDialog({ tunnel, onClose }: { tunnel: Tunnel; onClose: () => void }) {
+  const { locale } = useI18n();
+  return <Modal title={`${tunnel.name} · ${locale === "zh-CN" ? "统计" : "Statistics"}`} wide className="tunnel-traffic-dialog" onClose={onClose}>
+    <TunnelTrafficContent tunnel={tunnel} />
+  </Modal>;
+}
+
+export function TunnelTrafficContent({ tunnel }: { tunnel: Tunnel }) {
   const { locale } = useI18n();
   const zh = locale === "zh-CN";
   const words = tunnelTrafficCopy[locale];
@@ -126,12 +127,7 @@ export function TunnelTrafficDialog({
     && new Date(customEnd).getTime() > new Date(customStart).getTime()
     && customFrom >= 0 && customTo - customFrom <= 31 * 86400;
   return (
-    <Modal
-      title={`${tunnel.name} · ${zh ? "统计" : "Statistics"}`}
-      wide
-      className="tunnel-traffic-dialog"
-      onClose={onClose}
-    >
+    <div className="tunnel-traffic-content">
       <div className="tunnel-chart-toolbar">
         <Select
           aria-label={zh ? "时间范围" : "Time range"}
@@ -246,7 +242,7 @@ export function TunnelTrafficDialog({
           {tunnel.traffic?.connections_opened || 0}
         </span>}
       </div>
-    </Modal>
+    </div>
   );
 }
 function TrafficChart({

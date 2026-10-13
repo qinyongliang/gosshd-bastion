@@ -80,7 +80,9 @@ func (m *edgeForwardManager) syncAgentBatch(id string, in *protocol.ForwardSync,
 		if len(report.Events) > 256 {
 			continue
 		}
-		if len(report.Events) > 0 {
+		// Port forwards import only aggregate telemetry. Still acknowledge old
+		// Agent access outboxes below so they can drain without being stored here.
+		if t.Protocol == "http" && len(report.Events) > 0 {
 			err = l.ImportAccess(m.ctx, report.Events)
 		}
 		if err != nil {

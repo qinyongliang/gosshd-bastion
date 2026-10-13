@@ -38,13 +38,17 @@ func (a *App) forwardLogs(ctx context.Context, actor store.User, id string, f fo
 	if err != nil {
 		return out, err
 	}
-	out.Events, err = l.Query(ctx, f)
-	if err != nil {
-		return out, err
-	}
-	out.Sources, err = l.Sources(ctx, f)
-	if err != nil {
-		return out, err
+	out.Events = []forward.Event{}
+	out.Sources = []forward.SourceStats{}
+	if t.Protocol == "http" {
+		out.Events, err = l.Query(ctx, f)
+		if err != nil {
+			return out, err
+		}
+		out.Sources, err = l.Sources(ctx, f)
+		if err != nil {
+			return out, err
+		}
 	}
 	out.Stats, err = l.Stats(ctx)
 	if err != nil {
@@ -53,11 +57,13 @@ func (a *App) forwardLogs(ctx context.Context, actor store.User, id string, f fo
 	if len(out.Events) > 0 {
 		out.NextBefore = out.Events[len(out.Events)-1].Sequence
 	}
-	settings, err := a.loadForwardSettings(ctx)
-	if err != nil {
-		return out, err
+	if t.Protocol == "http" {
+		settings, err := a.loadForwardSettings(ctx)
+		if err != nil {
+			return out, err
+		}
+		out.RetentionDays = settings.RetentionDays
 	}
-	out.RetentionDays = settings.RetentionDays
 	a.forwards.mu.Lock()
 	r := a.forwards.runs[id]
 	o := a.forwards.reports[id]
@@ -84,14 +90,16 @@ func (a *App) forwardLogs(ctx context.Context, actor store.User, id string, f fo
 	out.Stats.DirectDown += live.InflightDirectDown
 	out.Stats.Up += live.InflightUp
 	out.Stats.Down += live.InflightDown
-	seen := map[string]bool{}
-	for i := range out.Sources {
-		out.Sources[i].Active = live.Sources[out.Sources[i].SourceIP]
-		seen[out.Sources[i].SourceIP] = true
-	}
-	for ip, n := range live.Sources {
-		if !seen[ip] && (f.SourceIP == "" || f.SourceIP == ip) {
-			out.Sources = append(out.Sources, forward.SourceStats{SourceIP: ip, Active: n})
+	if t.Protocol == "http" {
+		seen := map[string]bool{}
+		for i := range out.Sources {
+			out.Sources[i].Active = live.Sources[out.Sources[i].SourceIP]
+			seen[out.Sources[i].SourceIP] = true
+		}
+		for ip, n := range live.Sources {
+			if !seen[ip] && (f.SourceIP == "" || f.SourceIP == ip) {
+				out.Sources = append(out.Sources, forward.SourceStats{SourceIP: ip, Active: n})
+			}
 		}
 	}
 	return out, nil

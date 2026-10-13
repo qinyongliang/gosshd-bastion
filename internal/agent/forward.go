@@ -238,7 +238,7 @@ func (m *edgeForwarder) apply(d protocol.ForwardDeployment) {
 		return links[id] == "" || (p != nil && p.Stable.Direct())
 	}
 	if d.Protocol == "port" {
-		r.runtime, err = forward.StartPort(ctx, d.ListenAddress, d.Transports, *d.Destination, dial, l, direct, listenTCP)
+		r.runtime, err = forward.StartPort(ctx, d.ListenAddress, d.Transports, *d.Destination, dial, l.TrafficRecorder(), direct, listenTCP)
 	} else {
 		var listener net.Listener
 		listener, err = listenTCP()

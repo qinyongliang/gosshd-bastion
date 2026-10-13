@@ -128,7 +128,7 @@ func (m *edgeForwardManager) ensureServerRun(t store.Tunnel) {
 			return fn(ctx, id)
 		}
 		if t.Protocol == "port" {
-			r.runtime, err = forward.StartPort(ctx, address, t.Transports, destination, dial, logs, nil, listenTCP)
+			r.runtime, err = forward.StartPort(ctx, address, t.Transports, destination, dial, logs.TrafficRecorder(), nil, listenTCP)
 		} else {
 			listener, e := listenTCP()
 			if e != nil {

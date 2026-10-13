@@ -183,6 +183,20 @@ func TestForwardEncryptedSnapshotRestoresUDPWithoutServer(t *testing.T) {
 		}
 	}
 	check()
+	m.mu.Lock()
+	m.runs[d.ID].close()
+	m.mu.Unlock()
+	if err := m.logs[d.ID].Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	access, err := m.logs[d.ID].Query(context.Background(), forward.LogFilter{})
+	if err != nil || len(access) != 0 {
+		t.Fatalf("Agent port access details %+v %v", access, err)
+	}
+	totals, err := m.logs[d.ID].Stats(context.Background())
+	if err != nil || totals.Requests != 1 || totals.Up != 10 || totals.Down != 10 {
+		t.Fatalf("Agent aggregate totals %+v %v", totals, err)
+	}
 	client.Close()
 	restarted, err := NewEmbedded(cfg, "udp-cache")
 	if err != nil {

@@ -71,9 +71,18 @@ try {
   if (screenshots) await page.screenshot({path:join(screenshots,`port-saved-${locale}-${width}.png`),fullPage:true});
   await editor.getByRole("button", { name: zh ? /取\s*消/ : "Cancel", exact: true }).click();
   await card.getByRole("button",{name:zh?"统计":"Statistics",exact:true}).click();
-  const logs=page.getByRole("dialog").filter({hasText:zh?"转发访问日志":"Forward access logs"}).last();await logs.waitFor();
-  const udpRow=logs.locator("tr.ant-table-row").filter({has:page.locator(".forward-log-path .ant-tag").filter({hasText:/^UDP$/})}).first();
-  await udpRow.waitFor();assert.equal(await udpRow.locator(".ant-tag").filter({hasText:/^UDP$/}).count(),2);
+  const stats=page.getByRole("dialog").filter({hasText:zh?"所选时段流量":"Traffic in range"}).last();await stats.waitFor();
+  assert.equal(await page.getByRole("dialog").count(),1);
+  assert.equal(await stats.getByRole("tab",{name:zh?"请求日志":"Requests",exact:true}).count(),0);
+  assert.equal(await stats.getByRole("tab",{name:zh?"来源统计":"Sources",exact:true}).count(),0);
+  assert.equal(await stats.getByText(/保留期内|retained window/).count(),0);
+  assert.equal(await stats.locator(".forward-log-filters").count(),0);
+  assert.equal(await stats.getByRole("button",{name:zh?"流量趋势 / 历史来源统计":"Traffic trends / historical sources",exact:true}).count(),0);
+  await stats.locator(".tunnel-statistics-table").getByRole("button",{name:"127.0.0.1",exact:true}).waitFor();
+  const overview=await(await context.request.get(base+"/api/tunnels/"+configured.id+"/logs")).json();
+  assert.deepEqual(overview.events,[]);assert.deepEqual(overview.sources,[]);assert.equal(overview.retention_days,0);
+  assert.ok(overview.stats.up>0&&overview.stats.down>0);
+  if(screenshots)await page.screenshot({path:join(screenshots,`port-statistics-${locale}-${width}.png`),fullPage:true});
   assert.deepEqual(errors, []); await context.request.delete(base + "/api/tunnels/" + configured.id); await context.close();
  }
  console.log("Port forwarding UI passed: Chinese/English, desktop/mobile, TCP default, empty rejection, dual TCP/UDP traffic, UDP-only edit persistence");
