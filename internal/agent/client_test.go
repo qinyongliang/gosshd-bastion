@@ -84,8 +84,8 @@ func TestSSHAddressUsesEnvironmentHint(t *testing.T) {
 	}
 }
 
-func TestDefaultRootUsesCurrentWorkingDirectory(t *testing.T) {
-	cwd, err := os.Getwd()
+func TestDefaultRootUsesUserHomeDirectory(t *testing.T) {
+	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestDefaultRootUsesCurrentWorkingDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got, want := filepath.Clean(client.cfg.Root), filepath.Clean(cwd); got != want {
+	if got, want := filepath.Clean(client.cfg.Root), filepath.Clean(home); got != want {
 		t.Fatalf("root mismatch:\n got: %s\nwant: %s", got, want)
 	}
 }

@@ -84,6 +84,7 @@ type terminalSession struct {
 	commandMu              sync.Mutex
 	commandWaiters         []*terminalCommandWaiter
 	oscBuffer              string
+	currentDirectory       string
 }
 
 type terminalScreenBuffer struct {
@@ -267,6 +268,9 @@ func (s *terminalSession) attach(writer *terminalWSWriter) {
 	if s.output.Len() > 0 {
 		_ = writer.write(terminalWSMessage{Type: "output", Data: s.output.String()})
 	}
+	if s.currentDirectory != "" {
+		_ = writer.write(terminalWSMessage{Type: "cwd", Data: s.currentDirectory})
+	}
 }
 
 func (s *terminalSession) detach(writer *terminalWSWriter) {
@@ -360,9 +364,10 @@ type terminalCommandWaiter struct {
 }
 
 type terminalIntegrationEvent struct {
-	Kind     string
-	ID       string
-	ExitCode int
+	Kind      string
+	ID        string
+	ExitCode  int
+	Directory string
 }
 
 func bashShellIntegrationCommand() string {
@@ -399,6 +404,10 @@ __gosshd_precmd() {
   if [ -n "$__gosshd_original_prompt_command" ]; then
     eval "$__gosshd_original_prompt_command"
   fi
+  case "$PWD" in
+    *$'\e'*|*$'\a'*|*$'\r'*|*$'\n'*) ;;
+    *) printf '\033]633;P;Cwd=%s\007' "$PWD" ;;
+  esac
   trap '__gosshd_preexec' DEBUG
 }
 PROMPT_COMMAND='__gosshd_precmd'
@@ -615,6 +624,11 @@ func (s *terminalSession) writeOutput(typ string, data []byte) {
 			s.shellBusy = true
 		case "A", "D":
 			s.shellBusy = false
+		case "P":
+			if event.Directory != "" && event.Directory != s.currentDirectory {
+				s.currentDirectory = event.Directory
+				s.broadcastLocked(terminalWSMessage{Type: "cwd", Data: event.Directory})
+			}
 		}
 	}
 	for _, waiter := range s.commandWaiters {
@@ -682,6 +696,15 @@ func consumeTerminalIntegrationText(buffer *string, text string) (string, []term
 	for len(input) > 0 {
 		start := strings.Index(input, "\x1b]633;")
 		if start < 0 {
+			// A transport frame can end in the OSC introducer, not just its payload.
+			prefix := "\x1b]633;"
+			for n := len(prefix) - 1; n > 0; n-- {
+				if strings.HasSuffix(input, prefix[:n]) {
+					*buffer = input[len(input)-n:]
+					input = input[:len(input)-n]
+					break
+				}
+			}
 			clean.WriteString(input)
 			break
 		}
@@ -719,6 +742,12 @@ func terminalOSCSequenceEnd(input string) (int, int) {
 }
 
 func parseTerminalIntegrationEvent(payload string) (terminalIntegrationEvent, bool) {
+	if directory, ok := strings.CutPrefix(payload, "P;Cwd="); ok {
+		if strings.ContainsAny(directory, "\x00\x1b\a\r\n") {
+			directory = ""
+		}
+		return terminalIntegrationEvent{Kind: "P", Directory: directory}, true
+	}
 	parts := strings.Split(payload, ";")
 	if len(parts) == 0 || parts[0] == "" {
 		return terminalIntegrationEvent{}, false

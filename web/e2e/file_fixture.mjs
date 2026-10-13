@@ -1,21 +1,6 @@
 import { watch } from "node:fs";
 import { readdir } from "node:fs/promises";
 
-// The Go SFTP fixture reports POSIX /C:/... realpaths on Windows. Keep this
-// transport test focused on real ICE/relay/SSH traffic, not that baseline path bug.
-export async function normalizeSFTPFixturePaths(page) {
-  if (process.platform !== "win32") return;
-  await page.route(/\/api\/targets\/[^/]+\/files\?/, async (route) => {
-    const response = await route.fetch();
-    if (!response.ok()) { await route.fulfill({ response }); return; }
-    const data = await response.json();
-    const normalize = (path) => path?.replace(/^\/([A-Za-z]:\/)/, "$1");
-    data.path = normalize(data.path);
-    for (const entry of data.entries || []) entry.path = normalize(entry.path);
-    await route.fulfill({ response, json: data });
-  });
-}
-
 // Transfer test bytes as one string instead of serializing millions of array
 // elements through the browser protocol. No production download path is mocked.
 export async function readStreamedDownload(page) {

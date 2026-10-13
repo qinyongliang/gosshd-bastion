@@ -549,11 +549,11 @@ func windowsInteractiveShellArgs(shell string) []string {
 }
 
 func windowsCmdIntegrationCommand() string {
-	return `prompt $E]633;D;0$E\$E]633;A$E\$_$P$G`
+	return `prompt $E]633;D;0$E\$E]633;A$E\$E]633;P;Cwd=$P$E\$_$P$G`
 }
 
 func windowsPowerShellIntegrationCommand() string {
 	esc := string(rune(0x1b))
 	bel := string(rune(0x07))
-	return `[Console]::InputEncoding=[Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); function global:prompt { $code = if ($global:?) { 0 } else { 1 }; [Console]::Write("` + esc + `]633;D;$code` + bel + esc + `]633;A` + bel + `"); "PS $($executionContext.SessionState.Path.CurrentLocation)> " }`
+	return `[Console]::InputEncoding=[Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); function global:prompt { $code = if ($global:?) { 0 } else { 1 }; [Console]::Write("` + esc + `]633;D;$code` + bel + esc + `]633;A` + bel + `"); $location = $executionContext.SessionState.Path.CurrentLocation; if ($location.Provider.Name -eq 'FileSystem') { [Console]::Write("` + esc + `]633;P;Cwd=$($location.ProviderPath)` + bel + `") }; "PS $location> " }`
 }

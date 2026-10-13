@@ -1333,7 +1333,7 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	if !strings.Contains(shBody, `--ssh-port "22022"`) {
 		t.Fatalf("shell install script missing public ssh port hint:\n%s", shBody)
 	}
-	if !strings.Contains(shBody, `mkdir -p /var/lib/gosshd`) || !strings.Contains(shBody, `--id-file "/var/lib/gosshd/agent.json"`) || !strings.Contains(shBody, `--root "/root"`) {
+	if !strings.Contains(shBody, `mkdir -p /var/lib/gosshd`) || !strings.Contains(shBody, `--id-file "/var/lib/gosshd/agent.json"`) || !strings.Contains(shBody, `--root "@GOSSHD_AGENT_HOME@"`) || strings.Contains(shBody, `--root "/root"`) {
 		t.Fatalf("shell service install script should not depend on systemd HOME:\n%s", shBody)
 	}
 
@@ -1361,7 +1361,11 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	if !strings.Contains(psBody, `$sshPort = "22022"`) || !strings.Contains(psBody, `--ssh-port $sshPort`) {
 		t.Fatalf("powershell install script missing public ssh port hint:\n%s", psBody)
 	}
-	if !strings.Contains(psBody, `$serviceIDFile = Join-Path $targetDir "agent.json"`) ||
+	if !strings.Contains(psBody, `$userHome = [Environment]::GetFolderPath('UserProfile')`) ||
+		!strings.Contains(psBody, `--root "' + $userHome + '"'`) ||
+		!strings.Contains(psBody, `--root $userHome`) ||
+		strings.Contains(psBody, `--root "' + $targetDir`) ||
+		!strings.Contains(psBody, `$serviceIDFile = Join-Path $targetDir "agent.json"`) ||
 		!strings.Contains(psBody, "--id-file \"' + $serviceIDFile + '\" --root \"") ||
 		!strings.Contains(psBody, "obj= LocalSystem") ||
 		!strings.Contains(psBody, "StartName") {

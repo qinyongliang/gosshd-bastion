@@ -1287,7 +1287,7 @@ func (a *App) handleTargetFileMkdir(w http.ResponseWriter, r *http.Request, user
 		paths = []string{body.Path}
 	}
 	for i, dir := range paths {
-		paths[i] = pathpkg.Clean(dir)
+		paths[i] = cleanSFTPPath(dir)
 		if strings.TrimSpace(dir) == "" || paths[i] == "." || paths[i] == "/" {
 			writeError(w, http.StatusBadRequest, "invalid directory path")
 			return
@@ -1403,17 +1403,17 @@ func (a *App) handleTargetFileTransfer(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusBadRequest, "invalid source or destination")
 		return
 	}
-	destination := pathpkg.Clean(body.Destination)
+	destination := cleanSFTPPath(body.Destination)
 	items := make([]targetFileTransfer, 0, len(sources))
 	seen := make(map[string]bool, len(sources))
 	for _, raw := range sources {
-		source := pathpkg.Clean(raw)
+		source := cleanSFTPPath(raw)
 		nextDestination := destination
 		if batch {
 			nextDestination = remoteJoin(destination, pathpkg.Base(source))
 		}
 		if raw == "" || source == "/" || source == "." || source == ".." ||
-			(len(source) == 2 && source[1] == ':') || strings.ContainsRune(source+nextDestination, 0) ||
+			(len(source) == 3 && source[0] == '/' && source[2] == ':') || strings.ContainsRune(source+nextDestination, 0) ||
 			nextDestination == "." || remotePathWithin(source, nextDestination) || seen[nextDestination] {
 			writeError(w, http.StatusBadRequest, "invalid, duplicate or self-containing source/destination: "+source)
 			return
@@ -1486,7 +1486,7 @@ func cleanRemoteBodyPath(value string) string {
 	if value == "" {
 		return ""
 	}
-	return pathpkg.Clean(value)
+	return cleanSFTPPath(value)
 }
 
 func sftpDiskUsage(client *sftp.Client, remotePath string) (int64, int64, error) {
@@ -1604,8 +1604,8 @@ func sftpMovePath(client *sftp.Client, source, destination string) error {
 }
 
 func remotePathWithin(parent, child string) bool {
-	parent = pathpkg.Clean(strings.ReplaceAll(parent, "\\", "/"))
-	child = pathpkg.Clean(strings.ReplaceAll(child, "\\", "/"))
+	parent = cleanSFTPPath(strings.ReplaceAll(parent, "\\", "/"))
+	child = cleanSFTPPath(strings.ReplaceAll(child, "\\", "/"))
 	return child == parent || strings.HasPrefix(child, parent+"/")
 }
 
@@ -1841,7 +1841,7 @@ func remotePathFromQuery(r *http.Request) string {
 	if raw == "" {
 		return "."
 	}
-	return pathpkg.Clean(raw)
+	return cleanSFTPPath(raw)
 }
 
 func remoteJoin(dir, name string) string {

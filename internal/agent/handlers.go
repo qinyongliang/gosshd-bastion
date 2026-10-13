@@ -59,7 +59,7 @@ func (c *Client) handleSFTP(stream io.ReadWriteCloser, reader *bufio.Reader) {
 	if err := protocol.WriteJSONLine(stream, protocol.StreamResponse{OK: true}); err != nil {
 		return
 	}
-	server, err := sftp.NewServer(readWriteCloser{Reader: reader, Writer: stream, Closer: stream})
+	server, err := sftp.NewServer(readWriteCloser{Reader: reader, Writer: stream, Closer: stream}, sftp.WithServerWorkingDirectory(c.cfg.Root))
 	if err != nil {
 		log.Printf("sftp server init failed: %v", err)
 		return

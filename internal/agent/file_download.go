@@ -63,6 +63,7 @@ func openDownloadSource(ctx context.Context, req protocol.StreamRequest, shared 
 			return err
 		}}, size: info.Size()}, nil
 	}
+	source = localFilePath(source)
 	info, err := os.Stat(source)
 	if err != nil {
 		return nil, err
@@ -93,6 +94,7 @@ func (c *Client) handleFileDownload(stream io.ReadWriteCloser, reader *bufio.Rea
 	defer cancel()
 	setupTimeout := time.AfterFunc(20*time.Second, cancel)
 	defer setupTimeout.Stop()
+	req = c.localFileRequest(req)
 	src, err := openDownloadSource(ctx, req)
 	if err != nil {
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{Error: err.Error()})

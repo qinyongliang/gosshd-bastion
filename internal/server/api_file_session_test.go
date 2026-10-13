@@ -65,7 +65,7 @@ func TestFileUploadDownloadSessionReuse(t *testing.T) {
 					if action == "upload" {
 						auditPath = remoteJoin(dir, name)
 					}
-					fileStarts[fmt.Sprintf("sftp %s %s (%d bytes)", action, auditPath, len(data))] = time.Now().UTC()
+					fileStarts[fmt.Sprintf("sftp %s %s (%d bytes)", action, cleanSFTPPath(auditPath), len(data))] = time.Now().UTC()
 					if index == 0 {
 						params := url.Values{"reuse": {"1"}, "path": {p}, "name": {name}, "size": {fmt.Sprint(len(data))}}
 						u, _ := url.Parse(srv.URL)

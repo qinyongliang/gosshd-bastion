@@ -86,7 +86,8 @@ func openUploadDestination(ctx context.Context, req protocol.StreamRequest, shar
 			cleanup()
 		}}, nil
 	}
-	// Use the same working directory as the existing Agent SFTP server.
+	// Convert the protocol path only for the local filesystem.
+	dest = localFilePath(dest)
 	temp := filepath.Join(filepath.Dir(dest), ".gosshd-upload-"+uuid.NewString())
 	file, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0666)
 	if err != nil {
@@ -112,6 +113,7 @@ func (c *Client) handleFileUpload(stream io.ReadWriteCloser, reader *bufio.Reade
 	defer cancel()
 	setupTimeout := time.AfterFunc(20*time.Second, cancel)
 	defer setupTimeout.Stop()
+	req = c.localFileRequest(req)
 	dst, err := openUploadDestination(ctx, req)
 	if err != nil {
 		_ = protocol.WriteJSONLine(stream, protocol.StreamResponse{Error: err.Error()})

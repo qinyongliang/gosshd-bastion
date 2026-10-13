@@ -35,8 +35,8 @@ UDP 支持堡垒机和 Agent 作为入口、出口，沿用现有直连/中转�
 服务端参数：
 
 ```sh
-# 默认公共 STUN；也可替换成自建服务，多个地址以逗号分隔。
-gosshd-server --tunnel-stun-servers 'stun:stun.l.google.com:19302'
+# 默认优先使用国内公共 STUN，并包含 Google、Cloudflare 公共 STUN；多个地址以逗号分隔。
+gosshd-server --tunnel-stun-servers 'stun:stun.miwifi.com:3478,stun:stun.chat.bilibili.com:3478,stun:stun.hitv.com:3478,stun:stun.l.google.com:19302,stun:stun.cloudflare.com:3478'
 
 # 仅尝试本地网卡候选，不访问公共 STUN。
 gosshd-server --tunnel-stun-servers ''

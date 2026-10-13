@@ -1,3 +1,4 @@
+import { normalizeRemotePath, remoteJoin, remoteParent } from "../remotePath";
 import { closeFileTransfers } from "../fileTransfer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Check, CheckCircle2, ChevronRight, Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, MoreHorizontal, Move, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
@@ -24,7 +25,7 @@ type DownloadTask = { fileName: string; loaded: number; total: number; speed: nu
 
 type UploadTask = { fileName: string; loaded: number; total: number; speed: number; queueIndex: number; queueTotal: number; completed: number; failed: number; transport?: TransferTransport; status: "uploading" | "success" | "cancelled" | "error" };
 
-export function FileManager({ target, path, onPathChange: setPath, system, nativeOpen = false, onEditFile }: { target: Target; path: string; onPathChange: (path: string) => void; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
+export function FileManager({ target, path, onPathChange: setPath, system, nativeOpen = false, onEditFile }: { target: Target; path: string; onPathChange: (path: string, source?: "resolved") => void; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [pathDraft, setPathDraft] = useState(".");
@@ -152,7 +153,7 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
     if (listing.isPlaceholderData) return;
     const resolvedPath = listing.data?.path;
     if (!resolvedPath || resolvedPath === path) return;
-    setPath(resolvedPath);
+    setPath(resolvedPath, "resolved");
   }, [listing.data?.path, listing.isPlaceholderData, path]);
   const breadcrumbListing = useQuery({
     queryKey: ["target-files", target.id, crumbMenu?.path || "", "name", "asc", "breadcrumb"],
@@ -790,9 +791,9 @@ function PathBreadcrumb({ path, drives, driveLabel, activeKey, onOpenMenu, onEdi
 
 function breadcrumbItems(path: string, drives: TargetSystemFilesystem[], driveLabel: string): BreadcrumbItem[] {
   const normalized = normalizeRemotePath(path || ".");
-  const driveMatch = normalized.match(/^([A-Za-z]:)(?:\/(.*))?$/);
+  const driveMatch = normalized.match(/^\/?([A-Za-z]:)(?:\/(.*))?$/);
   if (driveMatch) {
-    const drive = `${driveMatch[1].toUpperCase()}/`;
+    const drive = `/${driveMatch[1].toUpperCase()}/`;
     const items: BreadcrumbItem[] = [{ key: drive, label: driveMatch[1].toUpperCase(), kind: drives.length ? "drives" : "dirs", menuPath: drive }];
     let current = drive;
     for (const segment of (driveMatch[2] || "").split("/").filter(Boolean)) {
@@ -837,11 +838,11 @@ function windowsDrives(filesystems: TargetSystemFilesystem[]) {
 
 function windowsDriveRoot(path: string) {
   const match = path.trim().match(/^([A-Za-z]):/);
-  return match ? `${match[1].toUpperCase()}:/` : path;
+  return match ? `/${match[1].toUpperCase()}:/` : path;
 }
 
 function isWindowsDriveRoot(path: string) {
-  return /^[A-Za-z]:[\/\\]?$/.test(path.trim());
+  return /^\/?[A-Za-z]:[\/\\]?$/.test(path.trim());
 }
 
 function filterDrives(drives: TargetSystemFilesystem[], filter: string) {
@@ -1061,45 +1062,6 @@ function breadcrumbMenuPositionInViewport(rect: DOMRect) {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
-}
-
-function remoteJoin(dir: string, name: string) {
-  if (!name) return dir;
-  if (/^[A-Za-z]:[/\\]?/.test(name)) return normalizeRemotePath(name.replace(/\\/g, "/"));
-  if (name.startsWith("/")) return normalizeRemotePath(name);
-  if (!dir || dir === ".") return normalizeRemotePath(name);
-  return normalizeRemotePath(`${dir.replace(/\/+$/, "")}/${name}`);
-}
-
-function remoteParent(path: string) {
-  const trimmed = path.replace(/\\/g, "/").replace(/\/$/, "");
-  if (/^[A-Za-z]:$/.test(trimmed)) return `${trimmed.toUpperCase()}/`;
-  const index = trimmed.lastIndexOf("/");
-  if (index === 2 && /^[A-Za-z]:/.test(trimmed)) return `${trimmed.slice(0, 2).toUpperCase()}/`;
-  if (index <= 0) return "/";
-  return trimmed.slice(0, index) || "/";
-}
-
-function normalizeRemotePath(value: string): string {
-  value = value.replace(/\\/g, "/");
-  const drive = value.match(/^([A-Za-z]:)(?:\/|$)(.*)$/);
-  if (drive) {
-    const normalized = normalizeRemotePath(drive[2] || ".");
-    const suffix = normalized === "." ? "" : normalized.replace(/^\//, "");
-    return suffix ? `${drive[1].toUpperCase()}/${suffix}` : `${drive[1].toUpperCase()}/`;
-  }
-  const absolute = value.startsWith("/");
-  const parts: string[] = [];
-  for (const part of value.split("/")) {
-    if (!part || part === ".") continue;
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-    parts.push(part);
-  }
-  const next = parts.join("/");
-  return absolute ? `/${next}` || "/" : next || ".";
 }
 
 function FileTransferToast({ kind, fileName, status, transport, title, active, cancelLabel, onCancel, percent, detail, rate, raised }: {

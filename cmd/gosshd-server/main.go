@@ -16,7 +16,7 @@ var version = server.DefaultVersion
 
 func main() {
 	var cfg server.Config
-	flag.StringVar(&cfg.TunnelSTUNServers, "tunnel-stun-servers", "stun:stun.l.google.com:19302", "comma-separated STUN URLs for Agent tunnel UDP hole punching; empty enables LAN candidates only")
+	flag.StringVar(&cfg.TunnelSTUNServers, "tunnel-stun-servers", "stun:stun.miwifi.com:3478,stun:stun.chat.bilibili.com:3478,stun:stun.hitv.com:3478,stun:stun.l.google.com:19302,stun:stun.cloudflare.com:3478", "comma-separated STUN URLs for Agent tunnel UDP hole punching; empty enables LAN candidates only")
 	flag.BoolVar(&cfg.ClientMode, "client-mode", false, "run as a local single-user client backend")
 	flag.StringVar(&cfg.HTTPListen, "http-listen", ":80", "HTTP listen address")
 	flag.StringVar(&cfg.SSHListen, "ssh-listen", ":22", "SSH listen address")

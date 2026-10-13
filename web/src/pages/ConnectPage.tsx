@@ -1,3 +1,4 @@
+import { normalizeRemotePath } from "../remotePath";
 import { useQuery } from "@tanstack/react-query";
 import Editor, { loader } from "@monaco-editor/react";
 import type { BeforeMount, Monaco, OnMount } from "@monaco-editor/react";
@@ -81,6 +82,7 @@ type ConnectionTab = {
   layout: PaneNode;
   activePaneID: string;
   filePath: string;
+  filePathInitialized?: boolean;
   pendingCommand?: string;
 };
 
@@ -103,6 +105,7 @@ type TerminalPanelProps = {
   onSplit?: (side: PaneSide) => void;
   pendingCommand?: string;
   onPendingCommandConsumed?: () => void;
+  onDirectoryChange?: (directory: string) => void;
   manualReview?: boolean;
   dockable?: boolean;
 };
@@ -117,6 +120,7 @@ type TerminalRuntime = {
   error: string;
   dims: { cols: number; rows: number };
   sessionID: string;
+  cwd: string;
   aiEnabled: boolean;
   mobileModifier: TerminalModifier | null;
   pendingCommand: string;
@@ -604,7 +608,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                       <DockDragHandle paneID={pane.id}><HardDrive />{t("connectFilesTitle")}</DockDragHandle>
                       <DockPanelToggle paneID={pane.id} open onToggle={() => setFilesOpen(false)} />
                     </div>
-                    {tabTarget ? <FileManager target={tabTarget} path={tab.filePath} onPathChange={(filePath) => setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, filePath } : item))} system={tabActive ? systemSnapshot : undefined} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} /> : <div className="connect-zone-empty"><span>{t("connectFilesNoOpenTabs")}</span></div>}
+                    {tabTarget ? <FileManager target={tabTarget} path={tab.filePath} onPathChange={(filePath, source) => setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, filePath, filePathInitialized: item.filePathInitialized || source !== "resolved" } : item))} system={tabActive ? systemSnapshot : undefined} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} /> : <div className="connect-zone-empty"><span>{t("connectFilesNoOpenTabs")}</span></div>}
                   </> : <div className="dock-collapsed-tools"><DockDragHandle paneID={pane.id} /><DockPanelToggle paneID={pane.id} open={false} onToggle={() => setFilesOpen(true)}>{t("connectFilesTitle")}</DockPanelToggle></div>}
                 </div>;
                 return <PaneTree
@@ -618,6 +622,10 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                   onPendingCommandConsumed={() => {
                     clearConnectCommandParam();
                     setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, pendingCommand: "" } : item));
+                  }}
+                  onDirectoryChange={(directory) => {
+                    const filePath = normalizeRemotePath(directory);
+                    setTabs((current) => current.map((item) => item.id === tab.id && item.activePaneID === pane.id && item.targetID === pane.targetID && !item.filePathInitialized ? { ...item, filePath, filePathInitialized: true } : item));
                   }}
                   onActivate={(paneID) => {
                     setActiveTabID(tab.id);
@@ -711,7 +719,7 @@ function ConnectionTabs({
   );
 }
 
-function PaneTree({ data, node, targets, activePaneID, isFullscreen, tabActive, pendingCommand, onPendingCommandConsumed, onActivate, onClose, onFullscreenChange, onSplit }: {
+function PaneTree({ data, node, targets, activePaneID, isFullscreen, tabActive, pendingCommand, onPendingCommandConsumed, onDirectoryChange, onActivate, onClose, onFullscreenChange, onSplit }: {
   data: ConsoleData;
   node: PaneLeaf;
   targets: Target[];
@@ -720,6 +728,7 @@ function PaneTree({ data, node, targets, activePaneID, isFullscreen, tabActive, 
   tabActive: boolean;
   pendingCommand?: string;
   onPendingCommandConsumed?: () => void;
+  onDirectoryChange?: (directory: string) => void;
   onActivate: (paneID: string) => void;
   onClose: (paneID: string) => void;
   onFullscreenChange: (value: boolean | ((previous: boolean) => boolean)) => void;
@@ -732,7 +741,7 @@ function PaneTree({ data, node, targets, activePaneID, isFullscreen, tabActive, 
   if (node.type === "editor") return <EditorPane paneID={node.id} target={target} filePath={node.path} active={active} onActivate={activate} onClose={() => onClose(node.id)} />;
   if (node.type !== "terminal") return null;
   return <div className={`connect-zone terminal-zone pane-leaf ${active ? "active" : ""}`} onPointerDown={activate}>
-    <TerminalPanel data={data} target={target} restoreSession={node.restoreSession} active={active} isFullscreen={isFullscreen && active} onFullscreenChange={onFullscreenChange} onClose={() => onClose(node.id)} onSplit={onSplit} paneID={node.id} pendingCommand={pendingCommand} onPendingCommandConsumed={onPendingCommandConsumed} dockable />
+    <TerminalPanel data={data} target={target} restoreSession={node.restoreSession} active={active} isFullscreen={isFullscreen && active} onFullscreenChange={onFullscreenChange} onClose={() => onClose(node.id)} onSplit={onSplit} paneID={node.id} pendingCommand={pendingCommand} onPendingCommandConsumed={onPendingCommandConsumed} onDirectoryChange={onDirectoryChange} dockable />
   </div>;
 }
 
@@ -1137,7 +1146,7 @@ function TrendLine({ label, values, max, compact = false }: { label: string; val
   );
 }
 
-export function TerminalPanel({ data, target, paneID, restoreSession = false, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, pendingCommand = "", onPendingCommandConsumed, manualReview = true, dockable = false }: TerminalPanelProps) {
+export function TerminalPanel({ data, target, paneID, restoreSession = false, active = true, isFullscreen, onFullscreenChange, onClose, onSplit, pendingCommand = "", onPendingCommandConsumed, onDirectoryChange, manualReview = true, dockable = false }: TerminalPanelProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const runtime = useMemo(() => getTerminalRuntime(paneID, target.id, restoreSession), [paneID, restoreSession, target.id]);
@@ -1145,6 +1154,9 @@ export function TerminalPanel({ data, target, paneID, restoreSession = false, ac
   const [error, setError] = useState(runtime.error);
   const [dims, setDims] = useState(runtime.dims);
   const [sessionID, setSessionID] = useState(runtime.sessionID);
+  const [cwd, setCwd] = useState(runtime.cwd);
+  const directoryChangeRef = useRef(onDirectoryChange);
+  directoryChangeRef.current = onDirectoryChange;
   const [aiEnabled, setAIEnabled] = useState(runtime.aiEnabled);
   const [mobileModifier, setMobileModifier] = useState<TerminalModifier | null>(runtime.mobileModifier);
   const fitRetryRef = useRef<number | null>(null);
@@ -1161,6 +1173,7 @@ export function TerminalPanel({ data, target, paneID, restoreSession = false, ac
       setError(runtime.error);
       setDims(runtime.dims);
       setSessionID(runtime.sessionID);
+      setCwd(runtime.cwd);
       setAIEnabled(runtime.aiEnabled);
       setMobileModifier(runtime.mobileModifier);
     };
@@ -1176,6 +1189,10 @@ export function TerminalPanel({ data, target, paneID, restoreSession = false, ac
     runtime.onClose = onClose;
     runtime.onPendingCommandConsumed = onPendingCommandConsumed;
   }, [active, onClose, onPendingCommandConsumed, runtime]);
+
+  useEffect(() => {
+    if (active && cwd) directoryChangeRef.current?.(cwd);
+  }, [active, cwd]);
 
   const updateStatus = (next: ConnectionStatus) => {
     setRuntimeSnapshot(runtime, { status: next });
@@ -1276,6 +1293,8 @@ export function TerminalPanel({ data, target, paneID, restoreSession = false, ac
             updateStatus("disconnected");
             setRuntimeSnapshot(runtime, { sessionID: "", mobileModifier: null });
           }
+        } else if (message.type === "cwd" && message.data) {
+          setRuntimeSnapshot(runtime, { cwd: message.data });
         } else if (message.type === "error" && message.data !== undefined) {
           enqueueTerminalOutput(runtime, terminal, `\r\n\x1b[1;31m${message.data}\x1b[0m\r\n`);
           updateStatus("error");
@@ -1629,6 +1648,7 @@ function getTerminalRuntime(paneID: string, targetID: string, restoreSession: bo
     error: "",
     dims: { cols: DEFAULT_COLS, rows: DEFAULT_ROWS },
     sessionID: restoreSession ? readStoredTerminalSessionID(targetID) : "",
+    cwd: "",
     aiEnabled: true,
     mobileModifier: null,
     pendingCommand: "",
@@ -1643,7 +1663,7 @@ function getTerminalRuntime(paneID: string, targetID: string, restoreSession: bo
   return runtime;
 }
 
-function setRuntimeSnapshot(runtime: TerminalRuntime, patch: Partial<Pick<TerminalRuntime, "status" | "error" | "dims" | "sessionID" | "aiEnabled" | "mobileModifier">>) {
+function setRuntimeSnapshot(runtime: TerminalRuntime, patch: Partial<Pick<TerminalRuntime, "status" | "error" | "dims" | "sessionID" | "cwd" | "aiEnabled" | "mobileModifier">>) {
   Object.assign(runtime, patch);
   if (Object.prototype.hasOwnProperty.call(patch, "sessionID")) {
     writeStoredTerminalSessionID(runtime.targetID, runtime.sessionID);

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -31,9 +32,16 @@ func TestFileTransferBatchCopyMove(t *testing.T) {
 				target = tunnelSSHTarget(t, app, user, org, "transfer-ssh", address, target.ID)
 			}
 			root := filepath.ToSlash(t.TempDir())
-			file := root + "/file "
+			// Windows trims trailing spaces when creating files/directories. Keep a
+			// space-containing fixture there, and retain trailing-space coverage on Unix.
+			suffix := " "
+			if runtime.GOOS == "windows" {
+				suffix = " name"
+			}
+			fileName := "file" + suffix
+			file := root + "/" + fileName
 			folder := root + "/folder"
-			copied := root + "/copied "
+			copied := root + "/copied" + suffix
 			moved := root + "/moved"
 			for _, dir := range []string{folder + "/nested/empty", copied, moved} {
 				if err := os.MkdirAll(dir, 0700); err != nil {
@@ -50,17 +58,17 @@ func TestFileTransferBatchCopyMove(t *testing.T) {
 				Transfers []targetFileTransfer `json:"transfers"`
 			}
 			postJSON(t, client, endpoint+"copy", map[string]any{"sources": []string{file, folder}, "destination": copied}, http.StatusOK, &result)
-			if len(result.Transfers) != 2 || result.Transfers[0].Destination != copied+"/file " {
+			if len(result.Transfers) != 2 || result.Transfers[0].Destination != cleanSFTPPath(copied+"/"+fileName) {
 				t.Fatalf("incorrect destinations: %+v", result)
 			}
 			if ssh && connections.Load() != 1 {
 				t.Fatalf("copy opened %d connections", connections.Load())
 			}
-			postJSON(t, client, endpoint+"move", map[string]any{"sources": []string{copied + "/file ", copied + "/folder"}, "destination": moved}, http.StatusOK, nil)
+			postJSON(t, client, endpoint+"move", map[string]any{"sources": []string{copied + "/" + fileName, copied + "/folder"}, "destination": moved}, http.StatusOK, nil)
 			if ssh && connections.Load() != 2 {
 				t.Fatalf("move batch did not reuse a connection: %d", connections.Load())
 			}
-			for _, name := range []string{file, folder + "/nested/content.txt", moved + "/file ", moved + "/folder/nested/content.txt"} {
+			for _, name := range []string{file, folder + "/nested/content.txt", moved + "/" + fileName, moved + "/folder/nested/content.txt"} {
 				data, err := os.ReadFile(name)
 				if err != nil || string(data) != "contents" {
 					t.Fatalf("content missing at %s: %q %v", name, data, err)
@@ -92,13 +100,13 @@ func TestFileTransferBatchCopyMove(t *testing.T) {
 			} {
 				postJSON(t, client, endpoint+"copy", body, http.StatusBadRequest, nil)
 			}
-			if _, err := os.Stat(copied + "/file "); !os.IsNotExist(err) {
+			if _, err := os.Stat(copied + "/" + fileName); !os.IsNotExist(err) {
 				t.Fatalf("invalid batch partially copied: %v", err)
 			}
 			// Legacy single-source requests still support a renamed destination.
 			var single targetFileTransfer
 			postJSON(t, client, endpoint+"copy", map[string]string{"source": file, "destination": copied + "/renamed"}, http.StatusOK, &single)
-			if single.Source != file || single.Destination != copied+"/renamed" {
+			if single.Source != cleanSFTPPath(file) || single.Destination != cleanSFTPPath(copied+"/renamed") {
 				t.Fatalf("incorrect single response: %+v", single)
 			}
 			postJSON(t, client, endpoint+"move", map[string]string{"source": copied + "/renamed", "destination": moved + "/renamed"}, http.StatusOK, nil)

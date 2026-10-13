@@ -56,7 +56,7 @@ func TestWindowsShellUsesConPTYForInteractiveInput(t *testing.T) {
 	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte("ping -t 127.0.0.1\r")}); err != nil {
 		t.Fatal(err)
 	}
-	_ = readFramesUntil(t, reader, "Reply from 127.0.0.1")
+	_ = readFramesUntil(t, reader, "TTL=")
 	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte{0x03}}); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestWindowsInteractiveShellArgsKeepInteractiveEcho(t *testing.T) {
 	if strings.Contains(got, "delims=") {
 		t.Fatalf("interactive cmd should not expose for/F delimiters: %q", got)
 	}
-	if !strings.Contains(got, "633;D") || !strings.Contains(got, "633;A") {
+	if !strings.Contains(got, "633;D") || !strings.Contains(got, "633;A") || !strings.Contains(got, "633;P;Cwd=$P") {
 		t.Fatalf("interactive cmd should install terminal integration prompt: %q", got)
 	}
 }
@@ -103,7 +103,7 @@ func TestWindowsPowerShellInteractiveArgsInstallTerminalIntegration(t *testing.T
 	if len(args) != 5 || args[0] != "-NoLogo" || args[1] != "-NoProfile" || args[2] != "-NoExit" || args[3] != "-Command" {
 		t.Fatalf("powershell args mismatch: %#v", args)
 	}
-	if !strings.Contains(args[4], "function global:prompt") || !strings.Contains(args[4], "633;D") || !strings.Contains(args[4], "633;A") {
+	if !strings.Contains(args[4], "function global:prompt") || !strings.Contains(args[4], "633;D") || !strings.Contains(args[4], "633;A") || !strings.Contains(args[4], "633;P;Cwd=") {
 		t.Fatalf("powershell integration missing: %q", args[4])
 	}
 }

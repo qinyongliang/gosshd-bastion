@@ -151,6 +151,10 @@ __gosshd_precmd() {
   if [ -n "$__gosshd_original_prompt_command" ]; then
     eval "$__gosshd_original_prompt_command"
   fi
+  case "$PWD" in
+    *$'\e'*|*$'\a'*|*$'\r'*|*$'\n'*) ;;
+    *) printf '\033]633;P;Cwd=%s\007' "$PWD" ;;
+  esac
   trap '__gosshd_preexec' DEBUG
 }
 PROMPT_COMMAND='__gosshd_precmd'

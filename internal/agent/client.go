@@ -41,7 +41,7 @@ func New(cfg Config) (*Client, error) {
 		return nil, err
 	}
 	if cfg.Root == "" {
-		cfg.Root, err = os.Getwd()
+		cfg.Root, err = os.UserHomeDir()
 		if err != nil {
 			return nil, err
 		}
@@ -116,7 +116,7 @@ func (c *Client) Run(ctx context.Context) error {
 func NewEmbedded(cfg Config, id string) (*Client, error) {
 	var err error
 	if cfg.Root == "" {
-		cfg.Root, err = os.Getwd()
+		cfg.Root, err = os.UserHomeDir()
 		if err != nil {
 			return nil, err
 		}

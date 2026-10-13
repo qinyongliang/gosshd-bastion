@@ -165,9 +165,30 @@ if [ "$mode" = "install" ]; then
     echo "service install requires root; run with sudo" >&2
     exit 1
   fi
+  # Resolve service shell home before writing or restarting the service.
+  home_user="${SUDO_USER:-$(id -un)}"
+  passwd_home=""
+  if command -v getent >/dev/null 2>&1; then
+    passwd_home="$(getent passwd "$home_user" | cut -d: -f6)"
+  elif [ -r /etc/passwd ]; then
+    passwd_home="$(awk -F: -v user="$home_user" '$1 == user { print $6; exit }' /etc/passwd)"
+  fi
+  agent_home="${passwd_home:-${HOME:-}}"
+  if [ -n "${SUDO_USER:-}" ] && [ -z "$passwd_home" ]; then
+    echo "cannot resolve home for sudo user $home_user" >&2
+    exit 1
+  fi
+  [ -n "$agent_home" ] && [ -d "$agent_home" ] || { echo 'user home directory does not exist' >&2; exit 1; }
+  case "$agent_home" in
+    *"$(printf '\r')"*|*'
+'*) echo 'user home contains a line break' >&2; exit 1 ;;
+  esac
+  systemd_home="$(printf '%%s' "$agent_home" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%%/%%%%/g' -e 's/\$/$$/g')"
+  home_replacement="$(printf '%%s' "$systemd_home" | sed 's/[\\&|]/\\&/g')"
+  # End service home resolution.
   install -m 0755 "$tmp" /usr/local/bin/gosshd-agent
   mkdir -p /var/lib/gosshd
-  cat >/etc/systemd/system/gosshd-agent.service <<'SERVICE'
+  sed "s|@GOSSHD_AGENT_HOME@|$home_replacement|g" >/etc/systemd/system/gosshd-agent.service <<'SERVICE'
 [Unit]
 Description=gosshd bastion agent
 After=network-online.target
@@ -175,7 +196,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gosshd-agent --server "%s" --enrollment-token %q --ssh-port %q --id-file "/var/lib/gosshd/agent.json" --root "/root"
+ExecStart=/usr/local/bin/gosshd-agent --server "%s" --enrollment-token %q --ssh-port %q --id-file "/var/lib/gosshd/agent.json" --root "@GOSSHD_AGENT_HOME@"
 Restart=always
 RestartSec=5
 
@@ -292,12 +313,16 @@ if ($actualSha -ne $expectedSha) {
 $targetDir = Join-Path $env:ProgramData "gosshd"
 $target = Join-Path $targetDir "gosshd-agent.exe"
 $serviceIDFile = Join-Path $targetDir "agent.json"
+$userHome = [Environment]::GetFolderPath('UserProfile')
+if ([string]::IsNullOrWhiteSpace($userHome) -or -not (Test-Path -LiteralPath $userHome -PathType Container)) {
+  throw "user home directory does not exist: $userHome"
+}
 if ($isInstall) {
   Assert-Administrator
   New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
   Copy-Item -Force $tmp $target
   Install-WinPty -Destination $targetDir
-  $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '" --ssh-port "' + $sshPort + '" --id-file "' + $serviceIDFile + '" --root "' + $targetDir + '"'
+  $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '" --ssh-port "' + $sshPort + '" --id-file "' + $serviceIDFile + '" --root "' + $userHome + '"'
   $serviceName = "gosshd-agent"
   $existing = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
   if ($existing) {
@@ -322,6 +347,6 @@ if ($isInstall) {
   exit 0
 }
 Install-WinPty -Destination $runtimeDir
-& $tmp --server $server --enrollment-token $enrollmentToken --ssh-port $sshPort
+& $tmp --server $server --enrollment-token $enrollmentToken --ssh-port $sshPort --root $userHome
 `, base, base, token, sshPort, expectedAgentSHA, base)
 }

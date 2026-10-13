@@ -28,6 +28,7 @@ func (c *Client) handleFileSession(stream io.ReadWriteCloser, reader *bufio.Read
 	action, hops := req.FileAction, req.TunnelHops
 	open := func(op protocol.StreamRequest) (*uploadDestination, *downloadSource, error) {
 		op.TunnelHops = hops
+		op = c.localFileRequest(op)
 		if action == "upload" && op.Upload != nil && op.Download == nil {
 			dst, err := openUploadDestination(ctx, op, client)
 			return dst, nil, err

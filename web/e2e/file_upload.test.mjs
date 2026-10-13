@@ -1,9 +1,10 @@
+import { normalizeRemotePath } from "../src/remotePath.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { normalizeSFTPFixturePaths, waitForNoTemporaryUploads } from "./file_fixture.mjs";
+import { waitForNoTemporaryUploads } from "./file_fixture.mjs";
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_REQUIRE_PATH);
 const base = process.env.GOSSHD_UI_E2E_BASE_URL;
@@ -70,7 +71,6 @@ try {
       }
     }, { mode, locale });
     const page = await context.newPage();
-    await normalizeSFTPFixturePaths(page);
     page.setDefaultTimeout(20_000);
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -92,7 +92,7 @@ try {
     const pathInput = page.locator('.file-manager-path input[aria-label="File path"]');
     await pathInput.fill(dir);
     await pathInput.press("Enter");
-    await page.waitForFunction((dir) => document.querySelector(".file-manager-path")?.getAttribute("title")?.replaceAll("\\", "/") === dir, dir).catch(async (error) => {
+    await page.waitForFunction((dir) => document.querySelector(".file-manager-path")?.getAttribute("title")?.replaceAll("\\", "/") === dir, normalizeRemotePath(dir)).catch(async (error) => {
       const state = await page.evaluate(() => ({ path: document.querySelector(".file-manager-path")?.getAttribute("title"), error: document.querySelector(".file-operation-error")?.textContent }));
       throw new Error(`Directory fixture mismatch: ${JSON.stringify({ expected: dir, ...state })}`, { cause: error });
     });
