@@ -62,17 +62,28 @@ try {
   const spacing = await page.locator(".ant-drawer-body").evaluate((el) => ({ formBottom: el.querySelector("form").getBoundingClientRect().bottom, colorsTop: el.querySelector("form + .section-block").getBoundingClientRect().top }));
   assert.ok(spacing.colorsTop - spacing.formBottom >= 20, "Tag color section must not overlap the advanced field or actions");
   await page.locator(".ant-drawer-close").click();
-  await page.route("**/api/targets/*/files?**", (route) => route.fulfill({ json: { path: "/", entries: [{ name: "very-long-filename-for-ellipsis.log", path: "/example.log", type: "file", size: 1024, mode: "-rw-r--r--", modified_at: "2026-10-09T00:00:00Z" }] } }));
+  await page.route("**/api/targets/*/files?**", async (route) => {
+    // Exercise the loading state while the initial home directory resolves to its canonical path.
+    if (new URL(route.request().url()).searchParams.get("path") === "/") await new Promise(resolve => setTimeout(resolve, 150));
+    await route.fulfill({ json: { path: "/", entries: [{ name: "very-long-filename-for-ellipsis.log", path: "/example.log", type: "file", size: 1024, mode: "-rw-r--r--", modified_at: "2026-10-09T00:00:00Z" }] } });
+  });
   await page.route("**/api/targets/*/files/read?**", (route) => route.fulfill({ json: { path: "/example.log", content: "style check\n" } }));
+  const filesLoaded = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === `/api/targets/${target.id}/files` && url.searchParams.get("path") === "/" && response.ok();
+  });
   await page.goto(`${process.env.GOSSHD_UI_E2E_BASE_URL}/targets/${target.id}/connect`);
   await page.locator(".terminal-panel").waitFor();
   await page.locator(".files-zone").waitFor();
   if (await page.locator(".files-zone .collapsed-zone-button").isVisible()) await page.locator(".files-zone .collapsed-zone-button").click();
-  await page.locator(".file-name").first().waitFor();
-  const fileBounds = await page.locator(".files-zone .file-manager-body").evaluate((el) => ({ width: el.clientWidth, scroll: el.scrollWidth, rowHeight: el.querySelector("tbody tr").getBoundingClientRect().height }));
+  await filesLoaded;
+  const fileRow = page.locator(".files-zone tr.file-row[data-file-path='/example.log']");
+  await fileRow.waitFor();
+  const fileBounds = await page.locator(".files-zone .file-manager-body").evaluate((el) => ({ width: el.clientWidth, scroll: el.scrollWidth }));
+  const rowHeight = await fileRow.evaluate(el => el.getBoundingClientRect().height);
   assert.ok(fileBounds.scroll <= fileBounds.width + 1, "Narrow file sidebar must not need horizontal scrolling");
-  assert.ok(fileBounds.rowHeight <= 42, "File rows should remain compact");
-  await page.locator(".file-name").first().click({ button: "right" });
+  assert.ok(rowHeight <= 42, "File rows should remain compact");
+  await fileRow.locator(".file-name").click({ button: "right" });
   await page.locator(".file-context-menu").getByRole("menuitem", { name: "编辑", exact: true }).click();
   await page.locator(".editor-pane-head").waitFor();
   for (const theme of ["light", "dark", "light"]) {
