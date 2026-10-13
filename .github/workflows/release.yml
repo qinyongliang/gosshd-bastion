@@ -75,6 +75,18 @@ jobs:
         shell: bash
         run: go test ./internal/protocol ./internal/server -run 'Test(DefaultShellAndroid|Android|DownloadAgentAndroid|AgentWSAndroid|AgentReleaseURLAndroid)' -count=1 -timeout=3m
 
+      - name: Set up Java for Android SDK tools
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+          log-accepted-android-sdk-licenses: false
+
       - name: Build binaries and packages
         shell: bash
         run: |
