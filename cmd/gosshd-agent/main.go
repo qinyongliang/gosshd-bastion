@@ -19,6 +19,8 @@ func main() {
 	flag.StringVar(&cfg.Root, "root", "", "working directory; defaults to the current user's home directory")
 	flag.StringVar(&cfg.SSHHost, "ssh-host", "", "public SSH host shown in connection hints")
 	flag.StringVar(&cfg.SSHPort, "ssh-port", "", "public SSH port shown in connection hints")
+	flag.BoolVar(&cfg.Desktop.Enabled, "desktop-enable", false, "opt in to desktop RPC; requires a logged-in user desktop")
+	flag.StringVar(&cfg.Desktop.HelperPath, "desktop-helper", "", "absolute path to independent desktop helper (macOS app executable or Windows exe)")
 	flag.Parse()
 
 	if err := runAgent(cfg); err != nil {

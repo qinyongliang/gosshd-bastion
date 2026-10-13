@@ -1,0 +1,121 @@
+name: Desktop module
+
+on:
+  pull_request:
+    paths:
+      - 'internal/desktop/**'
+      - 'internal/server/mcp_desktop*'
+      - 'internal/store/desktop*'
+      - 'cmd/gosshd-desktop-mcp/**'
+      - 'scripts/build-desktop-macos.sh'
+      - '.github/workflows/desktop.yml'
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build web assets for the server adapter tests
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.0.7 --activate
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Check public content and desktop race regressions
+        run: |
+          node scripts/check-public-content.mjs
+          go test -race ./internal/desktop/... ./internal/server ./internal/agent ./internal/store -run 'Test(Desktop|Service|MCPImages|Tree|CloseCancels|AuditFailure|ValidateDesktop|DisabledAgent)' -count=1 -timeout=3m
+
+  native-packages:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            goos: windows
+            arch: amd64
+            suffix: .exe
+          - runner: macos-latest
+            goos: darwin
+            arch: arm64
+            swift_arch: arm64
+            suffix: ''
+          - runner: macos-latest
+            goos: darwin
+            arch: amd64
+            swift_arch: x86_64
+            suffix: ''
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Desktop core tests (no live desktop screenshots)
+        shell: bash
+        run: go test ./internal/desktop/... -count=1 -timeout=3m
+      - name: Build independent MCP host
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p build/desktop/package
+          go build -trimpath -o "build/desktop/package/gosshd-desktop-mcp${{ matrix.suffix }}" ./cmd/gosshd-desktop-mcp
+          cp docs/desktop-mcp.md build/desktop/package/
+      - name: Build macOS native helper
+        if: matrix.goos == 'darwin'
+        shell: bash
+        env:
+          DESKTOP_ARCH: ${{ matrix.swift_arch }}
+        run: sh scripts/build-desktop-macos.sh "$PWD/build/desktop/package"
+      - name: Package desktop module
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          if [[ "$version" != v* ]]; then version="development"; fi
+          mkdir -p dist
+          archive="gosshd-desktop-$version-${{ matrix.goos }}-${{ matrix.arch }}.zip"
+          if [ "${{ matrix.goos }}" = windows ]; then
+            powershell -NoProfile -Command 'Compress-Archive -Path build/desktop/package/* -DestinationPath dist/'"$archive"
+            powershell -NoProfile -Command 'Get-FileHash -Algorithm SHA256 dist/*.zip | ForEach-Object { $_.Hash.ToLower()+"  "+[IO.Path]::GetFileName($_.Path) }' > "dist/desktop-checksums-${{ matrix.goos }}-${{ matrix.arch }}.txt"
+          else
+            (cd build/desktop/package && zip -r "$GITHUB_WORKSPACE/dist/$archive" .)
+            (cd dist && shasum -a 256 "$archive" > "desktop-checksums-${{ matrix.goos }}-${{ matrix.arch }}.txt")
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.goos }}-${{ matrix.arch }}
+          path: dist/*
+
+  publish-native-packages:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: native-packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: dist
+      - name: Attach independent packages to tagged release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/desktop-checksums-*.txt

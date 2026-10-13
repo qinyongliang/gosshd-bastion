@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"context"
+	"github.com/qinyongliang/gosshd-bastion/internal/desktop"
 	"github.com/qinyongliang/gosshd-bastion/internal/forward"
 	"io"
 	"log"
@@ -28,6 +29,8 @@ func (c *Client) handleStreamWithSession(stream io.ReadWriteCloser, session *yam
 		return
 	}
 	switch req.Type {
+	case protocol.StreamDesktop:
+		_ = desktop.Serve(context.Background(), stream, c.cfg.Desktop)
 	case protocol.StreamForwardSync:
 		c.handleForwardSync(stream, req)
 	case protocol.StreamForwardLink:

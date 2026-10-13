@@ -247,3 +247,7 @@ go test ./internal/server -run TestUIE2EWithBrowser -v
 Releases publish cross-platform server archives, standalone private-node binaries, and checksums. This version does not publish a `full` package.
 
 Release packaging runs only for `v*` tags or manual Release dispatches and includes full file-transfer regression checks. Standalone ARM64 builds and dedicated P2P checks are manual only; ordinary pushes trigger neither packaging nor dedicated checks. GitHub Actions no longer packages the Windows desktop client; Windows server and Agent binaries remain in releases.
+
+## Optional desktop MCP
+
+An independent, opt-in desktop module supports Windows and macOS screenshots, bounded accessibility trees, semantic UI operations and keyboard/mouse input. It can run as a standalone MCP host or through authorized Agent targets. Desktop permissions are separate from SSH command policies and require a logged-in user context plus native OS permissions. See [desktop MCP](docs/desktop-mcp.md) for setup, tool contracts, safety boundaries and native tests.

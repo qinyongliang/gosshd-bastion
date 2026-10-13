@@ -18,6 +18,7 @@ import (
 
 	"github.com/qinyongliang/gosshd-bastion/internal/auth"
 	"github.com/qinyongliang/gosshd-bastion/internal/bastion"
+	"github.com/qinyongliang/gosshd-bastion/internal/desktop"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
@@ -32,6 +33,7 @@ type App struct {
 	manualReviews       *manualReviewHub
 	runningAudits       *runningAuditStore
 	terminalSessions    *terminalSessionManager
+	desktopSessions     *desktop.Service
 	tunnels             *tunnelManager
 	forwards            *edgeForwardManager
 	auditRecordingsPath string
@@ -48,7 +50,7 @@ type App struct {
 }
 
 func NewApp(cfg Config) *App {
-	return &App{
+	app := &App{
 		cfg:              cfg,
 		registry:         NewAgentRegistry(),
 		authLimiter:      newAuthRateLimiter(),
@@ -56,6 +58,8 @@ func NewApp(cfg Config) *App {
 		runningAudits:    newRunningAuditStore(),
 		terminalSessions: newTerminalSessionManager(),
 	}
+	app.desktopSessions = app.newDesktopService()
+	return app
 }
 
 func (a *App) Registry() *AgentRegistry {
@@ -63,6 +67,9 @@ func (a *App) Registry() *AgentRegistry {
 }
 
 func (a *App) Close() error {
+	if a.desktopSessions != nil {
+		a.desktopSessions.Close()
+	}
 	if a.forwards != nil {
 		a.forwards.close()
 	}

@@ -247,3 +247,7 @@ go test ./internal/server -run TestUIE2EWithBrowser -v
 Releases 会发布跨平台 server 压缩包、独立私有节点二进制和 checksums。本版本不发布 `full` 包。
 
 发布打包仅由 `v*` 标签或手动运行 Release 工作流触发，并执行完整文件传输回归测试；ARM64 单独构建和 P2P 专项检查仅手动触发。普通代码推送不触发打包或专项检查。GitHub Actions 不再打包 Windows 桌面客户端，Windows server 和 Agent 仍随版本发布。
+
+## 可选桌面控制 MCP
+
+独立、显式启用的桌面模块支持 Windows/macOS 截图、有界无障碍树、语义控件操作和键鼠输入，可作为独立 MCP 服务运行，或通过已授权的 Agent 目标使用。桌面授权与 SSH 命令策略分离；需要已登录的用户桌面和对应系统权限。配置、工具协议、安全边界及平台验证见 [桌面控制 MCP](docs/desktop-mcp.md)。

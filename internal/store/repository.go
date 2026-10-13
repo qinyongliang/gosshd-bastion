@@ -3035,6 +3035,7 @@ func normalizeMCPToolGroups(groups []string) []string {
 		"policy":  true,
 		"audit":   true,
 		"tunnel":  true,
+		"desktop": true,
 	}
 	seen := map[string]bool{}
 	var out []string

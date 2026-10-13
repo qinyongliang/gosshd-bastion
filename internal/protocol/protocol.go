@@ -19,6 +19,7 @@ import (
 const (
 	WebSocketPath = "/ws/agent"
 
+	StreamDesktop          = "desktop"
 	StreamExec             = "exec"
 	StreamShell            = "shell"
 	StreamSFTP             = "sftp"
