@@ -50,6 +50,39 @@ sh scripts/build-desktop-macos.sh
 # Optional: DESKTOP_SIGN_IDENTITY='Developer ID Application: Example' for signing.
 ```
 
+### Reusable macOS signing identity
+
+The default build uses a development ad-hoc signature. For a reusable certificate
+identity, supply the same certificate and private key on subsequent builds and
+keep the bundle identifier unchanged. The build does not generate certificates,
+modify certificate trust or grant OS privacy permissions.
+
+An already configured private keychain can be selected explicitly:
+
+```sh
+DESKTOP_SIGN_IDENTITY='Example Local Code Signing' \
+DESKTOP_SIGN_KEYCHAIN="$HOME/.private-signing/desktop.keychain-db" \
+DESKTOP_SKIP_SELF_TEST=1 \
+sh scripts/build-desktop-macos.sh
+```
+
+- `DESKTOP_SIGN_KEYCHAIN` is optional; without it, `codesign` uses the user's
+  configured keychain search list. An explicit keychain requires a certificate
+  identity, not the ad-hoc `-` identity. Missing or unusable configured identities
+  fail the build rather than silently falling back to ad-hoc signing.
+- `DESKTOP_SKIP_SELF_TEST=1` builds and signs without starting the helper's
+  post-build self-test. It does not disable separate CI tests or attest that GUI
+  control or cross-update permission retention has been validated.
+- A self-signed certificate can be used for local/internal signing after the
+  user establishes the required code-signing trust. It is not Developer ID
+  distribution signing and does not meet Apple's notarization requirements.
+- Switching from ad-hoc to certificate signing changes the app's code identity
+  and can require one-time reauthorization. Keeping the identity is not a promise
+  that every macOS release preserves every grant; do not bypass OS prompts.
+- Keep certificates, private keys, export passwords and keychain files outside
+  Git. These options do not configure CI signing automatically. CI must be given
+  the reusable identity through an appropriately protected secret store.
+
 Place the app at a stable path, grant the OS permissions, and configure:
 
 ```json
