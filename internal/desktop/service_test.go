@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,9 @@ func TestHelperProcess(t *testing.T) {
 		var req Request
 		_ = json.Unmarshal(scan.Bytes(), &req)
 		if req.Params.Text == "hang" {
+			if path := os.Getenv("GOSSHD_DESKTOP_TEST_HANG_FILE"); path != "" {
+				_ = os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0600)
+			}
 			time.Sleep(time.Hour)
 		}
 		var result any = map[string]any{"ok": true}

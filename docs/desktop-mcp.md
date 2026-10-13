@@ -181,13 +181,17 @@ go test ./internal/desktop -run TestWindowsNativeFixture -count=1 -v
 Remove-Item Env:\GOSSHD_DESKTOP_NATIVE_TEST
 ```
 
-Native macOS fixture test requires the helper's OS permissions. Compile the fixture with AppKit, set the helper/fixture paths, then run the native test:
+On macOS the helper bundle is launched through LaunchServices with private, per-session FIFOs. This keeps privacy attribution attached to the app the user approved, including when the Agent is reached through SSH. Running the executable directly from SSH can attribute permissions to the parent instead and is not an equivalent check. The Agent must still run as the logged-in GUI user. A bare executable outside a bundle uses direct subprocess startup.
+
+Enable **Accessibility** and **Screen Recording** for the actual helper app in System Settings > Privacy & Security. Restart helper sessions after changing grants. Development ad-hoc signatures can require removing/re-adding the app after a rebuild; production builds should use a stable signing identity. The module does not edit TCC settings or bypass user approval.
+
+Native macOS fixture test requires the helper's OS permissions. Build the owned fixture as an application bundle so it also runs in the GUI session, then set the helper/fixture paths:
 
 ```sh
-xcrun swiftc -framework AppKit internal/desktop/native/macos/Fixture.swift -o build/desktop/Fixture
+sh scripts/build-desktop-macos-fixture.sh
 GOSSHD_DESKTOP_NATIVE_TEST=1 \
 GOSSHD_DESKTOP_HELPER_TEST_PATH="$PWD/build/desktop/macos/GOSSHD Desktop Helper.app/Contents/MacOS/gosshd-desktop-helper" \
-GOSSHD_DESKTOP_FIXTURE_TEST_PATH="$PWD/build/desktop/Fixture" \
+GOSSHD_DESKTOP_FIXTURE_TEST_PATH="$PWD/build/desktop/Fixture.app" \
 go test ./internal/desktop -run TestMacNativeFixture -count=1 -v
 ```
 

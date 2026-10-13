@@ -52,3 +52,7 @@ func platformCommand(ctx context.Context, cfg Config) (*exec.Cmd, func(), error)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	return cmd, cleanup, nil
 }
+
+func startNativeProcess(ctx context.Context, cfg Config) (*process, error) {
+	return startProcess(ctx, cfg, platformCommand)
+}

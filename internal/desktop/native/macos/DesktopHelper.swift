@@ -21,7 +21,10 @@ func windowInfos() -> [[String: Any]] { CGWindowListCopyWindowInfo([.optionOnScr
 func bounds(_ info: [String: Any]) -> CGRect { if let data = info[kCGWindowBounds as String] as? [String:Any], let r = CGRect(dictionaryRepresentation:data as CFDictionary) { return r }; return .zero }
 func windowObject(_ info: [String: Any]) -> [String: Any] { ["id":String((info[kCGWindowNumber as String] as? NSNumber)?.uint32Value ?? 0),"app":String((info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0),"title":String((info[kCGWindowName as String] as? String ?? "").prefix(512))] }
 func target(_ p: [String: Any]) throws -> [String: Any] { guard let w = p["window"] as? [String: Any], let info = windowInfos().first(where: { let actual = windowObject($0); return text(actual,"id") == text(w,"id") && text(actual,"app") == text(w,"app") }) else { throw DesktopError("window no longer exists; enumerate again") }; return info }
-func interactive() -> Bool { CGSessionCopyCurrentDictionary() != nil && getuid() != 0 }
+func interactive() -> Bool {
+ guard getuid() != 0,let session=CGSessionCopyCurrentDictionary() as? [String:Any] else {return false}
+ return (session[kCGSessionOnConsoleKey as String] as? Bool ?? false) && (session[kCGSessionLoginDoneKey as String] as? Bool ?? false) && !(session["CGSSessionScreenIsLocked"] as? Bool ?? false)
+}
 func status() -> [String: Any] { ["platform":"darwin","interactive":interactive(),"permissions":["screen_capture":CGPreflightScreenCaptureAccess(),"accessibility":AXIsProcessTrusted()],"capture_backend":"ScreenCaptureKit","protocol_version":1] }
 func requireDesktop() throws { if !interactive() { throw DesktopError("no logged-in user desktop; run the helper in a user's graphical session, not a root LaunchDaemon") } }
 func requireAX() throws { if !AXIsProcessTrusted() { throw DesktopError("accessibility permission required: enable GOSSHD Desktop Helper in System Settings > Privacy & Security > Accessibility") } }
@@ -104,8 +107,18 @@ func perform(_ e:AXUIElement,_ action:String) throws { switch action {case "focu
 func point(_ info:[String:Any],_ x:Double,_ y:Double) throws -> CGPoint { let r=bounds(info);if !x.isFinite || !y.isFinite || x<0 || y<0 || x>=r.width || y>=r.height { throw DesktopError("coordinate outside the observed window") };return CGPoint(x:r.minX+x,y:r.minY+y) }
 func mouse(_ type:CGEventType,_ point:CGPoint,_ button:CGMouseButton = .left,_ count:Int = 1) throws { guard let e=CGEvent(mouseEventSource:nil,mouseType:type,mouseCursorPosition:point,mouseButton:button) else { throw DesktopError("cannot create mouse event") };e.setIntegerValueField(.mouseEventClickState,value:Int64(count));e.post(tap:.cghidEventTap) }
 let keyCodes:[String:CGKeyCode] = ["a":0,"s":1,"d":2,"f":3,"h":4,"g":5,"z":6,"x":7,"c":8,"v":9,"b":11,"q":12,"w":13,"e":14,"r":15,"y":16,"t":17,"1":18,"2":19,"3":20,"4":21,"6":22,"5":23,"equal":24,"9":25,"7":26,"minus":27,"8":28,"0":29,"o":31,"u":32,"i":34,"p":35,"return":36,"enter":36,"l":37,"j":38,"k":40,"semicolon":41,"comma":43,"slash":44,"n":45,"m":46,"period":47,"tab":48,"space":49,"backspace":51,"escape":53,"esc":53,"delete":117,"home":115,"end":119,"pageup":116,"page_up":116,"pagedown":121,"page_down":121,"left":123,"right":124,"down":125,"up":126,"f1":122,"f2":120,"f3":99,"f4":118,"f5":96,"f6":97,"f7":98,"f8":100,"f9":101,"f10":109,"f11":103,"f12":111]
-func chord(_ text:String) throws { var flags:CGEventFlags=[];var key:CGKeyCode?;let parts=text.lowercased().split(separator:"+").map{String($0).trimmingCharacters(in:.whitespaces)};if parts.isEmpty || parts.count>5 { throw DesktopError("invalid key chord") };for part in parts { switch part {case "ctrl","control","control_l":flags.insert(.maskControl);case "alt","option","alt_l":flags.insert(.maskAlternate);case "shift","shift_l":flags.insert(.maskShift);case "meta","command","cmd","super_l":flags.insert(.maskCommand);default:guard key==nil,let code=keyCodes[part] else { throw DesktopError("unsupported key name") };key=code} };guard let code=key,let down=CGEvent(keyboardEventSource:nil,virtualKey:code,keyDown:true),let up=CGEvent(keyboardEventSource:nil,virtualKey:code,keyDown:false) else { throw DesktopError("key chord needs a non-modifier key") };down.flags=flags;up.flags=flags;down.post(tap:.cghidEventTap);up.post(tap:.cghidEventTap) }
-func typeText(_ text:String) throws { let units=Array(text.utf16);if units.count>16384 { throw DesktopError("text too large") };for start in stride(from:0,to:units.count,by:128){let chunk=Array(units[start..<min(start+128,units.count)]);guard let down=CGEvent(keyboardEventSource:nil,virtualKey:0,keyDown:true),let up=CGEvent(keyboardEventSource:nil,virtualKey:0,keyDown:false) else { throw DesktopError("cannot create keyboard event") };chunk.withUnsafeBufferPointer { down.keyboardSetUnicodeString(stringLength:chunk.count,unicodeString:$0.baseAddress);up.keyboardSetUnicodeString(stringLength:chunk.count,unicodeString:$0.baseAddress) };down.post(tap:.cghidEventTap);up.post(tap:.cghidEventTap) } }
+func chord(_ text:String) throws { var flags:CGEventFlags=[];var key:CGKeyCode?;let parts=text.lowercased().split(separator:"+").map{String($0).trimmingCharacters(in:.whitespaces)};if parts.isEmpty || parts.count>5 { throw DesktopError("invalid key chord") };for part in parts { switch part {case "ctrl","control","control_l":flags.insert(.maskControl);case "alt","option","alt_l":flags.insert(.maskAlternate);case "shift","shift_l":flags.insert(.maskShift);case "meta","command","cmd","super_l":flags.insert(.maskCommand);default:guard key==nil,let code=keyCodes[part] else { throw DesktopError("unsupported key name") };key=code} };guard let code=key,let down=CGEvent(keyboardEventSource:nil,virtualKey:code,keyDown:true),let up=CGEvent(keyboardEventSource:nil,virtualKey:code,keyDown:false) else { throw DesktopError("key chord needs a non-modifier key") };down.flags=flags;up.flags=[];down.post(tap:.cghidEventTap);up.post(tap:.cghidEventTap) }
+func unicodeChunks(_ units:[UInt16]) -> [[UInt16]] {
+ var chunks:[[UInt16]]=[];var start=0
+ while start<units.count {
+  // CGEvent Unicode payloads are limited to 20 UTF-16 units.
+  var end=min(start+20,units.count)
+  if end<units.count && (0xD800...0xDBFF).contains(units[end-1]) {end-=1}
+  chunks.append(Array(units[start..<end]));start=end
+ }
+ return chunks
+}
+func typeText(_ text:String) throws { let units=Array(text.utf16);if units.count>16384 { throw DesktopError("text too large") };for chunk in unicodeChunks(units){guard let down=CGEvent(keyboardEventSource:nil,virtualKey:0,keyDown:true),let up=CGEvent(keyboardEventSource:nil,virtualKey:0,keyDown:false) else { throw DesktopError("cannot create keyboard event") };chunk.withUnsafeBufferPointer { down.keyboardSetUnicodeString(stringLength:chunk.count,unicodeString:$0.baseAddress);up.keyboardSetUnicodeString(stringLength:chunk.count,unicodeString:$0.baseAddress) };down.flags=[];up.flags=[];down.post(tap:.cghidEventTap);up.post(tap:.cghidEventTap) } }
 func operate(_ method:String,_ p:[String:Any]) throws -> [String:Any] {
  try requireDesktop();try requireAX()
  if method=="launch_app" { let path=text(p,"app");if !path.hasPrefix("/") || !path.hasSuffix(".app") || !FileManager.default.fileExists(atPath:path) { throw DesktopError("launch_app needs an absolute existing .app path") };clearObservation();if !NSWorkspace.shared.open(URL(fileURLWithPath:path)) { throw DesktopError("cannot launch app") };return ["ok":true] }
@@ -136,6 +149,9 @@ func dispatch(_ method:String,_ p:[String:Any]) throws -> Any {
 }
 if CommandLine.arguments.contains("--self-test") {
  do { try chord("unsupported-key") ; fatalError("invalid key accepted") } catch {}
+ let units=Array((String(repeating:"x",count:19)+"🙂 中文").utf16)
+ let chunks=unicodeChunks(units)
+ if chunks.flatMap({$0}) != units || chunks.contains(where:{!$0.isEmpty && (0xD800...0xDBFF).contains($0.last!)}) {fatalError("Unicode surrogate pair split")}
  let r=CGRect(x:10,y:20,width:100,height:200)
  if (rectJSON(r)["width"] as? CGFloat) != 100 { fatalError("bounds encoding failed") }
  print("macOS desktop helper self-test passed")

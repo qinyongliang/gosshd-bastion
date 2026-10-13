@@ -8,6 +8,7 @@ on:
       - 'internal/store/desktop*'
       - 'cmd/gosshd-desktop-mcp/**'
       - 'scripts/build-desktop-macos.sh'
+      - 'scripts/build-desktop-macos-fixture.sh'
       - '.github/workflows/desktop.yml'
   push:
     tags: ['v*']

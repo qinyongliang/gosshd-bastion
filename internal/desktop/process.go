@@ -22,12 +22,13 @@ type Config struct {
 type CommandFactory func(context.Context, Config) (*exec.Cmd, func(), error)
 
 type process struct {
-	cmd     *exec.Cmd
-	in      io.WriteCloser
-	out     *bufio.Scanner
-	cleanup func()
-	once    sync.Once
-	done    chan error
+	closeNative func()
+	cmd         *exec.Cmd
+	in          io.WriteCloser
+	out         *bufio.Scanner
+	cleanup     func()
+	once        sync.Once
+	done        chan error
 }
 
 func startProcess(ctx context.Context, cfg Config, factory CommandFactory) (*process, error) {
@@ -64,6 +65,10 @@ func startProcess(ctx context.Context, cfg Config, factory CommandFactory) (*pro
 }
 func (p *process) close() {
 	p.once.Do(func() {
+		if p.closeNative != nil {
+			p.closeNative()
+			return
+		}
 		p.in.Close()
 		if p.cmd.Process != nil {
 			_ = p.cmd.Process.Kill()
@@ -102,9 +107,12 @@ func (p *process) call(req Request) (Response, error) {
 // Serve bridges a single actor-owned stream to a private helper subprocess.
 // It never accepts shell commands or arbitrary helper paths from remote callers.
 func Serve(ctx context.Context, rw io.ReadWriteCloser, cfg Config) error {
-	return ServeWithFactory(ctx, rw, cfg, platformCommand)
+	return serveWithStarter(ctx, rw, cfg, startNativeProcess)
 }
 func ServeWithFactory(ctx context.Context, rw io.ReadWriteCloser, cfg Config, factory CommandFactory) error {
+	return serveWithStarter(ctx, rw, cfg, func(ctx context.Context, cfg Config) (*process, error) { return startProcess(ctx, cfg, factory) })
+}
+func serveWithStarter(ctx context.Context, rw io.ReadWriteCloser, cfg Config, start func(context.Context, Config) (*process, error)) error {
 	defer rw.Close()
 	if !cfg.Enabled {
 		return writeResponse(rw, Response{ID: "init", Error: "desktop capability is disabled on this Agent"})
@@ -134,7 +142,7 @@ func ServeWithFactory(ctx context.Context, rw io.ReadWriteCloser, cfg Config, fa
 		}
 		readError <- scan.Err()
 	}()
-	p, err := startProcess(ctx, cfg, factory)
+	p, err := start(ctx, cfg)
 	if err != nil {
 		return writeResponse(rw, Response{ID: "init", Error: "desktop helper unavailable: " + err.Error()})
 	}
