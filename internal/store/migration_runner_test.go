@@ -139,3 +139,55 @@ func assertSchemaObject(t *testing.T, db *sql.DB, kind, name string) {
 		t.Fatalf("missing %s %s: count=%d err=%v", kind, name, count, err)
 	}
 }
+
+// A newer deployment may already contain migration 8 before the independent
+// desktop feature is installed. Apply missing versions, not just max(version).
+func TestMainSchemaMigrationsApplyMissingLowerVersion(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "missing-lower.db")
+	st, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		"INSERT INTO users(id,email,display_name,password_hash,created_at) VALUES('fixture-user','desktop@example.invalid','Fixture',x'01','2026-01-01')",
+		"DROP TABLE desktop_access",
+		"DELETE FROM schema_migrations WHERE version=7",
+		"UPDATE schema_migrations SET applied_at='2026-01-02T00:00:00Z' WHERE version=8",
+	} {
+		if _, err = st.DB().ExecContext(ctx, statement); err != nil {
+			st.Close()
+			t.Fatal(err)
+		}
+	}
+	assertMigrationVersions(t, st.DB(), 1, 2, 3, 4, 5, 6, 8)
+	if err = st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		st, err = Open(ctx, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertMigrationVersions(t, st.DB(), 1, 2, 3, 4, 5, 6, 7, 8)
+		assertSchemaObject(t, st.DB(), "table", "desktop_access")
+		assertSchemaObject(t, st.DB(), "index", "desktop_access_target")
+		var appliedAt, email string
+		var grants int
+		if err = st.DB().QueryRowContext(ctx, "SELECT applied_at FROM schema_migrations WHERE version=8").Scan(&appliedAt); err != nil {
+			t.Fatal(err)
+		}
+		if appliedAt != "2026-01-02T00:00:00Z" {
+			t.Fatal("higher migration was rerun")
+		}
+		if err = st.DB().QueryRowContext(ctx, "SELECT email FROM users WHERE id='fixture-user'").Scan(&email); err != nil || email != "desktop@example.invalid" {
+			t.Fatalf("existing user changed: %v", err)
+		}
+		if err = st.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM desktop_access").Scan(&grants); err != nil || grants != 0 {
+			t.Fatalf("migration created implicit desktop grants: %v", err)
+		}
+		if err = st.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
