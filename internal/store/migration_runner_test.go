@@ -15,7 +15,7 @@ func TestMainSchemaMigrationsFreshAndRepeated(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertMigrationVersions(t, st.DB(), 1, 2, 3, 4, 5, 6)
+		assertMigrationVersions(t, st.DB(), 1, 2, 3, 4, 5, 6, 8)
 		assertSchemaObject(t, st.DB(), "table", "temporary_ssh_authorizations")
 		assertSchemaObject(t, st.DB(), "table", "tunnels")
 		for _, index := range []string{"idx_ssh_targets_proxy_target", "idx_policy_targets_target", "idx_command_audit_target_started", "idx_temporary_ssh_authorizations_target"} {
@@ -53,7 +53,7 @@ func TestMainSchemaMigrationsUpgradeLegacyData(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	assertMigrationVersions(t, st.DB(), 1, 2, 3, 4, 5, 6)
+	assertMigrationVersions(t, st.DB(), 1, 2, 3, 4, 5, 6, 8)
 	assertSchemaObject(t, st.DB(), "table", "temporary_ssh_authorizations")
 	assertSchemaObject(t, st.DB(), "table", "tunnels")
 	var name, alias string

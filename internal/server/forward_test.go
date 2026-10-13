@@ -18,7 +18,8 @@ import (
 
 func createHTTPForward(t *testing.T, app *App, u store.User, o store.Organization, entry, exit string, port int) store.Tunnel {
 	t.Helper()
-	config := store.TunnelConfig{Protocol: "http", Name: "HTTP test", EntryTargetID: entry, ListenHost: "127.0.0.1", ListenPort: freeTunnelPort(t), HTTP: &forward.HTTPConfig{Servers: []forward.ServerBlock{{ID: "site", Name: "API", Hosts: []string{"api.test", "alias.test"}, Locations: []forward.Location{{ID: "api", Match: "^~", Path: "/api/", Scheme: "http", Host: "127.0.0.1", Port: port, ExitTargetID: exit, StripPrefix: true}}}}}}
+	listenPort := freeTunnelPort(t)
+	config := store.TunnelConfig{Protocol: "http", Name: "HTTP test", EntryTargetID: entry, ListenHost: "127.0.0.1", ListenPort: listenPort, HTTP: &forward.HTTPConfig{Listeners: []forward.HTTPListener{{Host: "127.0.0.1", Port: listenPort}}, Servers: []forward.ServerBlock{{ID: "site", Name: "API", Hosts: []string{"api.test", "alias.test"}, Locations: []forward.Location{{ID: "api", Match: "^~", Path: "/api/", Scheme: "http", Host: "127.0.0.1", Port: port, ExitTargetID: exit, StripPrefix: true}}}}}}
 	view, err := app.saveManagedTunnel(context.Background(), u, store.Tunnel{OrganizationID: o.ID, CreatedBy: u.ID, TunnelConfig: config})
 	if err != nil {
 		t.Fatal(err)

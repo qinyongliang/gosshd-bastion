@@ -35,10 +35,10 @@ func (a *App) validateTunnel(ctx context.Context, user store.User, orgID string,
 	if strings.TrimSpace(c.Name) == "" || len(c.Name) > 128 {
 		return errors.New("name must contain 1–128 characters")
 	}
-	if net.ParseIP(c.ListenHost) == nil {
+	if c.Protocol != "http" && net.ParseIP(c.ListenHost) == nil {
 		return errors.New("listen host must be an IP address")
 	}
-	if c.ListenPort < 1 || c.ListenPort > 65535 || (c.Protocol != "http" && (c.DestinationPort < 1 || c.DestinationPort > 65535)) {
+	if c.Protocol != "http" && (c.ListenPort < 1 || c.ListenPort > 65535 || c.DestinationPort < 1 || c.DestinationPort > 65535) {
 		return errors.New("ports must be between 1 and 65535")
 	}
 	if c.Protocol != "http" && (strings.TrimSpace(c.DestinationHost) == "" || len(c.DestinationHost) > 253 || strings.ContainsAny(c.DestinationHost, " /\\\t\r\n")) {
@@ -68,6 +68,9 @@ func (a *App) validateTunnel(ctx context.Context, user store.User, orgID string,
 	}
 	endpoints := []string{c.EntryTargetID}
 	if c.Protocol == "http" {
+		if _, err := forward.HTTPListeners(c.HTTP); err != nil {
+			return err
+		}
 		if _, err := forward.Compile(c.HTTP); err != nil {
 			return err
 		}

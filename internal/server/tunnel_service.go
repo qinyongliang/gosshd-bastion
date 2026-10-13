@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/qinyongliang/gosshd-bastion/internal/forward"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
@@ -27,6 +28,19 @@ func (a *App) saveManagedTunnel(ctx context.Context, actor store.User, t store.T
 	}
 	t.Name = strings.TrimSpace(t.Name)
 	t.ListenHost = strings.TrimSpace(t.ListenHost)
+	if t.ListenHost == "" {
+		t.ListenHost = "0.0.0.0"
+	}
+	if t.Protocol == "http" {
+		listeners, err := forward.HTTPListeners(t.HTTP)
+		if err != nil {
+			return apiTunnel{}, tunnelConfigError{err}
+		}
+		httpConfig := *t.HTTP
+		httpConfig.Listeners = listeners
+		t.HTTP = &httpConfig
+		t.ListenHost, t.ListenPort = listeners[0].Host, listeners[0].Port
+	}
 	t.DestinationHost = strings.TrimSpace(t.DestinationHost)
 	if err := a.validateTunnel(ctx, actor, t.OrganizationID, t.TunnelConfig); err != nil {
 		return apiTunnel{}, tunnelConfigError{err}

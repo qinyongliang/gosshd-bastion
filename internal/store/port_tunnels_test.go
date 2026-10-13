@@ -36,7 +36,7 @@ func TestPortTunnelMigrationPreservesConfigurationAndIsRepeatable(t *testing.T) 
 		"implicit": `{"name":"implicit","listen_host":"127.0.0.1","listen_port":8080,"destination_host":"db","destination_port":5432,"duration_seconds":3600}`,
 		"empty":    `{"protocol":"","name":"empty"}`,
 		"tcp":      `{"protocol":"tcp","name":"tcp"}`,
-		"http":     `{"protocol":"http","name":"http","http":{"servers":[]}}`,
+		"http":     `{"protocol":"http","name":"http","listen_host":"127.0.0.1","listen_port":8084,"http":{"servers":[]}}`,
 	} {
 		if _, e := db.Exec(`INSERT INTO tunnels(id,organization_id,created_by,config,enabled,expires_at,revision,created_at,updated_at) VALUES(?, 'org', 'user', ?, 1, 999999999999999999, 7, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`, id, config); e != nil {
 			t.Fatal(e)
@@ -48,13 +48,14 @@ func TestPortTunnelMigrationPreservesConfigurationAndIsRepeatable(t *testing.T) 
 		if e != nil {
 			t.Fatal(e)
 		}
+		t.Cleanup(func() { st.Close() })
 		for _, id := range []string{"implicit", "empty", "tcp", "http"} {
 			row, e := st.Repository().GetTunnel(ctx, id)
 			if e != nil {
 				t.Fatal(e)
 			}
 			if id == "http" {
-				if row.Protocol != "http" || row.Revision != 8 || row.HTTP == nil {
+				if row.Protocol != "http" || row.Revision != 9 || row.HTTP == nil || len(row.HTTP.Listeners) != 1 || row.HTTP.Listeners[0].Host != "127.0.0.1" || row.HTTP.Listeners[0].Port != 8084 {
 					t.Fatalf("HTTP changed %+v", row)
 				}
 			} else {

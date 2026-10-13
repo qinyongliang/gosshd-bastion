@@ -2,9 +2,9 @@
 
 ## 管理与配置
 
-隧道管理提供 TCP 和 HTTP 两个标签，新建时可切换类型。HTTP 配置由一个入口监听器和多个 server/location 块组成；块可命名、增加、删除和排序。
+隧道管理提供 TCP 和 HTTP 两个标签，新建时可切换类型。HTTP 配置由一组入口监听 IP/端口和多个 server/location 块组成；块可命名、增加、删除和排序。
 
-- 每条配置独占入口机器的一个 IP/端口。需要共享端口的 Host 放在同一配置的不同 server 块内。
+- HTTP 配置可增加或删除多个监听 IP/端口（最多 64 组），IP 默认 `0.0.0.0`。所有监听共用同一套路由、上游连接池与统计；重复或重叠的监听地址被拒绝，任一监听绑定失败时撤销本次全部绑定。
 - server_name 支持一个/多个精确域名、*.example.com 左侧通配符；_ 或 * 是显式默认站点。未匹配 Host 且没有默认站点时返回 404。
 - location 支持普通最长前缀、= 精确、^~ 优先前缀、~ 正则和 ~* 忽略大小写正则。
 - 匹配顺序：精确 → 最长前缀是 ^~ 时直接采用 → 按配置顺序第一个匹配正则 → 最长普通前缀。
@@ -12,7 +12,7 @@
 - 每个 location 独立配置出口 Agent/SSH 节点、目标 IP/域名/端口、HTTP/HTTPS 上游、去掉前缀、保留 Host、静态 proxy_set_header。
 - 出口的 127.0.0.1 表示出口节点自身，其他地址从出口节点的网络访问。
 - 自动设置可信 X-Forwarded-For / X-Forwarded-Host / X-Forwarded-Proto / X-Real-IP，丢弃客户端伪造的转发链。
-- HTTP 入口不提供 TLS 证书/HTTPS 监听配置；HTTPS 上游验证证书。HTTP 流式响应与 WebSocket 升级使用共享代理运行时。
+- HTTP 入口不提供 TLS 证书/HTTPS 监听配置；HTTPS 上游验证证书。HTTP 流式响应与 WebSocket 升级使用共享代理运行时，所有监听均支持 Upgrade 与双向帧传输；HTTPS 上游也可承载加密的 WebSocket 链路。
 
 示例（POST /api/tunnels，组织管理员；空机器 ID 仅系统管理员可用）：
 
@@ -26,6 +26,7 @@
   "listen_port": 8080,
   "duration_seconds": 0,
   "http": {
+    "listeners": [{"host": "0.0.0.0", "port": 8080}, {"host": "0.0.0.0", "port": 8081}],
     "servers": [{
       "id": "business",
       "name": "业务站点",
@@ -37,7 +38,7 @@
         "path": "/api/",
         "exit_target_id": "出口 Agent / SSH 目标 ID",
         "scheme": "http",
-        "host": "10.0.0.20",
+        "host": "192.0.2.20",
         "port": 9000,
         "strip_prefix": true,
         "preserve_host": false,
@@ -48,7 +49,7 @@
 }
 ~~~
 
-新配置默认停止，调用启用操作后部署。修改已启用配置保留绝对到期时间、按 revision 更新并关闭旧连接。旧配置未设置 protocol 时保留原 TCP 实现；在界面编辑保存为 TCP，或通过 API/MCP 明确设置 protocol=tcp，才迁移到新的边缘实现。已有程序需升级服务器和参与转发的 Agent，旧 Agent 不支持新的同步协议。
+界面新建配置默认勾选“保存后立即启用”，可手动关闭；API/MCP 创建仍先保存，调用启用操作后部署。旧 HTTP 配置由数据库迁移一次性转换为 `http.listeners`，同时增加 revision 以重新下发；保留原监听地址、规则、启用状态与绝对到期时间。运行时、界面和 MCP 使用统一的监听列表，不再回退到旧字段。使用多监听时需要同步更新入口 Agent 的运行程序。修改已启用配置保留绝对到期时间、按 revision 更新并关闭旧连接。旧配置未设置 protocol 时保留原 TCP 实现；在界面编辑保存为 TCP，或通过 API/MCP 明确设置 protocol=tcp，才迁移到新的边缘实现。已有程序需升级服务器和参与转发的 Agent，旧 Agent 不支持新的同步协议。
 
 ## 执行位置与断服边界
 

@@ -9,7 +9,13 @@ import (
 )
 
 type HTTPConfig struct {
-	Servers []ServerBlock `json:"servers"`
+	Listeners []HTTPListener `json:"listeners"`
+	Servers   []ServerBlock  `json:"servers"`
+}
+
+type HTTPListener struct {
+	Host string `json:"host,omitempty"`
+	Port int    `json:"port"`
 }
 type ServerBlock struct {
 	ID        string     `json:"id"`

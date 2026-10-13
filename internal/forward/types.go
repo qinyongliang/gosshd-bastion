@@ -4,6 +4,7 @@ import protocoltypes "github.com/qinyongliang/gosshd-bastion/internal/protocol/t
 
 // Aliases preserve existing callers while keeping DTO ownership in the protocol layer.
 type HTTPConfig = protocoltypes.HTTPConfig
+type HTTPListener = protocoltypes.HTTPListener
 type ServerBlock = protocoltypes.ServerBlock
 type Location = protocoltypes.Location
 type Event = protocoltypes.Event

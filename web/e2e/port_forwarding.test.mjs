@@ -50,7 +50,7 @@ try {
   await editor.getByLabel(zh ? "隧道名称" : "Tunnel name", { exact: true }).fill(name);
   await editor.getByLabel(zh ? "监听端口" : "Listen port", { exact: true }).fill(String(listenPort));
   await editor.getByLabel(zh ? "目标端口" : "Destination port", { exact: true }).fill(String(destinationPort));
-  await editor.getByLabel(zh ? "保存后立即启用" : "Enable after saving", { exact: true }).click();
+  assert.equal(await editor.getByLabel(zh ? "保存后立即启用" : "Enable after saving", { exact: true }).getAttribute("aria-checked"), "true");
   if (screenshots) await page.screenshot({ path: join(screenshots, `port-editor-${locale}-${width}.png`), fullPage: true });
   await editor.getByRole("button", { name: zh ? "保存配置" : "Save configuration", exact: true }).click(); await editor.waitFor({ state: "detached" });
   const me = await (await context.request.get(base + "/api/me")).json(); const org = me.active_organization_id || me.organizations?.[0]?.id;

@@ -3,10 +3,11 @@ import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { MachinePicker } from "./MachinePicker";
 import { useI18n } from "../i18n";
-import type { ConsoleData, HTTPForwardConfig, HTTPForwardLocation, HTTPForwardServer, TunnelConfig } from "../types";
+import type { ConsoleData, HTTPForwardConfig, HTTPForwardListener, HTTPForwardLocation, HTTPForwardServer, TunnelConfig } from "../types";
 import "./forwarding.css";
 const id = () => crypto.randomUUID();
 export const newHTTPLocation = (exit: string): HTTPForwardLocation => ({id:id(),name:"",match:"prefix",path:"/",exit_target_id:exit,scheme:"http",host:"127.0.0.1",port:80,strip_prefix:false,preserve_host:false});
+export const newHTTPConfig = (exit:string):HTTPForwardConfig => ({listeners:[{host:"0.0.0.0",port:8080}],servers:[newHTTPServer(exit)]});
 export const newHTTPServer = (exit:string):HTTPForwardServer => ({id:id(),name:"",hosts:["_"],locations:[newHTTPLocation(exit)]});
 function HostInput({hosts,onChange,label}:{hosts:string[];onChange:(v:string[])=>void;label:string}) {
  const [value,setValue]=useState(hosts.join(", "));
@@ -14,8 +15,11 @@ function HostInput({hosts,onChange,label}:{hosts:string[];onChange:(v:string[])=
 }
 export function HTTPForwardEditor({data,config,onChange}:{data:ConsoleData;config:TunnelConfig;onChange:(patch:Partial<TunnelConfig>)=>void}) {
  const {locale}=useI18n(); const zh=locale==="zh-CN";const text=(cn:string,en:string)=>zh?cn:en;
- const http=config.http || {servers:[]}; const exit=data.user.is_system_admin?"":data.targets[0]?.id||"__select__";
- const setHTTP=(v:HTTPForwardConfig)=>onChange({http:v});
+ const exit=data.user.is_system_admin?"":data.targets[0]?.id||"__select__"; const http=config.http || newHTTPConfig(exit);
+ const setHTTP=(v:Pick<HTTPForwardConfig,"servers">)=>onChange({http:{...http,...v}});
+ const listeners = http.listeners;
+ const setListeners=(entries:HTTPForwardListener[])=>onChange({http:{...http,listeners:entries},listen_host:entries[0].host,listen_port:entries[0].port});
+ const updateListener=(index:number,patch:Partial<HTTPForwardListener>)=>setListeners(listeners.map((entry,i)=>i===index?{...entry,...patch}:entry));
  const moveServer=(index:number,delta:number)=>{const servers=[...http.servers];[servers[index],servers[index+delta]]=[servers[index+delta],servers[index]];setHTTP({servers});};
  const moveLocation=(index:number,location:number,delta:number)=>{const locations=[...http.servers[index].locations];[locations[location],locations[location+delta]]=[locations[location+delta],locations[location]];updateServer(index,{locations});};
  const updateServer=(i:number,p:Partial<HTTPForwardServer>)=>setHTTP({servers:http.servers.map((s,n)=>n===i?{...s,...p}:s)});
@@ -23,12 +27,15 @@ export function HTTPForwardEditor({data,config,onChange}:{data:ConsoleData;confi
  const picker=(value:string,label:string,change:(id:string)=>void)=><MachinePicker targets={data.targets} folders={data.targetFolders} currentTargetID={value} label={label} variant="field" additionalOptions={data.user.is_system_admin?[{value:"",label:text("堡垒机","Bastion")}]:[]} onOpenTarget={change}/>;
  return <div className="http-forward-editor">
   <Card size="small" title={text("监听入口 · 所有 server 块共享","Listener · shared by all server blocks")}>
-   <div className="forward-grid">
-    <label className="field"><span>{text("入口机器","Entry machine")}</span>{picker(config.entry_target_id,text("入口机器","Entry machine"),v=>onChange({entry_target_id:v}))}</label>
-    <label className="field"><span>{text("监听 IP","Listen IP")}</span><Input required aria-label="HTTP listen IP" value={config.listen_host} onChange={e=>onChange({listen_host:e.target.value})}/></label>
-    <label className="field"><span>{text("监听端口","Listen port")}</span><InputNumber min={1} max={65535} aria-label="HTTP listen port" value={config.listen_port} onChange={v=>onChange({listen_port:v||80})}/></label>
+   <label className="field"><span>{text("入口机器","Entry machine")}</span>{picker(config.entry_target_id,text("入口机器","Entry machine"),v=>onChange({entry_target_id:v}))}</label>
+   <div className="forward-listeners">
+    {listeners.map((entry,index)=><div className="forward-listener-row" key={index}>
+     <label className="field"><span>{text("监听 IP","Listen IP")}</span><Input required aria-label="HTTP listen IP" value={entry.host} placeholder="0.0.0.0" onChange={e=>updateListener(index,{host:e.target.value})}/></label>
+     <label className="field"><span>{text("监听端口","Listen port")}</span><InputNumber required min={1} max={65535} aria-label="HTTP listen port" value={entry.port || null} onChange={v=>updateListener(index,{port:v ?? 0})}/></label>
+     <Button aria-label={text("删除监听","Remove listener")} disabled={listeners.length===1} danger icon={<Trash2 size={14}/>} onClick={()=>setListeners(listeners.filter((_,i)=>i!==index))}/>
+    </div>)}
+    <Button icon={<Plus size={14}/>} disabled={listeners.length>=64} onClick={()=>setListeners([...listeners,{host:"0.0.0.0",port:0}])}>{text("添加监听","Add listener")}</Button>
    </div>
-   <p className="forward-help">{text("入口优先在 Agent 执行，127.0.0.1 仅本机访问。每条配置独占监听端口；共享端口的多个 Host 请放在此配置的不同 server 块。","Agent entries execute at the edge. One listener per configuration; put hosts sharing a port in separate server blocks here.")}</p>
   </Card>
   {http.servers.map((server,i)=><Card key={server.id} className="forward-server-block" size="small" title={<><Tag color="blue">server {i+1}</Tag>{server.name||text("虚拟主机","Virtual host")}</>} extra={<><Button size="small" aria-label={text("上移 server 块","Move server up")} disabled={i===0} onClick={()=>moveServer(i,-1)}>↑</Button><Button size="small" aria-label={text("下移 server 块","Move server down")} disabled={i===http.servers.length-1} onClick={()=>moveServer(i,1)}>↓</Button><Button danger type="text" aria-label={text("删除 server 块","Remove server block")} icon={<Trash2 size={15}/>} disabled={http.servers.length===1} onClick={()=>setHTTP({servers:http.servers.filter((_,n)=>n!==i)})}/></>}>
    <div className="forward-grid two">
@@ -70,5 +77,5 @@ export function HTTPForwardEditor({data,config,onChange}:{data:ConsoleData;confi
  </div>;
 }
 export function HTTPForwardSummary({config}:{config:TunnelConfig}){
- return <div className="forward-summary"><code>{config.listen_host}:{config.listen_port}</code>{config.http?.servers.map(s=><div key={s.id}><Tag color="blue">{s.name||"server"}</Tag><strong>{s.hosts.join(", ")}</strong><div>{s.locations.map(l=><Tag key={l.id}>{l.name||l.match+" "+l.path} → {l.scheme}://{l.host}:{l.port}</Tag>)}</div></div>)}</div>;
+ return <div className="forward-summary">{config.http?.listeners.map((l,i)=><code key={i}>{l.host.includes(":")?`[${l.host}]`:l.host}:{l.port}</code>)}{config.http?.servers.map(s=><div key={s.id}><Tag color="blue">{s.name||"server"}</Tag><strong>{s.hosts.join(", ")}</strong><div>{s.locations.map(l=><Tag key={l.id}>{l.name||l.match+" "+l.path} → {l.scheme}://{l.host}:{l.port}</Tag>)}</div></div>)}</div>;
 }

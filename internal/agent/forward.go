@@ -160,11 +160,11 @@ func (m *edgeForwarder) apply(d protocol.ForwardDeployment) {
 		r.err = err.Error()
 		return
 	}
-	listenTCP := func() (net.Listener, error) {
+	listen := func(address string) (net.Listener, error) {
 		if listenSSH != nil {
-			return listenSSH.Listen("tcp", d.ListenAddress)
+			return listenSSH.Listen("tcp", address)
 		}
-		return net.Listen("tcp", d.ListenAddress)
+		return net.Listen("tcp", address)
 	}
 	if listenSSH != nil {
 		r.closers = append(r.closers, listenSSH)
@@ -238,16 +238,9 @@ func (m *edgeForwarder) apply(d protocol.ForwardDeployment) {
 		return links[id] == "" || (p != nil && p.Stable.Direct())
 	}
 	if d.Protocol == "port" {
-		r.runtime, err = forward.StartPort(ctx, d.ListenAddress, d.Transports, *d.Destination, dial, l.TrafficRecorder(), direct, listenTCP)
+		r.runtime, err = forward.StartPort(ctx, d.ListenAddress, d.Transports, *d.Destination, dial, l.TrafficRecorder(), direct, func() (net.Listener, error) { return listen(d.ListenAddress) })
 	} else {
-		var listener net.Listener
-		listener, err = listenTCP()
-		if err == nil {
-			r.runtime, err = forward.Start(ctx, listener, d.HTTP, nil, dial, l, direct)
-			if err != nil {
-				listener.Close()
-			}
-		}
+		r.runtime, err = forward.StartHTTP(ctx, d.HTTP, listen, dial, l, direct)
 	}
 	if err != nil {
 		r.err = err.Error()

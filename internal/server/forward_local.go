@@ -83,7 +83,7 @@ func (m *edgeForwardManager) ensureServerRun(t store.Tunnel) {
 			return err
 		}
 		address := net.JoinHostPort(t.ListenHost, strconv.Itoa(t.ListenPort))
-		listenTCP := func() (net.Listener, error) { return net.Listen("tcp", address) }
+		listen := func(address string) (net.Listener, error) { return net.Listen("tcp", address) }
 		if t.EntryTargetID != "" {
 			target, e := m.app.store.Repository().GetSSHTarget(ctx, t.EntryTargetID)
 			if e != nil {
@@ -94,7 +94,7 @@ func (m *edgeForwardManager) ensureServerRun(t store.Tunnel) {
 				return e
 			}
 			r.closers = append(r.closers, client)
-			listenTCP = func() (net.Listener, error) { return client.Listen("tcp", address) }
+			listen = func(address string) (net.Listener, error) { return client.Listen("tcp", address) }
 		}
 		dials := map[string]forward.DialFunc{}
 		groups := map[string][]protocol.ForwardRoute{}
@@ -128,16 +128,9 @@ func (m *edgeForwardManager) ensureServerRun(t store.Tunnel) {
 			return fn(ctx, id)
 		}
 		if t.Protocol == "port" {
-			r.runtime, err = forward.StartPort(ctx, address, t.Transports, destination, dial, logs.TrafficRecorder(), nil, listenTCP)
+			r.runtime, err = forward.StartPort(ctx, address, t.Transports, destination, dial, logs.TrafficRecorder(), nil, func() (net.Listener, error) { return listen(address) })
 		} else {
-			listener, e := listenTCP()
-			if e != nil {
-				return e
-			}
-			r.runtime, err = forward.Start(ctx, listener, t.HTTP, nil, dial, logs, nil)
-			if err != nil {
-				listener.Close()
-			}
+			r.runtime, err = forward.StartHTTP(ctx, t.HTTP, listen, dial, logs, nil)
 		}
 		return err
 	}

@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
-import { HTTPForwardEditor, HTTPForwardSummary, newHTTPServer } from "../components/HTTPForwardEditor";
+import { HTTPForwardEditor, HTTPForwardSummary, newHTTPConfig } from "../components/HTTPForwardEditor";
 import { ForwardLogsDialog } from "../components/ForwardLogs";
 import { MachinePicker } from "../components/MachinePicker";
 import { TunnelErrorNotice } from "../components/TunnelErrorNotice";
@@ -221,7 +221,7 @@ type Words = (typeof copy)["en"];
 const blank: TunnelConfig = {
   name: "",
   entry_target_id: "",
-  listen_host: "127.0.0.1",
+  listen_host: "0.0.0.0",
   listen_port: 8080,
   exit_target_id: "",
   destination_host: "127.0.0.1",
@@ -818,13 +818,13 @@ function TunnelEditor({
           ...blank,
           protocol: initialProtocol,
           transports: ["tcp"],
-          http: initialProtocol === "http" ? {servers:[newHTTPServer(firstMachine)]} : undefined,
+          http: initialProtocol === "http" ? newHTTPConfig(firstMachine) : undefined,
           entry_target_id: firstMachine,
           exit_target_id: firstMachine,
         },
   );
   const [savedID, setSavedID] = useState<string | null>(null);
-  const [enable, setEnable] = useState(false);
+  const [enable, setEnable] = useState(!tunnel);
   const [timed, setTimed] = useState(config.duration_seconds > 0);
   const set = <K extends keyof TunnelConfig>(key: K, value: TunnelConfig[K]) =>
     setConfig((c) => ({ ...c, [key]: value }));
@@ -876,7 +876,7 @@ function TunnelEditor({
             placeholder={w.namePlaceholder}
           />
         </label>
-<div className="forward-editor-type"><Segmented value={config.protocol || "port"} items={[["port",w.portForward],["http","HTTP"]]} onChange={v=>{setConfig(c=>({...c,protocol:v as "port"|"http",transports:v === "port" ? c.transports ?? ["tcp"] : c.transports,http:c.http||{servers:[newHTTPServer(firstMachine)]}}));}}/></div>
+<div className="forward-editor-type"><Segmented value={config.protocol || "port"} items={[["port",w.portForward],["http","HTTP"]]} onChange={v=>{setConfig(c=>({...c,protocol:v as "port"|"http",transports:v === "port" ? c.transports ?? ["tcp"] : c.transports,http:c.http||newHTTPConfig(firstMachine)}));}}/></div>
         <div className="tunnel-preview-heading">
           <Network size={17} />
           <strong>{w.flow}</strong>

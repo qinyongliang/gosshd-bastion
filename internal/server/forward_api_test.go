@@ -59,15 +59,28 @@ func TestMCPHTTPConfigurationAndForwardLogs(t *testing.T) {
 			t.Fatal("missing MCP tool", name)
 		}
 	}
-	config := forward.HTTPConfig{Servers: []forward.ServerBlock{{ID: "site", Name: "MCP site", Hosts: []string{"api.test"}, Locations: []forward.Location{{ID: "route", Name: "MCP route", Path: "/", Match: "prefix", Scheme: "http", Host: "127.0.0.1", Port: 80}}}}}
-	created, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "tunnel_create", Arguments: map[string]any{"organization_id": o.ID, "name": "MCP HTTP", "protocol": "http", "listen_host": "127.0.0.1", "listen_port": freeTunnelPort(t), "http": config}})
+	config := forward.HTTPConfig{Listeners: []forward.HTTPListener{{Port: 8080}, {Host: "127.0.0.1", Port: 8081}}, Servers: []forward.ServerBlock{{ID: "site", Name: "MCP site", Hosts: []string{"api.test"}, Locations: []forward.Location{{ID: "route", Name: "MCP route", Path: "/", Match: "prefix", Scheme: "http", Host: "127.0.0.1", Port: 80}}}}}
+	created, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "tunnel_create", Arguments: map[string]any{"organization_id": o.ID, "name": "MCP HTTP", "protocol": "http", "http": config}})
 	if err != nil || created.IsError {
 		t.Fatalf("HTTP MCP create: %+v %v", created, err)
 	}
 	id := stringField(t, created.StructuredContent, "tunnel", "id")
 	saved, _ := app.store.Repository().GetTunnel(context.Background(), id)
-	if saved.Protocol != "http" || len(saved.HTTP.Servers) != 1 {
+	if saved.Protocol != "http" || len(saved.HTTP.Servers) != 1 || len(saved.HTTP.Listeners) != 2 || saved.ListenHost != "0.0.0.0" || saved.ListenPort != 8080 {
 		t.Fatal(saved)
+	}
+	config.Listeners = []forward.HTTPListener{{Host: "192.0.2.10", Port: 9090}, {Host: "192.0.2.12", Port: 9092}}
+	updated, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "tunnel_update", Arguments: map[string]any{"tunnel_id": id, "http": config}})
+	if err != nil || updated.IsError {
+		t.Fatalf("HTTP MCP update: %+v %v", updated, err)
+	}
+	saved, _ = app.store.Repository().GetTunnel(context.Background(), id)
+	if len(saved.HTTP.Listeners) != 2 || saved.ListenHost != "192.0.2.10" || saved.ListenPort != 9090 {
+		t.Fatal(saved)
+	}
+	updated, err = session.CallTool(context.Background(), &mcp.CallToolParams{Name: "tunnel_update", Arguments: map[string]any{"tunnel_id": id, "listen_port": 9091}})
+	if err != nil || !updated.IsError {
+		t.Fatalf("HTTP must require canonical listener updates: %+v %v", updated, err)
 	}
 	for _, params := range []*mcp.CallToolParams{{Name: "forward_logs", Arguments: map[string]any{"tunnel_id": id, "path": "/", "limit": 10}}, {Name: "forward_log_settings_get", Arguments: map[string]any{}}, {Name: "forward_log_settings_update", Arguments: map[string]any{"retention_days": 5}}} {
 		out, err := session.CallTool(context.Background(), params)

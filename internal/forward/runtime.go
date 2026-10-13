@@ -23,7 +23,7 @@ type Runtime struct {
 	*runtimeCounters
 	children   []*Runtime
 	packet     net.PacketConn
-	listener   net.Listener
+	listeners  []net.Listener
 	server     *http.Server
 	logs       EventRecorder
 	ctx        context.Context
@@ -64,8 +64,12 @@ func Start(parent context.Context, listener net.Listener, httpConfig *HTTPConfig
 	return start(parent, listener, httpConfig, tcpRoute, dial, logs, direct, newRuntimeCounters())
 }
 func start(parent context.Context, listener net.Listener, httpConfig *HTTPConfig, tcpRoute *Location, dial DialFunc, logs EventRecorder, direct func(string) bool, counters *runtimeCounters) (*Runtime, error) {
+	return startListeners(parent, []net.Listener{listener}, httpConfig, tcpRoute, dial, logs, direct, counters)
+}
+func startListeners(parent context.Context, listeners []net.Listener, httpConfig *HTTPConfig, tcpRoute *Location, dial DialFunc, logs EventRecorder, direct func(string) bool, counters *runtimeCounters) (*Runtime, error) {
+	listener := listeners[0]
 	ctx, cancel := context.WithCancel(parent)
-	r := &Runtime{listener: listener, logs: logs, ctx: ctx, cancel: cancel, done: make(chan struct{}), conns: map[net.Conn]bool{}, runtimeCounters: counters}
+	r := &Runtime{listeners: listeners, logs: logs, ctx: ctx, cancel: cancel, done: make(chan struct{}), conns: map[net.Conn]bool{}, runtimeCounters: counters}
 	if direct == nil {
 		direct = func(string) bool { return false }
 	}
@@ -170,7 +174,17 @@ func start(parent context.Context, listener net.Listener, httpConfig *HTTPConfig
 			proxies[l.ID].ServeHTTP(ow, req)
 		})
 		r.server = &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 1 << 20, BaseContext: func(net.Listener) context.Context { return ctx }}
-		go func() { defer close(r.done); _ = r.server.Serve(&trackedListener{Listener: listener, r: r}) }()
+		var serving sync.WaitGroup
+		for _, l := range listeners {
+			serving.Add(1)
+			go func(l net.Listener) {
+				defer serving.Done()
+				if err := r.server.Serve(&trackedListener{Listener: l, r: r}); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					cancel()
+				}
+			}(l)
+		}
+		go func() { serving.Wait(); close(r.done) }()
 	} else {
 		if tcpRoute == nil {
 			cancel()
@@ -234,8 +248,12 @@ func (r *Runtime) State() RuntimeState {
 		return r.children[0].State()
 	}
 	address := ""
-	if r.listener != nil {
-		address = r.listener.Addr().String()
+	if len(r.listeners) > 0 {
+		addresses := make([]string, len(r.listeners))
+		for i, l := range r.listeners {
+			addresses[i] = l.Addr().String()
+		}
+		address = strings.Join(addresses, ", ")
 	} else {
 		address = r.packet.LocalAddr().String()
 	}
@@ -285,8 +303,8 @@ func (r *Runtime) closeSockets() {
 		conns = append(conns, c)
 	}
 	r.mu.Unlock()
-	if r.listener != nil {
-		_ = r.listener.Close()
+	for _, l := range r.listeners {
+		_ = l.Close()
 	}
 	if r.packet != nil {
 		_ = r.packet.Close()

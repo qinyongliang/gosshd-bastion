@@ -20,12 +20,12 @@ type mcpTunnelListInput struct {
 type mcpTunnelSaveInput struct {
 	Transports      []string            `json:"transports,omitempty" jsonschema:"Port transports: tcp, udp, or both. Defaults to tcp. UDP requires bastion or Agent endpoints."`
 	Protocol        string              `json:"protocol" jsonschema:"port or http."`
-	HTTP            *forward.HTTPConfig `json:"http,omitempty" jsonschema:"HTTP server and location blocks. Match modifiers: prefix, =, ^~, ~, ~*. Regex uses Go RE2."`
+	HTTP            *forward.HTTPConfig `json:"http,omitempty" jsonschema:"HTTP listeners (host defaults to 0.0.0.0), server and location blocks; all listeners share these routes and support WebSocket upgrades. Match modifiers: prefix, =, ^~, ~, ~*. Regex uses Go RE2."`
 	OrganizationID  string              `json:"organization_id"`
 	Name            string              `json:"name"`
 	EntryTargetID   string              `json:"entry_target_id,omitempty" jsonschema:"Entry machine ID; empty selects the bastion (system administrators only)."`
-	ListenHost      string              `json:"listen_host" jsonschema:"IP address to bind on the entry machine; use 127.0.0.1 for local access."`
-	ListenPort      int                 `json:"listen_port"`
+	ListenHost      string              `json:"listen_host,omitempty" jsonschema:"Port forwarding bind IP, defaults to 0.0.0.0. HTTP bindings use http.listeners."`
+	ListenPort      int                 `json:"listen_port,omitempty" jsonschema:"Required for port forwarding; HTTP bindings use http.listeners."`
 	ExitTargetID    string              `json:"exit_target_id,omitempty" jsonschema:"Exit machine ID; empty selects the bastion (system administrators only). SSH jump chains are supported."`
 	DestinationHost string              `json:"destination_host,omitempty" jsonschema:"Destination resolved and accessed from the exit machine."`
 	DestinationPort int                 `json:"destination_port,omitempty"`
@@ -163,6 +163,9 @@ func (a *App) addMCPTunnelTools(s *mcp.Server, initialActor store.User) {
 			}
 			if in.DurationSeconds != nil {
 				t.DurationSeconds = *in.DurationSeconds
+			}
+			if t.Protocol == "http" && (in.ListenHost != nil || in.ListenPort != nil) {
+				return nil, mcpTunnelOutput{}, errors.New("configure HTTP bindings through http.listeners")
 			}
 			saved, err := a.saveManagedTunnel(ctx, actor, t)
 			return nil, mcpTunnelOutput{saved}, err

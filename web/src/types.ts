@@ -339,7 +339,8 @@ export type FileReadResult = {
 
 export type HTTPForwardLocation = {id: string; name: string; match: "prefix" | "=" | "^~" | "~" | "~*"; path: string; exit_target_id: string; scheme: "http" | "https"; host: string; port: number; strip_prefix: boolean; preserve_host: boolean; headers?: Record<string,string>};
 export type HTTPForwardServer = {id: string; name: string; hosts: string[]; locations: HTTPForwardLocation[]};
-export type HTTPForwardConfig = {servers: HTTPForwardServer[]};
+export type HTTPForwardListener = {host: string; port: number};
+export type HTTPForwardConfig = {listeners: HTTPForwardListener[]; servers: HTTPForwardServer[]};
 export type TunnelConfig = {
  protocol?: "port" | "http"; transports?: ("tcp" | "udp")[]; http?: HTTPForwardConfig;
  name: string; entry_target_id: string; listen_host: string; listen_port: number;
