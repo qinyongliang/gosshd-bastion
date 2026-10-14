@@ -1,7 +1,7 @@
 using System;using System.Windows.Forms;using System.Drawing;
 class Fixture {
  [STAThread] static void Main(){
-  var form=new Form{Text="GOSSHD desktop test fixture",Width=560,Height=380,StartPosition=FormStartPosition.CenterScreen,TopMost=true};
+  var form=new Form{Text="GOSSHD desktop test fixture",Width=560,Height=380,StartPosition=FormStartPosition.Manual,Location=new Point(Screen.PrimaryScreen.WorkingArea.X+50,Screen.PrimaryScreen.WorkingArea.Y+50),BackColor=Color.WhiteSmoke,TopMost=true};
   var text=new TextBox{AccessibleName="Fixture text",Text="sample",Left=20,Top=20,Width=280};
   var label=new Label{Text="Not clicked",Left=20,Top=120,Width=480};
   var button=new Button{AccessibleName="Fixture button",Text="Apply",Left=20,Top=70,Width=120};

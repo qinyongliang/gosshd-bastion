@@ -95,8 +95,17 @@ func TestWindowsNativeFixture(t *testing.T) {
 	if state.Image == nil {
 		t.Fatal("missing native screenshot")
 	}
-	if _, err = png.DecodeConfig(bytes.NewReader(state.Image.Data)); err != nil {
+	captured, err := png.Decode(bytes.NewReader(state.Image.Data))
+	if err != nil {
 		t.Fatalf("invalid PNG: %v", err)
+	}
+	// The fixture is deliberately DPI-unaware and opens on the primary monitor.
+	// PrintWindow must fill the logical-sized image even when native bounds are
+	// scaled. A native-sized canvas otherwise has a transparent/black lower edge.
+	pixel := captured.Bounds()
+	r, g, b, a := captured.At(pixel.Max.X-30, pixel.Max.Y-50).RGBA()
+	if r|g|b == 0 || a == 0 {
+		t.Fatalf("DPI capture has an empty lower-right client region: native=%+v image=%dx%d", state.Bounds, pixel.Dx(), pixel.Dy())
 	}
 	find := func(state State, name string) int {
 		for _, e := range state.Elements {

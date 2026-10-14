@@ -49,6 +49,8 @@ public static class DesktopHelper {
  [DllImport("user32.dll",SetLastError=true)] static extern uint SendInput(uint n,INPUT[] inputs,int size);
  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+ [DllImport("user32.dll")] static extern IntPtr GetWindowDpiAwarenessContext(IntPtr window);
+ [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  [DllImport("kernel32.dll")] static extern bool ProcessIdToSessionId(uint pid,out uint session);
  static Dictionary<string,object> Map(object o){return o as Dictionary<string,object> ?? new Dictionary<string,object>();}
  static string S(Dictionary<string,object> p,string k,string d=""){return p.ContainsKey(k)?Convert.ToString(p[k]):d;}
@@ -85,8 +87,26 @@ public static class DesktopHelper {
    var child=TreeWalker.ControlViewWalker.GetFirstChild(e);while(child!=null&&tree.Count<max){Walk(child,index,depth+1,maxDepth,max,tree,origin,ref truncated);child=TreeWalker.ControlViewWalker.GetNextSibling(child);}if(child!=null)truncated=true;
   }catch(ElementNotAvailableException){}catch(InvalidOperationException){}
  }
- static object Screenshot(IntPtr h,RECT r){int width=r.Right-r.Left,height=r.Bottom-r.Top;if(width>16384||height>16384||(long)width*height>64*1024*1024)throw new Exception("window exceeds capture limits");using(var bitmap=new Bitmap(width,height,PixelFormat.Format32bppArgb)){bool captured;using(var g=Graphics.FromImage(bitmap)){IntPtr dc=g.GetHdc();try{captured=h!=IntPtr.Zero&&PrintWindow(h,dc,2);}finally{g.ReleaseHdc(dc);}if(!captured)g.CopyFromScreen(r.Left,r.Top,0,0,new Size(width,height),CopyPixelOperation.SourceCopy);}
-  double scale=Math.Min(1.0,1600.0/Math.Max(width,height));int w=Math.Max(1,(int)(width*scale)),hh=Math.Max(1,(int)(height*scale));using(var resized=new Bitmap(bitmap,w,hh))using(var ms=new MemoryStream()){resized.Save(ms,ImageFormat.Png);if(ms.Length>8*1024*1024)throw new Exception("screenshot exceeds size limit");return new {mime_type="image/png",data=Convert.ToBase64String(ms.ToArray()),width=w,height=hh};}}
+ static void CaptureLimits(int width,int height){if(width<=0||height<=0||width>16384||height>16384||(long)width*height>64*1024*1024)throw new Exception("window exceeds capture limits");}
+ static Bitmap WindowBitmap(IntPtr h,RECT physical){
+  if(h==IntPtr.Zero)return null;
+  IntPtr previous=IntPtr.Zero;Bitmap bitmap=null;
+  try{
+   // Legacy apps print in their own logical units. Preserve that image size;
+   // the response bounds and input coordinates remain native physical units.
+   try{var context=GetWindowDpiAwarenessContext(h);if(context!=IntPtr.Zero)previous=SetThreadDpiAwarenessContext(context);}catch(EntryPointNotFoundException){}
+   RECT logical=previous==IntPtr.Zero?physical:Rect(h);
+   int width=logical.Right-logical.Left,height=logical.Bottom-logical.Top;CaptureLimits(width,height);
+   bitmap=new Bitmap(width,height,PixelFormat.Format32bppArgb);bool captured;
+   using(var g=Graphics.FromImage(bitmap)){IntPtr dc=g.GetHdc();try{captured=PrintWindow(h,dc,2);}finally{g.ReleaseHdc(dc);}}
+   if(captured)return bitmap;
+   bitmap.Dispose();return null;
+  }catch{if(bitmap!=null)bitmap.Dispose();throw;}
+  finally{if(previous!=IntPtr.Zero)SetThreadDpiAwarenessContext(previous);}
+ }
+ static Bitmap ScreenBitmap(RECT r){int width=r.Right-r.Left,height=r.Bottom-r.Top;var bitmap=new Bitmap(width,height,PixelFormat.Format32bppArgb);try{using(var g=Graphics.FromImage(bitmap))g.CopyFromScreen(r.Left,r.Top,0,0,new Size(width,height),CopyPixelOperation.SourceCopy);return bitmap;}catch{bitmap.Dispose();throw;}}
+ static object Screenshot(IntPtr h,RECT r){int width=r.Right-r.Left,height=r.Bottom-r.Top;CaptureLimits(width,height);using(var bitmap=WindowBitmap(h,r)??ScreenBitmap(r)){
+  double scale=Math.Min(1.0,1600.0/Math.Max(bitmap.Width,bitmap.Height));int w=Math.Max(1,(int)(bitmap.Width*scale)),hh=Math.Max(1,(int)(bitmap.Height*scale));using(var resized=new Bitmap(bitmap,w,hh))using(var ms=new MemoryStream()){resized.Save(ms,ImageFormat.Png);if(ms.Length>8*1024*1024)throw new Exception("screenshot exceeds size limit");return new {mime_type="image/png",data=Convert.ToBase64String(ms.ToArray()),width=w,height=hh};}}
  }
  static object CaptureScreenshot(Dictionary<string,object> p){Available();Clear();bool window=p.ContainsKey("window");var h=window?Target(p):IntPtr.Zero;var r=window?Rect(h):DisplayRect(S(p,"display_id"));return new {snapshot_id=Guid.NewGuid().ToString(),window=window?Window(h):new {id="",app=""},bounds=Bounds(r),image=Screenshot(h,r)};}
  static object Observe(Dictionary<string,object> p){Available();var h=Target(p);Clear();RECT r=Rect(h);var tree=new List<object>();bool truncated=false;if(B(p,"include_text")){int depth=(int)N(p,"max_depth",8),max=(int)N(p,"max_elements",512);if(depth<1||depth>16||max<1||max>1024)throw new Exception("invalid accessibility limits");Walk(AutomationElement.FromHandle(h),-1,0,depth,max,tree,r,ref truncated);}
