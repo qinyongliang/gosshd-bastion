@@ -114,7 +114,7 @@ func desktopMCPClient(t *testing.T, app *App, actor store.User) *mcp.ClientSessi
 	t.Cleanup(func() { cs.Close(); ss.Close() })
 	return cs
 }
-func TestDesktopMCPGrantControlRevocationAndAudit(t *testing.T) {
+func TestDesktopMCPInheritedReadControlRevocationAndAudit(t *testing.T) {
 	app, user, target := desktopTestApp(t)
 	fakeDesktopAgent(t, app, target.AgentID)
 	client := desktopMCPClient(t, app, user)
@@ -134,19 +134,22 @@ func TestDesktopMCPGrantControlRevocationAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !mcpHasTool(tools, "desktop_get_window_state") || !mcpHasTool(tools, "desktop_perform_action") || mcpHasTool(tools, "session_send_command") || mcpHasTool(tools, "auth_register") {
-		t.Fatal("desktop tool group is not independent")
+	if !mcpHasTool(tools, "desktop_get_window_state") || !mcpHasTool(tools, "desktop_perform_action") || mcpHasTool(tools, "desktop_access_set") || mcpHasTool(tools, "session_send_command") || mcpHasTool(tools, "auth_register") {
+		t.Fatal("unexpected desktop tool surface")
 	}
-	call("desktop_session_open", map[string]any{"target_id": target.ID}, true)
-	grant := map[string]any{"target_id": target.ID, "user_id": user.ID, "allow_read": true, "allow_control": false}
-	call("desktop_access_set", grant, false)
+	access := call("desktop_access_get", map[string]any{"target_id": target.ID}, false)
+	wire, _ := json.Marshal(access.StructuredContent)
+	var view desktopAccessView
+	if err = json.Unmarshal(wire, &view); err != nil || !view.AllowRead || !view.AllowControl || view.Authorization != "target_access" {
+		t.Fatalf("unexpected inherited access %s: %v", wire, err)
+	}
 	opened := call("desktop_session_open", map[string]any{"target_id": target.ID}, false)
 	sessionID := stringField(t, opened.StructuredContent, "session_id")
 	params := map[string]any{"window": map[string]any{"id": "10", "app": "20"}, "include_text": true}
 	state := call("desktop_get_window_state", map[string]any{"session_id": sessionID, "params": params}, false)
 	imageCount := 0
-	for _, c := range state.Content {
-		if _, ok := c.(*mcp.ImageContent); ok {
+	for _, content := range state.Content {
+		if _, ok := content.(*mcp.ImageContent); ok {
 			imageCount++
 		}
 	}
@@ -155,70 +158,115 @@ func TestDesktopMCPGrantControlRevocationAndAudit(t *testing.T) {
 	}
 	params["snapshot_id"] = "test-snapshot"
 	params["text"] = "private typed text must not be audited"
-	call("desktop_type_text", map[string]any{"session_id": sessionID, "params": params}, true)
-	grant["allow_control"] = true
-	call("desktop_access_set", grant, false)
-	opened = call("desktop_session_open", map[string]any{"target_id": target.ID}, false)
-	sessionID = stringField(t, opened.StructuredContent, "session_id")
-	call("desktop_get_window_state", map[string]any{"session_id": sessionID, "params": params}, false)
 	call("desktop_type_text", map[string]any{"session_id": sessionID, "params": params}, false)
-	grant["allow_read"] = false
-	grant["allow_control"] = false
-	call("desktop_access_set", grant, false)
-	call("desktop_status", map[string]any{"session_id": sessionID, "params": map[string]any{}}, true)
+	outsider, err := app.store.Repository().CreateUser(ctx, store.CreateUserParams{Email: "session-outsider@example.test", DisplayName: "Outsider", PasswordHash: []byte("hash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsiderClient := desktopMCPClient(t, app, outsider)
+	foreign, err := outsiderClient.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_status", Arguments: map[string]any{"session_id": sessionID}})
+	if err != nil || !foreign.IsError {
+		t.Fatalf("foreign session was accessible: %+v %v", foreign, err)
+	}
 	audits := call("desktop_audit_list", map[string]any{}, false)
-	wire, _ := json.Marshal(audits.StructuredContent)
+	wire, _ = json.Marshal(audits.StructuredContent)
 	if strings.Contains(string(wire), "private typed text") || strings.Contains(string(wire), "data") {
 		t.Fatal("desktop content leaked into audit")
 	}
 	if !strings.Contains(string(wire), "desktop_type_text") && !strings.Contains(string(wire), "type_text") {
 		t.Fatal("control audit missing")
 	}
+	if _, err = app.store.DB().ExecContext(ctx, `UPDATE users SET disabled_at=? WHERE id=?`, time.Now().Format(time.RFC3339), user.ID); err != nil {
+		t.Fatal(err)
+	}
+	call("desktop_status", map[string]any{"session_id": sessionID}, true)
 }
-func TestDesktopAccessIsolationDisabledUsersAndExpiry(t *testing.T) {
+
+func TestDesktopInheritedAccessIsolationAndRevocation(t *testing.T) {
 	app, admin, target := desktopTestApp(t)
 	ctx := context.Background()
 	outsider, err := app.store.Repository().CreateUser(ctx, store.CreateUserParams{Email: "outsider@example.test", DisplayName: "Outsider", PasswordHash: []byte("hash")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant := store.DesktopAccess{UserID: outsider.ID, TargetID: target.ID, AllowRead: true, GrantedBy: admin.ID}
-	if err = app.store.Repository().SetDesktopAccess(ctx, grant); err != nil {
+	// Legacy desktop records, including expired/revoked ones, no longer define access.
+	expiry := time.Now().Add(time.Hour)
+	if err = app.store.Repository().SetDesktopAccess(ctx, store.DesktopAccess{UserID: outsider.ID, TargetID: target.ID, ExpiresAt: &expiry, GrantedBy: admin.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = app.store.DB().ExecContext(ctx, `UPDATE desktop_access SET expires_at=? WHERE user_id=? AND target_id=?`, time.Now().Add(-time.Hour).Format(time.RFC3339), outsider.ID, target.ID); err != nil {
 		t.Fatal(err)
 	}
 	if app.authorizeDesktop(ctx, outsider.ID, target.ID, false) == nil {
-		t.Fatal("grant bypassed organization boundary")
+		t.Fatal("organization boundary bypassed")
 	}
 	if err = app.store.Repository().AddOrganizationMember(ctx, target.OwnerID, outsider.ID, store.RoleMember); err != nil {
 		t.Fatal(err)
 	}
-	if err = app.authorizeDesktop(ctx, outsider.ID, target.ID, false); err != nil {
-		t.Fatal(err)
+	for _, control := range []bool{false, true} {
+		if err = app.authorizeDesktop(ctx, outsider.ID, target.ID, control); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if app.authorizeDesktop(ctx, outsider.ID, target.ID, true) == nil {
-		t.Fatal("read granted control")
-	}
-	_, err = app.store.DB().ExecContext(ctx, `UPDATE users SET disabled_at=? WHERE id=?`, time.Now().Format(time.RFC3339), outsider.ID)
+	group, err := app.store.Repository().CreateOrganizationUserGroup(ctx, store.CreateOrganizationUserGroupParams{OrganizationID: target.OwnerID, Name: "Desktop operators", Slug: "desktop-operators"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err = app.store.Repository().AttachUserGroupToTarget(ctx, group.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
 	if app.authorizeDesktop(ctx, outsider.ID, target.ID, false) == nil {
-		t.Fatal("disabled user could read desktop")
+		t.Fatal("target group boundary bypassed")
 	}
-	_, _ = app.store.DB().ExecContext(ctx, `UPDATE users SET disabled_at=NULL WHERE id=?`, outsider.ID)
-	_, _ = app.store.DB().ExecContext(ctx, `UPDATE desktop_access SET expires_at=? WHERE user_id=?`, time.Now().Add(-time.Hour).Format(time.RFC3339), outsider.ID)
+	if err = app.store.Repository().AddUserToGroup(ctx, group.ID, outsider.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = app.authorizeDesktop(ctx, outsider.ID, target.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	fakeDesktopAgent(t, app, target.AgentID)
+	memberClient := desktopMCPClient(t, app, outsider)
+	opened, err := memberClient.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_session_open", Arguments: map[string]any{"target_id": target.ID}})
+	if err != nil || opened.IsError {
+		t.Fatalf("member could not open without desktop grant: %+v %v", opened, err)
+	}
+	sessionID := stringField(t, opened.StructuredContent, "session_id")
+	if err = app.store.Repository().RemoveUserFromGroup(ctx, group.ID, outsider.ID); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := memberClient.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_status", Arguments: map[string]any{"session_id": sessionID}})
+	if err != nil || !revoked.IsError {
+		t.Fatalf("target revocation not enforced on existing session: %+v %v", revoked, err)
+	}
+	if err = app.store.Repository().AddUserToGroup(ctx, group.ID, outsider.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = app.store.DB().ExecContext(ctx, `UPDATE users SET disabled_at=? WHERE id=?`, time.Now().Format(time.RFC3339), outsider.ID); err != nil {
+		t.Fatal(err)
+	}
 	if app.authorizeDesktop(ctx, outsider.ID, target.ID, false) == nil {
-		t.Fatal("expired grant accepted")
+		t.Fatal("disabled account could read desktop")
 	}
-	adminClient := desktopMCPClient(t, app, admin)
-	revoked, callError := adminClient.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_access_set", Arguments: map[string]any{"target_id": target.ID, "user_id": outsider.ID, "allow_read": false, "allow_control": false}})
-	if callError != nil || revoked.IsError {
-		t.Fatal("administrator could not revoke an expired/former-member grant")
+	if _, err = app.store.DB().ExecContext(ctx, `UPDATE users SET disabled_at=NULL WHERE id=?`, outsider.ID); err != nil {
+		t.Fatal(err)
 	}
+	if err = app.store.Repository().RemoveOrganizationMember(ctx, target.OwnerID, outsider.ID); err != nil {
+		t.Fatal(err)
+	}
+	if app.authorizeDesktop(ctx, outsider.ID, target.ID, true) == nil {
+		t.Fatal("organization revocation bypassed")
+	}
+}
 
-	client := desktopMCPClient(t, app, outsider)
-	res, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_access_set", Arguments: map[string]any{"user_id": outsider.ID, "target_id": target.ID, "allow_read": true, "allow_control": true}})
-	if err != nil || !res.IsError {
-		t.Fatal("ordinary member could grant desktop access")
+func TestDesktopInheritedAccessRejectsUnsupportedAgent(t *testing.T) {
+	app, user, target := desktopTestApp(t)
+	fakeDesktopAgent(t, app, target.AgentID)
+	session, err := app.registry.Get(target.AgentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.registry.RegisterWithInfo(target.AgentID, session, AgentRegistryInfo{GOOS: "linux", GOARCH: "amd64"})
+	if app.authorizeDesktop(context.Background(), user.ID, target.ID, false) == nil {
+		t.Fatal("unsupported Agent platform accepted")
 	}
 }

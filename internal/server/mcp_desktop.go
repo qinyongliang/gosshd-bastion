@@ -3,14 +3,12 @@ package server
 import (
 	"context"
 	"errors"
-	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/qinyongliang/gosshd-bastion/internal/desktop"
 	desktopmcp "github.com/qinyongliang/gosshd-bastion/internal/desktop/mcptools"
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 	"io"
-	"time"
 )
 
 // This adapter is the only bridge from the independent desktop module into
@@ -94,17 +92,10 @@ func (a *App) desktopTarget(ctx context.Context, actorID, targetID string) (stor
 	}
 	return user, target, nil
 }
-func (a *App) authorizeDesktop(ctx context.Context, actorID, targetID string, control bool) error {
+func (a *App) authorizeDesktop(ctx context.Context, actorID, targetID string, _ bool) error {
 	_, target, err := a.desktopTarget(ctx, actorID, targetID)
 	if err != nil {
 		return err
-	}
-	grant, err := a.store.Repository().GetDesktopAccess(ctx, actorID, target.ID)
-	if err != nil {
-		return err
-	}
-	if !grant.AllowRead || (control && !grant.AllowControl) || (grant.ExpiresAt != nil && !time.Now().Before(*grant.ExpiresAt)) {
-		return errors.New("explicit desktop read/control authorization required")
 	}
 	if info, online := a.registry.Info(target.AgentID); online && info.GOOS != "windows" && info.GOOS != "darwin" {
 		return errors.New("desktop requires a Windows or macOS Agent")
@@ -116,12 +107,12 @@ type desktopAccessInput struct {
 	TargetID string `json:"target_id"`
 	UserID   string `json:"user_id,omitempty"`
 }
-type desktopAccessSetInput struct {
-	TargetID     string `json:"target_id"`
-	UserID       string `json:"user_id"`
-	AllowRead    bool   `json:"allow_read"`
-	AllowControl bool   `json:"allow_control"`
-	ExpiresAt    string `json:"expires_at,omitempty"`
+type desktopAccessView struct {
+	TargetID      string `json:"target_id"`
+	UserID        string `json:"user_id"`
+	AllowRead     bool   `json:"allow_read"`
+	AllowControl  bool   `json:"allow_control"`
+	Authorization string `json:"authorization"`
 }
 
 func (a *App) canManageDesktopAccess(ctx context.Context, actor store.User, target store.SSHTarget) error {
@@ -132,63 +123,23 @@ func (a *App) canManageDesktopAccess(ctx context.Context, actor store.User, targ
 }
 func (a *App) addMCPDesktopTools(s *mcp.Server, actor store.User) {
 	desktopmcp.RegisterMCP(s, a.desktopSessions, actor.ID)
-	mcp.AddTool(s, &mcp.Tool{Name: "desktop_access_get", Description: "Read your target-specific desktop grant. Organization/system administrators may inspect another member's grant. Desktop read and control are independent of SSH command policies.", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, func(ctx context.Context, _ *mcp.CallToolRequest, in desktopAccessInput) (*mcp.CallToolResult, store.DesktopAccess, error) {
+	mcp.AddTool(s, &mcp.Tool{Name: "desktop_access_get", Description: "Inspect desktop eligibility inherited from existing account, organization and target access. No separate desktop grant is needed. Organization/system administrators may inspect another member. Native OS permissions and the Agent desktop opt-out are separate.", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, func(ctx context.Context, _ *mcp.CallToolRequest, in desktopAccessInput) (*mcp.CallToolResult, desktopAccessView, error) {
 		current, target, err := a.desktopTarget(ctx, actor.ID, in.TargetID)
 		if err != nil {
-			return nil, store.DesktopAccess{}, err
+			return nil, desktopAccessView{}, err
 		}
 		if in.UserID == "" {
 			in.UserID = actor.ID
 		}
 		if in.UserID != actor.ID {
 			if err = a.canManageDesktopAccess(ctx, current, target); err != nil {
-				return nil, store.DesktopAccess{}, err
+				return nil, desktopAccessView{}, err
 			}
 		}
-		access, err := a.store.Repository().GetDesktopAccess(ctx, in.UserID, target.ID)
-		return nil, access, err
-	})
-	mcp.AddTool(s, &mcp.Tool{Name: "desktop_access_set", Description: "Explicitly grant or revoke a member's target-scoped desktop read/control access. Requires organization/system administrator authority; control requires read. expires_at is RFC3339, at most one year; omitted expiry defaults to 24 hours. Existing sessions are closed on any change."}, func(ctx context.Context, _ *mcp.CallToolRequest, in desktopAccessSetInput) (*mcp.CallToolResult, store.DesktopAccess, error) {
-		current, target, err := a.desktopTarget(ctx, actor.ID, in.TargetID)
-		if err != nil {
-			return nil, store.DesktopAccess{}, err
+		if err = a.authorizeDesktop(ctx, in.UserID, target.ID, false); err != nil {
+			return nil, desktopAccessView{}, err
 		}
-		if err = a.canManageDesktopAccess(ctx, current, target); err != nil {
-			return nil, store.DesktopAccess{}, err
-		}
-		member, err := a.store.Repository().GetUser(ctx, in.UserID)
-		if err != nil {
-			return nil, store.DesktopAccess{}, err
-		}
-		// Revocation must still work for disabled users or former members.
-		if in.AllowRead || in.AllowControl {
-			member, _, err = a.desktopTarget(ctx, in.UserID, in.TargetID)
-			if err != nil {
-				return nil, store.DesktopAccess{}, err
-			}
-		}
-		expiry := time.Now().UTC().Add(24 * time.Hour)
-		if in.ExpiresAt != "" {
-			expiry, err = time.Parse(time.RFC3339, in.ExpiresAt)
-			if err != nil {
-				return nil, store.DesktopAccess{}, errors.New("expires_at must be RFC3339")
-			}
-		}
-		grant := store.DesktopAccess{UserID: member.ID, TargetID: target.ID, AllowRead: in.AllowRead, AllowControl: in.AllowControl, ExpiresAt: &expiry, GrantedBy: current.ID}
-		event := store.DesktopAudit{ID: uuid.NewString(), UserID: current.ID, TargetID: target.ID, Method: "access_set", Outcome: "started", StartedAt: time.Now().UTC()}
-		if err = a.audit.Repository().SaveDesktopAudit(ctx, event); err != nil {
-			return nil, store.DesktopAccess{}, err
-		}
-		if err = a.store.Repository().SetDesktopAccess(ctx, grant); err != nil {
-			return nil, store.DesktopAccess{}, err
-		}
-		a.desktopSessions.Revoke(member.ID, target.ID)
-		event.Outcome = "ok"
-		if err = a.audit.Repository().SaveDesktopAudit(ctx, event); err != nil {
-			return nil, store.DesktopAccess{}, errors.New("grant changed but audit completion failed; inspect access before retrying")
-		}
-		saved, err := a.store.Repository().GetDesktopAccess(ctx, member.ID, target.ID)
-		return nil, saved, err
+		return nil, desktopAccessView{TargetID: target.ID, UserID: in.UserID, AllowRead: true, AllowControl: true, Authorization: "target_access"}, nil
 	})
 	mcp.AddTool(s, &mcp.Tool{Name: "desktop_audit_list", Description: "List your desktop audit metadata only. Screenshots, accessibility text and typed input are never stored here.", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
 		TargetID string `json:"target_id,omitempty"`
@@ -208,4 +159,6 @@ func (a *App) addMCPDesktopTools(s *mcp.Server, actor store.User) {
 	})
 }
 
-func desktopMCPInstructions() string { return desktopmcp.OperatorInstructions }
+func desktopMCPInstructions() string {
+	return "Desktop read/control inherits existing account, organization and target access. No separate desktop grant or desktop_access_set call is required. When the user requests desktop work, start directly with desktop_session_open rather than asking them to authorize desktop access again. Windows/macOS Agents enable the module by default unless explicitly disabled. Check the returned native OS permission state; missing macOS permissions can be requested with desktop_request_permissions, but the local user must approve the OS prompt. " + desktopmcp.OperatorInstructions
+}

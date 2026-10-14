@@ -11,7 +11,6 @@ import (
 
 	"github.com/hashicorp/yamux"
 	"github.com/qinyongliang/gosshd-bastion/internal/agent"
-	"github.com/qinyongliang/gosshd-bastion/internal/desktop"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 )
 
@@ -51,7 +50,7 @@ func (a *App) ensureClientLocalAgent(ctx context.Context, user store.User) error
 	}
 
 	root := clientLocalShellRoot()
-	client, err := agent.NewEmbedded(agent.Config{Root: root, Desktop: desktop.Config{Enabled: os.Getenv("GOSSHD_DESKTOP_ENABLE") == "1", HelperPath: strings.TrimSpace(os.Getenv("GOSSHD_DESKTOP_HELPER"))}}, localAgentID)
+	client, err := agent.NewEmbedded(agent.Config{Root: root}, localAgentID)
 	if err != nil {
 		_ = serverSession.Close()
 		_ = agentSession.Close()

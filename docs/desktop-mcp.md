@@ -1,6 +1,6 @@
 # Desktop control MCP (Windows / macOS)
 
-Desktop control is an **optional independent module**, not an extension of the SSH command executor. It provides observation, screenshots, native accessibility operations and bounded keyboard/mouse input. It can run as a standalone stdio MCP server, or through an explicitly enabled Agent target in GOSSHD Bastion.
+Desktop control is an **independent module**, not an extension of the SSH command executor. Windows/macOS Agents enable its capability by default; `--desktop-disable` opts out. It provides observation, screenshots, native accessibility operations and bounded keyboard/mouse input. It can run as a standalone stdio MCP server, or through a desktop-capable Agent target in GOSSHD Bastion.
 
 ## Module boundaries
 
@@ -105,34 +105,32 @@ Open a local session with `desktop_session_open({"target_id":"local"})`. The loc
 
 ## Through a remote GOSSHD Agent
 
-1. Run the updated Agent as the logged-in desktop user, explicitly opting in:
+1. Run the updated Windows/macOS Agent as the logged-in desktop user. Desktop RPC is enabled by default; existing installation and self-update commands do not need an enable argument:
 
    ```sh
-   gosshd-agent --server https://bastion.example.com --enrollment-token '<registration-token>' --desktop-enable
+   gosshd-agent --server https://bastion.example.com --enrollment-token '<registration-token>'
    ```
 
-   On macOS, add `--desktop-helper '/Applications/GOSSHD Desktop Helper.app/Contents/MacOS/gosshd-desktop-helper'`. Windows automatically builds its helper unless an explicit helper path is supplied.
+   macOS still requires the separately packaged helper app. Add `--desktop-helper '/Applications/GOSSHD Desktop Helper.app/Contents/MacOS/gosshd-desktop-helper'`, place the app adjacent to the executable, or configure `GOSSHD_DESKTOP_HELPER`. The helper is not started until a desktop session is requested. Windows automatically builds its helper unless an explicit helper path is supplied.
 
-2. Enable the separate **Desktop control / 桌面控制 (`desktop`)** group on the operator's MCP token. Existing tokens remain session-only by default.
-3. An organization/system administrator must explicitly grant access using `desktop_access_set`, even when the operator is a system administrator:
+2. Enable the separate **Desktop control / 桌面控制 (`desktop`)** group on the operator's MCP token. Existing tokens remain session-only by default. Enabling this group exposes both reading and control for targets the account can already access; do not enable it for an untrusted client.
+3. Start directly with `desktop_session_open` and the target ID. **No separate desktop grant or authorization action is required.** Desktop read/control inherits the active account's organization membership and existing target/group access. The server rechecks those boundaries on every call, including sessions opened before a user, membership or target-group revocation.
+4. Check the returned platform and native OS permissions before operating. macOS privacy permissions must still be approved by the local user. `desktop_request_permissions` can display the normal OS prompt; it cannot bypass authorization. Destructive or external-effect desktop actions still require user confirmation.
 
-   ```json
-   {
-     "target_id": "<agent-target-id>",
-     "user_id": "<operator-user-id>",
-     "allow_read": true,
-     "allow_control": true
-   }
-   ```
+### Explicit opt-out and embedded clients
 
-   The default expiry is 24 hours. A supplied `expires_at` must be RFC3339 and within one year. Control cannot be granted without read. The recipient must be active and authorized to access the target's organization and target.
-4. Open a session with the target ID. Check the returned platform and OS permissions before operating.
+- `--desktop-disable` disables desktop RPC without disabling SSH/file/forwarding features.
+- Legacy `--desktop-enable` remains supported; `--desktop-enable=false` is an explicit opt-out and is retained across self-update restarts.
+- `GOSSHD_DESKTOP_DISABLE=1` also disables desktop RPC. An explicit disable wins over enable settings.
+- Legacy `GOSSHD_DESKTOP_ENABLE=0` disables the capability; `=1` enables it. Leaving this variable unset uses platform defaults. Both environment switches accept Go boolean values (`1`/`0`, `true`/`false`); invalid values are configuration errors.
+- The desktop client's embedded Agent uses the same default-on behavior and environment settings. On macOS, configure its helper with `GOSSHD_DESKTOP_HELPER`.
+- Linux and Android keep desktop RPC disabled by default; no native desktop backend is provided there.
 
-For the desktop client's embedded local Agent, set `GOSSHD_DESKTOP_ENABLE=1` before launching the client; on macOS also set `GOSSHD_DESKTOP_HELPER` to the absolute helper executable path. The same explicit MCP group and target grant are still required. Leaving the environment variable unset keeps local desktop RPC disabled.
+Default-on capability does not change the process's OS session. A Windows system service remains in Session 0 and cannot use the logged-in user's desktop. Use the normal user-session Agent/client for desktop work; do not silently migrate a service or bypass secure-desktop/TCC isolation. Agent self-updates retain startup arguments and environment, so an explicit opt-out stays effective after an update.
 
-Desktop grants are independent of SSH command policies. Every tool call rechecks account state, organization/target visibility, grant expiry and read/control scope. Changing a grant closes that recipient's existing target sessions immediately. Other revoked permissions are enforced on the next call. SSH policies are not a complete OS sandbox and do not replace OS permissions or desktop grants.
+Desktop access remains independent of SSH command policies. Existing account/organization/target access and the MCP desktop tool group are the access boundary; there is no independent desktop grant expiry. Historical `desktop_access` records are retained for schema compatibility but no longer authorize or deny access, including old read-only, revoked or expired grants. To revoke desktop access, disable the desktop tool group/module or revoke existing account/target access.
 
-`desktop_access_get` inspects a grant; administrators may inspect another member's grant. `desktop_audit_list` returns the caller's audit metadata. The audit database stores actor/target/session/method/outcome/times, **never screenshots, accessibility text or typed values**.
+`desktop_access_get` is a read-only query of inherited target eligibility, not a native OS permission check. Administrators may inspect another member. The old `desktop_access_set` action is no longer exposed. `desktop_audit_list` returns the caller's audit metadata. The audit database stores actor/target/session/method/outcome/times, **never screenshots, accessibility text or typed values**.
 
 ## Tools and observation loop
 
@@ -143,7 +141,7 @@ Desktop grants are independent of SSH command policies. Every tool call rechecks
 | Native accessibility | `desktop_set_value`, `desktop_perform_action`, `desktop_scroll` with a supported element index |
 | Input/application | `desktop_activate_window`, `desktop_launch_app`, `desktop_click`, `desktop_type_text`, `desktop_press_key`, `desktop_scroll`, `desktop_drag` |
 | OS permissions | `desktop_request_permissions` |
-| Remote management | `desktop_access_get`, `desktop_access_set`, `desktop_audit_list` |
+| Remote management | `desktop_access_get`, `desktop_audit_list` |
 
 The general input shape is `{"session_id":"...","params":{...}}`.
 

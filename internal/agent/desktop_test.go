@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-func TestDesktopStreamIsExplicitlyDisabledByDefault(t *testing.T) {
-	client, err := NewEmbedded(Config{}, "desktop-test")
+func TestDesktopStreamExplicitOptOut(t *testing.T) {
+	client, err := NewEmbedded(Config{DesktopDisabled: true}, "desktop-test")
 	if err != nil {
 		t.Fatal(err)
 	}

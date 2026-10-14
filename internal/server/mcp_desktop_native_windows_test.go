@@ -80,7 +80,6 @@ func TestDesktopMCPRealAgentNativeFixture(t *testing.T) {
 		}
 		return result
 	}
-	call("desktop_access_set", map[string]any{"target_id": target.ID, "user_id": actor.ID, "allow_read": true, "allow_control": true})
 	opened := call("desktop_session_open", map[string]any{"target_id": target.ID})
 	id := stringField(t, opened.StructuredContent, "session_id")
 	var window desktop.Window

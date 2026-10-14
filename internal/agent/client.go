@@ -32,6 +32,11 @@ type Client struct {
 var errServerRequired = errors.New("server is required")
 
 func New(cfg Config) (*Client, error) {
+	var err error
+	cfg, err = configureDesktop(cfg)
+	if err != nil {
+		return nil, err
+	}
 	cfg.Server = protocol.NormalizeServerURL(cfg.Server)
 	if cfg.Server == "" {
 		return nil, errServerRequired
@@ -115,6 +120,10 @@ func (c *Client) Run(ctx context.Context) error {
 
 func NewEmbedded(cfg Config, id string) (*Client, error) {
 	var err error
+	cfg, err = configureDesktop(cfg)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Root == "" {
 		cfg.Root, err = os.UserHomeDir()
 		if err != nil {

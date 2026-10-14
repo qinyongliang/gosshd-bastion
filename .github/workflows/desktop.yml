@@ -5,6 +5,9 @@ on:
     paths:
       - 'internal/desktop/**'
       - 'internal/server/mcp_desktop*'
+      - 'internal/server/local_agent.go'
+      - 'internal/agent/**'
+      - 'cmd/gosshd-agent/**'
       - 'internal/store/desktop*'
       - 'cmd/gosshd-desktop-mcp/**'
       - 'scripts/build-desktop-macos.sh'
@@ -37,7 +40,7 @@ jobs:
       - name: Check public content and desktop race regressions
         run: |
           node scripts/check-public-content.mjs
-          go test -race ./internal/desktop/... ./internal/server ./internal/agent ./internal/store -run 'Test(Desktop|Service|MCPImages|Tree|CloseCancels|AuditFailure|ValidateDesktop|DisabledAgent)' -count=1 -timeout=3m
+          go test -race ./internal/desktop/... ./internal/server ./internal/agent ./internal/store ./cmd/gosshd-agent -run 'Test(Desktop|Service|MCPImages|Tree|CloseCancels|AuditFailure|ValidateDesktop|DisabledAgent)' -count=1 -timeout=3m
 
   native-packages:
     strategy:
@@ -66,7 +69,9 @@ jobs:
           go-version-file: go.mod
       - name: Desktop core tests (no live desktop screenshots)
         shell: bash
-        run: go test ./internal/desktop/... -count=1 -timeout=3m
+        run: |
+          go test ./internal/desktop/... -count=1 -timeout=3m
+          go test ./internal/agent ./cmd/gosshd-agent -run '^TestDesktop' -count=1 -timeout=3m
       - name: Build independent MCP host
         shell: bash
         env:
