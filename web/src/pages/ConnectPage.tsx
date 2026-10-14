@@ -54,11 +54,12 @@ import { appDescription, appName, documentTitle } from "../lib/branding";
 import { MOBILE_TERMINAL_KEY_ROWS, TERMINAL_SHORTCUT_LABELS, applyTerminalModifier, terminalShortcutSequence } from "../terminalShortcuts";
 import type { TerminalModifier, TerminalShortcutKey } from "../terminalShortcuts";
 import { useTheme } from "../theme";
-import type { ConsoleData, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
+import type { ConsoleData, FileEntry, Target, TargetSystemSnapshot, TargetSystemUsage } from "../types";
 import { targetEndpoint } from "../utils";
 import { FileManager } from "./FileManager";
+import { FilePreviewPane } from "../components/FilePreviewPane";
 import { contentPaneTree, defaultWorkspaceLayout, findPane, firstLeafID, newPaneID, paneLeaves, readWorkspacePreferences, removePane, restoreWorkspace, saveWorkspace, splitPane } from "../workspaceLayout";
-import type { EditorPaneNode, PaneLeaf, PaneNode, PaneSide, TerminalPaneNode } from "../workspaceLayout";
+import type { EditorPaneNode, PreviewPaneNode, PaneLeaf, PaneNode, PaneSide, TerminalPaneNode } from "../workspaceLayout";
 import aiCollaborationIcon from "../assets/ai-collaboration.png";
 
 let monacoConfigured = false;
@@ -407,7 +408,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
   const closePane = (tabID: string, paneID: string) => {
     const tab = tabs.find((item) => item.id === tabID);
     if (tab) saveWorkspace(layoutStorageKey, tab.targetID, tab.layout, { hostOpen, filesOpen });
-    if (tab && paneLeaves(tab.layout).filter((pane) => pane.type === "terminal" || pane.type === "editor").length === 1) {
+    if (tab && paneLeaves(tab.layout).filter((pane) => pane.type === "terminal" || pane.type === "editor" || pane.type === "preview").length === 1) {
       closeTabs("one", tabID);
       return;
     }
@@ -432,6 +433,17 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
       layout: splitPane(tab.layout, tab.activePaneID, editorPane, "right"),
       activePaneID: editorPane.id,
     }));
+  };
+
+  const openPreviewForActiveTarget = (entry: FileEntry) => {
+    if (!activeTab || !activeTarget) return;
+    const previewPane: PreviewPaneNode = { type: "preview", id: newPaneID("preview"), targetID: activeTarget.id, path: entry.path, size: entry.size };
+    updateActiveTab((tab) => {
+      const existing = paneLeaves(tab.layout).find((pane) => pane.type === "preview" && pane.targetID === previewPane.targetID && pane.path === entry.path);
+      return existing ? { ...tab, activePaneID: existing.id } : {
+        ...tab, layout: splitPane(tab.layout, tab.activePaneID, previewPane, "right"), activePaneID: previewPane.id,
+      };
+    });
   };
 
   const closeTabs = (mode: "one" | "left" | "right" | "others" | "all", tabID: string) => {
@@ -608,7 +620,7 @@ export function ConnectWorkspace({ data, target, targets }: { data: ConsoleData;
                       <DockDragHandle paneID={pane.id}><HardDrive />{t("connectFilesTitle")}</DockDragHandle>
                       <DockPanelToggle paneID={pane.id} open onToggle={() => setFilesOpen(false)} />
                     </div>
-                    {tabTarget ? <FileManager target={tabTarget} path={tab.filePath} onPathChange={(filePath, source) => setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, filePath, filePathInitialized: item.filePathInitialized || source !== "resolved" } : item))} system={tabActive ? systemSnapshot : undefined} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} /> : <div className="connect-zone-empty"><span>{t("connectFilesNoOpenTabs")}</span></div>}
+                    {tabTarget ? <FileManager target={tabTarget} path={tab.filePath} onPathChange={(filePath, source) => setTabs((current) => current.map((item) => item.id === tab.id ? { ...item, filePath, filePathInitialized: item.filePathInitialized || source !== "resolved" } : item))} system={tabActive ? systemSnapshot : undefined} nativeOpen={Boolean(data.runtime.client_mode)} onEditFile={openEditorForActiveTarget} onPreviewFile={openPreviewForActiveTarget} /> : <div className="connect-zone-empty"><span>{t("connectFilesNoOpenTabs")}</span></div>}
                   </> : <div className="dock-collapsed-tools"><DockDragHandle paneID={pane.id} /><DockPanelToggle paneID={pane.id} open={false} onToggle={() => setFilesOpen(true)}>{t("connectFilesTitle")}</DockPanelToggle></div>}
                 </div>;
                 return <PaneTree
@@ -738,6 +750,7 @@ function PaneTree({ data, node, targets, activePaneID, isFullscreen, tabActive, 
   if (!target) return null;
   const active = tabActive && node.id === activePaneID;
   const activate = () => onActivate(node.id);
+  if (node.type === "preview") return <FilePreviewPane paneID={node.id} targetID={target.id} filePath={node.path} size={node.size} active={active} onActivate={activate} onClose={() => onClose(node.id)} />;
   if (node.type === "editor") return <EditorPane paneID={node.id} target={target} filePath={node.path} active={active} onActivate={activate} onClose={() => onClose(node.id)} />;
   if (node.type !== "terminal") return null;
   return <div className={`connect-zone terminal-zone pane-leaf ${active ? "active" : ""}`} onPointerDown={activate}>

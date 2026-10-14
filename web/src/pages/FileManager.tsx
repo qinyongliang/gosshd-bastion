@@ -1,4 +1,5 @@
 import { normalizeRemotePath, remoteJoin, remoteParent } from "../remotePath";
+import { filePreviewType } from "../filePreview";
 import { closeFileTransfers } from "../fileTransfer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Check, CheckCircle2, ChevronRight, Copy, Download, Edit3, ExternalLink, FilePlus, FolderOpen, FolderPlus, HardDrive, Info, MoreHorizontal, Move, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
@@ -25,7 +26,7 @@ type DownloadTask = { fileName: string; loaded: number; total: number; speed: nu
 
 type UploadTask = { fileName: string; loaded: number; total: number; speed: number; queueIndex: number; queueTotal: number; completed: number; failed: number; transport?: TransferTransport; status: "uploading" | "success" | "cancelled" | "error" };
 
-export function FileManager({ target, path, onPathChange: setPath, system, nativeOpen = false, onEditFile }: { target: Target; path: string; onPathChange: (path: string, source?: "resolved") => void; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void }) {
+export function FileManager({ target, path, onPathChange: setPath, system, nativeOpen = false, onEditFile, onPreviewFile }: { target: Target; path: string; onPathChange: (path: string, source?: "resolved") => void; system?: TargetSystemSnapshot; nativeOpen?: boolean; onEditFile?: (path: string) => void; onPreviewFile?: (entry: FileEntry) => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [pathDraft, setPathDraft] = useState(".");
@@ -327,7 +328,9 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
       setPath(entry.path);
     } else {
       selection.selectOnly(entry.path);
-      if (nativeOpen) {
+      if (onPreviewFile && filePreviewType(entry.name)) {
+        onPreviewFile(entry);
+      } else if (nativeOpen) {
         openNative.mutate(entry);
       } else {
         void downloadEntry(entry);

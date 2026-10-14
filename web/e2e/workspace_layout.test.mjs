@@ -161,3 +161,26 @@ test("tool movements after closing the last terminal keep a terminal slot", () =
   assert.equal(restored.layout.second.type, "files", "The latest full-width bottom file panel should be remembered");
   assert.equal(findPane(restored.layout, restored.activePaneID).type, "terminal");
 });
+
+
+test("preview panes dock and close like editors and are not persisted as open files", () => {
+  const preview = { type: "preview", id: "preview", targetID: "server", path: "/example/image.png", size: 128 };
+  const layout = splitPane(defaultWorkspaceLayout(terminal(), "server"), "shell", preview, "right");
+  assert.ok(validateWorkspaceLayout(layout, new Set(["server"])));
+  const moved = movePane(layout, preview.id, "shell", "down");
+  assert.equal(findPane(moved, preview.id).path, preview.path);
+  assert.equal(paneLeaves(contentPaneTree(moved)).length, 2);
+  assert.equal(findPane(removePane(moved, "shell").node, "preview").id, "preview");
+  assert.equal(firstLeafID(contentPaneTree(removePane(moved, "shell").node)), "preview");
+  const saved = globalThis.window;
+  const values = new Map();
+  globalThis.window = { localStorage: { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value) } };
+  try {
+    saveWorkspace("preview-layout", "server", layout, { hostOpen: true, filesOpen: true });
+    const restored = restoreWorkspace("preview-layout", "server", false, false);
+    assert.deepEqual(paneLeaves(restored.layout).map(pane => pane.type).sort(), ["files", "host", "terminal"]);
+    assert.ok(![...values.values()].some(value => value.includes(preview.path)));
+    const invalid = { ...preview, size: -1 };
+    assert.equal(validateWorkspaceLayout(splitPane(layout, "preview", invalid, "right")), null);
+  } finally { globalThis.window = saved; }
+});

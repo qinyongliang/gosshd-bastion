@@ -51,7 +51,7 @@ jobs:
       - name: Test tunnel diagnostics, source statistics and migrations
         run: |
           node --test web/e2e/workspace_layout.test.mjs
-          node --test web/e2e/file_drop.test.mjs web/e2e/file_selection.test.mjs web/e2e/file_transfer_handshake.test.mjs web/e2e/p2p_channel.test.mjs
+          node --test web/e2e/file_drop.test.mjs web/e2e/file_selection.test.mjs web/e2e/file_preview.test.mjs web/e2e/file_transfer_handshake.test.mjs web/e2e/p2p_channel.test.mjs
           go test ./internal/store -count=1
           go test -race ./internal/filetransfer ./internal/agent -run 'Test(Receive|Send|FileUpload|FileDownload)' -count=1
           go test -race ./internal/server -run '^Test(File(Upload|Download|Transfer)|HTTPUploadAuditIncludesRequestBodyTransfer|AuditAPIPreservesSubsecondTimestamps)' -count=1
@@ -69,7 +69,7 @@ jobs:
           export GOSSHD_UI_E2E_NODE="$(command -v node)"
           export GOSSHD_UI_E2E_PLAYWRIGHT="$RUNNER_TEMP/ui-e2e/node_modules/playwright"
           export GOSSHD_UI_E2E_BROWSER="$(node -e 'console.log(require(process.argv[1]).chromium.executablePath())' "$GOSSHD_UI_E2E_PLAYWRIGHT")"
-          go test ./internal/server -run '^Test(ControlStyles|TunnelTraffic|HTTPForwarding|PortForwarding|FileUpload(ViaAgentSSH)?|FileDownload(ViaAgentSSH)?|FileSelection|DraggableWorkspace)UIE2EWithBrowser$' -count=1 -timeout=8m
+          go test ./internal/server -run '^Test(ControlStyles|TunnelTraffic|HTTPForwarding|PortForwarding|FileUpload(ViaAgentSSH)?|FileDownload(ViaAgentSSH)?|FileSelection|FilePreview|DraggableWorkspace)UIE2EWithBrowser$' -count=1 -timeout=8m
 
       - name: Test Android installers, ABI selection and update downloads
         shell: bash

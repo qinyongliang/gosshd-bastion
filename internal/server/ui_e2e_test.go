@@ -70,6 +70,10 @@ func TestFileUploadViaAgentSSHUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "file_upload.test.mjs", true)
 }
 
+func TestFilePreviewUIE2EWithBrowser(t *testing.T) {
+	testUIE2EWithBrowser(t, false, "file_preview_browser.test.mjs")
+}
+
 func TestFileSelectionUIE2EWithBrowser(t *testing.T) {
 	testUIE2EWithBrowser(t, false, "file_selection_browser.test.mjs")
 }

@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { closeFileTransfers, downloadFileP2P, uploadFileP2P } from "../src/fileTransfer.ts";
 
+import { readFilePreview } from "../src/filePreview.ts";
+
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const packet = (kind, seq = 0, body = new Uint8Array()) => {
   const bytes = new Uint8Array(9 + body.length);
@@ -86,6 +88,14 @@ async function fixture(t, { rtc = true, failOffer = false } = {}) {
       operation.catch(() => {}); operations.push(operation);
       await flush();
       socket.receive(JSON.stringify({ type: "ready", size, path: "/test", stun_servers: [], reuse }));
+      await flush();
+      return { operation };
+    },
+    async preview(size, progress, signal) {
+      const operation = readFilePreview(target, "/test.png", size, progress, signal);
+      operation.catch(() => {}); operations.push(operation);
+      await flush();
+      socket.receive(JSON.stringify({ type: "ready", size, path: "/test.png", stun_servers: [], reuse: true }));
       await flush();
       return { operation };
     },
@@ -211,4 +221,41 @@ test("download sink writes are batched with bounded memory rather than one disk 
   assert.equal(Buffer.concat(writes).toString(), expected);
   assert.equal(writes.length, 3, "70 protocol records should require only three bounded sink writes");
   assert.ok(writes.every((bytes) => bytes.length <= 8183 * 32));
+});
+
+
+test("preview reads use the shared relay-to-direct channel, deduplicate bytes and reuse the session", async (t) => {
+  const f = await fixture(t);
+  const progress = [];
+  const { operation } = await f.preview(10, (value) => progress.push(value));
+  assert.equal(progress.at(-1).transport, "relay");
+  f.socket.receive(packet(1, 1, chunk("relay")));
+  await flush();
+  f.channel.open();
+  f.channel.receive(packet(7));
+  assert.equal(progress.at(-1).transport, "direct");
+  f.channel.receive(packet(1, 1, chunk("relay")));
+  f.channel.receive(packet(1, 3, new Uint8Array([2, 0, 0, 0, 0])));
+  f.channel.receive(packet(1, 2, chunk("later")));
+  await flush();
+  f.complete("relaylater");
+  const blob = await operation;
+  assert.equal(blob.type, "image/png");
+  assert.equal(await blob.text(), "relaylater");
+  const { operation: next } = await f.preview(0);
+  f.channel.receive(packet(1, 4, new Uint8Array([2, 0, 0, 0, 0])));
+  await flush();
+  f.complete("");
+  assert.equal((await next).size, 0);
+  assert.equal(f.sockets, 1);
+  assert.equal(f.offers, 1);
+});
+
+test("closing a preview aborts the active shared-channel read", async (t) => {
+  const f = await fixture(t);
+  const controller = new AbortController();
+  const { operation } = await f.preview(10, undefined, controller.signal);
+  controller.abort();
+  await assert.rejects(operation, { name: "AbortError" });
+  assert.equal(f.socket.readyState, 3);
 });

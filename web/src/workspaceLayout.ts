@@ -1,8 +1,9 @@
 export type PaneSide = "left" | "right" | "up" | "down";
 export type TerminalPaneNode = { type: "terminal"; id: string; targetID: string; restoreSession: boolean };
 export type EditorPaneNode = { type: "editor"; id: string; targetID: string; path: string };
+export type PreviewPaneNode = { type: "preview"; id: string; targetID: string; path: string; size: number };
 export type ToolPaneNode = { type: "host" | "files"; id: string; targetID: string };
-export type PaneLeaf = TerminalPaneNode | EditorPaneNode | ToolPaneNode;
+export type PaneLeaf = TerminalPaneNode | EditorPaneNode | PreviewPaneNode | ToolPaneNode;
 export type SplitPaneNode = { type: "split"; id: string; direction: "row" | "column"; ratio: number; first: PaneNode; second: PaneNode };
 export type PaneNode = PaneLeaf | SplitPaneNode;
 export type PaneBounds = { left: number; top: number; width: number; height: number };
@@ -27,7 +28,7 @@ export function paneLeaves(node: PaneNode): PaneLeaf[] {
 }
 
 export function firstLeafID(node: PaneNode): string {
-  return paneLeaves(node).find((pane) => pane.type === "terminal" || pane.type === "editor")?.id || node.id;
+  return paneLeaves(node).find((pane) => pane.type === "terminal" || pane.type === "editor" || pane.type === "preview")?.id || node.id;
 }
 
 export function findPane(node: PaneNode, paneID: string): PaneNode | null {
@@ -140,22 +141,23 @@ export function validateWorkspaceLayout(value: unknown, allowedTargets?: Readonl
     if (typeof item.targetID !== "string" || !item.targetID || (allowedTargets && !allowedTargets.has(item.targetID))) return null;
     if (item.type === "terminal") return { type: "terminal", id: item.id, targetID: item.targetID, restoreSession: false };
     if (item.type === "editor" && typeof item.path === "string" && item.path) return { type: "editor", id: item.id, targetID: item.targetID, path: item.path };
+    if (item.type === "preview" && typeof item.path === "string" && item.path && typeof item.size === "number" && Number.isSafeInteger(item.size) && item.size >= 0) return { type: "preview", id: item.id, targetID: item.targetID, path: item.path, size: item.size };
     if (item.type === "host" || item.type === "files") return { type: item.type, id: item.id, targetID: item.targetID };
     return null;
   };
   const node = parse(value, 0);
   if (!node) return null;
   const leaves = paneLeaves(node);
-  return leaves.filter((item) => item.type === "host").length === 1 && leaves.filter((item) => item.type === "files").length === 1 && leaves.some((item) => item.type === "terminal" || item.type === "editor") ? node : null;
+  return leaves.filter((item) => item.type === "host").length === 1 && leaves.filter((item) => item.type === "files").length === 1 && leaves.some((item) => item.type === "terminal" || item.type === "editor" || item.type === "preview") ? node : null;
 }
 
 function workspaceTemplate(layout: PaneNode, previous?: PaneNode): PaneNode | null {
   const leaves = paneLeaves(layout);
   const terminal = leaves.find(pane => pane.type === "terminal");
-  const keep = terminal || (!previous ? leaves.find(pane => pane.type === "editor") : undefined);
+  const keep = terminal || (!previous ? leaves.find(pane => pane.type === "editor" || pane.type === "preview") : undefined);
   let template: PaneNode | null = layout;
   for (const pane of leaves) {
-    if ((pane.type === "terminal" || pane.type === "editor") && pane.id !== keep?.id) {
+    if ((pane.type === "terminal" || pane.type === "editor" || pane.type === "preview") && pane.id !== keep?.id) {
       template = template && removePane(template, pane.id).node;
     }
   }

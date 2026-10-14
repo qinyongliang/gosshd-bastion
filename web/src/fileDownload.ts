@@ -1,5 +1,5 @@
-import { downloadFileP2P, TransferUnavailable } from "./fileTransfer";
-import type { DownloadSink, TransferProgress } from "./fileTransfer";
+import { downloadFileP2P, TransferUnavailable } from "./fileTransfer.ts";
+import type { DownloadSink, TransferProgress } from "./fileTransfer.ts";
 
 // Browsers without a streaming save API retain their native HTTP download for
 // large files rather than buffering an unbounded Blob in the page.
@@ -73,7 +73,7 @@ export async function downloadFile(targetID: string, path: string, name: string,
   }
 }
 
-async function downloadHTTP(url: string, size: number, sink: DownloadSink, progress?: (p: TransferProgress) => void, signal?: AbortSignal) {
+export async function downloadHTTP(url: string, size: number, sink: DownloadSink, progress?: (p: TransferProgress) => void, signal?: AbortSignal) {
   const response = await fetch(url, { credentials: "same-origin", signal });
   if (!response.ok) {
     const data = await response.json().catch(() => null);
