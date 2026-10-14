@@ -31,14 +31,15 @@ type SessionInfo struct {
 }
 type session struct {
 	SessionInfo
-	actor    string
-	rw       io.ReadWriteCloser
-	reader   *bufio.Scanner
-	gate     chan struct{}
-	snapshot string
-	window   *Window
-	timer    *time.Timer
-	once     sync.Once
+	actor               string
+	rw                  io.ReadWriteCloser
+	reader              *bufio.Scanner
+	gate                chan struct{}
+	snapshot            string
+	backgroundSupported bool
+	window              *Window
+	timer               *time.Timer
+	once                sync.Once
 }
 
 func (s *session) close() {
@@ -275,6 +276,9 @@ func (s *Service) Call(ctx context.Context, actor, id string, req Request) (Resp
 		s.Remove(id)
 		return Response{}, err
 	}
+	if req.Params.Mode == "background" && !item.backgroundSupported {
+		return Response{}, backgroundUnsupported("helper does not advertise strict background support")
+	}
 	if NeedsSnapshot(req.Method) {
 		if item.snapshot == "" || req.Params.SnapshotID != item.snapshot || item.window == nil || req.Params.Window.ID != item.window.ID || req.Params.Window.App != item.window.App {
 			return Response{}, errors.New("stale snapshot; observe the same window again")
@@ -321,6 +325,9 @@ func (s *Service) Call(ctx context.Context, actor, id string, req Request) (Resp
 		s.Remove(id)
 		return Response{}, ctx.Err()
 	}
+	if res.OK && req.Method == "status" {
+		item.backgroundSupported = supportsBackground(res.Result)
+	}
 	if res.OK && (req.Method == "get_window_state" || req.Method == "screenshot") {
 		var state State
 		if err := json.Unmarshal(res.Result, &state); err != nil || state.SnapshotID == "" || (req.Method == "get_window_state" && (req.Params.Window.ID != state.Window.ID || req.Params.Window.App != state.Window.App)) {
@@ -356,7 +363,7 @@ func (s *Service) Call(ctx context.Context, actor, id string, req Request) (Resp
 		return Response{}, errors.New("desktop audit completion failed; action may have executed, do not retry")
 	}
 	if !res.OK {
-		return res, errors.New(res.Error)
+		return res, &ProtocolError{Code: res.ErrorCode, Message: res.Error}
 	}
 	return res, nil
 }

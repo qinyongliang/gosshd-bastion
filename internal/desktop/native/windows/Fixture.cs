@@ -1,7 +1,10 @@
 using System;using System.Windows.Forms;using System.Drawing;
+class BackgroundFixtureForm:Form {protected override bool ShowWithoutActivation {get{return true;}}}
 class Fixture {
- [STAThread] static void Main(){
-  var form=new Form{Text="GOSSHD desktop test fixture",Width=560,Height=380,StartPosition=FormStartPosition.Manual,Location=new Point(Screen.PrimaryScreen.WorkingArea.X+50,Screen.PrimaryScreen.WorkingArea.Y+50),BackColor=Color.WhiteSmoke,TopMost=true};
+ [STAThread] static void Main(string[] args){
+  bool background=Array.IndexOf(args,"--background")>=0;
+  Form form=background?(Form)new BackgroundFixtureForm():new Form();
+  form.Text="GOSSHD desktop test fixture";form.Width=560;form.Height=380;form.StartPosition=FormStartPosition.Manual;form.Location=new Point(Screen.PrimaryScreen.WorkingArea.X+50,Screen.PrimaryScreen.WorkingArea.Y+50);form.BackColor=Color.WhiteSmoke;form.TopMost=!background;
   var text=new TextBox{AccessibleName="Fixture text",Text="sample",Left=20,Top=20,Width=280};
   var label=new Label{Text="Not clicked",Left=20,Top=120,Width=480};
   var button=new Button{AccessibleName="Fixture button",Text="Apply",Left=20,Top=70,Width=120};

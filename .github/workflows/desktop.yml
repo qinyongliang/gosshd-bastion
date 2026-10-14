@@ -40,7 +40,7 @@ jobs:
       - name: Check public content and desktop race regressions
         run: |
           node scripts/check-public-content.mjs
-          go test -race ./internal/desktop/... ./internal/server ./internal/agent ./internal/store ./cmd/gosshd-agent -run 'Test(Desktop|Service|MCPImages|Tree|CloseCancels|AuditFailure|ValidateDesktop|DisabledAgent)' -count=1 -timeout=3m
+          go test -race ./internal/desktop/... ./internal/server ./internal/agent ./internal/store ./cmd/gosshd-agent -run 'Test(Desktop|Service|MCPImages|MCPBackground|Background|BridgeBackground|Mode|LegacyNative|NativeBackground|WindowsBackground|MacBackground|Tree|CloseCancels|AuditFailure|ValidateDesktop|DisabledAgent)' -count=1 -timeout=3m
 
   native-packages:
     strategy:
@@ -88,6 +88,12 @@ jobs:
         env:
           DESKTOP_ARCH: ${{ matrix.swift_arch }}
         run: sh scripts/build-desktop-macos.sh "$PWD/build/desktop/package"
+      - name: Test macOS native background policy without GUI input
+        if: matrix.goos == 'darwin' && matrix.arch == 'arm64'
+        shell: bash
+        env:
+          GOSSHD_DESKTOP_HELPER_TEST_PATH: ${{ github.workspace }}/build/desktop/package/GOSSHD Desktop Helper.app/Contents/MacOS/gosshd-desktop-helper
+        run: go test ./internal/desktop -run '^TestMacBackgroundNative' -count=1 -timeout=2m
       - name: Package desktop module
         shell: bash
         run: |

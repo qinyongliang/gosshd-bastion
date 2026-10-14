@@ -46,28 +46,34 @@ type Element struct {
 	Actions                 []string `json:"actions,omitempty"`
 }
 type Image struct {
-	MIMEType string `json:"mime_type"`
-	Data     []byte `json:"data"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	CaptureMethod string `json:"capture_method,omitempty"`
+	MIMEType      string `json:"mime_type"`
+	Data          []byte `json:"data"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
 }
 type ImageInfo struct {
-	MIMEType string `json:"mime_type"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	CaptureMethod string `json:"capture_method,omitempty"`
+	MIMEType      string `json:"mime_type"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
 }
 type State struct {
-	Screenshot      *ImageInfo `json:"screenshot,omitempty"`
-	CoordinateSpace string     `json:"coordinate_space,omitempty"`
-	Tree            string     `json:"accessibility_tree,omitempty"`
-	SnapshotID      string     `json:"snapshot_id"`
-	Window          Window     `json:"window"`
-	Bounds          Bounds     `json:"bounds"`
-	Elements        []Element  `json:"elements,omitempty"`
-	Image           *Image     `json:"image,omitempty"`
-	Truncated       bool       `json:"truncated,omitempty"`
+	Mode              string     `json:"mode,omitempty"`
+	ObservationMethod string     `json:"observation_method,omitempty"`
+	Screenshot        *ImageInfo `json:"screenshot,omitempty"`
+	CoordinateSpace   string     `json:"coordinate_space,omitempty"`
+	Tree              string     `json:"accessibility_tree,omitempty"`
+	SnapshotID        string     `json:"snapshot_id"`
+	Window            Window     `json:"window"`
+	Bounds            Bounds     `json:"bounds"`
+	Elements          []Element  `json:"elements,omitempty"`
+	Image             *Image     `json:"image,omitempty"`
+	Truncated         bool       `json:"truncated,omitempty"`
 }
 type Params struct {
+	// Empty/default preserves semantic-first operations with foreground fallback.
+	Mode              string  `json:"mode,omitempty" jsonschema:"Execution mode: auto explicitly prefers semantics with allowed foreground fallback; default (or omitted) preserves compatibility; background strictly forbids focus, activation, global input and screen-crop fallback."`
 	DisplayID         string  `json:"display_id,omitempty"`
 	Window            *Window `json:"window,omitempty"`
 	SnapshotID        string  `json:"snapshot_id,omitempty"`
@@ -95,10 +101,11 @@ type Request struct {
 	Params Params `json:"params"`
 }
 type Response struct {
-	ID     string          `json:"id"`
-	OK     bool            `json:"ok"`
-	Error  string          `json:"error,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
+	ID        string          `json:"id"`
+	OK        bool            `json:"ok"`
+	Error     string          `json:"error,omitempty"`
+	ErrorCode string          `json:"error_code,omitempty"`
+	Result    json.RawMessage `json:"result,omitempty"`
 }
 
 var readMethods = map[string]bool{"status": true, "list_windows": true, "list_apps": true, "get_window_state": true, "list_displays": true, "screenshot": true}
@@ -113,6 +120,9 @@ func Validate(req Request) error {
 		return errors.New("unsupported desktop method")
 	}
 	p := req.Params
+	if p.Mode != "" && p.Mode != "default" && p.Mode != "auto" && p.Mode != "background" {
+		return errors.New("mode must be default, auto or background")
+	}
 	if req.Method == "get_window_state" || NeedsSnapshot(req.Method) {
 		if p.Window == nil || p.Window.ID == "" || p.Window.App == "" {
 			return errors.New("window id and app are required")
@@ -163,5 +173,5 @@ func Validate(req Request) error {
 			return fmt.Errorf("unsupported accessibility action %q", p.Action)
 		}
 	}
-	return nil
+	return validateBackground(req.Method, p)
 }

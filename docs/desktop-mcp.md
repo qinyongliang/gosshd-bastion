@@ -16,10 +16,71 @@ The native helper receives only desktop RPC. There is no shell-command method, p
 
 Desktop APIs operate on a **logged-in user's graphical session**. The native helper must run in that user context. A Windows LocalSystem Agent service may stay in Session 0: it starts only its native helper with the existing logged-in user token on the interactive desktop, using a restricted local named pipe. No logged-in user means no helper; multiple active remote sessions without an active console are rejected. Non-LocalSystem Windows services must use an appropriate logged-in user deployment. Root macOS LaunchDaemons do not implicitly gain GUI/TCC access; the macOS Agent still requires the logged-in GUI user context.
 
-- **Windows:** .NET Framework 4.x compiler and UI Automation assemblies, supplied with supported Windows installations. The embedded helper source is compiled into a private temporary directory and removed after the session. A prebuilt trusted `.exe` can instead be specified with `--desktop-helper`. Elevation, protected windows and UAC/secure desktops can reject observation or input. Window capture uses `PrintWindow`, with a visible-screen fallback when capture fails; GPU/protected surfaces and occluded fallback captures are not guaranteed to be complete.
+- **Windows:** .NET Framework 4.x compiler and UI Automation assemblies, supplied with supported Windows installations. The embedded helper source is compiled into a private temporary directory and removed after the session. A prebuilt trusted `.exe` can instead be specified with `--desktop-helper`. Elevation, protected windows and UAC/secure desktops can reject observation or input. Default-mode window capture uses `PrintWindow`, with a visible-screen fallback when capture fails; strict background mode allows only `PrintWindow` and fails instead of falling back; GPU/protected surfaces and occluded fallback captures are not guaranteed to be complete.
 - **macOS 12.3+:** a separately built helper app, plus user-granted **Screen Recording** and **Accessibility** permissions in System Settings → Privacy & Security. These are distinct from GOSSHD grants. Permission checks do not prompt automatically; `desktop_request_permissions` may explicitly display OS prompts. A user must handle the prompts. Restart the helper/session after changing permission. Development ad-hoc signatures can require reauthorization after rebuilds; production distribution should use a stable signing identity.
 
 Custom-rendered apps may expose only a partial accessibility tree. Observe the screenshot when available, and use coordinate input only within the selected window. Do not claim an operation succeeded just because an event was delivered: observe the result.
+
+## Execution modes: automatic foreground fallback or strict background
+
+Every desktop RPC/MCP operation accepts `params.mode`:
+
+- Omitted, empty, or `"default"`: preserves the existing interface. Element-based operations prefer native accessibility semantics. Coordinate input and foreground fallback remain available; this is **not** a non-interference guarantee.
+- `"auto"`: explicitly permits **background-first, foreground-when-needed** operation. Element clicks prefer Invoke/AXPress; missing click or requested-axis scroll capabilities may fall back to activation and foreground pointer/wheel input. Keys, typing and other explicitly requested foreground methods are allowed. It does not hard-block older helpers. Fallback occurs only after a pre-action capability check, not after an uncertain provider action/timeout. `set_value` and unsupported semantic actions still fail rather than guessing a destructive keyboard sequence; the caller can reobserve and choose an appropriate foreground tool.
+- `"background"`: an optional **fail-closed semantic-only contract**, not a best-effort hint. The helper does not activate or restore windows, set shared keyboard focus, move the shared pointer, inject global keys/mouse events, or fall back to foreground input. Unsupported paths return `error_code: "background_not_supported"`; the human-readable error also starts with that identifier. Other errors (permissions, stale snapshots, provider failures, invalid input) remain failures, not an invitation to retry with foreground input.
+- Other strings or non-string mode values are invalid. Background support is explicitly advertised by native `status` as `background_supported: true`, `supported_modes: ["default","auto","background"]`, and protocol version 2. Only explicit strict-background requests are checked: the session service and Agent/helper bridge reject those requests to older helpers that lack this capability. Default and auto calls remain compatible with older helpers. Legacy results may not include method metadata and must not be labeled guaranteed background.
+
+Mode is **per call**, not sticky for a session. Set it on observation, capture **and every operation** that must remain background. Snapshot binding, control authorization and OS permissions are unchanged.
+
+| Operation | Strict background behavior |
+| --- | --- |
+| Status, app/window/display enumeration | Read-only native queries; no activation or permission prompts. Display enumeration does not authorize display capture. |
+| Window tree observation | Windows UI Automation / macOS AX reads. Use `include_text: true, include_screenshot: false` for a tree-only observation when window capture is unavailable. |
+| `set_value` | Windows editable `ValuePattern` / `RangeValuePattern`; macOS settable `AXValue`, with finite numeric/range validation when range metadata exists. Never type into global keyboard focus. |
+| `perform_action` | Windows supported Invoke, Toggle, SelectionItem and ExpandCollapse patterns. macOS only advertised AX actions or settable attributes: `AXPress` (invoke/toggle alias), `AXShowMenu` (secondary), `AXSelected`, `AXExpanded`. There is no assumed one-to-one Windows-pattern equivalence. `focus` is always rejected. |
+| `click` | Requires `element_index`, a single left click (omitted count defaults to one), and a native Invoke / AXPress capability. Right/middle/double/coordinate clicks and missing native invoke are rejected; no pointer fallback. |
+| `scroll` | Requires `element_index` and native `ScrollPattern` / advertised AX directional page-scroll actions. All requested axes are preflighted. No pointer movement or wheel-event fallback. Native provider errors can still leave a partially completed operation. |
+| Window screenshot | Windows `PrintWindow`; macOS ScreenCaptureKit `desktopIndependentWindow`. Failure is reported without restore, activation or live-screen cropping. Only currently targetable/capturable windows are supported; minimized/hidden/protected/GPU surfaces may be unavailable or incomplete. |
+| Display screenshot, activation, app launch, keys, literal typing, dragging, permission requests | Rejected with `background_not_supported`. Permission prompts must be explicitly handled separately by the local user. |
+
+Native control results include `mode`, `operation_method`, and `foreground_fallback` (true when an auto-mode element click/scroll used foreground input instead of a missing semantic capability), for example `uia.value`, `uia.range_value`, `uia.invoke`, `uia.scroll`, `ax.value`, `ax.AXPress`, or `ax.scroll_by_page`. Foreground paths identify themselves as `foreground_activation`, `foreground_focus.ax`, `uia.focus`, `foreground_input.send_input`, `foreground_input.win32_wheel`, or `foreground_input.cg_event`. Window-state results include `observation_method` (`uia.control_view`, `ax.children`, or `window_bounds` when no tree was requested).
+
+The independent RPC image object reports `capture_method`: `print_window`, `visible_screen` (default mode only), `screencapturekit.window`, or `screencapturekit.display` (default mode only). MCP preserves it in the separate `screenshot` metadata while emitting the PNG as image content; it does not duplicate the PNG as base64 text. Successful native capture is not proof that an application rendered complete, nonblank content—inspect the image.
+
+For background-first work where foreground operation is acceptable, use `"mode":"auto"` in `params`. Inspect the reported method rather than assuming the operation stayed in the background. Choose `"background"` only when interruption of the shared desktop is forbidden.
+
+Example strict tree observation:
+
+```json
+{
+  "session_id": "<session-id>",
+  "params": {
+    "mode": "background",
+    "window": {"id":"<returned-window-id>","app":"<returned-app-id>"},
+    "include_text": true,
+    "include_screenshot": false
+  }
+}
+```
+
+Then use the returned snapshot and an advertised editable element with `desktop_set_value`:
+
+```json
+{
+  "session_id": "<session-id>",
+  "params": {
+    "mode": "background",
+    "window": {"id":"<returned-window-id>","app":"<returned-app-id>"},
+    "snapshot_id": "<latest-snapshot-id>",
+    "element_index": 3,
+    "text": "Example value"
+  }
+}
+```
+
+**Boundary:** background describes what the helper itself does, not absolute isolation. An application can show dialogs, activate itself or change focus as a consequence of its own semantic action handlers. `AXShowMenu` can display a menu. Background operations also modify the same application data the user is editing: concurrent edits, selection changes and saves can conflict. Coordinate with the user, reobserve results and do not blindly retry timed-out actions. Screen Recording/Accessibility grants are still required where applicable; the implementation does not alter TCC, bypass prompts, or replace/re-sign a user-authorized app to obtain access.
+
+The macOS capability checks follow Apple's [attribute-settable query](https://developer.apple.com/documentation/applicationservices/1459972-axuielementisattributesettable), [attribute writes](https://developer.apple.com/documentation/applicationservices/1460434-axuielementsetattributevalue), [advertised action query](https://developer.apple.com/documentation/applicationservices/1462053-axuielementcopyactionnames), [AX action invocation](https://developer.apple.com/documentation/applicationservices/1462091-axuielementperformaction), and [window-only capture filter](https://developer.apple.com/documentation/screencapturekit/sccontentfilter/init(desktopindependentwindow:)). Capabilities are queried on the actual element rather than guessed from its visual appearance.
 
 ## Standalone local MCP
 
@@ -202,11 +263,34 @@ These limits protect the desktop channel; images/trees are not persistently cach
 
 ## Verification
 
+Build the real frontend assets before testing the embedded server (do not substitute placeholder assets for frontend validation):
+
 ```sh
+pnpm install --frozen-lockfile
+pnpm build
 go test ./internal/desktop/... ./internal/agent ./internal/store ./internal/server
 ```
 
-Native Windows fixture test (interactive user session, does not operate other apps):
+The regular suite includes parameter/compatibility checks, legacy-helper rejection, RPC/MCP error-code and method-metadata checks, both-platform source-contract checks, and Windows helper compilation plus **non-GUI** native refusals/capture-policy self-test. These tests do not capture or manipulate target windows and are not evidence of real GUI behavior.
+
+On a Mac, select a separately built test helper (do not overwrite/re-sign an already authorized app) to run the same native refusal matrix and the pure policy self-test:
+
+```sh
+GOSSHD_DESKTOP_HELPER_TEST_PATH="$PWD/build/desktop/macos/GOSSHD Desktop Helper.app/Contents/MacOS/gosshd-desktop-helper" \
+go test ./internal/desktop -run 'TestMacBackgroundNative' -count=1 -v
+```
+
+Those tests issue only guarded refusals and status/policy checks; they do not validate AX control, ScreenCaptureKit output or privacy authorization. Go cross-compilation and source checks likewise do not compile Swift or demonstrate Mac GUI behavior. Real UI validation still requires the native fixtures and separately granted permissions on the corresponding OS.
+
+An additional owned Windows background fixture is opt-in. It starts without activation/topmost behavior, verifies real UIA text/range/invoke/toggle operations and PrintWindow capture, and logs observed foreground/cursor changes without trying to restore shared state. Application/provider behavior or concurrent user activity can change focus even when the helper used only semantic APIs; this test does not certify absolute desktop isolation.
+
+```powershell
+$env:GOSSHD_DESKTOP_BACKGROUND_NATIVE_TEST='1'
+go test ./internal/desktop -run '^TestWindowsNativeBackgroundFixture$' -count=1 -v
+Remove-Item Env:\GOSSHD_DESKTOP_BACKGROUND_NATIVE_TEST
+```
+
+Native Windows fixture test (interactive user session; its owned fixture and input can occupy the foreground even though it does not operate other apps):
 
 ```powershell
 $env:GOSSHD_DESKTOP_NATIVE_TEST='1'

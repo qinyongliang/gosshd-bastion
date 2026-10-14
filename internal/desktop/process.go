@@ -22,13 +22,15 @@ type Config struct {
 type CommandFactory func(context.Context, Config) (*exec.Cmd, func(), error)
 
 type process struct {
-	closeNative func()
-	cmd         *exec.Cmd
-	in          io.WriteCloser
-	out         *bufio.Scanner
-	cleanup     func()
-	once        sync.Once
-	done        chan error
+	backgroundSupported bool
+	capabilitiesKnown   bool
+	closeNative         func()
+	cmd                 *exec.Cmd
+	in                  io.WriteCloser
+	out                 *bufio.Scanner
+	cleanup             func()
+	once                sync.Once
+	done                chan error
 }
 
 func startProcess(ctx context.Context, cfg Config, factory CommandFactory) (*process, error) {
@@ -78,6 +80,20 @@ func (p *process) close() {
 	})
 }
 func (p *process) call(req Request) (Response, error) {
+	if req.Params.Mode == "background" {
+		if !p.capabilitiesKnown {
+			status, err := p.call(Request{ID: req.ID, Method: "status"})
+			if err != nil {
+				return Response{}, err
+			}
+			if !status.OK {
+				return status, nil
+			}
+		}
+		if !p.backgroundSupported {
+			return errorResponse(req.ID, backgroundUnsupported("helper does not advertise strict background support")), nil
+		}
+	}
 	b, err := json.Marshal(req)
 	if err != nil {
 		return Response{}, err
@@ -100,6 +116,10 @@ func (p *process) call(req Request) (Response, error) {
 	}
 	if res.ID != req.ID {
 		return res, errors.New("desktop helper response id mismatch")
+	}
+	if req.Method == "status" && res.OK {
+		p.capabilitiesKnown = true
+		p.backgroundSupported = supportsBackground(res.Result)
 	}
 	return res, nil
 }
@@ -159,7 +179,7 @@ func serveWithStarter(ctx context.Context, rw io.ReadWriteCloser, cfg Config, st
 	for req := range requests {
 		timer.Reset(cfg.IdleTimeout)
 		if err = Validate(req); err != nil {
-			if err = writeResponse(rw, Response{ID: req.ID, Error: err.Error()}); err != nil {
+			if err = writeResponse(rw, errorResponse(req.ID, err)); err != nil {
 				return err
 			}
 			continue
