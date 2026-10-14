@@ -7,6 +7,8 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
+using System.IO.Pipes;
+using System.Security.Principal;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -114,5 +116,22 @@ public static class DesktopHelper {
  }
  static object Dispatch(string method,Dictionary<string,object> p){switch(method){case "status":return Status();case "list_displays":Available();return new {displays=Displays()};case "screenshot":return CaptureScreenshot(p);case "list_windows":Available();return new {windows=ListWindows()};case "list_apps":Available();return new {apps=ListApps()};case "get_window_state":return Observe(p);case "request_permissions":return new {ok=true,message="Windows has no equivalent blanket grant; run in a logged-in desktop. Elevated and secure windows remain restricted."};default:return Operate(method,p);}}
  // UIA clients run on MTA; STA console clients can stall provider calls.
- [MTAThread] public static void Main(string[] args){try{SetProcessDpiAwarenessContext(new IntPtr(-4));}catch(EntryPointNotFoundException){SetProcessDPIAware();}Console.InputEncoding=new UTF8Encoding(false);Console.OutputEncoding=new UTF8Encoding(false);string line;while((line=Console.ReadLine())!=null){if(line.Length>16*1024*1024)break;string id="";try{var request=Map(json.DeserializeObject(line));id=S(request,"id");object result=Dispatch(S(request,"method"),Map(request.ContainsKey("params")?request["params"]:null));Console.WriteLine(json.Serialize(new {id=id,ok=true,result=result}));}catch(Exception e){Clear();Console.WriteLine(json.Serialize(new {id=id,ok=false,error=e.Message}));}}}
+ [DllImport("kernel32.dll",SetLastError=true)] static extern bool GetNamedPipeServerProcessId(IntPtr pipe,out uint processId);
+ static void RunRPC(TextReader input,TextWriter output){string line;while((line=input.ReadLine())!=null){if(line.Length>16*1024*1024)break;string id="";try{var request=Map(json.DeserializeObject(line));id=S(request,"id");object result=Dispatch(S(request,"method"),Map(request.ContainsKey("params")?request["params"]:null));output.WriteLine(json.Serialize(new {id=id,ok=true,result=result}));output.Flush();}catch(Exception e){Clear();output.WriteLine(json.Serialize(new {id=id,ok=false,error=e.Message}));output.Flush();}}}
+ [MTAThread] public static void Main(string[] args){
+  try{
+   try{SetProcessDpiAwarenessContext(new IntPtr(-4));}catch(EntryPointNotFoundException){SetProcessDPIAware();}
+   if(args.Length==0){Console.InputEncoding=new UTF8Encoding(false);Console.OutputEncoding=new UTF8Encoding(false);RunRPC(Console.In,Console.Out);return;}
+   uint expected;
+   if(args.Length!=4||args[0]!="--ipc-pipe"||args[2]!="--ipc-parent-pid"||!uint.TryParse(args[3],out expected)||expected==0||!args[1].StartsWith("gosshd-desktop-",StringComparison.Ordinal)){Environment.ExitCode=2;return;}
+   // Exact data rights omit CreateNewInstance; no inherited service handles.
+   using(var pipe=new NamedPipeClientStream(".",args[1],PipeAccessRights.ReadWrite|PipeAccessRights.Synchronize,PipeOptions.None,TokenImpersonationLevel.Identification,HandleInheritability.None)){
+    pipe.Connect(15000);
+    uint server;
+    if(!GetNamedPipeServerProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out server)||server!=expected)throw new IOException("desktop IPC server identity mismatch");
+    using(var input=new StreamReader(pipe,new UTF8Encoding(false),false,65536))
+    using(var output=new StreamWriter(pipe,new UTF8Encoding(false),65536)){output.AutoFlush=true;RunRPC(input,output);}
+   }
+  }catch{Environment.ExitCode=1;}
+ }
 }

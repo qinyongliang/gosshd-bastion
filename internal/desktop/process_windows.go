@@ -6,6 +6,7 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,13 +17,19 @@ import (
 var windowsSource []byte
 
 func platformCommand(ctx context.Context, cfg Config) (*exec.Cmd, func(), error) {
+	return windowsHelperCommand(ctx, cfg, "")
+}
+
+func windowsHelperCommand(ctx context.Context, cfg Config, guiSID string) (*exec.Cmd, func(), error) {
 	if cfg.HelperPath != "" {
 		if !filepath.IsAbs(cfg.HelperPath) {
 			return nil, nil, errors.New("desktop helper path must be absolute")
 		}
-		return exec.CommandContext(ctx, cfg.HelperPath), func() {}, nil
+		cmd := exec.CommandContext(ctx, cfg.HelperPath)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		return cmd, func() {}, nil
 	}
-	dir, err := os.MkdirTemp("", "gosshd-desktop-")
+	dir, err := windowsHelperDirectory(guiSID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -54,5 +61,12 @@ func platformCommand(ctx context.Context, cfg Config) (*exec.Cmd, func(), error)
 }
 
 func startNativeProcess(ctx context.Context, cfg Config) (*process, error) {
+	var session uint32
+	if err := windows.ProcessIdToSessionId(uint32(os.Getpid()), &session); err != nil {
+		return nil, err
+	}
+	if session == 0 {
+		return startInteractiveWindowsHelper(ctx, cfg)
+	}
 	return startProcess(ctx, cfg, platformCommand)
 }
