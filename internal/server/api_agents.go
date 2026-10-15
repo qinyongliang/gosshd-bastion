@@ -119,6 +119,9 @@ func (a *App) handleInstall(w http.ResponseWriter, r *http.Request) {
 //go:embed install_android.sh
 var androidInstallScript string
 
+//go:embed install_process.sh
+var installProcessScript string
+
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
@@ -130,11 +133,14 @@ func (a *App) handleInstallSH(w http.ResponseWriter, r *http.Request, token stri
 	fmt.Fprintf(w, `#!/usr/bin/env sh
 set -eu
 mode="${1:-run}"
+case "$mode" in run|install) ;; *) echo 'usage: sh installer.sh [run|install]' >&2; exit 1 ;; esac
+umask 077
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
 server=%s
 enrollment_token=%s
 ssh_port=%s
+%s
 %s
 case "$arch" in
   i386|i686|386) arch="386" ;;
@@ -145,7 +151,18 @@ case "$arch" in
   riscv64) arch="riscv64" ;;
   *) echo "unsupported arch: $arch" >&2; exit 1 ;;
 esac
-tmp="${TMPDIR:-/tmp}/gosshd-agent"
+case "$os" in linux|darwin) ;; *) echo "unsupported OS: $os" >&2; exit 1 ;; esac
+if [ "$mode" = install ]; then
+  [ "$(id -u)" = 0 ] || { echo 'service install requires root; run with sudo' >&2; exit 1; }
+  agent_dir=/usr/local/bin
+else
+  agent_dir="${TMPDIR:-/tmp}"
+fi
+mkdir -p "$agent_dir"
+agent_dir="$(cd "$agent_dir" && pwd -P)"
+agent_target="$agent_dir/gosshd-agent"
+tmp="$(mktemp "$agent_dir/.gosshd-agent-download.XXXXXX")"
+trap 'rm -f "$tmp" "$tmp.plist" "$tmp.service"' EXIT
 url="%s/download/agent/${os}/${arch}"
 sha_url="${url}.sha256"
 curl -fsSL "$url" -o "$tmp"
@@ -159,16 +176,14 @@ else
   echo "sha256 checker not found" >&2
   exit 1
 fi
-chmod +x "$tmp"
+chmod 755 "$tmp"
 if [ "$mode" = "install" ]; then
-  if [ "$(id -u)" -ne 0 ]; then
-    echo "service install requires root; run with sudo" >&2
-    exit 1
-  fi
   # Resolve service shell home before writing or restarting the service.
   home_user="${SUDO_USER:-$(id -un)}"
   passwd_home=""
-  if command -v getent >/dev/null 2>&1; then
+  if [ "${os:-linux}" = darwin ]; then
+    passwd_home="$(dscl . -read "/Users/$home_user" NFSHomeDirectory | sed -n 's/^NFSHomeDirectory: //p')"
+  elif command -v getent >/dev/null 2>&1; then
     passwd_home="$(getent passwd "$home_user" | cut -d: -f6)"
   elif [ -r /etc/passwd ]; then
     passwd_home="$(awk -F: -v user="$home_user" '$1 == user { print $6; exit }' /etc/passwd)"
@@ -186,9 +201,42 @@ if [ "$mode" = "install" ]; then
   systemd_home="$(printf '%%s' "$agent_home" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%%/%%%%/g' -e 's/\$/$$/g')"
   home_replacement="$(printf '%%s' "$systemd_home" | sed 's/[\\&|]/\\&/g')"
   # End service home resolution.
-  install -m 0755 "$tmp" /usr/local/bin/gosshd-agent
   mkdir -p /var/lib/gosshd
-  sed "s|@GOSSHD_AGENT_HOME@|$home_replacement|g" >/etc/systemd/system/gosshd-agent.service <<'SERVICE'
+  if [ "$os" = darwin ]; then
+    service_label=com.gosshd.agent
+    service_plist="/Library/LaunchDaemons/$service_label.plist"
+    xml_escape() { printf '%%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+    {
+      printf '%%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict>'
+      printf '<key>Label</key><string>%%s</string>\n' "$service_label"
+      printf '%%s\n' '<key>ProgramArguments</key><array>'
+      for argument in "$agent_target" --server "$server" --enrollment-token "$enrollment_token" --ssh-port "$ssh_port" --id-file /var/lib/gosshd/agent.json --root "$agent_home"; do
+        printf '<string>%%s</string>\n' "$(xml_escape "$argument")"
+      done
+      printf '%%s\n' '</array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/>' '</dict></plist>'
+    } > "$tmp.plist"
+    plutil -lint "$tmp.plist"
+    chown root:wheel "$tmp.plist"
+    chmod 600 "$tmp.plist"
+    mkdir -p /Library/LaunchDaemons
+    if launchctl print "system/$service_label" >/dev/null 2>&1; then
+      launchctl bootout "system/$service_label"
+    fi
+    stop_agent_processes
+    mv -f "$tmp" "$agent_target"
+    mv -f "$tmp.plist" "$service_plist"
+    launchctl enable "system/$service_label"
+    launchctl bootstrap system "$service_plist"
+    launchctl kickstart "system/$service_label"
+    launch_attempt=0
+    until launchctl print "system/$service_label" | grep -q 'state = running'; do
+      launch_attempt=$((launch_attempt + 1))
+      [ "$launch_attempt" -lt 10 ] || { echo 'The launchd agent did not reach running state.' >&2; exit 1; }
+      sleep 1
+    done
+    exit 0
+  fi
+  sed "s|@GOSSHD_AGENT_HOME@|$home_replacement|g" >"$tmp.service" <<'SERVICE'
 [Unit]
 Description=gosshd bastion agent
 After=network-online.target
@@ -203,13 +251,27 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 SERVICE
+  if load_state="$(systemctl show --property=LoadState --value gosshd-agent.service)"; then
+    :
+  else
+    [ "$load_state" = not-found ] || { echo 'Cannot inspect the existing agent service.' >&2; exit 1; }
+  fi
+  if [ "$load_state" != not-found ]; then systemctl stop gosshd-agent; fi
+  stop_agent_processes
+  mv -f "$tmp" "$agent_target"
+  mkdir -p /etc/systemd/system
+  mv -f "$tmp.service" /etc/systemd/system/gosshd-agent.service
   systemctl daemon-reload
-  systemctl enable --now gosshd-agent
+  systemctl enable gosshd-agent
+  systemctl restart gosshd-agent
   systemctl status gosshd-agent --no-pager
   exit 0
 fi
-exec "$tmp" --server "%s" --enrollment-token %q --ssh-port %q
-`, shellQuote(base), shellQuote(token), shellQuote(sshPort), androidInstallScript, base, base, token, sshPort, base, token, sshPort)
+stop_agent_processes
+mv -f "$tmp" "$agent_target"
+trap - EXIT
+exec "$agent_target" --server "$server" --enrollment-token "$enrollment_token" --ssh-port "$ssh_port"
+`, shellQuote(base), shellQuote(token), shellQuote(sshPort), installProcessScript, androidInstallScript, base, base, token, sshPort)
 }
 
 func (a *App) handleInstallPS1(w http.ResponseWriter, r *http.Request, token string) {
@@ -228,6 +290,7 @@ $isInstall = $Install
 $runtimeDir = Join-Path $env:TEMP "gosshd-agent"
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 $tmp = Join-Path $runtimeDir "gosshd-agent.exe"
+$download = Join-Path $runtimeDir ("gosshd-agent-download-" + [Guid]::NewGuid().ToString("N") + ".exe")
 $url = "%s/download/agent/windows/amd64"
 $shaUrl = "$url.sha256"
 $server = "%s"
@@ -256,6 +319,52 @@ function Invoke-ScChecked {
   if ($exitCode -ne 0) {
     $detail = ($output | Out-String).Trim()
     throw "$Action failed (exit $exitCode): $detail"
+  }
+}
+
+function Wait-AgentServiceState {
+  param(
+    [Parameter(Mandatory=$true)][string]$ServiceName,
+    [Parameter(Mandatory=$true)][string]$State
+  )
+  for ($attempt = 0; $attempt -lt 60; $attempt++) {
+    $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$ServiceName'"
+    if ($service -and $service.State -eq $State) { return }
+    Start-Sleep -Milliseconds 500
+  }
+  throw "Timed out waiting for $ServiceName service to reach $State"
+}
+
+function Stop-InstalledAgent {
+  param(
+    [Parameter(Mandatory=$true)][string]$ServiceName,
+    [Parameter(Mandatory=$true)][string]$BinaryPath
+  )
+  $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$ServiceName'"
+  if ($service -and $service.State -ne "Stopped") {
+    Write-Host "Stopping existing $ServiceName service..."
+    if ($service.State -ne "Stop Pending") {
+      Invoke-ScChecked -Action "stop existing $ServiceName service" -Command { sc.exe stop $ServiceName }
+    }
+    Wait-AgentServiceState -ServiceName $ServiceName -State "Stopped"
+  }
+  Stop-AgentProcesses -BinaryPath $BinaryPath
+}
+
+function Stop-AgentProcesses {
+  param([Parameter(Mandatory=$true)][string]$BinaryPath)
+  # Also stop a manually started agent, but never another installation.
+  $processes = Get-CimInstance -ClassName Win32_Process -Filter "Name='gosshd-agent.exe'" |
+    Where-Object { $_.ExecutablePath -eq $BinaryPath }
+  foreach ($agentProcess in $processes) {
+    $running = Get-Process -Id $agentProcess.ProcessId -ErrorAction SilentlyContinue
+    if ($running) {
+      Write-Host "Stopping existing agent process $($running.Id)..."
+      Stop-Process -InputObject $running -Force -ErrorAction Stop
+      if (-not $running.WaitForExit(30000)) {
+        throw "Timed out waiting for the old agent process to exit"
+      }
+    }
   }
 }
 
@@ -302,11 +411,12 @@ function Install-WinPty {
   }
 }
 
-Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp
+try {
+Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $download
 if ([string]::IsNullOrWhiteSpace($expectedSha)) {
   $expectedSha = (Invoke-WebRequest -UseBasicParsing -Uri $shaUrl).Content.Trim().ToLowerInvariant()
 }
-$actualSha = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLowerInvariant()
+$actualSha = (Get-FileHash -Algorithm SHA256 -Path $download).Hash.ToLowerInvariant()
 if ($actualSha -ne $expectedSha) {
   throw "sha256 mismatch: $actualSha != $expectedSha"
 }
@@ -320,13 +430,13 @@ if ([string]::IsNullOrWhiteSpace($userHome) -or -not (Test-Path -LiteralPath $us
 if ($isInstall) {
   Assert-Administrator
   New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
-  Copy-Item -Force $tmp $target
+  $serviceName = "gosshd-agent"
+  Stop-InstalledAgent -ServiceName $serviceName -BinaryPath $target
+  Copy-Item -Force $download $target
   Install-WinPty -Destination $targetDir
   $binPath = '"' + $target + '" --server "' + $server + '" --enrollment-token "' + $enrollmentToken + '" --ssh-port "' + $sshPort + '" --id-file "' + $serviceIDFile + '" --root "' + $userHome + '"'
-  $serviceName = "gosshd-agent"
   $existing = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue
   if ($existing) {
-    sc.exe stop $serviceName | Out-Null
     Invoke-ScChecked -Action "delete existing $serviceName service" -Command { sc.exe delete $serviceName }
     for ($i = 0; $i -lt 20; $i++) {
       Start-Sleep -Milliseconds 500
@@ -343,10 +453,17 @@ if ($isInstall) {
   Invoke-ScChecked -Action "failed to configure $serviceName account" -Command { sc.exe config $serviceName obj= LocalSystem }
   Invoke-ScChecked -Action "failed to configure $serviceName recovery actions" -Command { sc.exe failure $serviceName reset= 60 actions= restart/5000/restart/5000/restart/5000 }
   Invoke-ScChecked -Action "failed to start $serviceName service" -Command { sc.exe start $serviceName }
+  Wait-AgentServiceState -ServiceName $serviceName -State "Running"
   Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" | Select-Object Name, State, StartMode, StartName, PathName
   exit 0
 }
+Stop-AgentProcesses -BinaryPath $tmp
+Copy-Item -Force $download $tmp
 Install-WinPty -Destination $runtimeDir
 & $tmp --server $server --enrollment-token $enrollmentToken --ssh-port $sshPort --root $userHome
+exit $LASTEXITCODE
+} finally {
+  Remove-Item -LiteralPath $download -Force -ErrorAction SilentlyContinue
+}
 `, base, base, token, sshPort, expectedAgentSHA, base)
 }

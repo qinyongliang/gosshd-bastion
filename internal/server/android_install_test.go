@@ -406,3 +406,29 @@ func TestAndroidInstallerMissingRootControlTools(t *testing.T) {
 		})
 	}
 }
+
+func TestAndroidInstallerFailedServiceStopPreservesInstallation(t *testing.T) {
+	f := newAndroidInstallFixture(t, true, "arm")
+	target := filepath.Join(f.agentDir, "gosshd-agent")
+	runner := filepath.Join(f.agentDir, "run.sh")
+	for _, path := range []string{target, runner} {
+		if err := os.WriteFile(path, []byte("previous-content"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(f.prefix, "var/service/gosshd-agent"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	sv := filepath.Join(f.root, "bin/sv")
+	if err := os.WriteFile(sv, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := f.run("install"); err == nil {
+		t.Fatalf("failed stop was ignored: %s", out)
+	}
+	for _, path := range []string{target, runner} {
+		if body, _ := os.ReadFile(path); string(body) != "previous-content" {
+			t.Fatalf("stop failure replaced %s", filepath.Base(path))
+		}
+	}
+}

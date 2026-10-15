@@ -54,9 +54,13 @@ if [ "$os" = android ]; then
   }
   mkdir -p "$android_dir"
   chmod 700 "$android_dir"
+  android_dir="$(cd "$android_dir" && pwd -P)"
+  if [ "$termux" = false ]; then android_home="$android_dir"; fi
+  agent_target="$android_dir/gosshd-agent"
+  command -v readlink >/dev/null 2>&1 || { echo 'readlink is required to safely stop the installed agent.' >&2; exit 1; }
   tmp="$(mktemp "$android_dir/.gosshd-agent-download.XXXXXX")"
   checksum_tmp=''
-  trap 'rm -f "$tmp" "$checksum_tmp"' EXIT
+  trap 'rm -f "$tmp" "$checksum_tmp" "$tmp.run"' EXIT
   checksum_tmp="$(mktemp "$android_dir/.gosshd-agent-sha.XXXXXX")"
   url="$server/download/agent/android/$arch"
   download "$url" "$tmp"
@@ -71,9 +75,6 @@ if [ "$os" = android ]; then
     [ "$actual_sha" = "$expected_sha" ] || { echo 'sha256 mismatch' >&2; exit 1; }
   else echo 'A SHA256 checker (sha256sum or shasum) is required.' >&2; exit 1; fi
   chmod 700 "$tmp"
-  mv -f "$tmp" "$android_dir/gosshd-agent"
-  rm -f "$checksum_tmp"
-  trap - EXIT
   # Quote every persisted value, including HOME/PREFIX paths containing spaces or quotes.
   quote_sh() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
   {
@@ -86,14 +87,24 @@ if [ "$os" = android ]; then
     printf ' --ssh-port '; quote_sh "$ssh_port"
     printf ' --id-file '; quote_sh "$android_dir/agent.json"
     printf ' --shell '; quote_sh "$android_shell"
-    printf ' --root '; quote_sh "$android_home"; printf '\n'
-  } > "$android_dir/run.sh"
-  chmod 700 "$android_dir/run.sh"
-  if [ "$mode" = run ]; then exec "$android_dir/run.sh"; fi
+    printf ' --root '; quote_sh "$android_home"
+    printf '\n'
+  } > "$tmp.run"
+  chmod 700 "$tmp.run"
   if [ "$termux" = true ]; then
     export SVDIR="$PREFIX/var/service"
     service_dir="$SVDIR/gosshd-agent"
-    if [ -d "$service_dir" ]; then sv -w 10 down "$service_dir" >/dev/null 2>&1 || true; fi
+    if [ -d "$service_dir" ]; then
+      sv -w 10 down "$service_dir" || { echo 'Failed to stop the existing Termux agent service; installation aborted.' >&2; exit 1; }
+    fi
+  fi
+  stop_agent_processes
+  mv -f "$tmp" "$agent_target"
+  mv -f "$tmp.run" "$android_dir/run.sh"
+  rm -f "$checksum_tmp"
+  trap - EXIT
+  if [ "$mode" = run ]; then exec "$android_dir/run.sh"; fi
+  if [ "$termux" = true ]; then
     mkdir -p "$service_dir" "$HOME/.termux/boot"
     {
       printf '#!%s\nexec ' "$android_sh"; quote_sh "$android_dir/run.sh"
@@ -144,7 +155,12 @@ case "${1:-start}" in
       kill "$pid"
       attempt=0
       while running && [ "$attempt" -lt 10 ]; do sleep 1; attempt=$((attempt + 1)); done
-      if running; then kill -KILL "$pid"; fi
+      if running; then
+        kill -KILL "$pid"
+        attempt=0
+        while running && [ "$attempt" -lt 5 ]; do sleep 1; attempt=$((attempt + 1)); done
+        if running; then echo 'Timed out waiting for the old agent to exit.' >&2; exit 1; fi
+      fi
     fi
     rm -f "$dir/agent.pid"
     ;;
@@ -155,7 +171,7 @@ esac
 CONTROL
     } > "$android_dir/control.sh"
     chmod 700 "$android_dir/control.sh"
-    "$android_dir/control.sh" restart
+    "$android_dir/control.sh" start
     if [ -d /data/adb/service.d ]; then
       {
         printf '#!%s\nexec ' "$android_sh"; quote_sh "$android_dir/control.sh"; printf ' start\n'

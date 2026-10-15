@@ -1324,7 +1324,7 @@ func TestAPIAgentEnrollmentReturnsInstallScripts(t *testing.T) {
 	}
 	shBody := readBody(t, resp)
 	resp.Body.Close()
-	if !strings.Contains(shBody, "systemctl enable --now gosshd-agent") || !strings.Contains(shBody, "--enrollment-token") {
+	if !strings.Contains(shBody, "systemctl restart gosshd-agent") || !strings.Contains(shBody, "--enrollment-token") {
 		t.Fatalf("shell install script missing service install flow:\n%s", shBody)
 	}
 	if !strings.Contains(shBody, ".sha256") || !strings.Contains(shBody, "sha256sum -c") {
