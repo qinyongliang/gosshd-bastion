@@ -3,6 +3,7 @@ package forward
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -153,20 +154,57 @@ func TestPortUDPIdleExpiryAndSessionRecreation(t *testing.T) {
 	}
 }
 func TestPortPartialBindFailureReleasesTCP(t *testing.T) {
-	occupied, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	// UDP and TCP allocate independent ephemeral ports. Own both sockets before
+	// exercising the partial failure; rebinding a random UDP port as TCP can
+	// otherwise collide with an unrelated listener and falsely report a leak.
+	var listener net.Listener
+	var occupied net.PacketConn
+	for attempt := 0; attempt < 20; attempt++ {
+		var err error
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		occupied, err = net.ListenPacket("udp", listener.Addr().String())
+		if err == nil {
+			break
+		}
+		listener.Close()
+		listener = nil
 	}
+	if occupied == nil {
+		t.Fatal("could not reserve a TCP/UDP port pair")
+	}
+	defer listener.Close()
 	defer occupied.Close()
-	_, err = StartPort(context.Background(), occupied.LocalAddr().String(), []string{"tcp", "udp"}, Location{}, nil, &portEvents{}, nil, nil)
+	tracked := &partialBindListener{Listener: listener}
+	called := false
+	runtime, err := StartPort(context.Background(), occupied.LocalAddr().String(), []string{"tcp", "udp"}, Location{}, nil, &portEvents{}, nil, func() (net.Listener, error) {
+		called = true
+		return tracked, nil
+	})
 	if err == nil {
+		if runtime != nil {
+			runtime.Close()
+		}
 		t.Fatal("accepted occupied UDP port")
 	}
-	listener, err := net.Listen("tcp", occupied.LocalAddr().String())
-	if err != nil {
-		t.Fatalf("TCP bind was leaked: %v", err)
+	if !called || !tracked.closed {
+		t.Fatal("partial UDP bind failure did not close the acquired TCP listener")
 	}
-	listener.Close()
+	if _, err := listener.Accept(); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("TCP listener was not closed: %v", err)
+	}
+}
+
+type partialBindListener struct {
+	net.Listener
+	closed bool
+}
+
+func (l *partialBindListener) Close() error {
+	l.closed = true
+	return l.Listener.Close()
 }
 
 // The packet stub tests the maximum frame independent of OS MTU/firewall rules.
