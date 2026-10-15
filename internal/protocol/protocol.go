@@ -45,6 +45,10 @@ const (
 type AgentHello struct {
 	ID              string `json:"id"`
 	AssignedAgentID string `json:"assigned_agent_id,omitempty"`
+	// InstanceID is process-local continuity metadata, never stored in the ID file.
+	InstanceID string `json:"instance_id,omitempty"`
+	// BootID is Agent-scoped OS boot identity, shared across process restarts.
+	BootID          string `json:"boot_id,omitempty"`
 	EnrollmentToken string `json:"enrollment_token,omitempty"`
 	Version         string `json:"version,omitempty"`
 	GOOS            string `json:"goos,omitempty"`

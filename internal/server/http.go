@@ -521,9 +521,11 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.registry.RegisterWithInfo(registryID, session, AgentRegistryInfo{
-		Version: strings.TrimSpace(hello.Version),
-		GOOS:    goos,
-		GOARCH:  goarch,
+		InstanceID: strings.TrimSpace(hello.InstanceID),
+		BootID:     strings.TrimSpace(hello.BootID),
+		Version:    strings.TrimSpace(hello.Version),
+		GOOS:       goos,
+		GOARCH:     goarch,
 	})
 	log.Printf("agent online: %s", registryID)
 	go a.serveAgentTunnelConnections(registryID, session)
@@ -535,8 +537,11 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		<-session.CloseChan()
-		a.registry.Unregister(registryID, session)
-		log.Printf("agent offline: %s", registryID)
+		if a.registry.Unregister(registryID, session) {
+			log.Printf("agent offline: %s", registryID)
+		} else {
+			log.Printf("agent connection closed (not current): %s", registryID)
+		}
 	}()
 }
 
@@ -545,8 +550,8 @@ func (a *App) canReconnectExpiredAgent(ctx context.Context, enrollment store.Age
 	if err != nil || agent.EnrollmentID != enrollment.ID || agent.OwnerType != enrollment.OwnerType || agent.OwnerID != enrollment.OwnerID {
 		return false
 	}
-	_, err = a.registry.Get(agent.ID)
-	return errors.Is(err, ErrAgentOffline)
+	resume, err := a.agentConnectionCanResume(ctx, agent, hello)
+	return err == nil && resume
 }
 
 func (a *App) enrollAgentConnection(ctx context.Context, enrollment store.AgentEnrollment, hello protocol.AgentHello) (store.Agent, store.SSHTarget, error) {
@@ -554,7 +559,11 @@ func (a *App) enrollAgentConnection(ctx context.Context, enrollment store.AgentE
 	if agentID != "" {
 		agent, err := a.store.Repository().GetAgent(ctx, agentID)
 		if err == nil && agent.EnrollmentID == enrollment.ID && agent.OwnerType == enrollment.OwnerType && agent.OwnerID == enrollment.OwnerID {
-			if _, err := a.registry.Get(agent.ID); err == nil {
+			resume, err := a.agentConnectionCanResume(ctx, agent, hello)
+			if err != nil {
+				return store.Agent{}, store.SSHTarget{}, err
+			}
+			if !resume {
 				return a.createAgentConnection(ctx, enrollment, hello.ID, true)
 			}
 			updated, err := a.store.Repository().UpsertAgent(ctx, store.UpsertAgentParams{

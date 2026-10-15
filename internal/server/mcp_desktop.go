@@ -97,8 +97,8 @@ func (a *App) authorizeDesktop(ctx context.Context, actorID, targetID string, _ 
 	if err != nil {
 		return err
 	}
-	if info, online := a.registry.Info(target.AgentID); online && info.GOOS != "windows" && info.GOOS != "darwin" {
-		return errors.New("desktop requires a Windows or macOS Agent")
+	if info, online := a.registry.Info(target.AgentID); online && info.GOOS != "windows" && info.GOOS != "darwin" && info.GOOS != "android" {
+		return errors.New("desktop requires a Windows, macOS or Android Agent")
 	}
 	return nil
 }

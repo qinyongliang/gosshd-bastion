@@ -250,4 +250,6 @@ Releases 会发布跨平台 server 压缩包、独立私有节点二进制和 ch
 
 ## 可选桌面控制 MCP
 
-独立、显式启用的桌面模块支持 Windows/macOS 截图、有界无障碍树、语义控件操作和键鼠输入，可作为独立 MCP 服务运行，或通过已授权的 Agent 目标使用。桌面授权与 SSH 命令策略分离；需要已登录的用户桌面和对应系统权限。配置、工具协议、安全边界及平台验证见 [桌面控制 MCP](docs/desktop-mcp.md)。
+独立、显式启用的桌面模块支持 Windows/macOS 截图、有界无障碍树、语义控件操作和键鼠输入，并提供 Android root/adb shell 主屏控制后端，可作为独立 MCP 服务运行，或通过已授权的 Agent 目标使用。桌面授权与 SSH 命令策略分离；Windows/macOS 需要已登录的用户桌面和对应系统权限。Android 需要已解锁的 root/adb shell 会话，支持可打印 ASCII 和已声明的手势操作；普通非 root Termux、Unicode 输入和语义 set_value 不受此后端支持。Android 配置与边界见 [Android 桌面控制 MCP](docs/android-desktop-mcp.md)。配置、工具协议、安全边界及平台验证见 [桌面控制 MCP](docs/desktop-mcp.md)。
+
+Android 另提供 [无 root 辅助功能模式](docs/android-accessibility.md)，支持 ADB／Shizuku 快速激活、Unicode 输入、原生控件赋值及显式前台保活；安装入口按实际 su 授权状态分流，原有 root／ADB shell 模式保留。

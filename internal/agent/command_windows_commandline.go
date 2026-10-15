@@ -9,7 +9,10 @@ func windowsCommandLine(command string) string {
 	if command == "" {
 		return "cmd.exe"
 	}
-	args := windowsInteractiveShellArgs(command)
+	return windowsCommandLineWithArgs(command, windowsInteractiveShellArgs(command))
+}
+
+func windowsCommandLineWithArgs(command string, args []string) string {
 	if len(args) == 0 {
 		return quoteWindowsArg(command)
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
 
 	"github.com/gorilla/websocket"
+	"github.com/hashicorp/yamux"
 )
 
 func TestAgentWSReturnsVersionAndAgentDownloadURL(t *testing.T) {
@@ -319,21 +321,33 @@ func TestAgentWSClonedAssignedAgentGetsNewAssignmentWithoutKickingOriginal(t *te
 	if err := os.WriteFile(secondIDFile, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	secondClient, err := agent.New(agent.Config{Server: srv.URL, EnrollmentToken: token, IDFile: secondIDFile})
+	cloneID, err := protocol.LoadOrCreateAgentIDFile(secondIDFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondCtx, cancelSecond := context.WithCancel(ctx)
-	defer cancelSecond()
-	go func() {
-		if err := secondClient.Run(secondCtx); err != nil {
-			t.Logf("second agent stopped: %v", err)
-		}
-	}()
-	secondAssignment := waitForAssignedAgentIDChange(t, secondIDFile, firstAssignment.AssignedAgentID)
-	if secondAssignment.AssignedAgentID == firstAssignment.AssignedAgentID {
-		t.Fatalf("clone should receive a new assigned agent id: first=%+v second=%+v", firstAssignment, secondAssignment)
+	clone := dialAgentWS(t, srv.URL)
+	defer clone.Close()
+	response := writeAgentHelloForTest(t, clone, token, protocol.AgentHello{
+		ID: cloneID.ID, AssignedAgentID: cloneID.AssignedAgentID,
+		InstanceID: "22222222-2222-4222-8222-222222222222",
+		BootID:     "33333333-3333-4333-8333-333333333333",
+	})
+	if !response.OK || response.AssignedAgentID == firstAssignment.AssignedAgentID {
+		t.Fatalf("distinct live boot should receive a separate assignment: %+v", response)
 	}
+	cloneSession, err := yamux.Client(clone, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cloneSession.Close()
+	secondAssignment := protocol.AgentIDFile{AssignedAgentID: response.AssignedAgentID}
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		if _, err := app.registry.Get(secondAssignment.AssignedAgentID); err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
 	if _, err := app.Registry().Get(firstAssignment.AssignedAgentID); err != nil {
 		t.Fatalf("original agent should remain online: %v", err)
 	}
@@ -537,6 +551,12 @@ func TestAgentWSExpiredEnrollmentOnlyAllowsExistingAgentReconnect(t *testing.T) 
 		t.Fatalf("expired enrollment should allow its existing agent to reconnect: %+v", resp)
 	}
 
+	liveMux, err := yamux.Client(reconnectingAgent, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer liveMux.Close()
+
 	onlineClone := dialAgentWS(t, srv.URL)
 	defer onlineClone.Close()
 	resp = writeAgentHelloForTest(t, onlineClone, token, protocol.AgentHello{
@@ -665,4 +685,159 @@ func createAgentEnrollmentWithExpiryForTest(t *testing.T, ctx context.Context, a
 		t.Fatal(err)
 	}
 	return token, enrollment
+}
+
+func TestAgentWSExpiredEnrollmentAllowsSameInstanceOverlapOnly(t *testing.T) {
+	ctx := context.Background()
+	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	token, enrollment := createAgentEnrollmentWithExpiryForTest(t, ctx, app, "expired-overlap", time.Now().Add(-time.Hour))
+	agent, err := app.store.Repository().UpsertAgent(ctx, store.UpsertAgentParams{OwnerType: enrollment.OwnerType, OwnerID: enrollment.OwnerID, EnrollmentID: enrollment.ID, Label: enrollment.Label, CurrentRuntimeID: "11111111-1111-4111-8111-111111111111"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.ensureAgentTarget(ctx, enrollment, agent, false); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	app.routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	hello := protocol.AgentHello{ID: agent.CurrentRuntimeID, AssignedAgentID: agent.ID, InstanceID: "22222222-2222-4222-8222-222222222222", BootID: "66666666-6666-4666-8666-666666666666"}
+	first := dialAgentWS(t, srv.URL)
+	defer first.Close()
+	firstResponse := writeAgentHelloForTest(t, first, token, hello)
+	firstMux, err := yamux.Client(first, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstMux.Close()
+	if !firstResponse.OK {
+		t.Fatalf("offline existing agent: %+v", firstResponse)
+	}
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+		if _, err := app.registry.Get(agent.ID); err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	resumed := dialAgentWS(t, srv.URL)
+	defer resumed.Close()
+	response := writeAgentHelloForTest(t, resumed, token, hello)
+	if !response.OK || response.AssignedAgentID != agent.ID || response.TargetID != firstResponse.TargetID {
+		t.Fatalf("expired-token overlapping reconnect changed assignment: %+v", response)
+	}
+	resumedMux, err := yamux.Client(resumed, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resumedMux.Close()
+	for _, changed := range []protocol.AgentHello{
+		{ID: hello.ID, AssignedAgentID: agent.ID, InstanceID: "33333333-3333-4333-8333-333333333333"},
+		{ID: "44444444-4444-4444-8444-444444444444", AssignedAgentID: agent.ID, InstanceID: hello.InstanceID},
+		{ID: hello.ID, AssignedAgentID: agent.ID},
+		{ID: hello.ID, AssignedAgentID: agent.ID, InstanceID: hello.InstanceID, BootID: "77777777-7777-4777-8777-777777777777"},
+	} {
+		clone := dialAgentWS(t, srv.URL)
+		rejected := writeAgentHelloForTest(t, clone, token, changed)
+		clone.Close()
+		if rejected.OK || rejected.Error != "invalid enrollment token" {
+			t.Fatalf("expired enrollment admitted a different/missing instance: %+v", rejected)
+		}
+	}
+	hello.InstanceID = "88888888-8888-4888-8888-888888888888"
+	restarted := dialAgentWS(t, srv.URL)
+	defer restarted.Close()
+	afterRestart := writeAgentHelloForTest(t, restarted, token, hello)
+	if !afterRestart.OK || afterRestart.AssignedAgentID != agent.ID || afterRestart.TargetID != firstResponse.TargetID {
+		t.Fatalf("same-boot process restart with expired enrollment lost identity: %+v", afterRestart)
+	}
+
+}
+
+func testAgentReconnectKeepsAssignment(t *testing.T, boot, nextBoot, nextInstance string, disconnect bool) {
+	t.Helper()
+	ctx := context.Background()
+	app := NewApp(Config{DatabasePath: filepath.Join(t.TempDir(), "gosshd.db")})
+	token := createAgentEnrollmentForTest(t, ctx, app, "overlap-agent")
+	mux := http.NewServeMux()
+	app.routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	hello := protocol.AgentHello{ID: "11111111-1111-4111-8111-111111111111", InstanceID: "22222222-2222-4222-8222-222222222222", BootID: boot}
+	first := dialAgentWS(t, srv.URL)
+	defer first.Close()
+	response := writeAgentHelloForTest(t, first, token, hello)
+	if !response.OK {
+		t.Fatalf("first hello: %+v", response)
+	}
+	var previous *yamux.Session
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		previous, _ = app.registry.Get(response.AssignedAgentID)
+		if previous != nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if previous == nil {
+		t.Fatal("first connection was not registered")
+	}
+	if disconnect {
+		first.Close()
+		for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); {
+			if _, err := app.registry.Get(response.AssignedAgentID); errors.Is(err, ErrAgentOffline) {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+		if _, err := app.registry.Get(response.AssignedAgentID); !errors.Is(err, ErrAgentOffline) {
+			t.Fatal("old connection did not disconnect")
+		}
+	}
+	hello.AssignedAgentID = response.AssignedAgentID
+	hello.BootID = nextBoot
+	hello.InstanceID = nextInstance
+	second := dialAgentWS(t, srv.URL)
+	defer second.Close()
+	resumed := writeAgentHelloForTest(t, second, token, hello)
+	if !resumed.OK || resumed.AssignedAgentID != response.AssignedAgentID || resumed.TargetID != response.TargetID || resumed.TargetAlias != response.TargetAlias {
+		t.Fatalf("normal reconnect/reboot forked its assignment: first=%+v resumed=%+v", response, resumed)
+	}
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		current, _ := app.registry.Get(response.AssignedAgentID)
+		if current != nil && current != previous {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	current, err := app.registry.Get(response.AssignedAgentID)
+	if err != nil || current == previous || !previous.IsClosed() {
+		t.Fatalf("obsolete connection was not replaced: %v", err)
+	}
+	if app.registry.Unregister(response.AssignedAgentID, previous) {
+		t.Fatal("late old disconnect must not report the active Agent as offline")
+	}
+	if active, err := app.registry.Get(response.AssignedAgentID); err != nil || active != current {
+		t.Fatalf("late disconnect removed the resumed connection: %v", err)
+	}
+	enrollment, err := app.store.Repository().GetAgentEnrollmentByTokenHash(ctx, codeHash(token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets, err := app.store.Repository().ListSSHTargets(ctx, enrollment.OwnerType, enrollment.OwnerID)
+	if err != nil || len(targets) != 1 {
+		t.Fatalf("reconnect created a duplicate target: %+v %v", targets, err)
+	}
+}
+
+func TestAgentWSOverlappingReconnectKeepsAssignment(t *testing.T) {
+	testAgentReconnectKeepsAssignment(t, "", "", "22222222-2222-4222-8222-222222222222", false)
+}
+func TestAgentWSSameBootProcessRestartKeepsAssignment(t *testing.T) {
+	testAgentReconnectKeepsAssignment(t, "33333333-3333-4333-8333-333333333333", "33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444", false)
+}
+func TestAgentWSRebootWithStaleRegistrationKeepsAssignment(t *testing.T) {
+	testAgentReconnectKeepsAssignment(t, "33333333-3333-4333-8333-333333333333", "55555555-5555-4555-8555-555555555555", "44444444-4444-4444-8444-444444444444", false)
+}
+func TestAgentWSRebootAfterDisconnectKeepsAssignment(t *testing.T) {
+	testAgentReconnectKeepsAssignment(t, "33333333-3333-4333-8333-333333333333", "55555555-5555-4555-8555-555555555555", "44444444-4444-4444-8444-444444444444", true)
 }

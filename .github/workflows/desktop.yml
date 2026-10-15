@@ -4,12 +4,20 @@ on:
   pull_request:
     paths:
       - 'internal/desktop/**'
+      - 'client/android-desktop/**'
+      - 'scripts/android-desktop/**'
+      - 'scripts/build-desktop-android-companion.ps1'
       - 'internal/server/mcp_desktop*'
       - 'internal/server/local_agent.go'
       - 'internal/agent/**'
       - 'cmd/gosshd-agent/**'
       - 'internal/store/desktop*'
       - 'cmd/gosshd-desktop-mcp/**'
+      - 'scripts/build-desktop-android.*'
+      - 'scripts/build-desktop-android-fixture.ps1'
+      - 'docs/*desktop-mcp.md'
+      - 'docs/android-accessibility.md'
+      - 'cmd/gosshd-agent/main.go'
       - 'scripts/build-desktop-macos.sh'
       - 'scripts/build-desktop-macos-fixture.sh'
       - '.github/workflows/desktop.yml'
@@ -39,8 +47,9 @@ jobs:
           pnpm build
       - name: Check public content and desktop race regressions
         run: |
+          python3 scripts/android-desktop/install.test.py
           node scripts/check-public-content.mjs
-          go test -race ./internal/desktop/... ./internal/server ./internal/agent ./internal/store ./cmd/gosshd-agent -run 'Test(Desktop|Service|MCPImages|MCPBackground|Background|BridgeBackground|Mode|LegacyNative|NativeBackground|WindowsBackground|MacBackground|Tree|CloseCancels|AuditFailure|ValidateDesktop|DisabledAgent)' -count=1 -timeout=3m
+          go test -race ./internal/desktop/... ./internal/server ./internal/agent ./internal/store ./cmd/gosshd-agent -run 'Test(Android|Embedded|Desktop|Service|MCPImages|MCPBackground|Background|BridgeBackground|Mode|LegacyNative|NativeBackground|WindowsBackground|MacBackground|Tree|CloseCancels|AuditFailure|ValidateDesktop|DisabledAgent)' -count=1 -timeout=3m
 
   native-packages:
     strategy:
@@ -81,7 +90,7 @@ jobs:
         run: |
           mkdir -p build/desktop/package
           go build -trimpath -o "build/desktop/package/gosshd-desktop-mcp${{ matrix.suffix }}" ./cmd/gosshd-desktop-mcp
-          cp docs/desktop-mcp.md build/desktop/package/
+          cp docs/desktop-mcp.md docs/android-desktop-mcp.md build/desktop/package/
       - name: Build macOS native helper
         if: matrix.goos == 'darwin'
         shell: bash
@@ -113,9 +122,44 @@ jobs:
           name: desktop-${{ matrix.goos }}-${{ matrix.arch }}
           path: dist/*
 
+  android-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+          log-accepted-android-sdk-licenses: false
+      - name: Build independent Android MCP hosts
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "ndk;27.2.12479018"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          version="$GITHUB_REF_NAME"
+          if [[ "$version" != v* ]]; then version="development"; fi
+          bash scripts/build-desktop-android.sh "$version"
+          mkdir -p dist
+          for arch in armv7 arm64; do
+            archive="gosshd-desktop-$version-android-$arch.zip"
+            (cd "build/desktop/android/$version/$arch" && zip -r "$GITHUB_WORKSPACE/dist/$archive" .)
+            (cd dist && sha256sum "$archive" > "desktop-checksums-android-$arch.txt")
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-android
+          path: dist/*
+
   publish-native-packages:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: native-packages
+    needs: [test-core, native-packages, android-packages]
     runs-on: ubuntu-latest
     permissions:
       contents: write

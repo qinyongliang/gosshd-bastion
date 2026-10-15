@@ -13,9 +13,11 @@ import (
 )
 
 type Config struct {
-	Enabled     bool
-	HelperPath  string
-	IdleTimeout time.Duration
+	AndroidBackend         string
+	AndroidBridgeTokenFile string
+	Enabled                bool
+	HelperPath             string
+	IdleTimeout            time.Duration
 }
 
 // CommandFactory is injectable for tests and for independently packaged helpers.
@@ -124,7 +126,7 @@ func (p *process) call(req Request) (Response, error) {
 	return res, nil
 }
 
-// Serve bridges a single actor-owned stream to a private helper subprocess.
+// Serve bridges a single actor-owned stream to a private native backend.
 // It never accepts shell commands or arbitrary helper paths from remote callers.
 func Serve(ctx context.Context, rw io.ReadWriteCloser, cfg Config) error {
 	return serveWithStarter(ctx, rw, cfg, startNativeProcess)

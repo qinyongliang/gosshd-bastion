@@ -17,9 +17,11 @@ type AgentRegistry struct {
 }
 
 type AgentRegistryInfo struct {
-	Version string
-	GOOS    string
-	GOARCH  string
+	InstanceID string
+	BootID     string
+	Version    string
+	GOOS       string
+	GOARCH     string
 }
 
 func NewAgentRegistry() *AgentRegistry {
@@ -49,13 +51,15 @@ func (r *AgentRegistry) RegisterWithInfo(id string, session *yamux.Session, info
 	r.infos[id] = info
 }
 
-func (r *AgentRegistry) Unregister(id string, session *yamux.Session) {
+func (r *AgentRegistry) Unregister(id string, session *yamux.Session) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.agents[id] == session {
 		delete(r.agents, id)
 		delete(r.infos, id)
+		return true
 	}
+	return false
 }
 
 func (r *AgentRegistry) Get(id string) (*yamux.Session, error) {

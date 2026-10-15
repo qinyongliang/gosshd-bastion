@@ -1,4 +1,5 @@
 import { normalizeRemotePath, remoteJoin, remoteParent } from "../remotePath";
+import { isTextFile } from "../fileEditor";
 import { filePreviewType } from "../filePreview";
 import { closeFileTransfers } from "../fileTransfer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -330,6 +331,8 @@ export function FileManager({ target, path, onPathChange: setPath, system, nativ
       selection.selectOnly(entry.path);
       if (onPreviewFile && filePreviewType(entry.name)) {
         onPreviewFile(entry);
+      } else if (onEditFile && isTextFile(entry.name)) {
+        onEditFile(entry.path);
       } else if (nativeOpen) {
         openNative.mutate(entry);
       } else {

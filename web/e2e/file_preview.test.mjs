@@ -3,6 +3,8 @@ import test from "node:test";
 import { filePreviewType, FilePreviewError, MAX_PREVIEW_SIZE, readFilePreview } from "../src/filePreview.ts";
 import { closeFileTransfers } from "../src/fileTransfer.ts";
 
+import { FALLBACK_EDITOR_LANGUAGE, inferEditorLanguage, isTextFile } from "../src/fileEditor.ts";
+
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 test("preview allowlist handles case without embedding active documents", () => {
@@ -97,4 +99,14 @@ test("preview refuses active HTML renamed to PDF", async (t) => {
   const f = await fallbackFixture(t, new Response("<script>alert(1)</script>"));
   const { operation } = await f.read(25, undefined, undefined, undefined, "/example/fake.pdf");
   await assert.rejects(operation, error => error instanceof FilePreviewError && error.code === "invalid");
+});
+
+
+test("text activation recognizes documents, configuration and code without guessing binary contents", () => {
+  for (const name of ["notes.txt", "notes.TXT", "data.JSON", "settings.jsonc", "README.md", "guide.markdown", "app.yaml", "app.yml", "app.conf", ".env", ".env.production", "Dockerfile", "Makefile", "README", "LICENSE", ".gitignore", ".editorconfig", "index.html", "main.ts", "script.py", "events.log", "table.csv"]) assert.ok(isTextFile(name), name);
+  for (const name of ["archive.bin", "archive.zip", "video.mp4", "photo.png", "manual.pdf", "notes.txt.exe", "unknown", "/etc/nginx/data.bin", "file.constructor"]) assert.equal(isTextFile(name), false, name);
+});
+
+test("text activation shares editor language inference while unknown files keep the fallback", () => {
+  for (const [name, language] of [["notes.txt", "plaintext"], ["data.JSON", "json"], ["README.md", "markdown"], ["app.yaml", "yaml"], ["/etc/nginx/sites-enabled/example.conf", "nginx"], ["Dockerfile", "dockerfile"], ["main.ts", "typescript"], ["unknown", FALLBACK_EDITOR_LANGUAGE]]) assert.equal(inferEditorLanguage(name), language, name);
 });

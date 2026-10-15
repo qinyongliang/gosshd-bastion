@@ -1,16 +1,18 @@
-# Desktop control MCP (Windows / macOS)
+# Desktop control MCP (Windows / macOS / Android)
 
-Desktop control is an **independent module**, not an extension of the SSH command executor. Windows/macOS Agents enable its capability by default; `--desktop-disable` opts out. It provides observation, screenshots, native accessibility operations and bounded keyboard/mouse input. It can run as a standalone stdio MCP server, or through a desktop-capable Agent target in GOSSHD Bastion.
+Desktop control is an **independent module**, not an extension of the SSH command executor. Android uses the same wire contract and MCP tools with an opt-in embedded root/adb shell backend; see [Android desktop MCP](android-desktop-mcp.md). Windows/macOS Agents enable its capability by default; `--desktop-disable` opts out. It provides observation, screenshots, native accessibility operations and bounded keyboard/mouse input. It can run as a standalone stdio MCP server, or through a desktop-capable Agent target in GOSSHD Bastion.
 
 ## Module boundaries
 
 - `internal/desktop`: typed JSON-lines RPC, validation, actor-owned sessions, subprocess lifecycle and native backends. It does not import the Bastion, Agent, store or MCP SDK.
+- `internal/desktop/contract`: leaf wire contract shared with the embedded Android backend; core aliases preserve the public API.
+- `internal/desktop/native/android`: independent Go backend using fixed Android platform tools and cancelable private streams.
 - `internal/desktop/mcptools`: MCP schemas/descriptions and image/tree presentation, reusable outside GOSSHD.
 - `internal/server/mcp_desktop.go`: the small identity/authorization, Agent transport and audit adapter.
 - `internal/desktop/native/windows`: independent C# console helper using UI Automation, Win32 capture and input APIs.
 - `internal/desktop/native/macos`: independent Swift helper using Accessibility and ScreenCaptureKit.
 
-The native helper receives only desktop RPC. There is no shell-command method, public helper port, SSH credential dependency or native import in the server. Remote callers cannot select a helper executable or pass arguments to a launched app.
+Each native backend receives only typed desktop RPC. There is no shell-command method, public helper port, SSH credential dependency or native import in the server. Remote callers cannot select a helper executable or pass arguments to a launched app.
 
 ## Prerequisites and boundaries
 
@@ -29,6 +31,8 @@ Every desktop RPC/MCP operation accepts `params.mode`:
 - `"auto"`: explicitly permits **background-first, foreground-when-needed** operation. Element clicks prefer Invoke/AXPress; missing click or requested-axis scroll capabilities may fall back to activation and foreground pointer/wheel input. Keys, typing and other explicitly requested foreground methods are allowed. It does not hard-block older helpers. Fallback occurs only after a pre-action capability check, not after an uncertain provider action/timeout. `set_value` and unsupported semantic actions still fail rather than guessing a destructive keyboard sequence; the caller can reobserve and choose an appropriate foreground tool.
 - `"background"`: an optional **fail-closed semantic-only contract**, not a best-effort hint. The helper does not activate or restore windows, set shared keyboard focus, move the shared pointer, inject global keys/mouse events, or fall back to foreground input. Unsupported paths return `error_code: "background_not_supported"`; the human-readable error also starts with that identifier. Other errors (permissions, stale snapshots, provider failures, invalid input) remain failures, not an invitation to retry with foreground input.
 - Other strings or non-string mode values are invalid. Background support is explicitly advertised by native `status` as `background_supported: true`, `supported_modes: ["default","auto","background"]`, and protocol version 2. Only explicit strict-background requests are checked: the session service and Agent/helper bridge reject those requests to older helpers that lack this capability. Default and auto calls remain compatible with older helpers. Legacy results may not include method metadata and must not be labeled guaranteed background.
+
+These strict-background capabilities apply to Windows/macOS. Android advertises default/auto only and rejects strict background input and capture because its shell backend controls the shared primary display.
 
 Mode is **per call**, not sticky for a session. Set it on observation, capture **and every operation** that must remain background. Snapshot binding, control authorization and OS permissions are unchanged.
 
@@ -315,3 +319,5 @@ go test ./internal/desktop -run TestMacNativeFixture -count=1 -v
 A missing OS grant is not a successful native-control test. Report build/self-test, permission-denied checks and real UI tests separately.
 
 The observation/action structure was informed by computer-use workflows and the public [Windows-MCP project](https://github.com/CursorTouch/Windows-MCP). This module has independent implementations and no dependency on that project.
+
+Android also offers a [paired no-root accessibility companion](android-accessibility.md) with ADB/Shizuku activation, native Unicode editing and opt-in foreground lifecycle. The install wrapper routes by actual su authorization while preserving the root/ADB shell backend.

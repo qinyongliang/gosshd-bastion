@@ -17,6 +17,7 @@ import (
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 	"github.com/qinyongliang/gosshd-bastion/internal/relay"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"
 )
@@ -27,6 +28,8 @@ type Client struct {
 	cfg             Config
 	id              string
 	assignedAgentID string
+	instanceID      string
+	bootID          string
 }
 
 var errServerRequired = errors.New("server is required")
@@ -60,7 +63,7 @@ func New(cfg Config) (*Client, error) {
 	if cfg.SSHPort == "" {
 		cfg.SSHPort = os.Getenv("GOSSHD_SSH_PORT")
 	}
-	return &Client{cfg: cfg, id: idFile.ID, assignedAgentID: idFile.AssignedAgentID}, nil
+	return &Client{cfg: cfg, id: idFile.ID, assignedAgentID: idFile.AssignedAgentID, instanceID: uuid.NewString(), bootID: loadAgentBootID(idFile.ID)}, nil
 }
 
 // Close releases Agent-owned forwarding workers; session reconnects do not.
@@ -88,6 +91,11 @@ func (c *Client) SSHAddress() string {
 }
 
 func (c *Client) Run(ctx context.Context) error {
+	release, err := acquireAgentInstanceGuard(instanceGuardKey(c.cfg, c.id), c.cfg.IDFile)
+	if err != nil {
+		return err
+	}
+	defer release()
 	defer c.closeForwarder()
 	if restarting, err := finalizeLegacyUpdate(); err != nil {
 		return err
@@ -133,7 +141,7 @@ func NewEmbedded(cfg Config, id string) (*Client, error) {
 	if cfg.Shell == "" {
 		cfg.Shell = protocol.DefaultShell()
 	}
-	return &Client{cfg: cfg, id: id}, nil
+	return &Client{cfg: cfg, id: id, instanceID: uuid.NewString(), bootID: loadAgentBootID(id)}, nil
 }
 
 func (c *Client) ServeSession(ctx context.Context, session *yamux.Session) error {
@@ -179,6 +187,8 @@ func (c *Client) runOnce(ctx context.Context) error {
 	if err := protocol.WriteJSONLine(conn, protocol.AgentHello{
 		ID:              c.id,
 		AssignedAgentID: c.assignedAgentID,
+		InstanceID:      c.instanceID,
+		BootID:          c.bootID,
 		EnrollmentToken: c.cfg.EnrollmentToken,
 		Version:         c.cfg.Version,
 		GOOS:            runtime.GOOS,

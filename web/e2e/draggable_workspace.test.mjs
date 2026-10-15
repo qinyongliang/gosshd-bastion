@@ -82,8 +82,7 @@ try {
   await view("files").locator(".dock-panel-toggle").click();
 
   // Open an editor, then make it dirty and move it twice without remounting it.
-  await view("files").locator(".file-name").filter({ hasText: "app.conf" }).click({ button: "right" });
-  await page.locator(".file-context-menu").getByRole("menuitem", { name: "编辑", exact: true }).click();
+  await view("files").locator(".file-name").filter({ hasText: "app.conf" }).dblclick();
   await view("editor").locator(".monaco-editor textarea").waitFor();
   await view("editor").locator(".monaco-editor .view-lines").click({ position: { x: 100, y: 10 } });
   await page.keyboard.press("Control+End");

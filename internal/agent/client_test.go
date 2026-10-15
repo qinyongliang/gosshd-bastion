@@ -1,10 +1,20 @@
 package agent
 
 import (
+	"bufio"
+	"bytes"
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
+	"github.com/qinyongliang/gosshd-bastion/internal/relay"
 )
 
 func TestNewRequiresExplicitServer(t *testing.T) {
@@ -156,5 +166,72 @@ func TestCommandEnvironmentPreservesExistingTERM(t *testing.T) {
 	}
 	if got, want := env[3], "XDG_CONFIG_HOME=/root/.config"; got != want {
 		t.Fatalf("XDG_CONFIG_HOME mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestClientInstanceIsNotCopiedWithAgentIDFile(t *testing.T) {
+	cfg := Config{Server: "http://agent.example.test:8880", IDFile: filepath.Join(t.TempDir(), "agent.json"), Root: t.TempDir()}
+	first, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.id != second.id {
+		t.Fatal("persisted runtime ID changed")
+	}
+	if !protocol.IsValidID(first.instanceID) || !protocol.IsValidID(second.instanceID) || first.instanceID == second.instanceID {
+		t.Fatal("distinct clients need distinct valid in-memory instance IDs")
+	}
+	data, err := os.ReadFile(cfg.IDFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("instance_id")) || bytes.Contains(data, []byte(first.instanceID)) || bytes.Contains(data, []byte(second.instanceID)) {
+		t.Fatal("instance ID must not be persisted or copied with the installation")
+	}
+}
+
+func TestClientReconnectSendsStableInstanceID(t *testing.T) {
+	hellos := make(chan protocol.AgentHello, 2)
+	upgrader := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		conn := relay.NewWSConn(ws)
+		defer conn.Close()
+		hello, err := protocol.ReadJSONLine[protocol.AgentHello](bufio.NewReader(conn))
+		if err != nil {
+			t.Errorf("read hello: %v", err)
+			return
+		}
+		hellos <- hello
+		if err := protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: true}); err != nil {
+			t.Errorf("write hello response: %v", err)
+		}
+	}))
+	defer srv.Close()
+	client, err := New(Config{Server: srv.URL, IDFile: filepath.Join(t.TempDir(), "agent.json"), Root: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := client.runOnce(ctx); err == nil {
+			t.Fatal("closed connection should trigger reconnect")
+		}
+		select {
+		case hello := <-hellos:
+			if hello.InstanceID != client.instanceID || !protocol.IsValidID(hello.InstanceID) || hello.ID != client.ID() || hello.BootID != client.bootID {
+				t.Fatalf("reconnect did not preserve instance identity: %+v", hello)
+			}
+		case <-ctx.Done():
+			t.Fatal("Agent did not send hello")
+		}
 	}
 }

@@ -22,3 +22,9 @@ scripts/forward-load/**/__pycache__/
 /docs/http-forward-load-results.md
 /local-only/
 /.github/workflows/deploy-arm64.yml
+
+# Signing private material is local-only; only public X.509 certificates are tracked.
+*.keystore
+*.jks
+*.p12
+*.pfx

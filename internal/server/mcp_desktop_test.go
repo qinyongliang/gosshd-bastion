@@ -42,6 +42,9 @@ func desktopTestApp(t *testing.T) (*App, store.User, store.SSHTarget) {
 	return app, user, target
 }
 func fakeDesktopAgent(t *testing.T, app *App, id string) {
+	fakeDesktopAgentPlatform(t, app, id, "windows")
+}
+func fakeDesktopAgentPlatform(t *testing.T, app *App, id, platform string) {
 	t.Helper()
 	a, b := net.Pipe()
 	server, err := yamux.Server(a, nil)
@@ -52,7 +55,7 @@ func fakeDesktopAgent(t *testing.T, app *App, id string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.registry.RegisterWithInfo(id, server, AgentRegistryInfo{GOOS: "windows", GOARCH: "amd64"})
+	app.registry.RegisterWithInfo(id, server, AgentRegistryInfo{GOOS: platform, GOARCH: "arm64"})
 	var workers sync.WaitGroup
 	workers.Add(1)
 	go func() {

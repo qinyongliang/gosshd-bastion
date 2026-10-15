@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -632,5 +634,55 @@ func TestHistorySuppressedTerminalCommandAddsLeadingSpace(t *testing.T) {
 	}
 	if got := historySuppressedTerminalCommand(" echo already"); got != " echo already" {
 		t.Fatalf("history suppressed command should preserve existing leading space, got %q", got)
+	}
+}
+
+// Agent-normalized WinPTY prompt records use the same OSC events as ConPTY.
+// This exercises the actual command waiter: output silence is not completion,
+// and the final prompt completes the call without needing any later output.
+func TestTerminalSessionWindowsPromptCompletesMCPCommand(t *testing.T) {
+	for _, code := range []int{0, 1} {
+		t.Run(fmt.Sprintf("exit-%d", code), func(t *testing.T) {
+			inputRead, inputWrite := io.Pipe()
+			defer inputRead.Close()
+			defer inputWrite.Close()
+			session := &terminalSession{id: "windows-session", ctx: context.Background(), input: inputWrite, clients: map[*terminalWSWriter]bool{}, screen: newTerminalScreenBuffer(24)}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			done := make(chan terminalCommandAttempt, 1)
+			go func() { done <- session.trySendCommand(ctx, "echo windows-result") }()
+			command, err := bufio.NewReader(inputRead).ReadString('\r')
+			if err != nil {
+				t.Fatal(err)
+			}
+			if command != " echo windows-result\r" {
+				t.Fatalf("input: %q", command)
+			}
+			session.writeOutput("output", []byte("echo windows-result\r\nwindows-result\r\n"))
+			select {
+			case result := <-done:
+				t.Fatalf("command completed without a prompt: %+v", result)
+			case <-time.After(100 * time.Millisecond):
+			}
+			// Match the Agent's normalized completion/prompt/cwd ordering.
+			prompt := fmt.Sprintf("\x1b]633;D;%d\a\x1b]633;A\a\x1b]633;P;Cwd=C:\\work\\项目\a", code)
+			for i := 0; i < len(prompt); i++ {
+				session.writeOutput("output", []byte(prompt[i:i+1]))
+			}
+			select {
+			case result := <-done:
+				if result.Err != nil || !result.Sent || !result.Acquired || result.Result.ExitCode != code {
+					t.Fatalf("completion: %+v", result)
+				}
+				if !strings.Contains(result.Result.Output, "windows-result") || strings.Contains(result.Result.Output, "633;") {
+					t.Fatalf("output: %q", result.Result.Output)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("completed Windows command still waiting for MCP timeout")
+			}
+			if got := session.currentDirectory; got != `C:\work\项目` {
+				t.Fatalf("cwd: %q", got)
+			}
+		})
 	}
 }

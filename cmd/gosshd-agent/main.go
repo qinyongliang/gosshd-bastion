@@ -21,8 +21,10 @@ func parseAgentFlags(flags *flag.FlagSet, args []string) (agent.Config, error) {
 	flags.StringVar(&cfg.Root, "root", "", "working directory; defaults to the current user's home directory")
 	flags.StringVar(&cfg.SSHHost, "ssh-host", "", "public SSH host shown in connection hints")
 	flags.StringVar(&cfg.SSHPort, "ssh-port", "", "public SSH port shown in connection hints")
-	flags.BoolVar(&cfg.Desktop.Enabled, "desktop-enable", agent.DesktopEnabledByDefault(runtime.GOOS), "enable desktop RPC (default on Windows/macOS); requires a logged-in user desktop")
-	flags.StringVar(&cfg.Desktop.HelperPath, "desktop-helper", "", "absolute path to independent desktop helper (macOS app executable or Windows exe)")
+	flags.BoolVar(&cfg.Desktop.Enabled, "desktop-enable", agent.DesktopEnabledByDefault(runtime.GOOS), "enable desktop RPC (default on Windows/macOS); requires a logged-in user desktop; Android opt-in needs unlocked shell or paired accessibility")
+	flags.StringVar(&cfg.Desktop.HelperPath, "desktop-helper", "", "absolute native helper path (macOS/Windows); leave empty for embedded Android backend")
+	flags.StringVar(&cfg.Desktop.AndroidBackend, "android-backend", "auto", "Android backend: auto, shell (root/adb) or accessibility (companion app)")
+	flags.StringVar(&cfg.Desktop.AndroidBridgeTokenFile, "android-bridge-token-file", "", "private local pairing token file for Android companion")
 	flags.BoolVar(&cfg.DesktopDisabled, "desktop-disable", false, "disable desktop RPC, including its default Windows/macOS capability")
 	if err := flags.Parse(args); err != nil {
 		return cfg, err

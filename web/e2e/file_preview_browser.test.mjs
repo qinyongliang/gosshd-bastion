@@ -26,12 +26,13 @@ try {
     }, locale);
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
-    const errors = [], downloads = [], reads = [], sockets = [];
+    const errors = [], downloads = [], reads = [], sockets = [], textReads = [], writes = [];
     page.on("pageerror", error => errors.push(error.message));
     page.on("download", download => downloads.push(download));
-    const names = ["photo.PNG", "song.wav", "manual.pdf", "broken.png", "slow.png", "large.png", "archive.bin"];
-    const bodies = { "photo.PNG": png, "song.wav": wav, "manual.pdf": Buffer.from(pdf), "broken.png": Buffer.from("not an image"), "slow.png": png, "archive.bin": Buffer.from("archive") };
-    const entries = names.map(name => ({ name, path: `/preview/${name}`, type: "file", size: name === "large.png" ? 256 * 1024 * 1024 + 1 : bodies[name].length, mode: "-rw-------" }));
+    const names = ["photo.PNG", "song.wav", "manual.pdf", "broken.png", "slow.png", "large.png", "archive.bin", "notes.txt", "data.JSON", "readme.md"];
+    const texts = { "notes.txt": "Hello text\n", "data.JSON": '{"enabled": true}\n', "readme.md": "# Readme\n\nHello Markdown\n" };
+    const bodies = { ...Object.fromEntries(Object.entries(texts).map(([name, content]) => [name, Buffer.from(content)])), "photo.PNG": png, "song.wav": wav, "manual.pdf": Buffer.from(pdf), "broken.png": Buffer.from("not an image"), "slow.png": png, "archive.bin": Buffer.from("archive") };
+    const entries = names.map(name => ({ name, path: `/preview/${"a-long-directory-name/".repeat(4)}${name}`, type: "file", size: name === "large.png" ? 256 * 1024 * 1024 + 1 : bodies[name].length, mode: "-rw-------" }));
     await page.route("**/api/targets/*/system**", route => route.fulfill({ json: { os: "linux", hostname: "preview.example", filesystems: [] } }));
     await page.route("**/api/targets/*/files?**", route => route.fulfill({ json: { path: "/preview", entries } }));
     await page.routeWebSocket("**/api/targets/*/files/download/ws?**", socket => {
@@ -42,6 +43,17 @@ try {
       const name = new URL(route.request().url()).searchParams.get("path").split("/").at(-1);
       reads.push(name);
       return route.fulfill({ body: bodies[name], contentType: "application/octet-stream" });
+    });
+    await page.route("**/api/targets/*/files/read?**", route => {
+      const path = new URL(route.request().url()).searchParams.get("path");
+      const name = path.split("/").at(-1);
+      textReads.push(name);
+      return route.fulfill({ json: { path, content: texts[name] } });
+    });
+    await page.route("**/api/targets/*/files/write", route => {
+      const body = route.request().postDataJSON();
+      writes.push(body);
+      return route.fulfill({ json: { path: body.path, content: body.content } });
     });
     const base = process.env.GOSSHD_UI_E2E_BASE_URL;
     await page.goto(base);
@@ -63,6 +75,32 @@ try {
       await preview.getByRole("button", { name: locale === "en" ? "Close" : "关闭", exact: true }).click();
       await preview.waitFor({ state: "detached" });
     };
+    const compactToolbar = async pane => {
+      const view = pane.locator("..");
+      const originalWidth = await view.evaluate(element => element.style.width);
+      try {
+        for (const width of [240, 160, 100]) {
+          await view.evaluate((element, width) => { element.style.width = `${width}px`; }, width);
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          const state = await pane.evaluate(element => {
+            const pane = element.getBoundingClientRect();
+            const header = element.querySelector(".editor-pane-head").getBoundingClientRect();
+            const button = element.querySelector(".editor-pane-actions button:last-child");
+            const rect = button.getBoundingClientRect();
+            const title = element.querySelector(".dock-drag-handle > span > span");
+            return {
+              paneWidth: pane.width, headerWidth: header.width,
+              closeInside: rect.left >= pane.left && rect.right <= pane.right + 1 && rect.top >= pane.top && rect.bottom <= pane.bottom,
+              closeHit: button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
+              titleClipped: title.scrollWidth > title.clientWidth,
+              titleEllipsis: getComputedStyle(title).textOverflow === "ellipsis",
+            };
+          });
+          assert.ok(state.headerWidth <= state.paneWidth + 1 && state.closeInside && state.closeHit, `Close button must stay inside and clickable at ${width}px: ${JSON.stringify(state)}`);
+          assert.ok(state.titleClipped && state.titleEllipsis, "Long titles must truncate rather than displace actions");
+        }
+      } finally { await view.evaluate((element, width) => { element.style.width = width; }, originalWidth); }
+    };
     await row("photo.PNG").dblclick();
     await page.waitForFunction(() => document.querySelector(".file-preview-content img")?.naturalWidth === 1);
     assert.equal(await preview.locator('[data-transport="relay"]').count(), 1);
@@ -72,6 +110,7 @@ try {
     await row("photo.PNG").dblclick();
     assert.equal(await preview.count(), 1, "Opening an existing preview should focus it");
     assert.equal(reads.filter(name => name === "photo.PNG").length, 1);
+    await compactToolbar(preview);
     const imageURL = await preview.locator("img").getAttribute("src");
     await close();
     assert.ok(await page.evaluate(url => window.previewURLs.revoked.includes(url), imageURL));
@@ -83,7 +122,7 @@ try {
     await row("manual.pdf").dblclick();
     const frame = preview.locator("iframe");
     await frame.waitFor();
-    assert.equal(await frame.getAttribute("title"), "/preview/manual.pdf");
+    assert.equal(await frame.getAttribute("title"), entries.find(entry => entry.name === "manual.pdf").path);
     assert.equal(await frame.getAttribute("sandbox"), null, "Native PDF viewer must not be disabled by sandbox flags");
     await page.waitForFunction(() => document.querySelector(".file-preview-content iframe")?.contentDocument?.contentType === "application/pdf");
     await close();
@@ -110,6 +149,28 @@ try {
     await closed;
     assert.ok(!reads.includes("slow.png"));
     assert.equal(downloads.length, 0, "Preview must never invoke browser download");
+    for (const [name, content] of Object.entries(texts)) {
+      await row(name).dblclick();
+      const editor = page.locator(".dock-view-editor .editor-pane");
+      await editor.locator(".monaco-editor textarea").waitFor();
+      await page.waitForFunction(content => document.querySelector(".dock-view-editor .view-lines")?.textContent.replace(/\u00a0/g, " ").includes(content), content.split("\n")[0]);
+      assert.equal(await editor.count(), 1);
+      await compactToolbar(editor);
+      if (name === "notes.txt") {
+        await editor.locator(".monaco-editor .view-lines").click({ position: { x: 30, y: 10 } });
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("!");
+        await page.waitForFunction(() => document.querySelector(".dock-view-editor .editor-pane-head")?.textContent.includes("* "));
+        await compactToolbar(editor);
+        await editor.getByRole("button", { name: locale === "en" ? "Save" : "保存", exact: true }).click();
+        await page.waitForFunction(() => !document.querySelector(".dock-view-editor .editor-pane-head")?.textContent.includes("* "));
+        assert.equal(writes.at(-1).content, `${content}!`, "Resizing preserves the original buffer and the saved edit");
+      }
+      await editor.getByRole("button", { name: locale === "en" ? "Close" : "关闭", exact: true }).click();
+      await editor.waitFor({ state: "detached" });
+      assert.equal(downloads.length, 0, "Text activation must open an editor rather than download");
+    }
+    assert.deepEqual(textReads, Object.keys(texts));
     // The explicit context-menu action still downloads previewable files.
     await row("photo.PNG").click({ button: "right" });
     const download = page.waitForEvent("download");

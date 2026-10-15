@@ -1,0 +1,90 @@
+name: Android companion APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'client/android-desktop/**'
+      - 'scripts/build-desktop-android-companion.ps1'
+      - '.github/workflows/android-companion.yml'
+  pull_request:
+    paths:
+      - 'client/android-desktop/**'
+      - 'scripts/build-desktop-android-companion.ps1'
+      - '.github/workflows/android-companion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check public repository content
+        run: node scripts/check-public-content.mjs
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+          log-accepted-android-sdk-licenses: false
+      - name: Prepare SDK
+        shell: pwsh
+        run: |
+          & sdkmanager.bat "platforms;android-35" "build-tools;35.0.0"
+          if ($LASTEXITCODE -ne 0) { throw "SDK preparation failed" }
+      - name: Compile pull requests without signing secrets
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: ./scripts/build-desktop-android-companion.ps1 -Debug
+      - name: Sign APK using the maintained release certificate
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          ANDROID_DESKTOP_KEYSTORE_B64: ${{ secrets.ANDROID_DESKTOP_KEYSTORE_B64 }}
+          GOSSHD_APK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_DESKTOP_KEYSTORE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not $env:ANDROID_DESKTOP_KEYSTORE_B64 -or -not $env:GOSSHD_APK_KEYSTORE_PASSWORD) { throw "Configure the Android signing Secrets before packaging; no debug-signing fallback is allowed." }
+          $key = Join-Path $env:RUNNER_TEMP "gosshd-android-signing.p12"
+          try {
+            [IO.File]::WriteAllBytes($key, [Convert]::FromBase64String($env:ANDROID_DESKTOP_KEYSTORE_B64))
+            $version = "ci-$env:GITHUB_RUN_NUMBER"
+            if ($env:GITHUB_REF_TYPE -eq "tag") { $version = $env:GITHUB_REF_NAME }
+            ./scripts/build-desktop-android-companion.ps1 -SigningKey $key -SigningAlias companion -VersionCode ([int]$env:GITHUB_RUN_NUMBER) -VersionName $version
+          } finally {
+            if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Force }
+          }
+      - name: Upload only APK, checksum and public certificate
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-companion-signed
+          path: |
+            dist/gosshd-desktop-companion.apk
+            dist/gosshd-desktop-companion.apk.sha256
+            dist/gosshd-desktop-companion-certificate.pem
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-companion-signed
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/gosshd-desktop-companion.apk
+            dist/gosshd-desktop-companion.apk.sha256
+            dist/gosshd-desktop-companion-certificate.pem

@@ -30,8 +30,17 @@
 .dock-view .dock-drag-handle:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .dock-view .dock-drag-handle:active { cursor: grabbing; }
 .dock-view .dock-panel-toggle > svg { transform: none; }
-.dock-view .editor-pane-head > .dock-drag-handle { flex: 1; }
-.dock-view .editor-pane-actions { flex: none; }
+.dock-view .editor-pane { min-width: 0; grid-template-columns: minmax(0, 1fr); container-type: inline-size; }
+.dock-view .editor-pane-head { min-width: 0; max-width: 100%; overflow: hidden; }
+.dock-view .editor-pane-head > .dock-drag-handle { flex: 1 1 0; min-width: 0; }
+.dock-view .editor-pane-actions { display: inline-flex; flex: none; align-items: center; }
+.dock-view .editor-pane-actions > .icon-button { flex-shrink: 0; }
+@container (max-width: 240px) {
+  .dock-view .editor-pane-head { gap: 4px; padding-inline: 4px; }
+  .dock-view .editor-pane-head span { font-size: 11px; }
+  .dock-view .editor-pane-head .file-preview-transport { display: none; }
+  .dock-view .editor-pane-actions > .icon-button { flex: 0 0 28px; width: 28px; min-width: 28px; min-height: 28px; padding: 4px; }
+}
 .dock-view-terminal .terminal-panel { grid-template-rows: 38px minmax(0, 1fr) auto; padding: 0; }
 .dock-view .terminal-panel.fullscreen .terminal-pane-toolbar { padding: 3px 7px; }
 .dock-view .terminal-pane-toolbar { position: static; grid-row: 1; grid-column: 1; width: 100%; min-height: 38px; padding: 3px 7px; justify-content: flex-end; border-bottom: 1px solid #26364b; background: #111c2c; opacity: 1; transform: none; pointer-events: auto; }

@@ -4,6 +4,7 @@ package agent
 
 import (
 	"bufio"
+	"io"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
+	"golang.org/x/sys/windows"
 	"golang.org/x/text/transform"
 )
 
@@ -74,7 +76,7 @@ func TestWindowsShellUsesConPTYForInteractiveInput(t *testing.T) {
 	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte{0x04}}); err != nil {
 		t.Fatal(err)
 	}
-	if code := readExitCode(t, reader); code != 0 && code != 0xC000013A {
+	if code := readExitCode(t, reader); code != 0 && uint32(code) != 0xC000013A {
 		t.Fatalf("exit code mismatch: got %d want 0 or CTRL_C_EVENT", code)
 	}
 }
@@ -167,5 +169,59 @@ func readExitCode(t *testing.T, reader *bufio.Reader) int {
 		if frame.Type == protocol.FrameExit {
 			return protocol.ExitCode(frame)
 		}
+	}
+}
+
+func TestWindowsConPTYPromptPreservesIntegration(t *testing.T) {
+	if err := windows.NewLazySystemDLL("kernel32.dll").NewProc("CreatePseudoConsole").Find(); err != nil {
+		t.Skip("ConPTY is not available on this Windows version")
+	}
+	root := t.TempDir()
+	client, err := New(Config{Server: "http://agent.example.test:8880", IDFile: filepath.Join(t.TempDir(), "agent.json"), Shell: "cmd.exe", Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentConn, peerConn := net.Pipe()
+	defer agentConn.Close()
+	defer peerConn.Close()
+	_ = peerConn.SetDeadline(time.Now().Add(10 * time.Second))
+	done := make(chan error, 1)
+	go func() {
+		done <- client.handleConPTYShell(agentConn, bufio.NewReader(agentConn), protocol.StreamRequest{Type: protocol.StreamShell, Width: 200, Height: 30})
+		close(done)
+	}()
+	defer func() {
+		_ = peerConn.SetDeadline(time.Now().Add(3 * time.Second))
+		go io.Copy(io.Discard, peerConn)
+		_ = protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte("exit\r")})
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("ConPTY shell did not stop")
+		}
+	}()
+	reader := bufio.NewReader(peerConn)
+	response, err := protocol.ReadJSONLine[protocol.StreamResponse](reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK {
+		t.Fatalf("start: %+v", response)
+	}
+	output := readFramesUntil(t, reader, root+">")
+	for _, marker := range []string{"\x1b]633;D;0", "\x1b]633;A", "\x1b]633;P;Cwd=" + root} {
+		if !strings.Contains(output, marker) {
+			t.Errorf("missing %q in ConPTY prompt %q", marker, output)
+		}
+	}
+	if strings.Contains(output, "__GOSSHD_") {
+		t.Errorf("legacy marker used for ConPTY: %q", output)
+	}
+	if err := protocol.WriteFrame(peerConn, protocol.Frame{Type: protocol.FrameStdin, Data: []byte("exit\r")}); err != nil {
+		t.Fatal(err)
+	}
+	_ = readExitCode(t, reader)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

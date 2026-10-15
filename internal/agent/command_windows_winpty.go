@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/qinyongliang/gosshd-bastion/internal/protocol"
 
 	winpty "github.com/iamacarpet/go-winpty"
@@ -25,10 +27,11 @@ func (c *Client) handleWinPTYShell(stream io.ReadWriteCloser, reader *bufio.Read
 	if err != nil {
 		return err
 	}
+	marker := "__GOSSHD_" + strings.ReplaceAll(uuid.NewString(), "-", "") + "__"
 	cols, rows := terminalSize(req)
 	pty, err := winpty.OpenWithOptions(winpty.Options{
 		DLLPrefix:   filepath.Dir(exePath),
-		Command:     windowsCommandLine(c.cfg.Shell),
+		Command:     windowsCommandLineWithArgs(c.cfg.Shell, windowsLegacyInteractiveShellArgs(c.cfg.Shell, marker)),
 		Dir:         c.cfg.Root,
 		Env:         os.Environ(),
 		Flags:       winpty.WINPTY_FLAG_ALLOW_CURPROC_DESKTOP_CREATION,
@@ -45,9 +48,16 @@ func (c *Client) handleWinPTYShell(stream io.ReadWriteCloser, reader *bufio.Read
 	}
 
 	go copyFramesToWinPTY(pty, reader)
-	go copyReaderToFrame(stream, protocol.FrameStdout, pty.StdOut)
+	outputDone := make(chan struct{})
+	go func() {
+		defer close(outputDone)
+		copyLegacyWindowsReaderToFrame(stream, protocol.FrameStdout, pty.StdOut, marker)
+	}()
 
 	code := waitHandleExitCode(pty.GetProcHandle())
+	// Flush buffered prompt/output bytes before the exit frame. WinPTY exits
+	// automatically with its child and closes its output pipe.
+	<-outputDone
 	_ = protocol.WriteFrame(stream, protocol.ExitFrame(code))
 	return nil
 }

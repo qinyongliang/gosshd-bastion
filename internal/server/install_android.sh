@@ -6,6 +6,13 @@ fi
 if [ "$os" = android ]; then
   case "$mode" in run|install) ;; *) echo 'usage: sh installer.sh [run|install]' >&2; exit 1 ;; esac
   umask 077
+  # Validate desktop selection before touching an existing installation.
+  if [ "${GOSSHD_DESKTOP_ENABLE:-0}" = 1 ];then
+    case "${GOSSHD_ANDROID_BACKEND:-shell}" in shell|accessibility) ;; *) echo 'Invalid Android desktop backend.' >&2;exit 1;;esac
+    if [ "${GOSSHD_ANDROID_BACKEND:-shell}" = accessibility ];then
+      [ -n "${GOSSHD_ANDROID_BRIDGE_TOKEN_FILE:-}" ] && [ -f "$GOSSHD_ANDROID_BRIDGE_TOKEN_FILE" ] || { echo 'Private pairing token file required.' >&2;exit 1; }
+    fi
+  fi
   termux=false
   if [ "$(id -u)" != 0 ] && [ -n "${PREFIX:-}" ] && [ -x "$PREFIX/bin/sh" ]; then
     termux=true
@@ -88,6 +95,14 @@ if [ "$os" = android ]; then
     printf ' --id-file '; quote_sh "$android_dir/agent.json"
     printf ' --shell '; quote_sh "$android_shell"
     printf ' --root '; quote_sh "$android_home"
+    if [ "${GOSSHD_DESKTOP_ENABLE:-0}" = 1 ];then
+      case "${GOSSHD_ANDROID_BACKEND:-shell}" in shell|accessibility) ;; *) echo 'Invalid Android desktop backend.' >&2;exit 1;;esac
+      printf ' --desktop-enable --android-backend ';quote_sh "${GOSSHD_ANDROID_BACKEND:-shell}"
+      if [ "${GOSSHD_ANDROID_BACKEND:-shell}" = accessibility ];then
+        [ -n "${GOSSHD_ANDROID_BRIDGE_TOKEN_FILE:-}" ] && [ -f "$GOSSHD_ANDROID_BRIDGE_TOKEN_FILE" ] || { echo 'Private pairing token file required.' >&2;exit 1; }
+        printf ' --android-bridge-token-file ';quote_sh "$GOSSHD_ANDROID_BRIDGE_TOKEN_FILE"
+      fi
+    fi
     printf '\n'
   } > "$tmp.run"
   chmod 700 "$tmp.run"

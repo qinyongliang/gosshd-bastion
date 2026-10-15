@@ -1,0 +1,4 @@
+<resources>
+  <item type="id" name="editor"/><item type="id" name="tap"/><item type="id" name="result"/>
+  <item type="id" name="toggle"/><item type="id" name="scroll"/><item type="id" name="slider"/>
+</resources>

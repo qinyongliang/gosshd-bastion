@@ -18,10 +18,14 @@ import (
 	desktopmcp "github.com/qinyongliang/gosshd-bastion/internal/desktop/mcptools"
 )
 
+var version = "dev"
+
 func main() {
-	allowRead := flag.Bool("allow-read", false, "explicitly allow reading this logged-in user's desktop")
-	allowControl := flag.Bool("allow-control", false, "explicitly allow controlling this logged-in user's desktop (also requires allow-read)")
-	helper := flag.String("desktop-helper", "", "absolute native helper executable path (required on macOS unless adjacent app bundle exists)")
+	allowRead := flag.Bool("allow-read", false, "explicitly allow reading this user desktop or unlocked Android shell/paired accessibility screen")
+	allowControl := flag.Bool("allow-control", false, "explicitly allow controlling this user desktop or unlocked Android shell/paired accessibility screen (also requires allow-read)")
+	helper := flag.String("desktop-helper", "", "absolute native helper executable path (macOS requires a path unless an adjacent app bundle exists; leave empty on Android)")
+	backend := flag.String("android-backend", "auto", "Android backend: auto, shell or accessibility")
+	tokenFile := flag.String("android-bridge-token-file", "", "private Android companion pairing token file")
 	flag.Parse()
 	if *allowControl && !*allowRead {
 		log.Fatal("allow-control requires allow-read")
@@ -37,13 +41,15 @@ func main() {
 		},
 		Dial: func(_ context.Context, _ string) (io.ReadWriteCloser, error) {
 			client, helperStream := net.Pipe()
-			go func() { _ = desktop.Serve(ctx, helperStream, desktop.Config{Enabled: true, HelperPath: *helper}) }()
+			go func() {
+				_ = desktop.Serve(ctx, helperStream, desktop.Config{Enabled: true, HelperPath: *helper, AndroidBackend: *backend, AndroidBridgeTokenFile: *tokenFile})
+			}()
 			return client, nil
 		},
 		Audit: func(_ context.Context, event desktop.Event) error { return json.NewEncoder(os.Stderr).Encode(event) },
 	})
 	defer service.Close()
-	server := mcp.NewServer(&mcp.Implementation{Name: "gosshd-desktop", Version: "1"}, &mcp.ServerOptions{Instructions: "Use desktop_session_open with target_id local. " + desktopmcp.OperatorInstructions})
+	server := mcp.NewServer(&mcp.Implementation{Name: "gosshd-desktop", Version: version}, &mcp.ServerOptions{Instructions: "Use desktop_session_open with target_id local. " + desktopmcp.OperatorInstructions})
 	desktopmcp.RegisterMCP(server, service, "local")
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
 		log.Fatal(err)
