@@ -88,11 +88,8 @@ func runAndroidEmulatorFixture(t *testing.T, auxiliary bool) {
 	}
 	decode := func(res *mcp.CallToolResult, out any) {
 		t.Helper()
-		wire, err := json.Marshal(res.StructuredContent)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err = json.Unmarshal(wire, out); err != nil {
+		wire := resultJSON(t, res)
+		if err := json.Unmarshal(wire, out); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -164,7 +161,7 @@ func runAndroidEmulatorFixture(t *testing.T, auxiliary bool) {
 		var result *mcp.CallToolResult
 		for attempt := 0; attempt < 10; attempt++ {
 			var err error
-			result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_get_window_state", Arguments: map[string]any{"session_id": sid, "params": desktop.Params{Window: ptrWindow(target()), IncludeText: true, MaxDepth: 16}}})
+			result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_get_window_state", Arguments: map[string]any{"session_id": sid, "params": ToolParams{Params: desktop.Params{Window: ptrWindow(target()), IncludeText: true, MaxDepth: 16}, IncludeElementDetails: true}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -185,6 +182,7 @@ func runAndroidEmulatorFixture(t *testing.T, auxiliary bool) {
 		if err := json.Unmarshal(e.Result, &state); err != nil {
 			t.Fatal(err)
 		}
+		state.Tree = desktop.RenderTree(state.Elements, state.Truncated)
 		images := 0
 		for _, c := range result.Content {
 			if img, ok := c.(*mcp.ImageContent); ok {

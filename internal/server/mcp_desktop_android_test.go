@@ -39,7 +39,7 @@ func TestDesktopAndroidPlatformAndMCPIsolation(t *testing.T) {
 			if err != nil || opened.IsError {
 				t.Fatalf("Android session: %v %+v", err, opened)
 			}
-			id := stringField(t, opened.StructuredContent, "session_id")
+			id := stringField(t, desktopResult(t, opened), "session_id")
 			result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_get_window_state", Arguments: map[string]any{"session_id": id, "params": map[string]any{"window": map[string]any{"id": "10", "app": "20"}}}})
 			if err != nil || result.IsError {
 				t.Fatalf("Android observation: %v %+v", err, result)

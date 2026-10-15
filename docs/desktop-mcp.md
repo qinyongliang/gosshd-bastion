@@ -210,10 +210,37 @@ Desktop access remains independent of SSH command policies. Existing account/org
 | OS permissions | `desktop_request_permissions` |
 | Remote management | `desktop_access_get`, `desktop_audit_list` |
 
-The general input shape is `{"session_id":"...","params":{...}}`.
+The general input shape is `{"session_id":"...","params":{...}}`. Each tool now advertises only its own parameters and marks its required fields explicitly. Start with `desktop_session_open`; its initial status already reports permissions, so a separate `desktop_status` call is only needed to refresh them. `desktop_status` requires the returned `session_id`.
+
+### Compact results and client migration
+
+Desktop runtime tools return exactly one JSON `TextContent` block, followed by independent `ImageContent` blocks when an image is requested. They do **not** repeat that JSON in `structuredContent` or base64-encode an image into text. Clients that previously read `structuredContent` must instead parse the JSON text block in `content`. This change applies to the session and native-operation tools registered by the desktop module; remote-management access/audit tools keep their existing contract.
+
+The session-open envelope contains `session_id` once, and `result` contains `expires_at` and `status`. A normal window observation contains `snapshot_id`, `window`, native `bounds`, optional `screenshot` metadata, and (when `include_text` is true) `accessibility.tree`. The tree uses observation-scoped indexes with hierarchy, roles, names, values, supported actions and available selection/expansion/toggle/range/scroll states. Snapshot/window identity precedes potentially long text, so a truncated tree does not hide the action target. It does not repeat raw `elements`, per-element rectangles, or a second `accessibility_tree`. Images remain directly visible to image-capable MCP clients.
+
+For diagnostics or native integration tests only, `get_window_state` accepts `include_text:true, include_element_details:true`; it returns raw `elements` **instead of** `accessibility.tree`. Do not enable it for normal agent operation. Native helper RPC still retains complete element geometry privately for safe index-based operations.
+
+A successful snapshot-bound action returns `next_action:"get_window_state"`. Action errors also include recovery guidance; they never silently retry native input. Schema validation failures occur before dispatch and do not consume a snapshot. Once a control attempt is dispatched, success or failure consumes it.
+
+Example result (the image, if requested, is a separate content block):
+
+```json
+{
+  "session_id": "<session-id>",
+  "result": {
+    "snapshot_id": "<latest-snapshot-id>",
+    "window": {"id":"<returned-window-id>","app":"<returned-app-id>"},
+    "bounds": {"x":0,"y":0,"width":800,"height":600},
+    "coordinate_space": "window-relative-native-units",
+    "accessibility": {"tree":"[0] Window \"Example\"\n  [1] Edit \"Address\" value=\"sample\" focused actions=set_value,focus\n"}
+  }
+}
+```
+
+### Observe, act once, refresh
 
 1. Enumerate windows. Use a **returned** `window.id`/`window.app` pair; do not reconstruct a handle or reuse an old process identity.
-2. Observe the exact window:
+2. Observe the exact window. Prefer text-only observations for semantic work to avoid unnecessary image tokens; request a screenshot for visual checks or coordinate fallback:
 
    ```json
    {
@@ -228,7 +255,7 @@ The general input shape is `{"session_id":"...","params":{...}}`.
    }
    ```
 
-3. Inspect the image and hierarchy. `elements` preserves `index`/`parent`, role, name, value, bounds, supported actions and available focus/selection/range/scroll metadata. The bounded `accessibility_tree` text is a presentation of those same indexes, not another selector space. Names can repeat: disambiguate using role, parent and bounds. Password values/nodes are not exposed through the tree; this does **not** guarantee a screenshot contains no sensitive data.
+3. Inspect the image and `accessibility.tree`. The bounded text contains the original indexes, not a new selector space. Names can repeat: disambiguate using role, hierarchy and state; use the screenshot when necessary. Do not invent coordinates from tree text. Password values/nodes are not exposed through the tree; this does **not** guarantee a screenshot contains no sensitive data.
 4. Perform **one** operation using the observation's `snapshot_id` and exact window pair:
 
    ```json
@@ -243,9 +270,9 @@ The general input shape is `{"session_id":"...","params":{...}}`.
    }
    ```
 
-5. Observe again. Every control attempt consumes its snapshot, including errors. An interrupted action may already have executed: do not blindly retry. A display screenshot also invalidates a prior window observation and does not itself authorize input.
+5. Observe again, even between `set_value` and an `Enter` keypress. `set_value` does not focus or submit a field; use an advertised `focus` action first if keyboard input must target that field. Every dispatched control attempt consumes its snapshot, including errors. An interrupted action may already have executed: do not blindly retry. A display screenshot also invalidates a prior window observation and does not itself authorize input.
 
-Native accessibility actions are advertised per element: `invoke`, `toggle`, `expand`, `collapse`, `select`, `focus`, and platform-supported `secondary`. Values can be text or finite numeric text for an advertised range. Unsupported native patterns fail explicitly rather than being guessed.
+Native accessibility actions are advertised per element: `invoke`, `toggle`, `expand`, `collapse`, `select`, `focus`, and platform-supported `secondary`. Values can be text or finite numeric text for an advertised range. Unsupported native patterns fail explicitly rather than being guessed. A provider can advertise an action that fails at execution time; reobserve instead of automatically repeating it or switching to a mouse click, because its outcome may be unknown. `click` accepts either `element_index` or both `x` and `y`, not both; it no longer silently clicks the origin when the target is missing. Use `perform_action` for an explicit native `action` rather than passing an ignored `action` to `click`.
 
 For coordinates, use **window-relative native units**. Bounds provide the original geometry; screenshots are scaled to at most 1600 pixels on the longest side. Windows window captures also preserve the target application's logical DPI size, so a legacy application's image can be smaller than its native bounds. The separate `screenshot` metadata gives the image dimensions: map a displayed image point using `native_x = image_x * bounds.width / screenshot.width` (similarly for Y). macOS native GUI coordinates are points; Windows uses DPI-aware desktop pixels. Display bounds include the virtual desktop origin; display screenshots are observation-only.
 

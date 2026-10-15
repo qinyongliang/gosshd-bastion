@@ -92,11 +92,11 @@ func TestDesktopMCPRealAgentNativeFixture(t *testing.T) {
 		return result
 	}
 	opened := call("desktop_session_open", map[string]any{"target_id": target.ID})
-	id := stringField(t, opened.StructuredContent, "session_id")
+	id := stringField(t, desktopResult(t, opened), "session_id")
 	var window desktop.Window
 	for i := 0; i < 30; i++ {
 		result := call("desktop_list_windows", map[string]any{"session_id": id})
-		wire, _ := json.Marshal(result.StructuredContent)
+		wire, _ := json.Marshal(desktopResult(t, result))
 		var out struct {
 			Result struct {
 				Windows []desktop.Window `json:"windows"`
@@ -118,7 +118,7 @@ func TestDesktopMCPRealAgentNativeFixture(t *testing.T) {
 		t.Fatal("owned fixture was not returned through real Agent")
 	}
 	observe := func() desktop.State {
-		result := call("desktop_get_window_state", map[string]any{"session_id": id, "params": map[string]any{"window": window, "include_text": true, "include_screenshot": true}})
+		result := call("desktop_get_window_state", map[string]any{"session_id": id, "params": map[string]any{"window": window, "include_text": true, "include_screenshot": true, "include_element_details": true}})
 		image := false
 		for _, content := range result.Content {
 			if _, ok := content.(*mcp.ImageContent); ok {
@@ -128,7 +128,7 @@ func TestDesktopMCPRealAgentNativeFixture(t *testing.T) {
 		if !image {
 			t.Fatal("real Agent screenshot not returned as MCP image")
 		}
-		wire, _ := json.Marshal(result.StructuredContent)
+		wire, _ := json.Marshal(desktopResult(t, result))
 		var out struct {
 			Result desktop.State `json:"result"`
 		}

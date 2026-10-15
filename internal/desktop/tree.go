@@ -40,7 +40,7 @@ func RenderTree(elements []Element, truncated bool) string {
 			depth = depths[e.Parent] + 1
 		}
 		depths[e.Index] = depth
-		fmt.Fprintf(&out, "%s[%d] %s %s", strings.Repeat("  ", min(depth, 16)), e.Index, e.Role, strconv.Quote(e.Name))
+		fmt.Fprintf(&out, "%s[%d] %s %s", strings.Repeat("  ", min(depth, 16)), e.Index, strings.TrimPrefix(e.Role, "ControlType."), strconv.Quote(e.Name))
 		if e.Value != "" {
 			fmt.Fprintf(&out, " value=%s", strconv.Quote(e.Value))
 		}
@@ -49,6 +49,33 @@ func RenderTree(elements []Element, truncated bool) string {
 		}
 		if !e.Enabled {
 			out.WriteString(" disabled")
+		}
+		if e.Selected != nil {
+			fmt.Fprintf(&out, " selected=%t", *e.Selected)
+		}
+		if e.Expanded != nil {
+			fmt.Fprintf(&out, " expanded=%t", *e.Expanded)
+		}
+		if e.ToggleState != "" {
+			fmt.Fprintf(&out, " toggle=%s", e.ToggleState)
+		}
+		if e.Minimum != nil {
+			fmt.Fprintf(&out, " min=%g", *e.Minimum)
+		}
+		if e.Maximum != nil {
+			fmt.Fprintf(&out, " max=%g", *e.Maximum)
+		}
+		if e.VerticalScrollable != nil {
+			fmt.Fprintf(&out, " vertical_scrollable=%t", *e.VerticalScrollable)
+		}
+		if e.HorizontalScrollable != nil {
+			fmt.Fprintf(&out, " horizontal_scrollable=%t", *e.HorizontalScrollable)
+		}
+		if e.VerticalScrollPercent != nil {
+			fmt.Fprintf(&out, " vertical_scroll_percent=%g", *e.VerticalScrollPercent)
+		}
+		if e.HorizontalScrollPercent != nil {
+			fmt.Fprintf(&out, " horizontal_scroll_percent=%g", *e.HorizontalScrollPercent)
 		}
 		if len(e.Actions) > 0 {
 			fmt.Fprintf(&out, " actions=%s", strings.Join(e.Actions, ","))
@@ -60,7 +87,7 @@ func RenderTree(elements []Element, truncated bool) string {
 		}
 	}
 	if truncated {
-		out.WriteString("[truncated; narrow the window/limits and observe again]\n")
+		out.WriteString("[truncated; increase max_depth/max_elements within limits or inspect a screenshot]\n")
 	}
 	return out.String()
 }

@@ -147,7 +147,7 @@ func TestDesktopMCPInheritedReadControlRevocationAndAudit(t *testing.T) {
 		t.Fatalf("unexpected inherited access %s: %v", wire, err)
 	}
 	opened := call("desktop_session_open", map[string]any{"target_id": target.ID}, false)
-	sessionID := stringField(t, opened.StructuredContent, "session_id")
+	sessionID := stringField(t, desktopResult(t, opened), "session_id")
 	params := map[string]any{"window": map[string]any{"id": "10", "app": "20"}, "include_text": true}
 	state := call("desktop_get_window_state", map[string]any{"session_id": sessionID, "params": params}, false)
 	imageCount := 0
@@ -159,7 +159,7 @@ func TestDesktopMCPInheritedReadControlRevocationAndAudit(t *testing.T) {
 	if imageCount != 1 {
 		t.Fatal("MCP screenshot image not returned")
 	}
-	params["snapshot_id"] = "test-snapshot"
+	params = map[string]any{"window": map[string]any{"id": "10", "app": "20"}, "snapshot_id": "test-snapshot"}
 	params["text"] = "private typed text must not be audited"
 	call("desktop_type_text", map[string]any{"session_id": sessionID, "params": params}, false)
 	outsider, err := app.store.Repository().CreateUser(ctx, store.CreateUserParams{Email: "session-outsider@example.test", DisplayName: "Outsider", PasswordHash: []byte("hash")})
@@ -233,7 +233,7 @@ func TestDesktopInheritedAccessIsolationAndRevocation(t *testing.T) {
 	if err != nil || opened.IsError {
 		t.Fatalf("member could not open without desktop grant: %+v %v", opened, err)
 	}
-	sessionID := stringField(t, opened.StructuredContent, "session_id")
+	sessionID := stringField(t, desktopResult(t, opened), "session_id")
 	if err = app.store.Repository().RemoveUserFromGroup(ctx, group.ID, outsider.ID); err != nil {
 		t.Fatal(err)
 	}

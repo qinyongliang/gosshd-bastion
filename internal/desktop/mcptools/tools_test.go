@@ -32,7 +32,18 @@ func testService(t *testing.T) *desktop.Service {
 				if req.Method == "get_window_state" {
 					var data bytes.Buffer
 					_ = png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 2, 2)))
-					result = desktop.State{Mode: req.Params.Mode, ObservationMethod: "uia.control_view", SnapshotID: "snapshot", Window: *req.Params.Window, Image: &desktop.Image{Data: data.Bytes(), MIMEType: "image/png", Width: 2, Height: 2, CaptureMethod: "print_window"}}
+					elements := []desktop.Element(nil)
+					if req.Params.IncludeText {
+						elements = []desktop.Element{
+							{Index: 0, Parent: -1, Role: "ControlType.Window", Name: "Example", Enabled: true},
+							{Index: 1, Parent: 0, Role: "ControlType.Edit", Name: "Address", Value: "sample", Enabled: true, Focused: true, Actions: []string{"set_value", "focus"}, Bounds: desktop.Bounds{X: 20, Y: 30, Width: 100, Height: 20}},
+						}
+					}
+					var screenshot *desktop.Image
+					if req.Params.IncludeScreenshot == nil || *req.Params.IncludeScreenshot {
+						screenshot = &desktop.Image{Data: data.Bytes(), MIMEType: "image/png", Width: 2, Height: 2, CaptureMethod: "print_window"}
+					}
+					result = desktop.State{Elements: elements, Mode: req.Params.Mode, ObservationMethod: "uia.control_view", SnapshotID: "snapshot", Window: *req.Params.Window, Image: screenshot}
 				}
 				if req.Params.Mode == "auto" && req.Method == "click" {
 					result = map[string]any{"ok": true, "mode": "auto", "operation_method": "foreground_input.send_input", "foreground_fallback": true}
@@ -73,7 +84,7 @@ func TestMCPImagesAreNotDuplicatedAsBase64Text(t *testing.T) {
 	if err != nil || opened.IsError {
 		t.Fatalf("open: %v %+v", err, opened)
 	}
-	b, _ := json.Marshal(opened.StructuredContent)
+	b := resultJSON(t, opened)
 	var out Output
 	_ = json.Unmarshal(b, &out)
 	state, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_get_window_state", Arguments: map[string]any{"session_id": out.SessionID, "params": map[string]any{"window": map[string]any{"id": "10", "app": "20"}}}})
@@ -131,7 +142,7 @@ func TestMCPBackgroundSchemaErrorsAndCaptureMetadata(t *testing.T) {
 	if err != nil || opened.IsError {
 		t.Fatalf("open: %v %+v", err, opened)
 	}
-	wire, _ := json.Marshal(opened.StructuredContent)
+	wire := resultJSON(t, opened)
 	var out Output
 	_ = json.Unmarshal(wire, &out)
 	call := func(method string, params map[string]any) *mcp.CallToolResult {
@@ -147,13 +158,17 @@ func TestMCPBackgroundSchemaErrorsAndCaptureMetadata(t *testing.T) {
 	if state.IsError {
 		t.Fatalf("observe: %+v", state)
 	}
-	wire, _ = json.Marshal(state.StructuredContent)
+	wire = resultJSON(t, state)
 	if !strings.Contains(string(wire), `"capture_method":"print_window"`) || !strings.Contains(string(wire), `"observation_method":"uia.control_view"`) || !strings.Contains(string(wire), `"mode":"background"`) {
 		t.Fatalf("native method metadata lost: %s", wire)
 	}
 	for _, method := range []string{"drag", "set_value"} {
-		res := call(method, map[string]any{"mode": "background", "window": window, "snapshot_id": "snapshot", "element_index": 0, "text": "sample"})
-		wire, _ = json.Marshal(res.StructuredContent)
+		params := map[string]any{"mode": "background", "window": window, "snapshot_id": "snapshot", "element_index": 0, "text": "sample"}
+		if method == "drag" {
+			params = map[string]any{"mode": "background", "window": window, "snapshot_id": "snapshot", "x": 0, "y": 0, "to_x": 1, "to_y": 1}
+		}
+		res := call(method, params)
+		wire = resultJSON(t, res)
 		var failure Output
 		_ = json.Unmarshal(wire, &failure)
 		if !res.IsError || failure.ErrorCode != desktop.BackgroundNotSupported || !strings.HasPrefix(failure.Error, desktop.BackgroundNotSupported+":") {
@@ -165,7 +180,7 @@ func TestMCPBackgroundSchemaErrorsAndCaptureMetadata(t *testing.T) {
 		t.Fatal("auto observe failed")
 	}
 	autoResult := call("click", map[string]any{"mode": "auto", "window": window, "snapshot_id": "snapshot", "element_index": 0})
-	wire, _ = json.Marshal(autoResult.StructuredContent)
+	wire = resultJSON(t, autoResult)
 	if autoResult.IsError || !strings.Contains(string(wire), `"foreground_fallback":true`) || !strings.Contains(string(wire), `"operation_method":"foreground_input.send_input"`) {
 		t.Fatalf("auto foreground fallback metadata lost: %s", wire)
 	}

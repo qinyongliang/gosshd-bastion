@@ -107,3 +107,21 @@ func TestCloseSessionIsAuditedAndCleanupSurvivesAuditFailure(t *testing.T) {
 		t.Fatal("audit failure prevented cleanup")
 	}
 }
+
+func TestCompactTreePreservesSemanticStateWithoutGeometry(t *testing.T) {
+	selected, expanded, scrollable := true, false, true
+	minimum, maximum, percent := 0.0, 100.0, 50.0
+	elements := []Element{
+		{Index: 0, Parent: -1, Role: "ControlType.Window", Name: "Example", Enabled: true},
+		{Index: 1, Parent: 0, Role: "ControlType.CheckBox", Name: "Option", Enabled: true, Selected: &selected, Expanded: &expanded, ToggleState: "on", Minimum: &minimum, Maximum: &maximum, VerticalScrollable: &scrollable, VerticalScrollPercent: &percent, Bounds: Bounds{X: 123, Y: 456}, Actions: []string{"toggle"}},
+	}
+	text := RenderTree(elements, true)
+	for _, want := range []string{`  [1] CheckBox "Option"`, "selected=true", "expanded=false", "toggle=on", "min=0", "max=100", "vertical_scrollable=true", "vertical_scroll_percent=50", "actions=toggle", "increase max_depth/max_elements"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("compact tree lost %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "ControlType.") || strings.Contains(text, "123") || strings.Contains(text, "456") {
+		t.Fatalf("redundant role prefix or geometry: %s", text)
+	}
+}

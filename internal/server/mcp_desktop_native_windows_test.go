@@ -13,7 +13,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,11 +83,11 @@ func TestDesktopMCPRealAgentNativeFixture(t *testing.T) {
 		return result
 	}
 	opened := call("desktop_session_open", map[string]any{"target_id": target.ID})
-	id := stringField(t, opened.StructuredContent, "session_id")
+	id := stringField(t, desktopResult(t, opened), "session_id")
 	var window desktop.Window
 	for i := 0; i < 30; i++ {
 		result := call("desktop_list_windows", map[string]any{"session_id": id})
-		wire, _ := json.Marshal(result.StructuredContent)
+		wire, _ := json.Marshal(desktopResult(t, result))
 		var out struct {
 			Result struct {
 				Windows []desktop.Window `json:"windows"`
@@ -107,7 +109,7 @@ func TestDesktopMCPRealAgentNativeFixture(t *testing.T) {
 		t.Fatal("owned fixture was not returned through real Agent")
 	}
 	observe := func() desktop.State {
-		result := call("desktop_get_window_state", map[string]any{"session_id": id, "params": map[string]any{"window": window, "include_text": true, "include_screenshot": true}})
+		result := call("desktop_get_window_state", map[string]any{"session_id": id, "params": map[string]any{"window": window, "include_text": true, "include_screenshot": true, "include_element_details": true}})
 		image := false
 		for _, content := range result.Content {
 			if _, ok := content.(*mcp.ImageContent); ok {
@@ -117,7 +119,7 @@ func TestDesktopMCPRealAgentNativeFixture(t *testing.T) {
 		if !image {
 			t.Fatal("real Agent screenshot not returned as MCP image")
 		}
-		wire, _ := json.Marshal(result.StructuredContent)
+		wire, _ := json.Marshal(desktopResult(t, result))
 		var out struct {
 			Result desktop.State `json:"result"`
 		}
@@ -145,6 +147,42 @@ func TestDesktopMCPRealAgentNativeFixture(t *testing.T) {
 	}
 	if !updated {
 		t.Fatal("MCP -> real Agent -> native accessibility control did not take effect")
+	}
+	// Exercise the ordinary compact contract, not only diagnostic raw nodes.
+	compact := call("desktop_get_window_state", map[string]any{"session_id": id, "params": map[string]any{"window": window, "include_text": true, "include_screenshot": false}})
+	if compact.StructuredContent != nil {
+		t.Fatal("native MCP result duplicated")
+	}
+	var current struct {
+		Result struct {
+			SnapshotID    string `json:"snapshot_id"`
+			Accessibility struct {
+				Tree string `json:"tree"`
+			} `json:"accessibility"`
+		} `json:"result"`
+	}
+	wire, _ := json.Marshal(desktopResult(t, compact))
+	if err := json.Unmarshal(wire, &current); err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`(?m)^\s*\[(\d+)\] Edit "Fixture text".*actions=.*set_value`).FindStringSubmatch(current.Result.Accessibility.Tree)
+	if len(match) != 2 || strings.Contains(string(wire), `"elements":`) {
+		t.Fatalf("missing compact native edit index: %s", wire)
+	}
+	compactIndex, err := strconv.Atoi(match[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	call("desktop_set_value", map[string]any{"session_id": id, "params": map[string]any{"window": window, "snapshot_id": current.Result.SnapshotID, "element_index": compactIndex, "text": "Compact MCP sample"}})
+	state = observe()
+	compactUpdated := false
+	for _, e := range state.Elements {
+		if e.Name == "Fixture text" && e.Value == "Compact MCP sample" {
+			compactUpdated = true
+		}
+	}
+	if !compactUpdated {
+		t.Fatal("compact index-based native operation did not take effect")
 	}
 	call("desktop_session_close", map[string]any{"session_id": id})
 }
