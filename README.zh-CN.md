@@ -210,6 +210,8 @@ sh /data/local/tmp/gosshd-agent-install.sh install  # 后台安装
 4. 未命中规则且配置了 LLM 时，把命令发送给模型。
 5. 没有有效决策时，按默认拒绝或配置的默认动作处理。
 
+MCP 终端工具 `session_send_command` 即使命中白名单，也必须经过 LLM 审核。目标需要绑定适用且配置了 LLM 的命令策略；没有适用审核器时拒绝执行，不按默认允许放行。
+
 LLM 响应使用 JSON：
 
 ```json

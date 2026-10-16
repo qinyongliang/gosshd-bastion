@@ -68,7 +68,7 @@ export function AuditTable({ logs, onReplay, onLiveOutput, compact = false }: { 
       </table></div>
     </div>
     {detail && <Modal title={detail.title} onClose={() => setDetail(null)} wide className="audit-detail-modal">
-      {detail.mono ? <HighlightedCommand command={detail.value} className="audit-detail-content" /> : <pre className="audit-detail-content">{detail.value}</pre>}
+      {detail.mono ? <HighlightedCommand command={detail.value} className="audit-detail-content" autoDetect /> : <pre className="audit-detail-content">{detail.value}</pre>}
     </Modal>}
   </>;
 }
@@ -86,7 +86,7 @@ function AuditStartedAt({ value }: { value: string }) {
 function AuditTextCell({ title, primary, secondary = "", mono = false, lines = 1, onOpen }: { title: string; primary: string; secondary?: string; mono?: boolean; lines?: 1 | 2; onOpen: (title: string, value: string, mono?: boolean) => void }) {
   const full = [primary, secondary].filter(Boolean).join("\n");
   return <button type="button" className={clsx("audit-cell", mono && "mono", lines === 2 && "two-lines")} title={full} onClick={() => onOpen(title, full, mono)}>
-    {mono ? <HighlightedCommand command={primary} className="audit-cell-command" /> : <strong>{primary}</strong>}
+    {mono ? <code className="highlighted-command audit-cell-command">{primary.length > 512 ? `${primary.slice(0, 512)}…` : primary}</code> : <strong>{primary}</strong>}
     {secondary && <small>{secondary}</small>}
   </button>;
 }

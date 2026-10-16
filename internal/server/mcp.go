@@ -213,7 +213,7 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 			return nil, out, nil
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "session_send_command", Description: "Preferred tool for running commands on remote servers through an existing bastion terminal session. Commands are policy-checked, audited, shown in the web terminal, and wait for terminal completion."},
+	mcp.AddTool(s, &mcp.Tool{Name: "session_send_command", Description: "Preferred tool for running commands on remote servers through an existing bastion terminal session. Commands require AI review even when whitelisted (no configured reviewer means denial), are audited, shown in the web terminal, and wait for terminal completion."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in mcpSessionCommandInput) (*mcp.CallToolResult, mcpSessionCommandOutput, error) {
 			if err := a.ensureServices(ctx); err != nil {
 				return nil, mcpSessionCommandOutput{}, err
@@ -224,9 +224,10 @@ func (a *App) addMCPSessionTools(s *mcp.Server, actor store.User) {
 			}
 			started := time.Now().UTC()
 			run := a.runCommandInTerminalSession(ctx, session, in.Command, terminalSessionCommandOptions{
-				PublicKeyName: "MCP session",
-				UserID:        actor.ID,
-				StartedAt:     started,
+				PublicKeyName:   "MCP session",
+				RequireAIReview: true,
+				UserID:          actor.ID,
+				StartedAt:       started,
 			})
 			_, _ = a.createAuditLog(context.WithoutCancel(ctx), store.CreateCommandAuditLogParams{
 				ID:             run.AuditID,

@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/qinyongliang/gosshd-bastion/internal/store"
@@ -488,6 +490,33 @@ func TestMCPAcceptsUserToken(t *testing.T) {
 	if mcpHasTool(tools, "org_list") {
 		t.Fatalf("did not expect org_list tool with default session-only token auth, got %+v", tools.Tools)
 	}
+
+	t.Run("commands without AI reviewer never reach terminal", func(t *testing.T) {
+		input := &strings.Builder{}
+		ready := app.terminalSessions.create("no-ai-session", login.User.ID, store.SSHTarget{ID: "target-no-ai", Alias: "example"}, "192.0.2.20", 80, 24, nil)
+		defer ready.close("")
+		ready.input = input
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "session_send_command", Arguments: map[string]any{"session_id": ready.id, "command": "echo must-not-execute"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var command mcpSessionCommandOutput
+		if err := json.Unmarshal(encoded, &command); err != nil {
+			t.Fatal(err)
+		}
+		if result.IsError || command.Allowed || command.ExitCode != 126 || !strings.Contains(command.PolicyReason, "AI review") {
+			t.Fatalf("unexpected MCP denial: %s", encoded)
+		}
+		if input.Len() != 0 {
+			t.Fatalf("unreviewed command reached terminal: %q", input.String())
+		}
+	})
 	_ = session.Close()
 
 	var listed apiMCPTokensResponse

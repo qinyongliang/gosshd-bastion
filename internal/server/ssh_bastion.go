@@ -567,6 +567,7 @@ type terminalSessionCommandOptions struct {
 	StartedAt            time.Time
 	SourceIP             string
 	NonBlocking          bool
+	RequireAIReview      bool
 	SkipPolicyReview     bool
 	WaitTimeout          time.Duration
 }
@@ -624,7 +625,11 @@ func (a *App) runCommandInTerminalSession(ctx context.Context, session *terminal
 		if strings.TrimSpace(sourceIP) == "" {
 			sourceIP = session.sourceIP
 		}
-		decision, err := a.bastion.EvaluateCommandForSource(ctx, opts.UserID, session.target.ID, normalizedCommand, sourceIP)
+		evaluate := a.bastion.EvaluateCommandForSource
+		if opts.RequireAIReview {
+			evaluate = a.bastion.EvaluateMCPCommandForSource
+		}
+		decision, err := evaluate(ctx, opts.UserID, session.target.ID, normalizedCommand, sourceIP)
 		if err != nil {
 			run.ExitCode = 255
 			run.EndedAt = time.Now().UTC()

@@ -44,12 +44,23 @@ func (s *Service) EvaluateCommand(ctx context.Context, userID, targetID, command
 }
 
 func (s *Service) EvaluateCommandForSource(ctx context.Context, userID, targetID, command, sourceIP string) (Decision, error) {
+	return s.evaluateCommandForSource(ctx, userID, targetID, command, sourceIP, false)
+}
+
+// EvaluateMCPCommandForSource requires an AI approval even for whitelisted commands.
+// An absent reviewer is not an implicit permission to execute MCP code.
+func (s *Service) EvaluateMCPCommandForSource(ctx context.Context, userID, targetID, command, sourceIP string) (Decision, error) {
+	return s.evaluateCommandForSource(ctx, userID, targetID, command, sourceIP, true)
+}
+
+func (s *Service) evaluateCommandForSource(ctx context.Context, userID, targetID, command, sourceIP string, requireAI bool) (Decision, error) {
 	policies, err := s.repo.ListPoliciesForTarget(ctx, targetID)
 	if err != nil {
 		return Decision{}, err
 	}
 	trimmed := strings.TrimSpace(command)
 	result := Decision{Action: store.DecisionAllow, Reason: "no policy"}
+	aiReviewed := false
 	for _, policy := range policies {
 		applies, err := s.policyAppliesToUser(ctx, policy, userID)
 		if err != nil {
@@ -59,6 +70,9 @@ func (s *Service) EvaluateCommandForSource(ctx context.Context, userID, targetID
 			continue
 		}
 		if decision, ok := evaluateSourceIP(policy, sourceIP); ok {
+			if requireAI {
+				return decision, nil
+			}
 			return markManualReview(policy, decision), nil
 		}
 		requiresLLM := shellCommandHasChannel(trimmed)
@@ -75,7 +89,9 @@ func (s *Service) EvaluateCommandForSource(ctx context.Context, userID, targetID
 			matched = true
 			policyDecision = Decision{Action: store.DecisionDeny, Reason: "whitelist missing: " + missingWhitelist[0]}
 		}
-		if !matched && policy.LLMConfigID != "" {
+		// A whitelist can skip AI for ordinary SSH commands, but not MCP.
+		reviewWithAI := !matched || (requireAI && policyDecision.Action != store.DecisionDeny)
+		if reviewWithAI && policy.LLMConfigID != "" {
 			cfg, err := s.repo.GetLLMPolicyConfig(ctx, policy.LLMConfigID)
 			if err != nil {
 				return Decision{}, err
@@ -89,6 +105,7 @@ func (s *Service) EvaluateCommandForSource(ctx context.Context, userID, targetID
 			} else if prompts, err := s.repo.ListLLMPromptResources(ctx, policy.OwnerType, policy.OwnerID); err == nil && len(prompts) > 0 {
 				prompt = prompts[0]
 			}
+			aiReviewed = true
 			llmStarted := time.Now()
 			policyDecision, err = s.llmClient.ReviewCommand(ctx, cfg, LLMReviewInput{
 				UserID:   userID,
@@ -105,9 +122,18 @@ func (s *Service) EvaluateCommandForSource(ctx context.Context, userID, targetID
 			}
 		}
 		if policyDecision.Action == store.DecisionDeny {
+			// Manual approvals must not turn an unreviewed MCP command into execution.
+			if requireAI && !aiReviewed {
+				return policyDecision, nil
+			}
 			return markManualReview(policy, policyDecision), nil
 		}
-		result = policyDecision
+		if !requireAI || !aiReviewed || (reviewWithAI && policy.LLMConfigID != "") {
+			result = policyDecision
+		}
+	}
+	if requireAI && !aiReviewed {
+		return Decision{Action: store.DecisionDeny, Reason: "MCP commands require AI review: no applicable LLM reviewer configured"}, nil
 	}
 	return result, nil
 }

@@ -210,6 +210,8 @@ Policy evaluation is intentionally predictable:
 4. If no rule matches and an LLM is configured, the command is sent to the model.
 5. If there is no valid decision, the request fails closed or uses the configured default action.
 
+`session_send_command` requires LLM review for MCP terminal commands even when a whitelist matches. Bind an applicable command policy with an LLM reviewer to the target; commands with no applicable reviewer are denied rather than allowed by default.
+
 LLM responses use JSON:
 
 ```json

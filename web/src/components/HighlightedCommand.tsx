@@ -1,6 +1,9 @@
 import hljs from "highlight.js/lib/common";
 import clsx from "clsx";
+import { memo, useMemo } from "react";
 
+// Keep synchronous grammar work bounded on audit polling and detail views.
+const MAX_HIGHLIGHT_LENGTH = 4096;
 const LANGUAGES = [
   "bash",
   "shell",
@@ -21,17 +24,19 @@ const LANGUAGES = [
 ];
 
 /** Syntax highlighting is performed by highlight.js, which escapes source text before emitting spans. */
-export function HighlightedCommand({ command, className = "" }: { command: string; className?: string }) {
-  return <code className={clsx("highlighted-command hljs", className)} aria-label={command} dangerouslySetInnerHTML={{ __html: highlightCommand(command) }} />;
-}
+export const HighlightedCommand = memo(function HighlightedCommand({ command, className = "", autoDetect = false }: { command: string; className?: string; autoDetect?: boolean }) {
+  const html = useMemo(() => highlightCommand(command, autoDetect), [command, autoDetect]);
+  return <code className={clsx("highlighted-command hljs", className)} aria-label={command} dangerouslySetInnerHTML={{ __html: html }} />;
+});
 
-export function highlightCommand(command: string): string {
+export function highlightCommand(command: string, autoDetect = false): string {
   const source = command || "";
-  const language = detectCommandLanguage(source);
+  if (source.length > MAX_HIGHLIGHT_LENGTH) return escapeHTML(source);
+  const language = detectCommandLanguage(source) || "bash";
   try {
-    return language
-      ? hljs.highlight(source, { language, ignoreIllegals: true }).value
-      : hljs.highlightAuto(source, LANGUAGES).value;
+    return autoDetect
+      ? hljs.highlightAuto(source, LANGUAGES).value
+      : hljs.highlight(source, { language, ignoreIllegals: true }).value;
   } catch {
     return escapeHTML(source);
   }
