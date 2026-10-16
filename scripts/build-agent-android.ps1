@@ -1,7 +1,9 @@
 param(
   [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._+-]*$')]
   [string]$Version = 'dev',
-  [string]$NDKPath = $env:ANDROID_NDK_HOME
+  [string]$NDKPath = $env:ANDROID_NDK_HOME,
+  [switch]$APK,
+  [switch]$IncludeEmulator
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,9 +16,13 @@ $clang = Join-Path $NDKPath "toolchains/llvm/prebuilt/$hostTag/bin/$clangName"
 if (-not (Test-Path -LiteralPath $clang -PathType Leaf)) { throw "Android NDK compiler not found: $clang" }
 
 $platforms = @(
-  @{ Arch='armv7'; GOARCH='arm'; GOARM='7'; Target='armv7a-linux-androideabi24' },
-  @{ Arch='arm64'; GOARCH='arm64'; GOARM=''; Target='aarch64-linux-android24' }
+  @{ Arch='armv7'; ABI='armeabi-v7a'; GOARCH='arm'; GOARM='7'; Target='armv7a-linux-androideabi24' },
+  @{ Arch='arm64'; ABI='arm64-v8a'; GOARCH='arm64'; GOARM=''; Target='aarch64-linux-android24' }
 )
+if ($IncludeEmulator) {
+  if (-not $APK) { throw 'IncludeEmulator is only supported for APK builds.' }
+  $platforms += @{ Arch='x86_64'; ABI='x86_64'; GOARCH='amd64'; GOARM=''; Target='x86_64-linux-android30' }
+}
 $names = @('GOOS', 'GOARCH', 'GOARM', 'CGO_ENABLED', 'CC')
 $saved = @{}
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
@@ -24,9 +30,10 @@ Push-Location (Split-Path -Parent $PSScriptRoot)
 try {
   New-Item -ItemType Directory -Force -Path dist | Out-Null
   foreach ($p in $platforms) {
-    $dir = Join-Path "build/agent/$Version/android" $p.Arch
+    $dir = if ($APK) { Join-Path "build/agent-apk/$Version" $p.ABI } else { Join-Path "build/agent/$Version/android" $p.Arch }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $output = Join-Path $dir 'gosshd-agent'
+    $output = Join-Path $dir $(if ($APK) { 'libgosshd_agent.so' } else { 'gosshd-agent' })
+    $package = if ($APK) { './cmd/gosshd-android-agent' } else { './cmd/gosshd-agent' }
     $env:GOOS = 'android'
     $env:GOARCH = $p.GOARCH
     $env:GOARM = $p.GOARM
@@ -36,9 +43,9 @@ try {
     # anet uses restricted linknames on Android; do not apply this workaround globally.
     $flags = "-s -w -checklinkname=0 -extldflags=-Wl,-z,max-page-size=16384 -X main.version=$Version"
     Write-Host "building agent android/$($p.Arch) (API 24+)"
-    go build -buildmode=pie -trimpath -ldflags $flags -o $output ./cmd/gosshd-agent
+    go build -buildmode=pie -trimpath -ldflags $flags -o $output $package
     if ($LASTEXITCODE -ne 0) { throw "Android $($p.Arch) build failed with exit code $LASTEXITCODE" }
-    Copy-Item -LiteralPath $output -Destination "dist/gosshd-agent-$Version-android-$($p.Arch)"
+    if (-not $APK) { Copy-Item -LiteralPath $output -Destination "dist/gosshd-agent-$Version-android-$($p.Arch)" }
   }
 } finally {
   foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }

@@ -1,0 +1,27 @@
+<resources>
+  <string name="app_name">GOSSHD Agent</string>
+  <string name="accessibility_description">Control local del escritorio para tu Agent de GOSSHD emparejado. Lee ventanas visibles y capturas de pantalla, y realiza los gestos o acciones de texto editable que solicites. Activa el control en la aplicación y emparéjalo explícitamente. Puedes detenerlo en cualquier momento desde la notificación.</string>
+  <string name="status">Agent de Android (sin root)\nAgent: %4$s\nAccesibilidad: %1$s\nControl del escritorio: %2$s\nEl control es opcional. ADB/Shizuku solo sirve para la activación opcional.\n%3$s</string>
+  <string name="status_connected">conectado</string><string name="status_disabled">desactivado</string><string name="status_enabled">activado</string><string name="status_stopped">detenido</string>
+  <string name="enable_accessibility_manually">Activar accesibilidad manualmente</string><string name="copy_adb_activation_grant">Copiar autorización de activación ADB</string><string name="adb_command">Comando ADB</string><string name="activate_with_adb">Activar con autorización ADB</string>
+  <string name="run_adb_grant_first">Ejecuta primero la autorización ADB copiada</string><string name="activation_requested_preserved">Activación solicitada; se conservaron los demás servicios de accesibilidad</string><string name="activation_rejected">Android rechazó la activación</string><string name="activate_with_shizuku">Activar con Shizuku</string>
+  <string name="enable_local_control">Activar control del escritorio (opcional)</string><string name="restore_control_after_boot">Restaurar Agent / control al iniciar (mejor esfuerzo)</string><string name="battery_optimization_settings">Ajustes de optimización de batería</string><string name="copy_pairing_token">Copiar token de emparejamiento</string><string name="pairing_token">Token de emparejamiento</string><string name="rotate_token_disconnect_clients">Renovar token / desconectar clientes</string><string name="old_token_revoked">Token anterior revocado; el Agent integrado se actualiza automáticamente</string><string name="copied_locally">%1$s copiado localmente</string>
+  <string name="setup_guide">Instala este mismo APK mediante ADB o descargándolo y abriéndolo en el teléfono. Introduce la dirección del servidor y el token de registro, y pulsa Guardar e iniciar Agent. No se requiere Termux ni una conexión ADB permanente.\nPara el control opcional del escritorio, activa la accesibilidad y el interruptor de control. El Agent integrado se empareja automáticamente. Los clientes locales externos pueden seguir usando el token de emparejamiento.\nActiva la recuperación al iniciar y ajusta la batería y el inicio automático si lo deseas. El cierre forzado y las restricciones del sistema aún pueden detener el servicio. Los comandos se ejecutan con el usuario normal de la aplicación, no como root ni ADB shell.\nDatos móviles: las observaciones de accesibilidad omiten capturas salvo que se soliciten. La conexión de Agent y las transferencias consumen datos. Las actualizaciones requieren instalar un APK firmado; no se descargan actualizaciones binarias en segundo plano.</string>
+  <string name="shizuku_activation_failed">Error al activar Shizuku</string><string name="shizuku_permission_denied">Permiso de Shizuku denegado</string><string name="shizuku_start_first">Inicia Shizuku localmente primero. El modo ADB debe reiniciarse después de reiniciar el dispositivo.</string><string name="shizuku_unavailable">Shizuku no está disponible</string><string name="shizuku_activating">Activando mediante Shizuku…</string><string name="shizuku_bind_failed">No se pudo conectar al servicio de activación de Shizuku</string><string name="activation_requested_async">Activación solicitada; la accesibilidad se conectará de forma asíncrona</string>
+  <string name="notification_channel">Servicio Agent</string><string name="notification_title">Servicio GOSSHD Agent en ejecución</string><string name="stop_control">Detener servicio</string>
+  <plurals name="notification_sessions"><item quantity="one">%1$d sesión local emparejada; puedes detenerla cuando quieras</item><item quantity="other">%1$d sesiones locales emparejadas; puedes detenerlas cuando quieras</item></plurals>
+  <string name="server_address">Dirección del servidor</string>
+  <string name="enrollment_token">Token de registro</string>
+  <string name="connection_help">Introduce la dirección HTTPS y el token de registro de la guía de instalación del servidor. El APK incluye Agent; no requiere Termux. Las credenciales se guardan solo en datos privados de la aplicación.</string>
+  <string name="save_start_agent">Guardar e iniciar Agent</string>
+  <string name="stop_agent">Detener Agent</string>
+  <string name="connection_saved">Conexión guardada; iniciando Agent</string>
+  <string name="connection_invalid">Introduce una dirección HTTPS válida y un token de registro (HTTP solo se permite en loopback para desarrollo)</string>
+  <string name="agent_configuration_error">No se pudo guardar o leer la configuración privada de Agent</string>
+  <string name="agent_stopped">Detenido</string>
+  <string name="agent_connecting">Conectando / reconectando</string>
+  <string name="agent_online">En línea</string>
+  <string name="agent_retrying">Proceso detenido; reintento con espera progresiva</string>
+  <string name="agent_missing_binary">No hay un binario Agent para este dispositivo; instala un APK compatible</string>
+  <string name="notification_agent_status">Agent: %1$s</string>
+</resources>

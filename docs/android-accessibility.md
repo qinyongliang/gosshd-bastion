@@ -1,100 +1,108 @@
-# Android dual-mode desktop control
+# Android Agent APK and optional desktop control
 
-The existing root/ADB shell backend remains supported. The optional companion APK adds a separate **non-root accessibility backend**. Neither mode changes Bastion identity, target authorization or desktop audit policies.
+## One package, two installation routes
 
-| | Root / ADB shell | Accessibility companion |
-| --- | --- | --- |
-| Runtime UID | root 0 or shell 2000 | ordinary application UID; Termux Agent can pair |
-| Android | API 24+ | API 30+ (Android 11+) for native accessibility screenshots |
-| Input | shell gestures, keys, printable ASCII | native node actions, gestures, Unicode editable text and set_value |
-| Setup | authorized root/shell Agent | local accessibility enablement plus explicit pairing |
-| ADB/Shizuku | optional shell runtime | fast activation only; not required for continuing accessibility operations |
+The recommended non-root installation is **gosshd-agent-android.apk** for Android 11 / API 30 or newer, ARM64 and ARMv7. It includes the Go Agent and the optional accessibility backend. Termux, root, Shizuku and a persistent ADB connection are **not** required to run the built-in Agent.
 
-## Installation routes by actual su state
+The foreground service starts the fixed Agent executable installed with the APK, supervises its process with bounded restart backoff, and owns the optional loopback desktop bridge. Commands run as the ordinary application UID inside Android's app sandbox, not as root or the ADB shell user. Installing this APK does not grant full-device filesystem or shell access.
 
-The modules in `scripts/android-desktop/` are a local wrapper around the updated, saved owner-scoped Agent installer. Prepare the verified companion APK and keep all scripts together:
+### Manual installation on the phone
 
-```sh
-sh scripts/android-desktop/install.sh ./saved-agent-installer.sh ./gosshd-desktop-companion.apk install
-```
+1. Obtain the APK, SHA256 file and public signing certificate from the project's tagged GitHub Release. The existing **Android Agent APK** workflow builds and signs these assets; a push to main or manual dispatch also produces a signed Actions artifact. Pull requests produce an explicitly debug-signed test APK.
+2. Check the APK checksum, transfer/download it to the phone, open it and confirm Android's package installer prompts locally.
+3. Open **GOSSHD Agent**. Enter the HTTPS server address and the **enrollment token** generated in that server's private-node / Agent installation guide. A server address alone cannot authorize registration to an account.
+4. Tap **Save and start Agent** and allow notifications. The service notification and screen display the Agent's connection status. Server credentials are kept in private app data, never passed in ADB arguments or Intent extras. Plain HTTP is accepted only for loopback development.
+5. Optionally enable **Restore Agent / control after boot** and adjust battery optimization / vendor auto-start settings.
 
-- Existing UID 0: executes `root.sh`, selecting the shell backend.
-- Ordinary UID: probes `su -c 'id -u'` with a five-second timeout. Only a successful result of `0` selects root and re-executes the known root installer module.
-- Missing su, denied permission, timeout or unavailable timeout utility: executes `accessibility.sh` as the ordinary Termux user. Merely finding a su executable is not treated as a grant.
-- `GOSSHD_ANDROID_INSTALL_MODE=accessibility` explicitly avoids elevation; `root` explicitly requires a successful grant; default is `auto`.
+The Bastion installation guide shows the APK download link, server address and a copy control for the enrollment token. It keeps the standalone Termux/root-shell commands under advanced installation options.
 
-The root module reuses the existing native root controller and optional existing root-framework boot hook. The non-root module launches the owner-mediated package installer, asks for a local pairing token if missing, and reuses the existing Termux/runit service. Android unknown-source prompts and permission grants remain local. ADB/Shizuku activation alone does not create a persistent Termux Agent.
+### ADB installation from Windows, Linux or macOS
 
-The ordinary Android installer stays SSH-only by default. These desktop wrappers explicitly pass `GOSSHD_DESKTOP_ENABLE=1` and backend configuration; the updated installer persists the selected `--desktop-enable`, `--android-backend` and private token-file path in its existing run script. No enrollment token or pairing token is printed in logs.
-
-## Three local activation choices
-
-1. **Manual:** open the companion and select **Enable accessibility manually**, then enable GOSSHD Desktop in Android settings.
-2. **ADB:** run the companion's copied grant command, then tap **Activate with ADB grant**. Alternatively run the supplied fixed script:
-
-   ```sh
-   adb shell pm grant com.gosshd.desktop android.permission.WRITE_SECURE_SETTINGS
-   adb push scripts/android-desktop/activate-adb.sh /data/local/tmp/gosshd-activate.sh
-   adb shell sh /data/local/tmp/gosshd-activate.sh
-   ```
-
-3. **Shizuku:** install/start official Shizuku locally, tap **Activate with Shizuku**, and approve its manager permission dialog. A short-lived UserService can only merge this app's accessibility component and enable accessibility. It has no general command-execution RPC. The grant and activation complete asynchronously; the UI shows the connection state and result.
-
-Both fast activation paths preserve other enabled accessibility services. None silently turns on the paired control bridge. The owner enables **paired local control** separately. Non-root Shizuku started by ADB must be restarted after a device reboot; accessibility can keep working once activated without a live Shizuku process. Restricted-settings/permission policies on vendor ROMs may require owner action rather than programmatic activation.
-
-## Pair the local Agent
-
-Enable **paired local control** in the APK, copy its random pairing token, and save it in a private token file inside Termux (mode 600). Do not put the token in command history, source code, logs or public documentation. Launch the Agent with:
+Download the same APK to the computer, enable USB debugging on the phone, connect it and approve the local debugging prompt. These commands work on all three hosts with Android Platform Tools installed:
 
 ```sh
-gosshd-agent --server https://bastion.example.com \
-  --enrollment-token '<registration-token>' --desktop-enable \
-  --android-backend accessibility \
-  --android-bridge-token-file "$HOME/.gosshd/desktop-pairing.token"
+adb devices
+adb install -r ./gosshd-agent-android.apk
+adb shell am start -n com.gosshd.desktop/.ui.MainActivity
 ```
 
-For a standalone MCP host use the same two Android backend flags with `--allow-read --allow-control`.
+Then enter the server address and enrollment token **in the app**, exactly as for manual installation. ADB can be disconnected. Do not put registration credentials into shell commands, URLs or copied terminal transcripts.
 
-`--android-backend shell` preserves the original backend. `auto` selects accessibility when a local pairing file is configured, otherwise shell; it does not silently obtain root or grant accessibility. Installation-time su routing and runtime backend selection are separate responsibilities.
+The Release also includes device-checking host helpers. Windows PowerShell 5.1+:
 
-The bridge listens only on `127.0.0.1:28765`, and accepts at most four local connections. Mutual HMAC-SHA256 challenge-response authenticates both endpoints without transmitting the raw pairing token. Bounds, snapshots, native nodes and screenshots remain per-session. Rotating the token or stopping control disconnects sessions. Remote MCP cannot change activation, the pairing token or local backend configuration.
+```powershell
+powershell -NoProfile -File ./install-gosshd-android-adb.ps1 -ApkPath ./gosshd-agent-android.apk
+```
 
-Screenshots cannot capture protected surfaces. Secure/password nodes are excluded, locked/off displays reject input, and controls must still advertise native actions. Unicode editing applies only to editable non-secure fields. Auxiliary keys include Back/Home/Recents and editable Ctrl+a, not arbitrary desktop keyboard chords. Coordinate gestures stay within the selected window; UI state must be re-observed after each operation. A command accepted by Android still requires observation of the result.
+Linux/macOS:
 
-## Background operation, not an immortality guarantee
+```sh
+sh ./install-gosshd-android-adb.sh --apk ./gosshd-agent-android.apk
+```
 
-- A visible `specialUse` foreground service with persistent notification owns the local bridge. Its **Stop control** action disables restart intent as well as stopping current sessions.
-- An opt-in **Restore control after boot** receiver requests recovery after boot. Opening the app can restart a previously enabled bridge; it never re-enables a locally disabled one.
-- A bounded partial wake lock is held only for authenticated sessions, renewed by activity, not as a permanent idle loop. It does not unlock or keep the screen on.
-- The battery-optimization settings button and vendor auto-start guidance are local owner actions. No root hooks or private process hacks are used for the no-root mode.
-- Force-stop, revoked accessibility, vendor task killing and Android background-start restrictions can stop recovery. The owner may need to reopen the app. APK foreground lifecycle does not replace Termux service/battery configuration for the separately installed Go Agent.
+Repository equivalents are scripts/android-desktop/install-adb.ps1 and scripts/android-desktop/install-adb.sh. With multiple devices, pass -Serial on Windows or --serial on Linux/macOS. The helpers reject unauthorized devices and Android versions below API 30, preserve app data with install -r, and never uninstall on an update failure. For optional accessibility activation, add -EnableAccessibility or --enable-accessibility; this grants the fixed activation permission, but the owner still taps **Activate with ADB grant** in the app. Agent-only installation does not change accessibility permissions or settings.
+
+A debug APK cannot replace a release APK signed with a different certificate. Use a matching signing identity for upgrades. Uninstalling clears the stored credentials, identity and pairing token.
+
+## Optional non-root desktop control
+
+The Agent can run without accessibility. To enable native node actions, gestures, screenshots and Unicode editing:
+
+1. Enable the app's accessibility service manually in Android Settings, or use one of the local ADB/Shizuku activation choices below.
+2. Turn on **Enable desktop control (optional)** in the app. The built-in Agent pairs automatically using a private local token file; no token copying or Termux step is needed.
+3. Use the existing Bastion target/account authorization and desktop session tools. Remote RPC cannot enable accessibility, change local credentials or turn on desktop control.
+
+Activation choices:
+
+- **Manual:** tap Enable accessibility manually and enable GOSSHD Agent in system settings. Some sideload/ROM restricted-settings policies require owner action in the app's system details page.
+- **ADB:** run the copied fixed grant command, then tap Activate with ADB grant. The implementation merges this component with other enabled services instead of replacing them. The optional host-helper flag performs the grant only.
+- **Shizuku:** install/start official Shizuku, tap Activate with Shizuku and approve its local manager dialog. Its short-lived UserService only enables this app's fixed accessibility component. ADB-started Shizuku must be restarted after reboot, but a live Shizuku process is not required for ongoing accessibility operations.
+
+The bridge binds only to 127.0.0.1:28765 and supports at most four authenticated local connections. Mutual HMAC-SHA256 challenge-response authenticates both endpoints without sending the raw pairing token. Rotating the token disconnects clients and updates the built-in Agent automatically. External local clients must re-pair.
+
+Screenshots cannot capture protected surfaces. Password/secure nodes are excluded, locked/off displays reject input, and native operations must be advertised by the observed node. Reobserve after every action or error. Neither Android backend supports strict background mode.
+
+## Background operation and mobile data
+
+- A visible specialUse foreground service owns the Agent subprocess and optional bridge. **Stop service** disables both runtime opt-ins; boot recovery does not override that stop.
+- The Agent and desktop-control switches are independent. Turning off desktop control does not stop the Agent connection. Stopping only the Agent can leave the explicitly enabled local bridge available to external clients.
+- Boot restoration is opt-in and best-effort. An APK replacement requests restoration only if the service was enabled. Force-stop, revoked accessibility, Doze/network suspension and vendor task killing can still require reopening the app. No root hooks or hidden persistence mechanism is used.
+- The wake lock is bounded and used for active paired desktop sessions, not a permanent idle loop. Failed native-process starts and lost Agent connections use bounded exponential backoff rather than a busy loop.
+- In accessibility mode, get_window_state omits screenshots unless include_screenshot: true is explicitly requested. Prefer include_text: true for routine semantic work. The explicit screenshot operation still captures an image, bounded to a 1600-pixel longest side, and can consume significant cellular data when relayed to the server.
+- The companion bridge itself is loopback-only. The built-in Agent's persistent server connection, requested commands, file transfers and forwards use network data. Idle keepalives are not a zero-data guarantee. There is no periodic screen upload or APK download loop.
+- **APK-managed Agents do not download or replace their own executable.** Install a newer APK signed with the maintained identity to update. This avoids redundant binary downloads on mobile networks and keeps the installed application and Agent version together.
+
+## Legacy shell and external companion usage
+
+The existing root/ADB-shell Android backend and standalone Android 7+ Agent binaries remain available. Termux/runit and root installation wrappers are advanced, separate routes, not prerequisites for this APK. See the main README and Android desktop MCP documentation.
+
+For an external Termux Agent, stop the built-in Agent if it is not needed, enable desktop control, and privately save the app's copied pairing token in a mode-600 file. Pass --desktop-enable --android-backend accessibility --android-bridge-token-file to that external Agent. The APK's process supervisor does not manage external Termux services, and its local token is not an enrollment token.
 
 ## Build and verification
 
-The APK is independent of the Go Agent. Build using SDK platform/build-tools 35 and a JDK:
+The SDK-only APK builder needs a JDK, Go from go.mod, Android SDK platform/build-tools 35 and NDK r27c+:
 
 ```powershell
-# Local test signing only; produces an explicitly debug APK.
-pwsh -File scripts/build-desktop-android-companion.ps1 -Debug
-# Production requires a stable user-supplied key; password is read from an environment variable.
-pwsh -File scripts/build-desktop-android-companion.ps1 -SigningKey '<private-keystore>' -SigningAlias companion
+./scripts/build-desktop-android-companion.ps1 -Debug
+# Optional x86_64 ABI for an explicitly owned emulator:
+./scripts/build-desktop-android-companion.ps1 -Debug -IncludeEmulator
+# Production signing, with the keystore password provided privately via environment:
+./scripts/build-desktop-android-companion.ps1 -SigningKey '<private-keystore>' -SigningAlias companion
 ```
 
-The builder pins official Shizuku API 13.1.5 AARs by SHA256. Generated keys, dependencies and APKs stay under ignored build/dist directories. A production keystore must never be committed. `-TestMCPBinary` is permitted only for a debug APK and embeds an x86_64 test executable for ordinary-UID emulator acceptance; release APKs do not embed this test executable. The fixture builder remains separate.
+The canonical outputs are dist/gosshd-agent-android.apk (or -debug.apk), its SHA256 and public certificate. The old gosshd-desktop-companion filenames are retained as identical compatibility aliases, with the same Android package ID and signing identity. The APK bundles ARM64/ARMv7 PIE executables under its installed native library directory; it does not extract executable code to writable app data. Optional debug emulator builds add x86_64. Standalone Android builds remain unchanged by default.
 
 ```sh
-go test ./internal/desktop/... -count=1
-python3 scripts/android-desktop/install.test.py
+go test ./cmd/gosshd-android-agent ./internal/agent ./internal/desktop/... -count=1
+node --test scripts/android-desktop/adb-install.test.mjs
 ```
 
-The opt-in `TestAndroidAccessibilityEmulatorFixture` verifies actual MCP through the debug companion's ordinary app UID. Set `GOSSHD_ANDROID_ACCESSIBILITY_TEST=1`, the explicit owned emulator serial/absolute ADB path and `GOSSHD_ANDROID_COMPANION_MCP` to that debug APK's extracted `/data/app/.../lib/x86_64/libdesktop_mcp.so`. Pair the debug app locally first and save its token privately to its `files/pair.token`; no test token is hard-coded. Physical-device serials are refused. The old `TestAndroidEmulatorFixture` still tests shell/root mode separately.
+Installer tests use fake ADB and never access a phone. Actual accessibility acceptance remains opt-in and restricted to an explicitly owned emulator fixture. Compilation and host tests do not certify process execution, boot recovery or vendor battery behavior on physical phones.
 
-Sources used for the implementation: official Android AccessibilityService APIs, Android foreground-service documentation, and RikkaApps Shizuku-API's official provider/UserService guidance. Root, shell and accessibility emulator checks do not certify every ARM phone or vendor ROM.
+## GitHub Actions and maintained release signing
 
-## Maintained release signing on GitHub
+The Android Agent APK workflow tests the ADB helpers on Windows, Linux and macOS, installs Go/JDK/SDK/NDK, bundles both ARM Agent binaries, and builds the APK. Main/manual runs require the maintained release secrets. Version-tag runs attach the APK, checksum, public certificate and both host helpers to the GitHub Release. Pull requests build without signing secrets and upload debug-only test artifacts.
 
-The public X.509 certificate and DER SHA256 fingerprint are versioned in `client/android-desktop/signing/`. The private PKCS12 keystore is **not** a repository file or CI artifact. Repository administrators maintain it using encrypted Actions Secrets `ANDROID_DESKTOP_KEYSTORE_B64` and `ANDROID_DESKTOP_KEYSTORE_PASSWORD`. The keystore alias is `companion`. Store an independent private backup before any credential rotation; replacing the key breaks normal installed-app updates.
+Public X.509 certificate and DER SHA256 fingerprint are versioned in client/android-desktop/signing/. Repository administrators maintain the private PKCS12 key using encrypted Actions Secrets ANDROID_DESKTOP_KEYSTORE_B64 and ANDROID_DESKTOP_KEYSTORE_PASSWORD, alias companion. Keep a separate private backup. Never regenerate the key during ordinary builds or promote a debug key to production. Missing release secrets fail the build instead of falling back to debug signing. The builder verifies the signer against the tracked public fingerprint and uses the workflow run number as versionCode. Temporary signing material is deleted and never uploaded.
 
-The `Android companion APK` workflow builds and signs on main-branch changes and manual dispatch, and attaches APK/checksum/public certificate to version-tag releases. Pull requests compile with debug signing and never receive the release secrets. Missing release secrets fail packaging instead of falling back to a debug signature. The build verifies that the APK signer matches the tracked certificate fingerprint, assigns a monotonically increasing workflow run number as versionCode, and deletes its temporary keystore in a finally block. Only the APK, its SHA256 file and public certificate are uploaded.
-
-A previously installed debug APK has a different certificate from the maintained release build; uninstall the debug test app before installing the first official build. Future builds signed with the maintained key support normal upgrades. Debug test keys are never promoted to production signing keys.
+Android permission and lifecycle references: official Android AccessibilityService, foreground-service and application manifest documentation; Shizuku activation follows the official Shizuku-API provider/UserService contract.

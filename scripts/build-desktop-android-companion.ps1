@@ -6,12 +6,20 @@ param(
   [string]$SigningAlias = 'companion',
   [ValidateRange(1,2100000000)][int]$VersionCode = 1,
   [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._+/-]{0,79}$')][string]$VersionName = 'dev',
-  [string]$TestMCPBinary
+  [string]$TestMCPBinary,
+  [string]$NDKPath = $env:ANDROID_NDK_HOME,
+  [switch]$IncludeEmulator
 )
 $ErrorActionPreference = 'Stop'
 if (-not $SDKPath) { $SDKPath = Join-Path $env:LOCALAPPDATA 'Android/Sdk' }
 if (-not $JavaHome) { throw 'Set JAVA_HOME to a JDK installation.' }
 $SDKPath = (Resolve-Path -LiteralPath $SDKPath).Path
+if (-not $NDKPath) { $NDKPath = $env:ANDROID_NDK_ROOT }
+if (-not $NDKPath) {
+  $installedNDK = Get-ChildItem -LiteralPath (Join-Path $SDKPath 'ndk') -Directory -ErrorAction SilentlyContinue | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+  if ($installedNDK) { $NDKPath = $installedNDK.FullName }
+}
+if (-not $NDKPath) { throw 'Install Android NDK r27c+ or pass -NDKPath.' }
 $tools = Join-Path $SDKPath 'build-tools/35.0.0'
 $androidJar = Join-Path $SDKPath 'platforms/android-35/android.jar'
 function Invoke-Checked([string]$Tool, [string[]]$ToolArgs) {
@@ -81,6 +89,17 @@ try {
   $classes = @(Get-ChildItem -LiteralPath (Join-Path $out 'classes') -Filter '*.class' -Recurse | ForEach-Object FullName)
   Invoke-Checked (Join-Path $tools 'd8.bat') (@('--min-api','30','--lib',$androidJar,'--output',(Join-Path $out 'dex'))+$classes+$jars)
   Invoke-Checked (Join-Path $JavaHome 'bin/jar.exe') @('uf',$unsigned,'-C',(Join-Path $out 'dex'),'classes.dex')
+  $agentVersion = $VersionName.Replace('/', '-')
+  $withEmulator = $IncludeEmulator -or [bool]$TestMCPBinary
+  & (Join-Path $PSScriptRoot 'build-agent-android.ps1') -Version $agentVersion -NDKPath $NDKPath -APK -IncludeEmulator:$withEmulator
+  $abis = @('arm64-v8a', 'armeabi-v7a')
+  if ($withEmulator) { $abis += 'x86_64' }
+  foreach ($abi in $abis) {
+    $jni = Join-Path $out "lib/$abi"
+    New-Item -ItemType Directory -Force -Path $jni | Out-Null
+    Copy-Item -LiteralPath "build/agent-apk/$agentVersion/$abi/libgosshd_agent.so" -Destination (Join-Path $jni 'libgosshd_agent.so')
+    Invoke-Checked (Join-Path $JavaHome 'bin/jar.exe') @('uf',$unsigned,'-C',$out,"lib/$abi/libgosshd_agent.so")
+  }
   if ($TestMCPBinary) {
     if (-not $Debug) { throw 'TestMCPBinary requires Debug' }
     $jni = Join-Path $out 'lib/x86_64'
@@ -126,5 +145,11 @@ try {
     [IO.File]::WriteAllText((Join-Path (Get-Location) ($distName+'.sha256')),$sha+'  '+[IO.Path]::GetFileName($distName)+[char]10,[Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath 'client/android-desktop/signing/release-certificate.pem' -Destination 'dist/gosshd-desktop-companion-certificate.pem'
   }
-  Write-Output "Built Android companion: $apk"
+  $agentDist = if ($Debug) { 'dist/gosshd-agent-android-debug.apk' } else { 'dist/gosshd-agent-android.apk' }
+  Copy-Item -LiteralPath $distName -Destination $agentDist
+  if (-not $Debug) {
+    [IO.File]::WriteAllText((Join-Path (Get-Location) ($agentDist+'.sha256')), (Get-Sha256 $agentDist)+'  '+[IO.Path]::GetFileName($agentDist)+[char]10,[Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath 'client/android-desktop/signing/release-certificate.pem' -Destination 'dist/gosshd-agent-android-certificate.pem'
+  }
+  Write-Output "Built self-contained Android Agent: $agentDist (legacy companion filename retained)"
 } finally { Pop-Location }

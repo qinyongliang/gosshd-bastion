@@ -161,7 +161,8 @@ func runAndroidEmulatorFixture(t *testing.T, auxiliary bool) {
 		var result *mcp.CallToolResult
 		for attempt := 0; attempt < 10; attempt++ {
 			var err error
-			result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_get_window_state", Arguments: map[string]any{"session_id": sid, "params": ToolParams{Params: desktop.Params{Window: ptrWindow(target()), IncludeText: true, MaxDepth: 16}, IncludeElementDetails: true}}})
+			includeScreenshot := true
+			result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "desktop_get_window_state", Arguments: map[string]any{"session_id": sid, "params": ToolParams{Params: desktop.Params{Window: ptrWindow(target()), IncludeText: true, IncludeScreenshot: &includeScreenshot, MaxDepth: 16}, IncludeElementDetails: true}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -235,6 +236,23 @@ func runAndroidEmulatorFixture(t *testing.T, auxiliary bool) {
 		p.Window = &state.Window
 		p.SnapshotID = state.SnapshotID
 		call("desktop_"+name, map[string]any{"session_id": sid, "params": p}, wantError)
+	}
+	if auxiliary {
+		light := call("desktop_get_window_state", map[string]any{"session_id": sid, "params": ToolParams{Params: desktop.Params{Window: ptrWindow(target()), IncludeText: true}, IncludeElementDetails: true}}, false)
+		var e envelope
+		decode(light, &e)
+		var state desktop.State
+		if err := json.Unmarshal(e.Result, &state); err != nil {
+			t.Fatal(err)
+		}
+		if state.Screenshot != nil {
+			t.Fatal("mobile-data default unexpectedly included a screenshot")
+		}
+		for _, content := range light.Content {
+			if _, ok := content.(*mcp.ImageContent); ok {
+				t.Fatal("mobile-data default returned image content")
+			}
+		}
 	}
 	state := observe("before")
 	t.Logf("observed native screen: %.0fx%.0f, image %dx%d, %d elements", state.Bounds.Width, state.Bounds.Height, state.Screenshot.Width, state.Screenshot.Height, len(state.Elements))

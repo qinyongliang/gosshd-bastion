@@ -226,3 +226,17 @@ func TestFailedUpdateKeepsAgentSessionOnline(t *testing.T) {
 		t.Fatal("agent did not stop after cancellation")
 	}
 }
+
+func TestAPKManagedAgentNeverDownloadsBinaryUpdates(t *testing.T) {
+	var downloads atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downloads.Add(1)
+		http.Error(w, "unexpected download", 500)
+	}))
+	defer server.Close()
+	client := &Client{cfg: Config{Version: "v1", DisableAutoUpdate: true}}
+	err := client.maybeUpdateAndRestart(context.Background(), protocol.StreamResponse{ServerVersion: "v2", AgentDownloadURL: server.URL, AgentDownloadSHA256: strings.Repeat("a", 64)})
+	if err != nil || downloads.Load() != 0 {
+		t.Fatalf("APK-managed Agent attempted a binary update: downloads=%d error=%v", downloads.Load(), err)
+	}
+}

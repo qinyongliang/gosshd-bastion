@@ -5,6 +5,7 @@ import android.content.ComponentName;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.IBinder;
+import com.gosshd.desktop.R;
 import java.util.function.Consumer;
 import rikka.shizuku.Shizuku;
 
@@ -20,10 +21,15 @@ public final class ShizukuActivation implements AutoCloseable {
           new Thread(
                   () -> {
                     try {
-                      String message = IActivation.Stub.asInterface(binder).activate();
-                      activity.runOnUiThread(() -> feedback.accept(message));
+                      String result = IActivation.Stub.asInterface(binder).activate();
+                      int message =
+                          result.startsWith("Activation requested")
+                              ? R.string.activation_requested_async
+                              : R.string.shizuku_activation_failed;
+                      activity.runOnUiThread(() -> feedback.accept(activity.getString(message)));
                     } catch (Exception e) {
-                      activity.runOnUiThread(() -> feedback.accept("Shizuku activation failed"));
+                      activity.runOnUiThread(
+                          () -> feedback.accept(activity.getString(R.string.shizuku_activation_failed)));
                     } finally {
                       try {
                         Shizuku.unbindUserService(args, connection, true);
@@ -48,7 +54,7 @@ public final class ShizukuActivation implements AutoCloseable {
         (code, result) -> {
           if (code == 42) {
             if (result == PackageManager.PERMISSION_GRANTED) bind();
-            else feedback.accept("Shizuku permission denied");
+            else feedback.accept(activity.getString(R.string.shizuku_permission_denied));
           }
         };
     args =
@@ -62,13 +68,13 @@ public final class ShizukuActivation implements AutoCloseable {
   public void request() {
     try {
       if (!Shizuku.pingBinder()) {
-        feedback.accept("Start Shizuku locally first. ADB mode must be restarted after reboot.");
+        feedback.accept(activity.getString(R.string.shizuku_start_first));
         return;
       }
       if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) bind();
       else Shizuku.requestPermission(42);
     } catch (Exception e) {
-      feedback.accept("Shizuku is unavailable");
+      feedback.accept(activity.getString(R.string.shizuku_unavailable));
     }
   }
 
@@ -76,9 +82,9 @@ public final class ShizukuActivation implements AutoCloseable {
     try {
       Shizuku.bindUserService(args, connection);
       bound = true;
-      feedback.accept("Activating through Shizuku...");
+      feedback.accept(activity.getString(R.string.shizuku_activating));
     } catch (Exception e) {
-      feedback.accept("Cannot bind Shizuku activation service");
+      feedback.accept(activity.getString(R.string.shizuku_bind_failed));
     }
   }
 

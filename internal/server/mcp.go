@@ -588,7 +588,7 @@ func (a *App) newMCPServer(actorCtx mcpActor) *mcp.Server {
 			if !strings.Contains(base, "://") {
 				base = "http://" + base
 			}
-			return nil, agentEnrollmentResponse(enrollment.ID, token, base), nil
+			return nil, a.agentEnrollmentResponse(enrollment.ID, token, base), nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "llm_config_create", Description: "Create an LLM provider config for an owner."},

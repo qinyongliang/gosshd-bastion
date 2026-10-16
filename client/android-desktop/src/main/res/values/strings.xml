@@ -1,1 +1,54 @@
-<resources><string name="app_name">GOSSHD Desktop</string><string name="accessibility_description">Locally enabled desktop control for your paired GOSSHD Agent. Reads visible windows and screenshots and performs your requested gestures or editable text actions. Enable control in the app and pair explicitly. Stop anytime from the notification.</string></resources>
+<resources>
+  <string name="app_name">GOSSHD Agent</string>
+  <string name="accessibility_description">Locally enabled desktop control for your paired GOSSHD Agent. Reads visible windows and screenshots and performs your requested gestures or editable text actions. Enable control in the app and pair explicitly. Stop anytime from the notification.</string>
+  <string name="status">Android Agent (no root)\nAgent: %4$s\nAccessibility: %1$s\nDesktop control: %2$s\nDesktop control is optional. ADB/Shizuku is only needed for optional activation.\n%3$s</string>
+  <string name="status_connected">connected</string>
+  <string name="status_disabled">disabled</string>
+  <string name="status_enabled">enabled</string>
+  <string name="status_stopped">stopped</string>
+  <string name="enable_accessibility_manually">Enable accessibility manually</string>
+  <string name="copy_adb_activation_grant">Copy ADB activation grant</string>
+  <string name="adb_command">ADB command</string>
+  <string name="activate_with_adb">Activate with ADB grant</string>
+  <string name="run_adb_grant_first">Run the copied ADB grant first</string>
+  <string name="activation_requested_preserved">Activation requested; other accessibility services preserved</string>
+  <string name="activation_rejected">Activation rejected by Android</string>
+  <string name="activate_with_shizuku">Activate with Shizuku</string>
+  <string name="enable_local_control">Enable desktop control (optional)</string>
+  <string name="restore_control_after_boot">Restore Agent / control after boot (best effort)</string>
+  <string name="battery_optimization_settings">Battery optimization settings</string>
+  <string name="copy_pairing_token">Copy pairing token</string>
+  <string name="pairing_token">Pairing token</string>
+  <string name="rotate_token_disconnect_clients">Rotate token / disconnect clients</string>
+  <string name="old_token_revoked">Old pairing token revoked; the built-in Agent is updated automatically</string>
+  <string name="copied_locally">%1$s copied locally</string>
+  <string name="setup_guide">Install this same APK using ADB or by downloading and opening it on the phone. Enter the server address and enrollment token, then tap Save and start Agent. No Termux or persistent ADB connection is required.\nFor optional desktop control, enable accessibility and the desktop-control switch. Pairing with the built-in Agent is automatic. External local clients can still use the pairing token.\nEnable boot recovery and adjust battery / vendor auto-start settings if desired. Force-stop and system restrictions can still stop the service. All commands run as the ordinary app user, not root or ADB shell.\nMobile data: ordinary accessibility observations omit screenshots; request them only when needed. The Agent connection and requested transfers use network data. Updates require installing a signed APK; no background binary update is downloaded.</string>
+  <string name="shizuku_activation_failed">Shizuku activation failed</string>
+  <string name="shizuku_permission_denied">Shizuku permission denied</string>
+  <string name="shizuku_start_first">Start Shizuku locally first. ADB mode must be restarted after reboot.</string>
+  <string name="shizuku_unavailable">Shizuku is unavailable</string>
+  <string name="shizuku_activating">Activating through Shizuku…</string>
+  <string name="shizuku_bind_failed">Cannot bind Shizuku activation service</string>
+  <string name="activation_requested_async">Activation requested; accessibility connects asynchronously</string>
+  <string name="notification_channel">Agent service</string>
+  <string name="notification_title">GOSSHD Agent service running</string>
+  <string name="stop_control">Stop service</string>
+  <plurals name="notification_sessions">
+    <item quantity="one">%1$d paired local session; stop anytime</item>
+    <item quantity="other">%1$d paired local sessions; stop anytime</item>
+  </plurals>
+  <string name="server_address">Server address</string>
+  <string name="enrollment_token">Enrollment token</string>
+  <string name="connection_help">Enter the HTTPS server address and the enrollment token from its Agent installation guide. The APK includes the Agent; Termux is not required. Credentials are stored only in private app data.</string>
+  <string name="save_start_agent">Save and start Agent</string>
+  <string name="stop_agent">Stop Agent</string>
+  <string name="connection_saved">Connection saved; starting Agent</string>
+  <string name="connection_invalid">Enter a valid HTTPS server address and enrollment token (HTTP is allowed only on loopback for development)</string>
+  <string name="agent_configuration_error">Cannot save or load the private Agent configuration</string>
+  <string name="agent_stopped">Stopped</string>
+  <string name="agent_connecting">Connecting / reconnecting</string>
+  <string name="agent_online">Online</string>
+  <string name="agent_retrying">Process stopped; retrying with backoff</string>
+  <string name="agent_missing_binary">Agent binary unavailable for this device; install a supported APK</string>
+  <string name="notification_agent_status">Agent: %1$s</string>
+</resources>

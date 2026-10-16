@@ -73,6 +73,9 @@ func finalizeLegacyUpdate() (bool, error) {
 }
 
 func (c *Client) maybeUpdateAndRestart(ctx context.Context, resp protocol.StreamResponse) error {
+	if c.cfg.DisableAutoUpdate {
+		return nil
+	}
 	serverVersion := strings.TrimSpace(resp.ServerVersion)
 	if serverVersion == "" || serverVersion == c.cfg.Version {
 		return nil

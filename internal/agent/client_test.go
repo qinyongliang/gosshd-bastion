@@ -235,3 +235,32 @@ func TestClientReconnectSendsStableInstanceID(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectionStateObserverTracksAcceptedSession(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		conn := relay.NewWSConn(ws)
+		defer conn.Close()
+		if _, err = protocol.ReadJSONLine[protocol.AgentHello](bufio.NewReader(conn)); err != nil {
+			return
+		}
+		_ = protocol.WriteJSONLine(conn, protocol.StreamResponse{OK: true})
+	}))
+	defer srv.Close()
+	var states []bool
+	client, err := New(Config{Server: srv.URL, IDFile: filepath.Join(t.TempDir(), "agent.json"), Root: t.TempDir(), OnConnectionState: func(online bool) { states = append(states, online) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = client.runOnce(ctx)
+	if len(states) != 2 || !states[0] || states[1] {
+		t.Fatalf("connection-state events=%v", states)
+	}
+}

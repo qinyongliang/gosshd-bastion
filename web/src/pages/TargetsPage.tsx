@@ -5,7 +5,8 @@ import { type CSSProperties, type FormEvent, useEffect, useRef, useState } from 
 import { useSearchParams } from "react-router-dom";
 
 import { api, type Enrollment } from "../api";
-import { ActionMenu, CommandBox, ConfirmDialog, CopyButton, Drawer, Empty, ErrorMessage, Field, Metric, Modal, ModalActions, Pagination, Panel, Select, SimpleTable, Tag, TagList, Toggle, Toolbar } from "../components/ui";
+import { ActionMenu, ConfirmDialog, CopyButton, Drawer, Empty, ErrorMessage, Field, Metric, Modal, ModalActions, Pagination, Panel, Select, SimpleTable, Tag, TagList, Toggle, Toolbar } from "../components/ui";
+import { AgentInstallGuide } from "../components/AgentInstallGuide";
 import { TemporarySSHAuthorizationsModal } from "../components/TemporarySSHAuthorizationsModal";
 import { useI18n } from "../i18n";
 import { appDescription } from "../lib/branding";
@@ -774,30 +775,7 @@ function TagColorEditor({ data, target }: { data: ConsoleData; target: Target })
 function InstallDrawer({ enrollment, onClose }: { enrollment: Enrollment; onClose: () => void }) {
   const { t } = useI18n();
   return <Drawer title={t("serviceInstallTitle")} subtitle={t("serviceInstallBody")} onClose={onClose}>
-    <div className="grid service-install-commands">
-      <section className="section-block embedded">
-        <h3>Linux / macOS</h3>
-        <CommandBox label={t("serviceRunOnce")} value={enrollment.install_sh || ""} />
-        <CommandBox label={t("serviceLinuxService")} value={enrollment.service_sh || ""} />
-      </section>
-      <section className="section-block embedded">
-        <h3>Android (ARMv7 / ARM64)</h3>
-        <p className="muted">{t("serviceAndroidSupport")}</p>
-        <CommandBox label={t("serviceRunOnce")} value={enrollment.install_android || enrollment.install_sh || ""} />
-        <CommandBox label={t("serviceAndroidService")} value={enrollment.service_android || ""} />
-        <p className="muted">{t("serviceAndroidBoot")}</p>
-      </section>
-      <section className="section-block embedded">
-        <h3>Windows</h3>
-        <p className="muted">{t("serviceWindowsSupport")}</p>
-        <CommandBox label={t("serviceWindowsCMDRunOnce")} value={enrollment.install_cmd || ""} />
-        <CommandBox label={t("serviceWindowsCMDService")} value={enrollment.service_cmd || ""} />
-        <CommandBox label={t("serviceWindowsRunOnce")} value={enrollment.install_ps1 || ""} />
-        <CommandBox label={t("serviceWindowsService")} value={enrollment.service_ps1 || ""} />
-        <CommandBox label={t("serviceWindowsPwshRunOnce")} value={enrollment.install_pwsh || ""} />
-        <CommandBox label={t("serviceWindowsPwshService")} value={enrollment.service_pwsh || ""} />
-      </section>
-    </div>
+    <AgentInstallGuide enrollment={enrollment} />
   </Drawer>;
 }
 

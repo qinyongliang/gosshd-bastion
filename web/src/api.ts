@@ -203,6 +203,8 @@ export const api = {
 };
 
 export type Enrollment = {
+  server_url?: string;
+  android_apk_url?: string;
   id: string;
   token?: string;
   install_sh?: string;

@@ -11,7 +11,11 @@ import (
 )
 
 type Config struct {
-	Desktop desktop.Config
+	// APK-managed Agents are updated by the package installer, not raw binary downloads.
+	DisableAutoUpdate bool
+	// OnConnectionState is an optional local lifecycle observer; no credentials are passed.
+	OnConnectionState func(bool)
+	Desktop           desktop.Config
 	// DesktopDisabled is an explicit opt-out and wins over platform/environment enables.
 	DesktopDisabled bool
 	Server          string

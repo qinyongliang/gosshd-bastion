@@ -132,6 +132,13 @@ powershell -ExecutionPolicy Bypass -File $env:TEMP\gosshd-agent-install.ps1 -Ins
 
 ### Android Agent（ARMv7 / ARM64）
 
+#### 推荐：无需 Root 的独立 APK（Android 11+）
+
+签名安装包 **gosshd-agent-android.apk** 已内置 Agent 和可选的无障碍桌面控制。同一个 APK 可下载到手机手动安装，也可从 Windows/Linux/macOS 通过 ADB 安装。打开应用，填写服务器安装引导中显示的 HTTPS 地址和注册令牌，再启动 Agent，无需 Termux 或持续的 ADB 连接。应用前台服务管理 Agent 进程，更新通过安装新版签名 APK 完成，不会后台重复下载 Agent 二进制。[手动安装、ADB、GitHub Actions 与系统限制](docs/android-accessibility.md)。
+
+下面的独立原生二进制仍供高级 Termux / Root Shell 场景使用。
+
+
 提供 **Android 7.0 / API 24 及以上** 的原生可执行文件：
 
 | Android ABI | 下载平台 | Release 文件 |

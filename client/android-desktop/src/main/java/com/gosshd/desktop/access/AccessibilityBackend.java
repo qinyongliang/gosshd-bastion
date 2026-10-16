@@ -274,7 +274,9 @@ public final class AccessibilityBackend implements AutoCloseable {
                 }
                 return value;
               });
-      if (!observe || p.optBoolean("include_screenshot", true))
+      // Accessibility is commonly paired with a phone Agent on metered mobile data.
+      // Keep observations lightweight unless the caller explicitly requests an image.
+      if (!observe || p.optBoolean("include_screenshot", false))
         result.put("image", ScreenCapture.capture(service(), observation.bounds));
       ui(
           () -> {

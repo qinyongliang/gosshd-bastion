@@ -20,6 +20,14 @@ public final class LocalState {
     prefs.edit().putBoolean("enabled", value).apply();
   }
 
+  public boolean agentEnabled() { return prefs.getBoolean("agent-enabled", false); }
+
+  public void agentEnabled(boolean value) { prefs.edit().putBoolean("agent-enabled", value).apply(); }
+
+  public boolean shouldRun() { return enabled() || agentEnabled(); }
+
+  public void stopAll() { prefs.edit().putBoolean("enabled", false).putBoolean("agent-enabled", false).commit(); }
+
   public boolean boot() {
     return prefs.getBoolean("boot", false);
   }

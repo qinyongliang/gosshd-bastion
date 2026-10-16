@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,8 @@ import (
 )
 
 type apiAgentEnrollmentResponse struct {
+	ServerURL      string `json:"server_url"`
+	AndroidAPKURL  string `json:"android_apk_url"`
 	ID             string `json:"id"`
 	Token          string `json:"token"`
 	InstallSH      string `json:"install_sh"`
@@ -69,7 +72,7 @@ func (a *App) handleCreateAgentEnrollment(w http.ResponseWriter, r *http.Request
 		return
 	}
 	base := publicBaseURL(r, a.cfg.publicHost())
-	writeJSON(w, http.StatusCreated, agentEnrollmentResponse(enrollment.ID, token, base))
+	writeJSON(w, http.StatusCreated, a.agentEnrollmentResponse(enrollment.ID, token, base))
 }
 
 func agentEnrollmentDefaults(host string, port int) (string, int) {
@@ -81,6 +84,13 @@ func agentEnrollmentDefaults(host string, port int) (string, int) {
 		port = defaultAgentTargetPort
 	}
 	return host, port
+}
+
+func (a *App) agentEnrollmentResponse(id, token, base string) apiAgentEnrollmentResponse {
+	response := agentEnrollmentResponse(id, token, base)
+	response.ServerURL = base
+	response.AndroidAPKURL = fmt.Sprintf("%s/%s/gosshd-agent-android.apk", strings.TrimRight(a.cfg.releaseBaseURL(), "/"), url.PathEscape(a.cfg.version()))
+	return response
 }
 
 func agentEnrollmentResponse(id, token, base string) apiAgentEnrollmentResponse {

@@ -1,4 +1,4 @@
-name: Android companion APK
+name: Android Agent APK
 
 on:
   push:
@@ -6,12 +6,24 @@ on:
     tags: ['v*']
     paths:
       - 'client/android-desktop/**'
+      - 'cmd/gosshd-android-agent/**'
+      - 'internal/**'
+      - 'scripts/android-desktop/**'
+      - 'scripts/build-agent-android.ps1'
       - 'scripts/build-desktop-android-companion.ps1'
+      - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/android-companion.yml'
   pull_request:
     paths:
       - 'client/android-desktop/**'
+      - 'cmd/gosshd-android-agent/**'
+      - 'internal/**'
+      - 'scripts/android-desktop/**'
+      - 'scripts/build-agent-android.ps1'
       - 'scripts/build-desktop-android-companion.ps1'
+      - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/android-companion.yml'
   workflow_dispatch:
 
@@ -19,25 +31,52 @@ permissions:
   contents: read
 
 jobs:
+  installers:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test ADB installers without accessing devices
+        run: node --test scripts/android-desktop/adb-install.test.mjs
+
   build:
+    needs: installers
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Check public repository content
         run: node scripts/check-public-content.mjs
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test private configuration and package-managed updates
+        run: go test ./cmd/gosshd-android-agent ./internal/agent -run 'TestLoadAPKConfig|TestAPKConfig|TestAPKManagedAgent' -count=1
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+      - name: Test app connection-address validation
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/android-config-tests | Out-Null
+          & "$env:JAVA_HOME/bin/javac.exe" -encoding UTF-8 -d build/android-config-tests client/android-desktop/src/main/java/com/gosshd/desktop/local/ServerAddress.java client/android-desktop/src/test/java/com/gosshd/desktop/local/ServerAddressTest.java
+          if ($LASTEXITCODE -ne 0) { throw "Java test compilation failed" }
+          & "$env:JAVA_HOME/bin/java.exe" -cp build/android-config-tests com.gosshd.desktop.local.ServerAddressTest
+          if ($LASTEXITCODE -ne 0) { throw "App URL validation failed" }
       - uses: android-actions/setup-android@v4
         with:
           packages: ''
           log-accepted-android-sdk-licenses: false
-      - name: Prepare SDK
+      - name: Prepare SDK and NDK
         shell: pwsh
         run: |
-          & sdkmanager.bat "platforms;android-35" "build-tools;35.0.0"
-          if ($LASTEXITCODE -ne 0) { throw "SDK preparation failed" }
+          & sdkmanager.bat "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+          if ($LASTEXITCODE -ne 0) { throw "SDK/NDK preparation failed" }
       - name: Compile pull requests without signing secrets
         if: github.event_name == 'pull_request'
         shell: pwsh
@@ -50,7 +89,7 @@ jobs:
           GOSSHD_APK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_DESKTOP_KEYSTORE_PASSWORD }}
         run: |
           $ErrorActionPreference = "Stop"
-          if (-not $env:ANDROID_DESKTOP_KEYSTORE_B64 -or -not $env:GOSSHD_APK_KEYSTORE_PASSWORD) { throw "Configure the Android signing Secrets before packaging; no debug-signing fallback is allowed." }
+          if (-not $env:ANDROID_DESKTOP_KEYSTORE_B64 -or -not $env:GOSSHD_APK_KEYSTORE_PASSWORD) { throw "Configure Android signing Secrets; no debug-signing fallback is allowed." }
           $key = Join-Path $env:RUNNER_TEMP "gosshd-android-signing.p12"
           try {
             [IO.File]::WriteAllBytes($key, [Convert]::FromBase64String($env:ANDROID_DESKTOP_KEYSTORE_B64))
@@ -60,12 +99,30 @@ jobs:
           } finally {
             if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Force }
           }
-      - name: Upload only APK, checksum and public certificate
+      - name: Package standalone host installers
+        shell: pwsh
+        run: |
+          Copy-Item scripts/android-desktop/install-adb.ps1 dist/install-gosshd-android-adb.ps1
+          Copy-Item scripts/android-desktop/install-adb.sh dist/install-gosshd-android-adb.sh
+      - name: Upload PR debug package
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-agent-debug
+          path: |
+            dist/gosshd-agent-android-debug.apk
+            dist/install-gosshd-android-adb.*
+          if-no-files-found: error
+      - name: Upload only signed packages, checksums, public certificates and installers
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: android-companion-signed
+          name: android-agent-signed
           path: |
+            dist/gosshd-agent-android.apk
+            dist/gosshd-agent-android.apk.sha256
+            dist/gosshd-agent-android-certificate.pem
+            dist/install-gosshd-android-adb.*
             dist/gosshd-desktop-companion.apk
             dist/gosshd-desktop-companion.apk.sha256
             dist/gosshd-desktop-companion-certificate.pem
@@ -80,11 +137,15 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: android-companion-signed
+          name: android-agent-signed
           path: dist
       - uses: softprops/action-gh-release@v2
         with:
           files: |
+            dist/gosshd-agent-android.apk
+            dist/gosshd-agent-android.apk.sha256
+            dist/gosshd-agent-android-certificate.pem
+            dist/install-gosshd-android-adb.*
             dist/gosshd-desktop-companion.apk
             dist/gosshd-desktop-companion.apk.sha256
             dist/gosshd-desktop-companion-certificate.pem

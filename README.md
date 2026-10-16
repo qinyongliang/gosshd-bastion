@@ -132,6 +132,13 @@ Once registered, a private node is just another SSH service: rename it, tag it, 
 
 ### Android Agent (ARMv7 / ARM64)
 
+#### Recommended non-root APK (Android 11+)
+
+The signed **gosshd-agent-android.apk** includes the Agent and optional accessibility control. Download and open it on the phone, or install the same APK with ADB from Windows/Linux/macOS. Open the app, enter the server HTTPS address and enrollment token shown by the server installation guide, then start the Agent. No Termux or persistent ADB connection is required. The app foreground service owns the Agent process; signed APK upgrades replace it without background binary downloads. [Manual / ADB installation, GitHub Actions and limitations](docs/android-accessibility.md).
+
+The native binaries below remain available for advanced Termux/root-shell use.
+
+
 Supports native Android executables for **Android 7.0 / API 24 and newer**:
 
 | Android ABI | Download platform | Release asset |

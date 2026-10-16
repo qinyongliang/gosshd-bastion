@@ -1,0 +1,27 @@
+<resources>
+  <string name="app_name">GOSSHD Agent</string>
+  <string name="accessibility_description">ペアリング済みの GOSSHD Agent 向けのローカルデスクトップ操作機能です。表示中のウィンドウやスクリーンショットを読み取り、要求されたジェスチャーや編集可能なテキスト操作を実行します。アプリで操作を有効にし、明示的にペアリングしてください。通知からいつでも停止できます。</string>
+  <string name="status">Android Agent（root 不要）\nAgent：%4$s\nユーザー補助：%1$s\nデスクトップ操作：%2$s\nデスクトップ操作は任意です。ADB/Shizuku は初回の有効化にのみ使用します。\n%3$s</string>
+  <string name="status_connected">接続済み</string><string name="status_disabled">無効</string><string name="status_enabled">有効</string><string name="status_stopped">停止</string>
+  <string name="enable_accessibility_manually">ユーザー補助を手動で有効にする</string><string name="copy_adb_activation_grant">ADB 有効化コマンドをコピー</string><string name="adb_command">ADB コマンド</string><string name="activate_with_adb">ADB 権限で有効化</string>
+  <string name="run_adb_grant_first">先にコピーした ADB コマンドを実行してください</string><string name="activation_requested_preserved">有効化を要求しました。他のユーザー補助サービスは保持されます</string><string name="activation_rejected">Android に有効化を拒否されました</string><string name="activate_with_shizuku">Shizuku で有効化</string>
+  <string name="enable_local_control">デスクトップ操作を有効化（任意）</string><string name="restore_control_after_boot">起動後に Agent / 操作を復元（可能な範囲）</string><string name="battery_optimization_settings">バッテリー最適化の設定</string><string name="copy_pairing_token">ペアリングトークンをコピー</string><string name="pairing_token">ペアリングトークン</string><string name="rotate_token_disconnect_clients">トークンを更新 / クライアントを切断</string><string name="old_token_revoked">古いペアリングトークンを無効にしました。内蔵 Agent は自動更新されます</string><string name="copied_locally">%1$s をローカルにコピーしました</string>
+  <string name="setup_guide">同じ APK を ADB でインストールするか、端末にダウンロードして開いてください。サーバーアドレスと登録トークンを入力し、保存して Agent を起動します。Termux や継続的な ADB 接続は不要です。\nデスクトップ操作は任意です。ユーザー補助と操作スイッチを有効にしてください。内蔵 Agent は自動的にペアリングされます。外部のローカルクライアントはペアリングトークンを利用できます。\n必要に応じて起動時復元、電池最適化、自動起動を設定してください。強制停止や OS の制限により停止する場合があります。コマンドは通常のアプリユーザー権限で実行し、root や ADB shell 権限はありません。\nモバイルデータ：通常のユーザー補助観測では画像を省略します。Agent の接続や要求した転送はデータを使用します。更新は署名付き APK のインストールで行い、バックグラウンドで実行ファイルを更新しません。</string>
+  <string name="shizuku_activation_failed">Shizuku の有効化に失敗しました</string><string name="shizuku_permission_denied">Shizuku の権限が拒否されました</string><string name="shizuku_start_first">先に Shizuku を起動してください。ADB モードは再起動後に再起動が必要です。</string><string name="shizuku_unavailable">Shizuku を利用できません</string><string name="shizuku_activating">Shizuku で有効化しています…</string><string name="shizuku_bind_failed">Shizuku 有効化サービスに接続できません</string><string name="activation_requested_async">有効化を要求しました。ユーザー補助は非同期で接続します</string>
+  <string name="notification_channel">Agent サービス</string><string name="notification_title">GOSSHD Agent サービス実行中</string><string name="stop_control">サービスを停止</string>
+  <plurals name="notification_sessions"><item quantity="other">ペアリング済みローカルセッション %1$d 件。いつでも停止できます</item></plurals>
+  <string name="server_address">サーバーアドレス</string>
+  <string name="enrollment_token">登録トークン</string>
+  <string name="connection_help">サーバーの Agent インストール案内で取得した HTTPS アドレスと登録トークンを入力してください。APK に Agent を内蔵しており、Termux は不要です。認証情報はアプリの非公開データにのみ保存します。</string>
+  <string name="save_start_agent">保存して Agent を起動</string>
+  <string name="stop_agent">Agent を停止</string>
+  <string name="connection_saved">接続設定を保存しました。Agent を起動します</string>
+  <string name="connection_invalid">有効な HTTPS アドレスと登録トークンを入力してください（開発用ループバックのみ HTTP 可）</string>
+  <string name="agent_configuration_error">Agent の非公開設定を保存または読み取れません</string>
+  <string name="agent_stopped">停止</string>
+  <string name="agent_connecting">接続中 / 再接続中</string>
+  <string name="agent_online">オンライン</string>
+  <string name="agent_retrying">プロセス停止。待機後に再試行します</string>
+  <string name="agent_missing_binary">この端末用の Agent がありません。対応する APK をインストールしてください</string>
+  <string name="notification_agent_status">Agent：%1$s</string>
+</resources>

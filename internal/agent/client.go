@@ -229,6 +229,10 @@ func (c *Client) runOnce(ctx context.Context) error {
 	}
 	defer session.Close()
 	log.Printf("agent online: %s", c.SSHAddress())
+	if c.cfg.OnConnectionState != nil {
+		c.cfg.OnConnectionState(true)
+		defer c.cfg.OnConnectionState(false)
+	}
 	return c.ServeSession(ctx, session)
 }
 
